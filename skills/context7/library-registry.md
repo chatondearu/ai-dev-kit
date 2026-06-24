@@ -2,16 +2,16 @@
 
 ## Purpose
 
-This file lists external libraries/frameworks that should use **ExternalScout** (via Context7) for live documentation instead of relying on potentially outdated training data.
+Lists external libraries/frameworks worth fetching **live documentation** for via the `context7` skill instead of relying on potentially outdated training data.
 
 ## When to Use This
 
-**ContextScout** checks this list when:
-1. User asks about a library/framework
-2. No internal context exists in `.opencode/context/development/frameworks/`
-3. Query matches a library name below
+Consult this list when:
+1. The user asks about a library/framework
+2. You are unsure the trained knowledge is current
+3. The query matches a library name below
 
-**Action**: Recommend **ExternalScout** subagent
+**Action**: fetch live docs with the `context7` skill (see `SKILL.md`).
 
 ---
 
@@ -183,7 +183,7 @@ This file lists external libraries/frameworks that should use **ExternalScout** 
 
 ## Detection Patterns
 
-ContextScout and ExternalScout should match queries containing:
+Match queries containing:
 - Library name (case-insensitive)
 - Common variations (e.g., "next.js" vs "nextjs")
 - Package names (e.g., "@tanstack/react-query")
@@ -267,7 +267,6 @@ To add a new library:
 1. Add entry under appropriate category
 2. Include: Name, aliases, docs link, Context7 command, common topics
 3. (Optional) Add query optimization patterns
-4. Update ExternalScout if needed (usually automatic)
 
 **Template**:
 ```markdown
@@ -280,9 +279,8 @@ To add a new library:
 
 ---
 
-## Usage by ExternalScout
+## How to use this file
 
-ExternalScout uses this file to:
 1. **Detect** which library the user is asking about
 2. **Load** query optimization patterns for that library
 3. **Build** optimized Context7 queries

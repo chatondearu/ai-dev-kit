@@ -99,8 +99,17 @@ skill/rule/agent/plugin needs no Nix edits.
 | `github-kanban-orchestrator` | Repo-agnostic GitHub Projects (v2) Kanban orchestration (milestones, issues, PRs, multi-agent). Auto-detects repo/project/field IDs via `gh` (`scripts/gh-board.sh`). |
 | `nix-develop-shell` | Wrap project commands in `nix develop -c`. |
 | `technical-docs-sync` | Keep `doc/` aligned with code and runtime config. |
+| `code-reviewer` | Structured code review for local changes or remote PRs. |
+| `context7` | Fetch up-to-date library docs via the Context7 API. |
+| `frontend-design` | Build distinctive, production-grade frontend UIs. |
+| `git-commit` | Conventional Commits with diff analysis and smart staging. |
+| `task-management` | CLI to track feature subtasks, dependencies and status. |
 
 Plus the `coolify-ops` Cursor local plugin.
+
+> `code-reviewer`, `context7`, `frontend-design`, `git-commit` and
+> `task-management` were imported from a prior opencode setup and kept as-is
+> (their original licenses are preserved in each `SKILL.md`).
 
 ## Requirements
 

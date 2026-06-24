@@ -1,0 +1,13 @@
+{
+  "name": "coolify-ops",
+  "version": "0.1.0",
+  "description": "Cursor plugin scaffold to operate Coolify deployments with API-first workflows.",
+  "author": "BarAJeuxOnline",
+  "license": "MIT",
+  "keywords": [
+    "coolify",
+    "deploy",
+    "devops",
+    "cursor"
+  ]
+}

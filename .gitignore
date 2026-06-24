@@ -1,0 +1,11 @@
+# Nix
+result
+result-*
+.direnv/
+
+# Editor / OS
+.DS_Store
+*.swp
+
+# install.sh backups (should never be committed)
+*.bak-*

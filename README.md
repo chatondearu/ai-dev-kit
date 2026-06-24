@@ -1,52 +1,75 @@
 # ai-dev-kit
 
-Shareable, version-controlled **AI / dev configuration** — Cursor skills, rules,
-agents and local plugins (with room for Claude, Codex and VSCode) — installable
-on any machine via a portable `install.sh` **or** declaratively with **Nix
-(nix-maid)**.
+Shareable, version-controlled **AI / dev configuration** — agent skills, rules,
+subagents and local plugins — installable on any machine and **reusable across
+agents** (Cursor, Claude Code, opencode…) via a portable `install.sh` **or**
+declaratively with **Nix (nix-maid)**.
 
-This repo is the **single source of truth**. Your `~/.cursor` (and other tools)
-link back to it, so edits are versioned and portable across setups.
+This repo is the **single source of truth**. Each agent's config dir links back
+to it, so edits are versioned and shared everywhere at once.
+
+## Why it works across agents
+
+Skills use the common **`SKILL.md`** format (YAML frontmatter `name` +
+`description`, markdown body). Every major agent discovers skills the same way —
+only the install directory differs:
+
+| Agent | Global skills dir |
+|-------|-------------------|
+| Cursor | `~/.cursor/skills/<name>/SKILL.md` |
+| Claude Code | `~/.claude/skills/<name>/SKILL.md` |
+| opencode | `~/.config/opencode/skills/` (also reads `~/.claude/skills`, `~/.agents/skills`) |
+| universal | `~/.agents/skills/<name>/SKILL.md` |
+
+So the **same** `skills/` tree is linked into each agent you use.
 
 ## Layout
 
 ```
 ai-dev-kit/
-├── cursor/                 # → linked into ~/.cursor
-│   ├── skills/             #   per-skill directories (SKILL.md + assets)
-│   ├── user-rules/         #   global user rules
-│   ├── agents/             #   custom subagents
-│   └── plugins/local/      #   local Cursor plugins
-├── claude/                 # Claude config (CLAUDE.md, etc.) — placeholder
-├── codex/                  # Codex config — placeholder
-├── vscode/                 # VSCode settings/snippets — placeholder
-├── nix/maid.nix            # nix-maid file declarations (auto-discovers cursor/*)
-├── flake.nix               # nix-maid package + NixOS module
-└── install.sh              # portable symlink installer (no Nix)
+├── skills/                 # CANONICAL, agent-agnostic skills (SKILL.md) → all agents
+│   ├── github-kanban-orchestrator/
+│   ├── nix-develop-shell/
+│   └── technical-docs-sync/
+├── rules/                  # global user rules            → Cursor (~/.cursor/user-rules)
+├── agents/                 # custom subagents             → Cursor (~/.cursor/agents)
+├── cursor/plugins/local/   # Cursor local plugins         → Cursor
+├── claude/ codex/ vscode/  # tool-specific placeholders
+├── nix/maid.nix            # nix-maid declarations (auto-discovers the trees)
+├── flake.nix               # nix-maid package + NixOS module (aiDevKit.tools)
+└── install.sh              # portable multi-agent symlink installer (no Nix)
 ```
 
-Only the **immediate children** of `cursor/{skills,user-rules,agents,plugins/local}`
-are linked, so assets installed by Cursor itself are never clobbered.
+Only the **immediate children** of each tree are linked, so assets a tool
+installs itself are never clobbered.
 
 ## Install — portable (any OS, no Nix)
 
 ```bash
 ./install.sh --dry-run     # preview
-./install.sh               # create symlinks into ~/.cursor (backs up conflicts)
+./install.sh               # link into every detected agent
 ./install.sh --force       # overwrite conflicts instead of backing up
 ./install.sh --uninstall   # remove only the symlinks we created
 ```
 
-Override the target with `--cursor-home DIR` or `CURSOR_HOME=…`.
+Tool selection (a tool is auto-enabled when its config dir exists; Cursor is
+always on; `agents` is opt-in):
+
+```bash
+./install.sh --claude --opencode      # force on
+./install.sh --no-claude              # force off
+./install.sh --agents                 # also link ~/.agents/skills (universal)
+./install.sh --cursor-home /path/.cursor
+```
 
 ## Install — Nix (NixOS, via nix-maid)
 
 Use **one** mechanism per machine (don't mix with `install.sh` on the same host).
 
-### As a NixOS module
+### NixOS module
 
 ```nix
-# flake.nix inputs
+# flake inputs
 inputs.ai-dev-kit.url = "github:chatondearu/ai-dev-kit";
 
 # configuration.nix
@@ -54,39 +77,40 @@ imports = [ inputs.ai-dev-kit.nixosModules.default ];
 aiDevKit = {
   enable = true;
   user = "chaton";
-  # where the repo is checked out (live-edit friendly; {{home}} allowed)
-  repoPath = "{{home}}/dev/chatondearu/ai-dev-kit";
+  tools = [ "cursor" "claude" "opencode" ];   # which agents get the skills
+  repoPath = "{{home}}/dev/chatondearu/ai-dev-kit";  # live-edit friendly
 };
 ```
 
 ### Standalone
 
 ```bash
-nix build .#default
-nix-env -if ./nix-maid-result && activate   # see nix-maid docs
+nix build .#default        # builds the nix-maid activation package
+# then follow nix-maid activation (nix-env -if … && activate)
 ```
 
-`nix/maid.nix` derives the linked entries from `cursor/` at eval time, so adding
-a skill/rule/agent/plugin needs no Nix edits.
+`nix/maid.nix` derives entries from the repo at eval time, so adding a
+skill/rule/agent/plugin needs no Nix edits.
 
 ## Included skills
 
 | Skill | Purpose |
 |-------|---------|
-| `github-kanban-orchestrator` | Repo-agnostic GitHub Projects (v2) Kanban orchestration (milestones, issues, PRs, multi-agent). Auto-detects repo/project/field IDs via `gh`. |
+| `github-kanban-orchestrator` | Repo-agnostic GitHub Projects (v2) Kanban orchestration (milestones, issues, PRs, multi-agent). Auto-detects repo/project/field IDs via `gh` (`scripts/gh-board.sh`). |
 | `nix-develop-shell` | Wrap project commands in `nix develop -c`. |
 | `technical-docs-sync` | Keep `doc/` aligned with code and runtime config. |
 
-Plus the `coolify-ops` local plugin.
+Plus the `coolify-ops` Cursor local plugin.
 
 ## Requirements
 
-- **Portable path**: `bash`, `coreutils`. The kanban skill also needs `gh` (with
-  `project` scope) and `jq`.
+- **Portable path**: `bash`, `coreutils`. The kanban skill also needs `gh`
+  (with `project` scope) and `jq`.
 - **Nix path**: flakes enabled; `nix-maid` is fetched as a flake input.
 
 ## Adding a new asset
 
-1. Drop it under `cursor/skills/<name>/`, `cursor/user-rules/`, `cursor/agents/`,
-   or `cursor/plugins/local/<name>/`.
-2. Re-run `./install.sh` (or rebuild on Nix). Done.
+1. Drop it under `skills/<name>/`, `rules/`, `agents/`, or
+   `cursor/plugins/local/<name>/`.
+2. Re-run `./install.sh` (or rebuild on Nix). Done — it propagates to every
+   enabled agent.

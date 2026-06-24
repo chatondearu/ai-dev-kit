@@ -32,21 +32,37 @@
           imports = [ nix-maid.nixosModules.default ];
 
           options.aiDevKit = {
-            enable = lib.mkEnableOption "ai-dev-kit Cursor assets (skills, rules, agents, plugins)";
+            enable = lib.mkEnableOption "ai-dev-kit agent assets (skills, rules, agents, plugins)";
             user = lib.mkOption {
               type = lib.types.str;
-              description = "User to install the Cursor assets for.";
+              description = "User to install the assets for.";
             };
             repoPath = lib.mkOption {
               type = lib.types.str;
               default = "{{home}}/dev/chatondearu/ai-dev-kit";
               description = "Path to the checked-out ai-dev-kit repo ({{home}} mustache allowed).";
             };
+            tools = lib.mkOption {
+              type = lib.types.listOf (lib.types.enum [ "cursor" "claude" "opencode" "agents" ]);
+              default = [ "cursor" ];
+              description = "Agents to feed the shared skills into.";
+            };
           };
 
           config = lib.mkIf cfg.enable {
             users.users.${cfg.user}.maid =
-              import ./nix/maid.nix { inherit (cfg) repoPath; };
+              let
+                dirFor = t: {
+                  cursor = ".cursor/skills";
+                  claude = ".claude/skills";
+                  opencode = ".config/opencode/skills";
+                  agents = ".agents/skills";
+                }.${t};
+              in
+              import ./nix/maid.nix {
+                inherit (cfg) repoPath;
+                skillDirs = map dirFor cfg.tools;
+              };
           };
         };
 

@@ -3,9 +3,11 @@ name: github-kanban-orchestrator
 description: >-
   Orchestrates any GitHub repository's backlog via milestones, issues, PRs, and a
   GitHub Projects (v2) Kanban board. Auto-detects the repo and project at runtime
-  (no hardcoded IDs). Use when planning work, creating or triaging issues, moving
-  cards across columns, coordinating one or several agents on tasks, or linking
-  branches and PRs to board items.
+  (no hardcoded IDs). Listens to board activity (comments, reviews, labels,
+  assignment, PR merge/close, Status column changes) and reacts. Use when planning
+  work, creating or triaging issues, moving cards across columns, watching issue/PR
+  events, coordinating one or several agents on tasks, or linking branches and PRs
+  to board items.
 ---
 
 # GitHub Kanban Orchestrator
@@ -119,6 +121,48 @@ If the board uses different option names, map intent to the closest existing opt
 2. Adjust Priority / Size fields on project items
 3. Move cards between Backlog ↔ Ready based on clarity
 4. Comment on issue with rationale (one short paragraph max)
+
+### E — Listen & react to board events
+
+The skill cannot run as a daemon. "Listening" = **polling the board activity feed**
+and reacting. The helper aggregates, per board item and since a cursor, a
+normalized event feed (comments, reviews, labels, assignment, PR merge/close, and
+Status column changes via snapshot diff).
+
+```bash
+# One-off catch-up since the last run (cursor stored under .tmp/kanban/):
+./scripts/gh-board.sh events
+
+# Explicit window (no cursor write), machine-readable:
+./scripts/gh-board.sh events --since 2026-06-01T00:00:00Z --json
+```
+
+Each event is `{ts, type, actor, number, title, url, detail}`. React per type:
+
+| Event type | Trigger | Skill reaction |
+|------------|---------|----------------|
+| `comment` | New issue/PR comment | Read it. If it's an instruction/mention → act, then reply. If `Claimed for implementation` → respect the claim, don't double-pick. |
+| `review_approved` | PR approved | Keep card in **In review**; it's ready to merge (hand off to `babysit`/`loop-on-ci`). |
+| `review_changes_requested` | Review requests changes | Move card → **In progress**; address feedback on the branch. |
+| `review_commented` / `review_dismissed` | Review note / dismissed | Note it; act only if it contains a blocking request. |
+| `pr_merged` | PR merged | Move linked issue card → **Done**; close the issue if not auto-closed. |
+| `closed` | Issue/PR closed (no merge) | If the issue was closed without a merged PR → confirm intent; otherwise reconcile the card to **Done**/**Backlog**. |
+| `labeled` / `unlabeled` | Label change | Map priority/size labels to the matching board field; if `blocked` added → annotate and keep out of **Ready**. |
+| `assigned` / `unassigned` | Assignment change | Record ownership; avoid claiming items assigned to someone else. |
+| `status_changed` | Card moved (manually or by another agent) | Reconcile: someone changed the column out-of-band — re-read state before acting. |
+
+After reacting, always re-sync the board and report (see Output format).
+
+#### Listen modes
+
+| Mode | How | When |
+|------|-----|------|
+| **On-demand** | `gh-board.sh events` once | At the start of an orchestration turn (catch up). |
+| **Loop (agent-native)** | `/loop 5m` running `gh-board.sh events` + reactions | Hands-on session where the agent reacts each cycle. |
+| **Background watch** | `gh-board.sh watch --interval 60` in a background terminal; read the terminal file for new lines | Passive monitoring inside one session. |
+| **Push (GitHub Actions)** | Drop the workflow template (see reference.md) into the repo | True event-driven automation across sessions. Needs a `project`-scoped token + runner. |
+
+Add `.tmp/` to the repo's `.gitignore` — the cursor and Status snapshot live in `.tmp/kanban/`.
 
 ## Issue body template
 

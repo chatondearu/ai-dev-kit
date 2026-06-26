@@ -126,6 +126,52 @@ gh issue close 12 --comment "Merged via PR #N"
 gh issue reopen 12
 ```
 
+## Listen to board events
+
+```bash
+# Catch up since the last run (cursor + Status snapshot stored in .tmp/kanban/):
+scripts/gh-board.sh events
+
+# Explicit window, machine-readable (no cursor write):
+scripts/gh-board.sh events --since 2026-06-01T00:00:00Z --json
+
+# Limit how many board items are scanned (default 100):
+scripts/gh-board.sh events --limit 50
+
+# Passive monitoring: poll every 60s (run in a background terminal):
+scripts/gh-board.sh watch --interval 60
+```
+
+Event object: `{ts, type, actor, number, title, url, detail}`.
+Types: `comment`, `review_approved`, `review_changes_requested`,
+`review_commented`, `review_dismissed`, `pr_merged`, `closed`, `labeled`,
+`unlabeled`, `assigned`, `unassigned`, `status_changed`.
+
+- Activity (comments/reviews/labels/assign/merge/close) comes from each board
+  item's **timeline** (`repos/{owner}/{repo}/issues/{n}/timeline`).
+- `status_changed` is derived from a **snapshot diff** of each item's Status
+  (Projects v2 exposes no field-history API). First run only seeds the snapshot.
+- The cursor advances to the run start time, so the next `events` only returns
+  newer activity. Use `--since` for one-off windows without touching the cursor.
+
+Reactions per type: see SKILL.md → "E — Listen & react to board events".
+
+## Push automation (GitHub Actions)
+
+For true event-driven automation across sessions, copy
+[`templates/kanban-events.yml`](templates/kanban-events.yml) into the target repo
+as `.github/workflows/kanban-events.yml`.
+
+Out of the box it reacts to `pull_request` (merged) by moving the linked issue's
+card to **Done**, and to `issue_comment` starting with `/board` by leaving an
+acknowledgement. The template is **self-contained**: it resolves the project,
+Status field and `Done` option at runtime via `gh` + GraphQL (same logic as
+`gh-board.sh`), so no helper file needs to be vendored into the repo.
+
+Requirement: a **`project`-scoped token** stored as the `GH_PROJECT_TOKEN`
+secret. The default `GITHUB_TOKEN` cannot write Projects (v2) on most
+accounts/orgs.
+
 ## Bulk bootstrap labels
 
 ```bash

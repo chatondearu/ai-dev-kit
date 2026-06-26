@@ -1,0 +1,95 @@
+# GitHub Kanban Orchestrator — event-driven board automation.
+#
+# Copy this file into the target repository as:
+#   .github/workflows/kanban-events.yml
+#
+# It reacts to board-relevant GitHub events without any local agent:
+#   - pull_request (merged)      -> move the linked issue + the PR card to "Done"
+#   - issue_comment "/board ..."  -> acknowledge so an agent can pick it up
+#
+# This workflow is self-contained: it resolves the linked Projects (v2) board,
+# the Status field and its "Done" option at runtime via `gh` + GraphQL, mirroring
+# scripts/gh-board.sh. No hardcoded IDs.
+#
+# Prerequisite: a PROJECT-scoped token stored as the GH_PROJECT_TOKEN secret.
+# The default GITHUB_TOKEN cannot write GitHub Projects (v2) on most accounts.
+name: Kanban events
+
+on:
+  pull_request:
+    types: [closed]
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  merge-to-done:
+    if: github.event_name == 'pull_request' && github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GH_PROJECT_TOKEN }}
+      OWNER: ${{ github.repository_owner }}
+      REPO: ${{ github.event.repository.name }}
+      PR: ${{ github.event.pull_request.number }}
+    steps:
+      - name: Move linked cards to Done
+        run: |
+          set -euo pipefail
+
+          PNUM="$(gh api graphql -f query='
+            query($o:String!,$n:String!){
+              repository(owner:$o,name:$n){ projectsV2(first:1){ nodes{ number } } }
+            }' -F o="$OWNER" -F n="$REPO" \
+            --jq '.data.repository.projectsV2.nodes[0].number')"
+          if [ -z "$PNUM" ] || [ "$PNUM" = "null" ]; then
+            echo "No Projects (v2) board linked to $OWNER/$REPO — nothing to do."
+            exit 0
+          fi
+
+          PID="$(gh project view "$PNUM" --owner "$OWNER" --format json --jq '.id')"
+          FIELDS="$(gh project field-list "$PNUM" --owner "$OWNER" --format json)"
+          SFID="$(printf '%s' "$FIELDS" | jq -r '.fields[] | select(.name=="Status") | .id')"
+          DONE="$(printf '%s' "$FIELDS" | jq -r '
+            .fields[] | select(.name=="Status") | .options[]
+            | select(.name|test("done";"i")) | .id' | head -1)"
+          if [ -z "$SFID" ] || [ -z "$DONE" ]; then
+            echo "No Status/Done option on the board — skipping."
+            exit 0
+          fi
+
+          # Issues this PR closes, plus the PR card itself.
+          ISSUES="$(gh api graphql -f query='
+            query($o:String!,$n:String!,$pr:Int!){
+              repository(owner:$o,name:$n){
+                pullRequest(number:$pr){
+                  closingIssuesReferences(first:20){ nodes{ number } }
+                }
+              }
+            }' -F o="$OWNER" -F n="$REPO" -F pr="$PR" \
+            --jq '.data.repository.pullRequest.closingIssuesReferences.nodes[].number')"
+
+          ITEMS="$(gh project item-list "$PNUM" --owner "$OWNER" --format json --limit 200)"
+          for NUM in $ISSUES "$PR"; do
+            IID="$(printf '%s' "$ITEMS" | jq -r --argjson k "$NUM" \
+              '.items[] | select(.content.number==$k) | .id')"
+            [ -n "$IID" ] || continue
+            gh project item-edit --project-id "$PID" --id "$IID" \
+              --field-id "$SFID" --single-select-option-id "$DONE"
+            echo "Moved #$NUM -> Done"
+          done
+
+  ack-board-comment:
+    if: github.event_name == 'issue_comment' && startsWith(github.event.comment.body, '/board')
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Acknowledge board command
+        run: |
+          gh issue comment "${{ github.event.issue.number }}" \
+            --repo "${{ github.repository }}" \
+            --body "Board command received. An orchestrator agent will pick this up."

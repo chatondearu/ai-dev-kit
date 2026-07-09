@@ -1,0 +1,27 @@
+---
+description: Consult project memory (foam ADRs, PRDs) before product or architecture changes
+globs: "**/*"
+alwaysApply: false
+---
+
+# Project memory protocol
+
+Before implementing features or changing architecture:
+
+1. Read `foam/index.md` (Map of Content).
+2. Search `foam/decisions/` for related ADRs.
+3. If a PRD exists under `prd/` for this work, follow it.
+4. If a plan exists under `plans/`, use it as the checklist.
+
+## Challenge the user when
+
+- The request **contradicts an accepted ADR** (status: accepted).
+- The change affects architecture without a PRD/plan for non-trivial scope.
+- A rejected alternative is documented in an ADR — cite it.
+
+## After shipping
+
+- New technical choice → add or update an ADR.
+- Feature complete → update PRD status and `foam/features/shipped.md` (or re-run `import-kanban.sh`).
+
+Skill: **foam-project-memory** (ai-dev-kit).

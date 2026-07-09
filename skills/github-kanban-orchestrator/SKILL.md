@@ -166,8 +166,10 @@ Add `.tmp/` to the repo's `.gitignore` — the cursor and Status snapshot live i
 
 ## Issue body template
 
+> Always in English (see Guardrails).
+
 ```markdown
-## Objectif
+## Goal
 [One sentence]
 
 ## Scope
@@ -243,7 +245,22 @@ Always sync board status when those skills change PR/issue state.
 - **Never** batch unrelated changes in one PR
 - **Never** hardcode another repo's project/field IDs — always re-resolve
 - Use Conventional Commits (`feat:`, `fix:`, `chore:`, `docs:`)
-- Match user language for communication; English for issue/PR bodies and code comments
+- **Always write issues and PRs in English** (titles AND bodies), as well as commit
+  messages and code comments. Match the user's language only in chat replies, never
+  in the artifacts created on GitHub. Translate existing non-English issues/PRs when
+  you touch them.
+
+## Integration with foam-project-memory
+
+| Kanban layer | Foam layer (`foam-project-memory`) |
+|--------------|-------------------------------------|
+| Issue scoped work | `prd/PRD-NNN-*.md` |
+| Epic / Done | `foam/features/shipped.md` (or `import-kanban.sh`) |
+| Implementation | `plans/PLAN-NNN-*.md` |
+| Architecture choice | `foam/decisions/ADR-NNN-*.md` |
+
+After merge: run `import-kanban.sh` or update foam; add ADR when a new technical
+decision was made.
 
 ## Output format
 

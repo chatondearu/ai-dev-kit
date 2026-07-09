@@ -1,0 +1,13 @@
+{
+  "foam.edit.linkReferenceDefinitions": "withExtensions",
+  "foam.files.newNoteDirectory": "foam",
+  "foam.links.autocomplete.syncWithFiles": true,
+  "[markdown]": {
+    "editor.wordWrap": "on",
+    "editor.quickSuggestions": {
+      "other": true,
+      "comments": false,
+      "strings": false
+    }
+  }
+}

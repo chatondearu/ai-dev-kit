@@ -46,7 +46,7 @@ gh issue create \
   --repo "$OWNER/$REPO" \
   --title "feat(scope): short description" \
   --body "$(cat <<'EOF'
-## Objectif
+## Goal
 …
 
 ## Scope

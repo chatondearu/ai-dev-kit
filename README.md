@@ -104,17 +104,29 @@ skill/rule/agent/plugin needs no Nix edits.
 | `frontend-design` | Build distinctive, production-grade frontend UIs. |
 | `git-commit` | Conventional Commits with diff analysis and smart staging. |
 | `task-management` | CLI to track feature subtasks, dependencies and status. |
+| `foam-project-memory` | Foam graph at repo-root `foam/`, ADRs, PRDs, plans, kanban import; agent decision memory. |
 
 Plus the `coolify-ops` Cursor local plugin.
 
 > `code-reviewer`, `context7`, `frontend-design`, `git-commit` and
 > `task-management` were imported from a prior opencode setup and kept as-is
 > (their original licenses are preserved in each `SKILL.md`).
+> `foam-project-memory` was added for cross-repo ADR/PRD/foam workflows.
+
+## Project memory + Kanban
+
+1. **Kanban** (`github-kanban-orchestrator`) — issues, board, PRs.
+2. **Foam memory** (`foam-project-memory`) — `foam/`, `prd/`, `plans/`, ADRs.
+
+```bash
+bash ~/.cursor/skills/foam-project-memory/scripts/init.sh          # scaffold (no git commit)
+bash ~/.cursor/skills/foam-project-memory/scripts/import-kanban.sh # sync issue lists
+```
 
 ## Requirements
 
-- **Portable path**: `bash`, `coreutils`. The kanban skill also needs `gh`
-  (with `project` scope) and `jq`.
+- **Portable path**: `bash`, `coreutils`. Kanban and foam-import skills need `gh`
+  and `jq` (`project` scope for board features).
 - **Nix path**: flakes enabled; `nix-maid` is fetched as a flake input.
 
 ## Adding a new asset

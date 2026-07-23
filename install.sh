@@ -2,11 +2,12 @@
 # install.sh — link this kit's assets into one or more AI agents (portable, no Nix).
 #
 # Skills use the shared SKILL.md format, so the SAME canonical skills/ tree is
-# linked into every detected agent. Only the install location differs per tool:
-#   Cursor    ~/.cursor/skills
-#   Claude    ~/.claude/skills
+# linked into every detected agent. Only the install location differs per tool.
+# Each tool's root honors its own env var first, then the conventional default:
+#   Cursor    ${CURSOR_HOME:-~/.cursor}/skills
+#   Claude    ${CLAUDE_CONFIG_DIR:-~/.claude}/skills
 #   opencode  ${XDG_CONFIG_HOME:-~/.config}/opencode/skills
-#   agents    ~/.agents/skills        (universal; opencode also reads this)
+#   agents    ${AGENTS_HOME:-~/.agents}/skills   (universal; opencode also reads this)
 #
 # Cursor-specific assets (user rules, subagents, local plugins) are linked into
 # ~/.cursor only.
@@ -27,8 +28,13 @@ set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DRY=0; FORCE=0; UNINSTALL=0
+# Per-tool install roots: honor each tool's own env var first, fall back to the
+# conventional default. XDG is only used where the tool natively reads it
+# (opencode); Claude/Cursor don't follow XDG, so we don't force it on them.
 CURSOR_HOME="${CURSOR_HOME:-$HOME/.cursor}"
 XDG="${XDG_CONFIG_HOME:-$HOME/.config}"
+CLAUDE_HOME="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+AGENTS_HOME="${AGENTS_HOME:-$HOME/.agents}"
 
 # tri-state per tool: "" = auto, 1 = on, 0 = off
 declare -A WANT=([cursor]="" [claude]="" [opencode]="" [agents]="")
@@ -76,9 +82,9 @@ apply_children() {
 skill_dir_for() {
   case "$1" in
     cursor) printf '%s/skills' "$CURSOR_HOME";;
-    claude) printf '%s/.claude/skills' "$HOME";;
+    claude) printf '%s/skills' "$CLAUDE_HOME";;
     opencode) printf '%s/opencode/skills' "$XDG";;
-    agents) printf '%s/.agents/skills' "$HOME";;
+    agents) printf '%s/skills' "$AGENTS_HOME";;
   esac
 }
 
@@ -90,7 +96,7 @@ is_enabled() {
   # auto
   case "$tool" in
     cursor) [ -d "$CURSOR_HOME" ] || [ ! -e "$CURSOR_HOME" ];;  # always
-    claude) [ -d "$HOME/.claude" ];;
+    claude) [ -d "$CLAUDE_HOME" ];;
     opencode) [ -d "$XDG/opencode" ];;
     agents) return 1;;  # opt-in only
   esac

@@ -23,6 +23,10 @@ only the install directory differs:
 
 So the **same** `skills/` tree is linked into each agent you use.
 
+Each tool's install root can be overridden via its native env var (the default
+is used otherwise): `CURSOR_HOME`, `CLAUDE_CONFIG_DIR`, `XDG_CONFIG_HOME`
+(opencode), `AGENTS_HOME`.
+
 ## Layout
 
 ```

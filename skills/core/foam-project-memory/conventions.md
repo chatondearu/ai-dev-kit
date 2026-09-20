@@ -59,5 +59,16 @@ Do **not** create an ADR for every closed issue — use `foam/features/shipped.m
 
 ## AGENTS.md
 
-After `init.sh`, merge `AGENTS.md.snippet` into the project `AGENTS.md` or
-equivalent agent guide. Point agents to `foam/index.md`.
+Use skill **`project-agents-setup`** to create or refresh the repo-root
+`AGENTS.md` (mandatory foam + kanban workflow, stack overlays). After
+`init.sh`, the managed block is written automatically when the skill is
+installed.
+
+Re-run when ai-dev-kit workflow changes:
+
+```bash
+bash ~/.cursor/skills/project-agents-setup/scripts/setup-agents.sh --type auto --force
+```
+
+Point agents to `foam/index.md`. Update § Project-specific notes when durable
+facts change.

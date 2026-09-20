@@ -4,8 +4,8 @@ Map of Content (MOC). Start here before product or architecture decisions.
 
 ## How to use
 
-1. **New feature** → `prd/template.md` → `prd/PRD-NNN-slug.md`, link ADRs.
-2. **Implementation** → `plans/template.md` → `plans/PLAN-NNN-slug.md`.
+1. **New feature** → `foam-prd` → `prd/PRD-NNN-slug.md`, link ADRs.
+2. **Implementation** → `foam-plan` → `plans/PLAN-NNN-slug.md`.
 3. **Technical choice** → `foam/decisions/ADR-NNN-slug.md`.
 4. **Sync kanban** → `import-kanban.sh` refreshes [[features/shipped|shipped]] / [[features/backlog|backlog]].
 

@@ -61,8 +61,10 @@ enables Foam when present. Plain Markdown works without the extension.
 
 | Skill | Output | Audience |
 | ----- | ------ | -------- |
-| `technical-docs-sync` | `doc/` user docs | Humans operators |
-| `foam-project-memory` | `foam/` + ADR/PRD | Agents + team decisions |
+| `technical-docs-sync` | `doc/` user docs | Human operators |
+| `foam-project-memory` | `foam/` graph, ADRs, import | Agents + team decisions |
+| `foam-prd` | `prd/PRD-*.md` | Product spec per issue |
+| `foam-plan` | `plans/PLAN-*.md` | Implementation checklist |
 
 Link between them when useful; do not merge into one tree.
 

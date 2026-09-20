@@ -62,18 +62,25 @@ install_path() {
 }
 
 merge_agents_snippet() {
+  local setup="$SKILL_DIR/../project-agents-setup/scripts/setup-agents.sh"
+  if [ -f "$setup" ]; then
+    local args=(--type auto)
+    [ "$DRY" = 1 ] && args+=(--dry-run)
+    [ "$FORCE" = 1 ] && args+=(--force)
+    log "# AGENTS.md via project-agents-setup"
+    bash "$setup" "${args[@]}" "$REPO_ROOT"
+    return
+  fi
+
   local snippet="$SCAFFOLD/AGENTS.md.snippet"
   local agents="$REPO_ROOT/AGENTS.md"
   local marker="## Project memory"
 
   if [ ! -f "$agents" ]; then
-    log "hint: no AGENTS.md — copy AGENTS.md.snippet section manually or create AGENTS.md"
+    log "hint: no AGENTS.md — run project-agents-setup or copy AGENTS.md.snippet"
     if [ "$DRY" = 1 ]; then
       log "DRY  would create AGENTS.md from snippet"
-    elif [ "$FORCE" = 1 ]; then
-      run "cp \"$snippet\" \"$agents\""
-      log "add  AGENTS.md (from snippet)"
-    else
+    elif [ "$FORCE" = 1 ] || [ ! -f "$agents" ]; then
       run "cp \"$snippet\" \"$agents\""
       log "add  AGENTS.md (from snippet)"
     fi

@@ -29,7 +29,13 @@ humans share the same memory:
 
 ## Bootstrap a repository
 
-From the target repo root:
+Prefer **`project-agents-setup`** for a full bootstrap (`AGENTS.md` + optional foam):
+
+```bash
+bash ~/.cursor/skills/project-agents-setup/scripts/setup-agents.sh --type auto --init-foam
+```
+
+Or foam scaffold only:
 
 ```bash
 # preview
@@ -45,25 +51,32 @@ bash "$(dirname "$0")/scripts/import-kanban.sh"
 `init.sh` copies templates only. It does **not** run `git commit` — you decide
 when to commit the scaffold.
 
-## Agent protocol (every product/architecture task)
+## Agent protocol (every product/architecture/design task)
 
-1. Read `foam/index.md` (Map of Content).
+1. Read `AGENTS.md` and `foam/index.md` (Map of Content).
 2. Search `foam/decisions/` for related ADRs (grep tags or keywords).
-3. If a PRD exists under `prd/` for this work, follow it.
-4. If a plan exists under `plans/`, use it as the implementation checklist.
-5. If the user requests something that **contradicts an accepted ADR**, cite the
+3. Search `prd/` and `plans/` for related specs.
+4. Search **GitHub** for overlapping work before deciding or coding:
+   ```bash
+   gh issue list --state all --search "keywords" --limit 20
+   gh pr list --state all --search "keywords" --limit 20
+   ```
+5. If an issue, PR, ADR, or PRD already covers the topic — read it and
+   **confront** the new proposal with recorded decisions. Cite sources.
+6. If the user requests something that **contradicts an accepted ADR**, cite the
    ADR and ask whether to supersede it (new ADR required).
+7. After shipping or deciding: update foam, Kanban, and `AGENTS.md` when needed.
 
 ## Workflows
 
 ### A — New feature
 
-1. Kanban: issue in **Ready** (`github-kanban-orchestrator`).
-2. Copy `prd/template.md` → `prd/PRD-NNN-slug.md`; link ADRs + foam notes.
-3. Copy `plans/template.md` → `plans/PLAN-NNN-slug.md`.
-4. Implement; PR with `Closes #NNN`.
-5. On merge: PRD → `shipped`; add row to `foam/features/shipped.md`; new
-   technical choice → new ADR.
+1. Kanban: issue on board (`github-kanban-orchestrator`).
+2. PRD: `foam-prd/scripts/new-prd.sh <issue#>` → `prd/PRD-NNN-slug.md`.
+3. Plan: `foam-plan/scripts/new-plan.sh <issue#>` → `plans/PLAN-NNN-slug.md`.
+4. Board: **Ready** when PRD `approved`; claim → implement (`github-kanban-orchestrator` B).
+5. PR with `Closes #NNN`.
+6. On merge: PRD → `shipped`; plan → `done`; `import-kanban.sh`; new ADR if needed.
 
 ### B — Architecture decision
 
@@ -91,10 +104,11 @@ into ADRs and PRDs (do not dump every issue as an ADR).
 
 | Kanban | Foam |
 | ------ | ---- |
-| Issue #N title/body | PRD source material |
-| Status Done | Row in `foam/features/shipped.md` |
-| Epic / backlog | `foam/features/backlog.md` + `prd/PRD-NNN-*.md` |
-| Claim + branch | `plans/PLAN-NNN-*.md` checklist |
+| Issue #N title/body | PRD source (`foam-prd`) |
+| Status Ready | PRD `approved` + plan exists (`foam-plan`) |
+| Status Done | PRD `shipped`, plan `done` |
+| Epic / backlog | `foam/features/backlog.md` + PRDs |
+| Claim + branch | Plan checklist drives tasks |
 
 ## Layout (repo root)
 

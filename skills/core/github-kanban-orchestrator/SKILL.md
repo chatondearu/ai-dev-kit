@@ -229,11 +229,20 @@ Then add `Status`, `Priority`, `Size` single-select fields in the GitHub UI (or 
 
 | Phase | Skill |
 |-------|-------|
+| Chat multi-task → epic + parallel workers | `foam-batch-orchestrator` |
 | Plan decomposition | `writing-plans` |
 | Execute plan tasks | `executing-plans`, `subagent-driven-development` |
 | Open / update PR | `new-branch-and-pr`, `review-and-ship` |
 | PR merge-ready | `babysit`, `loop-on-ci`, `fix-ci` |
 | Split large work | `split-to-prs` |
+
+### Batch from chat → foam-batch-orchestrator
+
+When the user gives several subjects in chat and wants foam-aware parallel
+delivery to open PRs, do **not** invent an ad-hoc multi-claim loop here. Hand
+off to **`foam-batch-orchestrator`** (intake → GO → epic issue + PRD → N Ready
+children → parallel claim/branch/PR). This skill still owns board IDs, claim
+protocol, and status transitions used by those workers.
 
 Always sync board status when those skills change PR/issue state.
 

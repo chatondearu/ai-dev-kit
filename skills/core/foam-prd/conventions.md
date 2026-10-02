@@ -22,6 +22,7 @@ each with their own PRD; link parent in PRD **Related project memory**.
 **Batch orchestrator exception** (`foam-batch-orchestrator`): one PRD on the
 **epic** issue only; children get plans (`plans/PLAN-<child#>-…`) that cite the
 epic PRD — not separate child PRDs.
+> Note: `foam-batch-orchestrator` is an alias for `dev-orchestrator`.
 
 ## When to skip a PRD
 

@@ -238,6 +238,8 @@ Then add `Status`, `Priority`, `Size` single-select fields in the GitHub UI (or 
 
 ### Batch from chat → foam-batch-orchestrator
 
+> Note: `foam-batch-orchestrator` is an alias for `dev-orchestrator`.
+
 When the user gives several subjects in chat and wants foam-aware parallel
 delivery to open PRs, do **not** invent an ad-hoc multi-claim loop here. Hand
 off to **`foam-batch-orchestrator`** (intake → GO → epic issue + PRD → N Ready

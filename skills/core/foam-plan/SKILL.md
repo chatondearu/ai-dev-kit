@@ -57,6 +57,8 @@ Issue (Backlog)
 
 ### Batch from chat (several subjects)
 
+> Note: `foam-batch-orchestrator` is an alias for `dev-orchestrator`.
+
 When the user lists multiple subjects to analyze and implement in one run, use
 **`foam-batch-orchestrator`** instead of repeating this pipeline manually:
 

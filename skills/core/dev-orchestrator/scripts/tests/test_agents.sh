@@ -14,6 +14,11 @@ cat >"$FAKE/claude" <<EOF
 echo "claude-ok \$*"; exit 0
 EOF
 chmod +x "$FAKE/claude"
+cat >"$FAKE/custom-stub" <<EOF
+#!$STUB_BASH
+echo "custom-stub-marker \$*"; exit 0
+EOF
+chmod +x "$FAKE/custom-stub"
 
 # PATH with stub claude first; drop dirs that expose real agent/cursor-agent CLIs
 orch_test_stub_path() {
@@ -41,6 +46,13 @@ PROMPT="$FAKE/prompt.txt"
 echo "hi" >"$PROMPT"
 out="$(PATH="$STUB_PATH" orch_agent_run "$FAKE" "$PROMPT" 2>&1 || true)"
 assert_contains "$out" "claude-ok" "invoke stub"
+
+PATH="$STUB_PATH" ORCH_AGENT= ORCH_AGENT_BIN=
+orch_detect_agent >/dev/null
+assert_eq "${ORCH_AGENT_BIN:-}" "claude" "BIN set before ORCH_AGENT override"
+export ORCH_AGENT="$FAKE/custom-stub"
+out_override="$(PATH="$STUB_PATH" orch_agent_run "$FAKE" "$PROMPT" 2>&1)"
+assert_contains "$out_override" "custom-stub-marker" "orch_agent_run honors ORCH_AGENT when BIN stale"
 
 # Override
 export ORCH_AGENT="$FAKE/claude --print"

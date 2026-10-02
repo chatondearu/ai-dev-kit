@@ -24,9 +24,14 @@ orch_detect_agent() {
 
 orch_agent_run() {
   local wt="$1" prompt_file="$2"
-  [ -n "${ORCH_AGENT_BIN:-}" ] || orch_detect_agent >/dev/null
+  if [ -n "${ORCH_AGENT:-}" ]; then
+    export ORCH_AGENT_BIN="$ORCH_AGENT"
+  elif [ -z "${ORCH_AGENT_BIN:-}" ]; then
+    orch_detect_agent >/dev/null
+  fi
   local bin=( $ORCH_AGENT_BIN )
-  local name="${bin[0]}"
+  local name
+  name=$(command -p basename "${bin[0]}")
   case "$name" in
     claude)
       # Non-interactive print mode; flags may need adjust per claude version

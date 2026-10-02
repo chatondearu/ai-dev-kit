@@ -5,13 +5,15 @@ You fix an existing PR until local verify and remote CI are green.
 ## Context
 - PR: {{PR}}
 - Worktree: {{WORKTREE}} (already checked out)
+- Head ref / upstream: {{HEAD_REF}}
+- Push hint: git push origin HEAD:{{HEAD_REF}} (push to PR head ref)
 - Do not merge. Do not change unrelated files.
 
 ## Loop
 Use `{{WORKTREE}}` as cwd for all commands (branch already checked out).
 1. Read `gh pr view {{PR}} --json title,body,statusCheckRollup`
 2. Reproduce failures (`gh pr checks`, local verify)
-3. Fix, commit (conventional), push to PR branch
+3. Fix, commit (conventional), push to PR head ref (`git push origin HEAD:{{HEAD_REF}}`)
 4. Re-run verify + checks
 5. Stop when green or BLOCKED (need human)
 

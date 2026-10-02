@@ -75,3 +75,25 @@ orch_pr_checks_watch() {
     sleep 5
   done
 }
+
+orch_pr_mergeable() {
+  local pr="$1"
+  local json m state
+  json="$(gh pr view "$pr" --json mergeable,state 2>/dev/null)" || return 1
+  if command -v jq >/dev/null 2>&1; then
+    m="$(jq -r '.mergeable // empty' <<<"$json")"
+    state="$(jq -r '.state // empty' <<<"$json")"
+  else
+    m="$(echo "$json" | sed -n 's/.*"mergeable"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+    state="$(echo "$json" | sed -n 's/.*"state"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+  fi
+  [ -z "$m" ] && m="UNKNOWN"
+  printf '%s\n' "$m"
+  if [ -n "$state" ] && [ "$state" != "OPEN" ]; then
+    return 1
+  fi
+  case "$m" in
+    MERGEABLE|UNKNOWN) return 0 ;;
+    *) return 1 ;;
+  esac
+}

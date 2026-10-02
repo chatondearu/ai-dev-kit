@@ -17,6 +17,9 @@ orch_sandbox_wrap() {
   for p in /usr /bin /lib /lib64 /nix /etc/ssl /etc/resolv.conf; do
     [ -e "$p" ] && args+=(--ro-bind "$p" "$p")
   done
+  if [ -n "${ORCH_PROMPTS_DIR:-}" ] && [ -d "$ORCH_PROMPTS_DIR" ]; then
+    args+=(--ro-bind "$ORCH_PROMPTS_DIR" "$ORCH_PROMPTS_DIR")
+  fi
   args+=(--dev /dev --proc /proc --tmpfs /tmp)
   bwrap "${args[@]}" "$@"
 }

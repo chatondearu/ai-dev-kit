@@ -71,4 +71,69 @@ assert_eq "$rc2" "1" "loop fails when max iter exhausted"
 assert_contains "$out2" "blocked" "logs blocked when exhausted"
 assert_contains "$out2" "orch loop iter 2/2" "reaches max iteration"
 
+# Test 3: Prompt substitution helper
+TMP_TPL="$(mktemp)"
+TMP_DEST="$(mktemp -u)"
+printf 'Issue: {{ISSUE}}, WT: {{WORKTREE}}, Unknown: {{UNKNOWN_KEY}}\n' >"$TMP_TPL"
+orch_render_prompt "$TMP_TPL" "$TMP_DEST" "ISSUE=99" "WORKTREE=/tmp/wt-99"
+dest_content="$(cat "$TMP_DEST")"
+rm -f "$TMP_TPL" "$TMP_DEST"
+assert_contains "$dest_content" "Issue: 99" "prompt helper substitutes known key"
+assert_contains "$dest_content" "WT: /tmp/wt-99" "prompt helper substitutes second key"
+assert_contains "$dest_content" "Unknown: N/A" "prompt helper converts unknown key to N/A"
+
+# Test 4: When verify is fallback 'true' and agent fails -> blocked (not silently passed)
+TMP_EMPTY="$(mktemp -d)"
+cat >"$FAKE/claude-fail" <<EOF
+#!$STUB_BASH
+exit 1
+EOF
+chmod +x "$FAKE/claude-fail"
+
+set +e
+out_fail="$(ORCH_AGENT="$FAKE/claude-fail" ORCH_MAX_ITER=2 orch_loop_worker "$TMP_EMPTY" "$PROMPT" 2>&1)"
+rc_fail=$?
+set -e
+rm -rf "$TMP_EMPTY"
+
+assert_eq "$rc_fail" "1" "loop fails when verify is true and agent fails"
+assert_contains "$out_fail" "blocked" "logs blocked when agent fails on true verify"
+assert_contains "$out_fail" "agent failed and verify is fallback true" "logs fallback true agent failure"
+
+# Test 5: When verify is fallback 'true' and agent succeeds (exit 0) -> loop succeeds
+TMP_EMPTY2="$(mktemp -d)"
+cat >"$FAKE/claude-pass" <<EOF
+#!$STUB_BASH
+exit 0
+EOF
+chmod +x "$FAKE/claude-pass"
+
+set +e
+out_pass="$(ORCH_AGENT="$FAKE/claude-pass" ORCH_MAX_ITER=2 orch_loop_worker "$TMP_EMPTY2" "$PROMPT" 2>&1)"
+rc_pass=$?
+set -e
+rm -rf "$TMP_EMPTY2"
+
+assert_eq "$rc_pass" "0" "loop succeeds when verify is true and agent exits 0"
+assert_contains "$out_pass" "verify ok" "logs verify ok on agent exit 0"
+
+# Test 6: When verify is fallback 'true', agent exits 1, but sentinel .orch/agent-ok exists -> succeeds
+TMP_EMPTY3="$(mktemp -d)"
+cat >"$FAKE/claude-sentinel" <<EOF
+#!$STUB_BASH
+mkdir -p .orch
+touch .orch/agent-ok
+exit 1
+EOF
+chmod +x "$FAKE/claude-sentinel"
+
+set +e
+out_sentinel="$(ORCH_AGENT="$FAKE/claude-sentinel" ORCH_MAX_ITER=2 orch_loop_worker "$TMP_EMPTY3" "$PROMPT" 2>&1)"
+rc_sentinel=$?
+set -e
+rm -rf "$TMP_EMPTY3"
+
+assert_eq "$rc_sentinel" "0" "loop succeeds when agent exits 1 but .orch/agent-ok sentinel exists"
+assert_contains "$out_sentinel" "verify ok" "logs verify ok when sentinel present"
+
 summary

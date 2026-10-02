@@ -61,4 +61,85 @@ else
 fi
 assert_eq "$out_gh_fail" "pending" "failed gh ends pending"
 
+# Tests for orch_pr_mergeable with stub gh
+# 1. MERGEABLE and OPEN -> rc=0, prints MERGEABLE
+cat >"$FAKE/gh" <<EOF
+#!$STUB_BASH
+echo '{"mergeable":"MERGEABLE","state":"OPEN"}'
+EOF
+set +e
+m_out="$(orch_pr_mergeable 10)"
+m_rc=$?
+set -e
+assert_eq "$m_rc" "0" "mergeable returns 0 for MERGEABLE"
+assert_eq "$m_out" "MERGEABLE" "mergeable prints MERGEABLE"
+
+# 2. UNKNOWN and OPEN -> rc=0, prints UNKNOWN
+cat >"$FAKE/gh" <<EOF
+#!$STUB_BASH
+echo '{"mergeable":"UNKNOWN","state":"OPEN"}'
+EOF
+set +e
+m_unk="$(orch_pr_mergeable 11)"
+m_unk_rc=$?
+set -e
+assert_eq "$m_unk_rc" "0" "mergeable returns 0 for UNKNOWN"
+assert_eq "$m_unk" "UNKNOWN" "mergeable prints UNKNOWN"
+
+# 3. CONFLICTING -> rc=1, prints CONFLICTING
+cat >"$FAKE/gh" <<EOF
+#!$STUB_BASH
+echo '{"mergeable":"CONFLICTING","state":"OPEN"}'
+EOF
+set +e
+m_conf="$(orch_pr_mergeable 12)"
+m_conf_rc=$?
+set -e
+assert_eq "$m_conf_rc" "1" "mergeable returns 1 for CONFLICTING"
+assert_eq "$m_conf" "CONFLICTING" "mergeable prints CONFLICTING"
+
+# 4. MERGEABLE but CLOSED -> rc=1
+cat >"$FAKE/gh" <<EOF
+#!$STUB_BASH
+echo '{"mergeable":"MERGEABLE","state":"CLOSED"}'
+EOF
+set +e
+m_closed="$(orch_pr_mergeable 13)"
+m_closed_rc=$?
+set -e
+assert_eq "$m_closed_rc" "1" "mergeable returns 1 for closed PR"
+
+# 5. gh command fails -> rc=1
+cat >"$FAKE/gh" <<EOF
+#!$STUB_BASH
+exit 1
+EOF
+set +e
+orch_pr_mergeable 14 >/dev/null 2>&1
+m_fail_rc=$?
+set -e
+assert_eq "$m_fail_rc" "1" "mergeable returns 1 on gh command failure"
+
+# Tests for AGENTS.md verification extraction in orch_resolve_verify
+TMP_AGENTS="$(mktemp -d)"
+echo "verify: nix develop -c npm test" >"$TMP_AGENTS/AGENTS.md"
+cmd_agents="$(orch_resolve_verify "$TMP_AGENTS")"
+assert_eq "$cmd_agents" "nix develop -c npm test" "resolve verify: from AGENTS.md"
+
+cat >"$TMP_AGENTS/AGENTS.md" <<'EOF'
+# Instructions
+```bash
+pnpm test
+```
+EOF
+cmd_fenced="$(orch_resolve_verify "$TMP_AGENTS")"
+assert_eq "$cmd_fenced" "pnpm test" "resolve fenced pnpm test from AGENTS.md"
+
+cat >"$TMP_AGENTS/AGENTS.md" <<'EOF'
+To test changes, run `npm test`.
+EOF
+cmd_inline="$(orch_resolve_verify "$TMP_AGENTS")"
+assert_eq "$cmd_inline" "npm test" "resolve inline npm test from AGENTS.md"
+rm -rf "$TMP_AGENTS"
+
 summary

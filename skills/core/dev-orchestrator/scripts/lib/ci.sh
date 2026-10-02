@@ -4,11 +4,19 @@
 
 _orch_pr_checks_classify() {
   local json="$1"
-  if [ -z "$json" ] || [ "$json" = "[]" ]; then
+  if [ -z "$json" ]; then
+    printf 'pending\n'
+    return 0
+  fi
+  if [ "$json" = "[]" ]; then
     printf 'green\n'
     return 0
   fi
   if command -v jq >/dev/null 2>&1; then
+    if ! jq -e 'type == "array"' <<<"$json" >/dev/null 2>&1; then
+      printf 'pending\n'
+      return 0
+    fi
     jq -r '
       if length == 0 then "green"
       elif any(.bucket == "fail" or .state == "FAILURE") then "fail"
@@ -43,10 +51,15 @@ orch_pr_checks_watch() {
   local pr="$1"
   local timeout="${2:-600}"
   local start=$SECONDS
-  local json status
+  local json status gh_rc
   while true; do
-    json="$(gh pr checks "$pr" --json name,state,bucket 2>/dev/null || true)"
-    status="$(_orch_pr_checks_classify "$json")"
+    gh_rc=0
+    json="$(gh pr checks "$pr" --json name,state,bucket 2>/dev/null)" || gh_rc=$?
+    if [ "$gh_rc" -ne 0 ] || [ -z "$json" ]; then
+      status="pending"
+    else
+      status="$(_orch_pr_checks_classify "$json")"
+    fi
     if [ "$status" = "green" ]; then
       printf 'green\n'
       return 0

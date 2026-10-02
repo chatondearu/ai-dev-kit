@@ -36,4 +36,29 @@ chmod +x "$FAKE/gh"
 out_empty="$(orch_pr_checks_watch 99 5)"
 assert_eq "$out_empty" "green" "empty checks green"
 
+# gh fails with empty stdout → not green; exit nonzero after timeout
+cat >"$FAKE/gh" <<EOF
+#!$STUB_BASH
+exit 1
+EOF
+chmod +x "$FAKE/gh"
+PATH="$FAKE:$_ORIG_PATH"
+set +e
+out_gh_fail="$(orch_pr_checks_watch 1 0)"
+rc_gh_fail=$?
+set -e
+if [ "$out_gh_fail" = "green" ]; then
+  FAILS=$((FAILS + 1))
+  printf 'FAIL failed gh must not be green\n  got: green\n' >&2
+else
+  PASSES=$((PASSES + 1))
+fi
+if [ "$rc_gh_fail" -eq 0 ]; then
+  FAILS=$((FAILS + 1))
+  printf 'FAIL failed gh watch must exit nonzero\n' >&2
+else
+  PASSES=$((PASSES + 1))
+fi
+assert_eq "$out_gh_fail" "pending" "failed gh ends pending"
+
 summary

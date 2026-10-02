@@ -57,7 +57,7 @@ Resolve context (repo, foam, board, agent CLI)
   → Ensure artifacts (mode-dependent; GO gate for intake)
   → Ownership check (non-overlapping paths when parallel)
   → Provision worktrees under .orch/worktrees/
-  → Dispatch workers (cap ORCH_MAX_PARALLEL=3, queue overflow)
+  → Dispatch workers (job pool, cap ORCH_MAX_PARALLEL=3, queue overflow)
   → Per worker: implement → local verify → systematic review → open/update PR
   → CI loop (gh pr checks) until green or BLOCKED
   → Aggregate ledger → human report (mergeable PRs; do not merge)

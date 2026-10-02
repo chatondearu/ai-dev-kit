@@ -28,7 +28,7 @@ supports chat multi-task intake, and only *prefers* worktrees without tooling.
 - Full per-worktree runtime isolation (DB/Docker) — document warnings only.
 - ADK-style eval harness, UI dashboard, Windows sandbox.
 - Replacing Cursor plugins (Bugbot, security review, loop-on-ci) — compose them.
-- Archiving `task-management` in the same change set (follow-up).
+- Archiving `task-management` — done (see repo-root `archive/`).
 
 ## Decisions (locked)
 

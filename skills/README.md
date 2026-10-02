@@ -10,7 +10,9 @@ same name under Claude / opencode).
 | **dev** | `dev/` | Nix shell, direnv |
 | **quality** | `quality/` | Review, commits, docs |
 | **design** | `design/` | Frontend UI |
-| **tools** | `tools/` | Context7, task CLI |
+| **tools** | `tools/` | Context7 |
+
+Archived skills live under repo-root [`archive/`](../archive/) (not linked by `install.sh`).
 
 Add a new skill under the best-fitting category. Re-run `./install.sh` after
 adding a `SKILL.md` — no installer edits required.

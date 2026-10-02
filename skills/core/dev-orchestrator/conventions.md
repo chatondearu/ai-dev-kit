@@ -124,10 +124,11 @@ Add `.orch/` to `.gitignore` in target repos so worktrees and ledger artifacts s
 ## Parallelism
 
 - Default concurrent cap: **3** (`ORCH_MAX_PARALLEL`).
-- When `ORCH_MAX_PARALLEL` **> 1**, **git worktrees are required** (one worktree per active worker).
+- When `ORCH_MAX_PARALLEL` **> 1**, `orch.sh` runs a **job pool** (up to N
+  concurrent workers, overflow queued) and **git worktrees are required**.
 - If the breakdown marks hard deps (B needs A), still create both issues; either
   sequence those two workers or mark the dependent **blocked** until A's PR exists.
-- With `ORCH_MAX_PARALLEL=1`, a single clone with one branch is acceptable.
+- With `ORCH_MAX_PARALLEL=1`, workers run strictly sequentially.
 
 ## Claim protocol
 

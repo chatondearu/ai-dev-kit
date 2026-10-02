@@ -34,7 +34,7 @@ ai-dev-kit/
 │   ├── dev/                     # nix-develop-shell, nix-direnv-setup
 │   ├── quality/                 # git-commit, code-reviewer, technical-docs-sync
 │   ├── design/                  # frontend-design
-│   └── tools/                   # context7, task-management
+│   └── tools/                   # context7
 ├── rules/                       # Global user rules → Cursor + Claude (assembled)
 ├── scripts/assemble-claude-md.sh
 ├── claude/                      # CLAUDE.header.md + generated CLAUDE.md
@@ -84,7 +84,8 @@ Run `./scripts/assemble-claude-md.sh` before Nix eval if you changed `rules/`.
 | `technical-docs-sync` | quality | Keep `doc/` aligned with code |
 | `frontend-design` | design | Production-grade UI |
 | `context7` | tools | Library docs via Context7 |
-| `task-management` | tools | Feature subtask CLI |
+
+Archived (not installed): see [`archive/`](archive/) — formerly `task-management`.
 
 ## Default project workflow (foam + kanban)
 

@@ -195,6 +195,67 @@ assert_contains "$out_multi" "done: issue 6" "done printed for issue 6"
 orch_worktree_remove "$TMP" "$(orch_worktree_path "$TMP" 5 issue-5)" 2>/dev/null || true
 orch_worktree_remove "$TMP" "$(orch_worktree_path "$TMP" 6 issue-6)" 2>/dev/null || true
 
+echo "# orch ready-pickup parallel pool (issues 9, 10 with MAX_P=2 overlap)"
+# Slow stub so both workers are in-flight together under the cap
+cat >"$STUB_BIN/slow-agent" <<'EOF'
+#!/usr/bin/env bash
+marker_dir="${ORCH_PARALLEL_MARKERS:-/tmp/orch-parallel-markers}"
+mkdir -p "$marker_dir"
+# Prefer issue id from worker prompt path in cwd; fallback to pid
+id="${ORCH_WT##*/}"
+[ -n "$id" ] || id="$$"
+date +%s%N >"$marker_dir/start.$id"
+sleep 1
+date +%s%N >"$marker_dir/end.$id"
+exit 0
+EOF
+chmod +x "$STUB_BIN/slow-agent"
+MARKERS="$(mktemp -d)"
+set +e
+out_par="$(ORCH_PARALLEL_MARKERS="$MARKERS" GH_STUB_PR_NUM=109 GH_STUB_MERGEABLE=MERGEABLE GH_STUB_STATE=OPEN \
+  bash "$SCRIPTS/orch.sh" --repo "$TMP" --mode ready-pickup --issue 9 --issue 10 --max-parallel 2 --agent "$STUB_BIN/slow-agent" 2>&1)"
+rc_par=$?
+set -e
+assert_eq "$rc_par" "0" "parallel pool exits 0 when both workers done"
+assert_contains "$out_par" "ORCH_MAX_PARALLEL=2" "logs parallel dispatch"
+assert_contains "$out_par" "done: issue 9" "done printed for issue 9"
+assert_contains "$out_par" "done: issue 10" "done printed for issue 10"
+shopt -s nullglob
+starts=("$MARKERS"/start.*)
+ends=("$MARKERS"/end.*)
+shopt -u nullglob
+if [ "${#starts[@]}" -ge 2 ] && [ "${#ends[@]}" -ge 2 ]; then
+  # Overlap: earliest end must be after latest start
+  latest_start=0
+  earliest_end=
+  for f in "${starts[@]}"; do
+    t=$(cat "$f")
+    [ "$t" -gt "$latest_start" ] && latest_start=$t
+  done
+  for f in "${ends[@]}"; do
+    t=$(cat "$f")
+    if [ -z "$earliest_end" ] || [ "$t" -lt "$earliest_end" ]; then
+      earliest_end=$t
+    fi
+  done
+  if [ -n "$earliest_end" ] && [ "$earliest_end" -gt "$latest_start" ]; then
+    PASSES=$((PASSES + 1))
+  else
+    FAILS=$((FAILS + 1))
+    printf 'FAIL expected overlapping parallel workers (latest_start=%s earliest_end=%s starts=%s ends=%s)\n' \
+      "$latest_start" "${earliest_end:-none}" "${#starts[@]}" "${#ends[@]}" >&2
+    ls -la "$MARKERS" >&2 || true
+  fi
+else
+  FAILS=$((FAILS + 1))
+  printf 'FAIL expected 2 start/end marker pairs (got starts=%s ends=%s)\nout:\n%s\n' \
+    "${#starts[@]}" "${#ends[@]}" "$out_par" >&2
+  ls -la "$MARKERS" >&2 || true
+fi
+rm -rf "$MARKERS"
+orch_worktree_remove "$TMP" "$(orch_worktree_path "$TMP" 9 issue-9)" 2>/dev/null || true
+orch_worktree_remove "$TMP" "$(orch_worktree_path "$TMP" 10 issue-10)" 2>/dev/null || true
+
 echo "# orch ready-pickup (issue 7 blocked, issue 8 done -> overall exit nonzero)"
 set +e
 out_partial="$(GH_STUB_MERGEABLE=MERGEABLE GH_STUB_STATE=OPEN \

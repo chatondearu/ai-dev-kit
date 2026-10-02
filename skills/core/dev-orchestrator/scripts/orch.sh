@@ -73,11 +73,8 @@ case "$MODE" in
   ready-pickup)
     [ "${#ISSUES[@]}" -gt 0 ] || { echo "need --issue"; exit 2; }
     idx=0
+    any_blocked=0
     for id in "${ISSUES[@]}"; do
-      if [ "$idx" -ge "$MAX_P" ]; then
-        echo "cap ORCH_MAX_PARALLEL=$MAX_P reached" >&2
-        break
-      fi
       slug="issue-$id"
       branch="feat/${id}-${slug}"
       path="$(orch_worktree_path "$REPO" "$id" "$slug")"
@@ -86,6 +83,7 @@ case "$MODE" in
       if [ "$DRY" = 0 ]; then
         if ! orch_worktree_add "$REPO" "$id" "$slug" "$branch" HEAD; then
           printf 'blocked: failed to create worktree for issue %s\n' "$id" >&2
+          any_blocked=1
           if [ "$FAIL_FAST" = 1 ]; then
             exit 1
           fi
@@ -124,6 +122,7 @@ case "$MODE" in
         orch_sandbox_wrap bash -c "ORCH_WT=\"$path\" orch_loop_worker \"$path\" \"$worker_prompt\"" || loop_rc=$?
         if [ "$loop_rc" -ne 0 ]; then
           printf 'blocked: worker loop failed for issue %s\n' "$id" >&2
+          any_blocked=1
           if [ "$FAIL_FAST" = 1 ]; then
             exit 1
           fi
@@ -143,28 +142,36 @@ case "$MODE" in
           [ "$pr_num" = "null" ] && pr_num=""
         fi
 
-        if [ -n "$pr_num" ]; then
-          if ! orch_pr_checks_watch "$pr_num" 600; then
-            printf 'blocked: CI checks failed or pending timeout for PR %s (issue %s)\n' "$pr_num" "$id" >&2
-            if [ "$FAIL_FAST" = 1 ]; then
-              exit 1
-            fi
-            idx=$((idx + 1))
-            continue
+        if [ -z "$pr_num" ]; then
+          printf 'blocked: issue %s (no PR for branch %s)\n' "$id" "$branch" >&2
+          any_blocked=1
+          if [ "$FAIL_FAST" = 1 ]; then
+            exit 1
           fi
-          m="$(orch_pr_mergeable "$pr_num")" || true
-          if [ "$m" != "MERGEABLE" ] && [ "$m" != "UNKNOWN" ]; then
-            printf 'blocked: PR %s is not mergeable (mergeable=%s)\n' "$pr_num" "$m" >&2
-            if [ "$FAIL_FAST" = 1 ]; then
-              exit 1
-            fi
-            idx=$((idx + 1))
-            continue
-          fi
-          printf 'done: issue %s (PR %s checks green, mergeable=%s)\n' "$id" "$pr_num" "$m"
-        else
-          printf 'done: issue %s (no PR found for branch %s)\n' "$id" "$branch"
+          idx=$((idx + 1))
+          continue
         fi
+
+        if ! orch_pr_checks_watch "$pr_num" 600; then
+          printf 'blocked: CI checks failed or pending timeout for PR %s (issue %s)\n' "$pr_num" "$id" >&2
+          any_blocked=1
+          if [ "$FAIL_FAST" = 1 ]; then
+            exit 1
+          fi
+          idx=$((idx + 1))
+          continue
+        fi
+        m=""
+        if ! m="$(orch_pr_mergeable "$pr_num")" || { [ "$m" != "MERGEABLE" ] && [ "$m" != "UNKNOWN" ]; }; then
+          printf 'blocked: PR %s is not mergeable (mergeable=%s)\n' "$pr_num" "${m:-UNKNOWN}" >&2
+          any_blocked=1
+          if [ "$FAIL_FAST" = 1 ]; then
+            exit 1
+          fi
+          idx=$((idx + 1))
+          continue
+        fi
+        printf 'done: issue %s (PR %s checks green, mergeable=%s)\n' "$id" "$pr_num" "$m"
 
         if [ "$FORCE_CLEAN" = 1 ]; then
           orch_worktree_remove "$REPO" "$path"
@@ -172,6 +179,9 @@ case "$MODE" in
       fi
       idx=$((idx + 1))
     done
+    if [ "$any_blocked" -ne 0 ]; then
+      exit 1
+    fi
     ;;
   pr-fix)
     [ -n "$PR" ] || { echo "need --pr"; exit 2; }
@@ -223,10 +233,13 @@ case "$MODE" in
         exit 1
       fi
 
-      orch_pr_checks_watch "$num" 600 || exit 1
-      m="$(orch_pr_mergeable "$num")" || true
-      if [ "$m" != "MERGEABLE" ] && [ "$m" != "UNKNOWN" ]; then
-        printf 'blocked: PR %s is not mergeable (mergeable=%s)\n' "$num" "$m" >&2
+      if ! orch_pr_checks_watch "$num" 600; then
+        printf 'blocked: CI checks failed or pending timeout for PR %s\n' "$num" >&2
+        exit 1
+      fi
+      m=""
+      if ! m="$(orch_pr_mergeable "$num")" || { [ "$m" != "MERGEABLE" ] && [ "$m" != "UNKNOWN" ]; }; then
+        printf 'blocked: PR %s is not mergeable (mergeable=%s)\n' "$num" "${m:-UNKNOWN}" >&2
         exit 1
       fi
       printf 'done: PR %s checks green, mergeable=%s\n' "$num" "$m"

@@ -70,7 +70,8 @@ Run `./scripts/assemble-claude-md.sh` before Nix eval if you changed `rules/`.
 | `foam-project-memory` | core | Foam graph, ADRs, kanban import |
 | `foam-prd` | core | PRD from Kanban issues |
 | `foam-plan` | core | Implementation plans from PRDs |
-| `foam-batch-orchestrator` | core | Chat multi-task → epic foam + parallel workers to PRs |
+| `dev-orchestrator` | core | Meta-orchestrator: intake → foam/kanban → worktrees → verify/CI → PRs |
+| `foam-batch-orchestrator` | core | **Alias** → `dev-orchestrator` (deprecated name) |
 | `github-kanban-orchestrator` | core | GitHub Projects Kanban |
 | `nix-develop-shell` | dev | Run commands in `nix develop` |
 | `nix-direnv-setup` | dev | Scaffold flake + direnv |
@@ -107,7 +108,7 @@ bash ~/.cursor/skills/foam-project-memory/scripts/import-kanban.sh
 ```
 
 Multi-subject chat batches (intake → epic PRD → N child plans → parallel PRs):
-use skill **`foam-batch-orchestrator`**.
+use skill **`dev-orchestrator`** (`foam-batch-orchestrator` is a deprecated alias).
 
 
 ### Refresh agent instructions after kit changes

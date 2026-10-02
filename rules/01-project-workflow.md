@@ -15,5 +15,5 @@ In **every** repository you work on:
    and `AGENTS.md` when stack, skills, or protocols change.
 
 Skills (ai-dev-kit): `foam-project-memory`, `foam-prd`, `foam-plan`,
-`foam-batch-orchestrator`, `github-kanban-orchestrator`, `project-agents-setup`,
-`git-commit`, `code-reviewer`.
+`dev-orchestrator` (`foam-batch-orchestrator` alias), `github-kanban-orchestrator`,
+`project-agents-setup`, `git-commit`, `code-reviewer`.

@@ -24,7 +24,7 @@ must follow this sequence:
    refresh this file when stack or skills change.
 
 Skills: **foam-project-memory**, **foam-prd**, **foam-plan**,
-**foam-batch-orchestrator**, **github-kanban-orchestrator**,
+**dev-orchestrator** (**foam-batch-orchestrator** alias), **github-kanban-orchestrator**,
 **project-agents-setup**, **git-commit**, **code-reviewer**.
 
 ## Project memory (foam)
@@ -49,7 +49,7 @@ Cursor rule (if present): `.cursor/rules/product-memory.mdc`.
 | ADRs, foam graph, import kanban | `foam-project-memory` |
 | PRD from Kanban issue | `foam-prd` |
 | Implementation plan from PRD | `foam-plan` |
-| Multi-task chat batch → epic + parallel PRs | `foam-batch-orchestrator` |
+| Multi-task chat batch → epic + parallel PRs | `dev-orchestrator` (`foam-batch-orchestrator` alias) |
 | Issues, board, PRs, milestones | `github-kanban-orchestrator` |
 | Commits | `git-commit` |
 | Code review | `code-reviewer` |

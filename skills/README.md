@@ -6,7 +6,7 @@ same name under Claude / opencode).
 
 | Category | Path | Skills |
 | -------- | ---- | ------ |
-| **core** | `core/` | Project memory, batch orchestrator, kanban, PRD, plan, agent bootstrap |
+| **core** | `core/` | Project memory, `dev-orchestrator` (+ batch alias), kanban, PRD, plan, agent bootstrap |
 | **dev** | `dev/` | Nix shell, direnv |
 | **quality** | `quality/` | Review, commits, docs |
 | **design** | `design/` | Frontend UI |

@@ -23,10 +23,11 @@ source "$ROOT/lib/verify.sh"
 source "$ROOT/lib/ci.sh"
 source "$ROOT/lib/sandbox.sh"
 source "$ROOT/lib/loop.sh"
+source "$ROOT/lib/progress.sh"
 
 MODE=""; REPO="$(pwd)"; DRY=0; SANDBOX=0; FAIL_FAST=0
 MAX_P="${ORCH_MAX_PARALLEL:-3}"; MAX_I="${ORCH_MAX_ITER:-10}"
-ISSUES=(); PR=""; FORCE_CLEAN=0
+ISSUES=(); PR=""; FORCE_CLEAN=0; NO_PROGRESS=0
 
 usage() {
   cat <<'EOF'
@@ -41,6 +42,7 @@ orch.sh --mode ready-pickup|pr-fix|intake [options]
   --fail-fast          (abort on first worker failure instead of continuing)
   --dry-run            (print plan: worktrees/branches; no agent invoke)
   --force-clean        (remove worktrees after — only with explicit flag)
+  --no-progress        (disable TTY progress dashboard; ORCH_PROGRESS=0)
   -h|--help
 EOF
 }
@@ -58,6 +60,7 @@ while [ $# -gt 0 ]; do
     --fail-fast) FAIL_FAST=1;;
     --dry-run) DRY=1;;
     --force-clean) FORCE_CLEAN=1;;
+    --no-progress) NO_PROGRESS=1;;
     -h|--help) usage; exit 0;;
     *) echo "unknown: $1" >&2; exit 2;;
   esac
@@ -68,6 +71,9 @@ export ORCH_MAX_PARALLEL="$MAX_P" ORCH_MAX_ITER="$MAX_I" ORCH_SANDBOX="$SANDBOX"
 export ORCH_FAIL_FAST="$FAIL_FAST" ORCH_FORCE_CLEAN="$FORCE_CLEAN" ORCH_ROOT="$ROOT"
 REPO="$(cd "$REPO" && pwd)"
 export ORCH_REPO="$REPO"
+if [ "$NO_PROGRESS" = 1 ]; then
+  export ORCH_PROGRESS=0
+fi
 
 # Wait until fewer than MAX_P background jobs are running (bash job pool).
 orch_wait_for_slot() {
@@ -95,16 +101,24 @@ orch_ready_pickup_one() {
   local loop_rc=0 pr_num="" pr_json="" m=""
   local rc_dir rc_file
 
+  export ORCH_WORKER_ID="$id"
   path="$(orch_worktree_path "$ORCH_REPO" "$id" "$slug")"
   port=$(( ${ORCH_BASE_PORT:-3900} + idx ))
   rc_dir="$ORCH_REPO/.orch/run"
   mkdir -p "$rc_dir"
   rc_file="$rc_dir/${id}.rc"
 
-  echo "worker id=$id branch=$branch wt=$path port=$port"
+  orch_progress_set "$id" pending "branch ${branch}"
+  if ! orch_progress_enabled; then
+    echo "worker id=$id branch=$branch wt=$path port=$port"
+  fi
 
+  orch_progress_set "$id" worktree "creating ${path##*/}"
   if ! orch_worktree_add "$ORCH_REPO" "$id" "$slug" "$branch" HEAD; then
-    printf 'blocked: failed to create worktree for issue %s\n' "$id" >&2
+    orch_progress_set "$id" blocked "worktree create failed"
+    if ! orch_progress_enabled; then
+      printf 'blocked: failed to create worktree for issue %s\n' "$id" >&2
+    fi
     echo 1 >"$rc_file"
     return 1
   fi
@@ -136,13 +150,18 @@ orch_ready_pickup_one() {
 
   export ORCH_WT="$path"
   orch_detect_agent >/dev/null
-  orch_sandbox_wrap bash -c "ORCH_WT=\"$path\" orch_loop_worker \"$path\" \"$worker_prompt\"" || loop_rc=$?
+  orch_progress_set "$id" agent "starting"
+  orch_sandbox_wrap bash -c "ORCH_WT=\"$path\" ORCH_WORKER_ID=\"$id\" ORCH_REPO=\"$ORCH_REPO\" ORCH_PROGRESS=\"${ORCH_PROGRESS:-auto}\" orch_loop_worker \"$path\" \"$worker_prompt\"" || loop_rc=$?
   if [ "$loop_rc" -ne 0 ]; then
-    printf 'blocked: worker loop failed for issue %s\n' "$id" >&2
+    orch_progress_set "$id" blocked "worker loop failed"
+    if ! orch_progress_enabled; then
+      printf 'blocked: worker loop failed for issue %s\n' "$id" >&2
+    fi
     echo 1 >"$rc_file"
     return 1
   fi
 
+  orch_progress_set "$id" ci "looking up PR for ${branch}"
   if command -v gh >/dev/null 2>&1; then
     pr_json="$(gh pr list --head "$branch" --json number 2>/dev/null || true)"
     if command -v jq >/dev/null 2>&1; then
@@ -154,22 +173,35 @@ orch_ready_pickup_one() {
   fi
 
   if [ -z "$pr_num" ]; then
-    printf 'blocked: issue %s (no PR for branch %s)\n' "$id" "$branch" >&2
+    orch_progress_set "$id" blocked "no PR for ${branch}"
+    if ! orch_progress_enabled; then
+      printf 'blocked: issue %s (no PR for branch %s)\n' "$id" "$branch" >&2
+    fi
     echo 1 >"$rc_file"
     return 1
   fi
 
+  orch_progress_set "$id" ci "PR #${pr_num} checks"
   if ! orch_pr_checks_watch "$pr_num" 600; then
-    printf 'blocked: CI checks failed or pending timeout for PR %s (issue %s)\n' "$pr_num" "$id" >&2
+    orch_progress_set "$id" blocked "CI failed/timeout PR #${pr_num}"
+    if ! orch_progress_enabled; then
+      printf 'blocked: CI checks failed or pending timeout for PR %s (issue %s)\n' "$pr_num" "$id" >&2
+    fi
     echo 1 >"$rc_file"
     return 1
   fi
   if ! m="$(orch_pr_mergeable "$pr_num")" || { [ "$m" != "MERGEABLE" ] && [ "$m" != "UNKNOWN" ]; }; then
-    printf 'blocked: PR %s is not mergeable (mergeable=%s)\n' "$pr_num" "${m:-UNKNOWN}" >&2
+    orch_progress_set "$id" blocked "not mergeable (${m:-UNKNOWN})"
+    if ! orch_progress_enabled; then
+      printf 'blocked: PR %s is not mergeable (mergeable=%s)\n' "$pr_num" "${m:-UNKNOWN}" >&2
+    fi
     echo 1 >"$rc_file"
     return 1
   fi
-  printf 'done: issue %s (PR %s checks green, mergeable=%s)\n' "$id" "$pr_num" "$m"
+  orch_progress_set "$id" done "PR #${pr_num} green (${m})"
+  if ! orch_progress_enabled; then
+    printf 'done: issue %s (PR %s checks green, mergeable=%s)\n' "$id" "$pr_num" "$m"
+  fi
 
   if [ "${ORCH_FORCE_CLEAN:-0}" = "1" ]; then
     orch_worktree_remove "$ORCH_REPO" "$path"
@@ -184,6 +216,8 @@ export -f _orch_extract_agents_verify orch_detect_agent orch_render_prompt
 export -f orch_pr_mergeable orch_pr_checks_watch _orch_pr_checks_classify
 export -f orch_worktree_path orch_worktree_add orch_worktree_bootstrap orch_worktree_remove
 export -f orch_sandbox_wrap
+export -f orch_progress_dir orch_progress_enabled orch_progress_set
+export -f orch_progress_icon orch_progress_draw
 
 case "$MODE" in
   ready-pickup)
@@ -204,20 +238,29 @@ case "$MODE" in
     fi
 
     mkdir -p "$REPO/.orch/run"
-    rm -f "$REPO/.orch/run"/*.rc 2>/dev/null || true
+    rm -f "$REPO/.orch/run"/*.rc "$REPO/.orch/run"/*.status "$REPO/.orch/run"/.dashboard-stop 2>/dev/null || true
+
+    export ORCH_PROGRESS_IDS="${ISSUES[*]}"
+    for id in "${ISSUES[@]}"; do
+      orch_progress_set "$id" pending "queued"
+    done
+    orch_progress_dashboard_start
 
     if [ "$MAX_P" -le 1 ]; then
       for id in "${ISSUES[@]}"; do
         if ! orch_ready_pickup_one "$id" "$idx"; then
           any_blocked=1
           if [ "$FAIL_FAST" = 1 ]; then
+            orch_progress_dashboard_stop
             exit 1
           fi
         fi
         idx=$((idx + 1))
       done
     else
-      printf 'orch: dispatching %s workers with ORCH_MAX_PARALLEL=%s\n' "${#ISSUES[@]}" "$MAX_P" >&2
+      if ! orch_progress_enabled; then
+        printf 'orch: dispatching %s workers with ORCH_MAX_PARALLEL=%s\n' "${#ISSUES[@]}" "$MAX_P" >&2
+      fi
       # Monitor mode required for jobs/wait -n in non-interactive scripts
       set -m
       pids=()
@@ -226,7 +269,6 @@ case "$MODE" in
           if wait -n 2>/dev/null; then
             :
           else
-            # Drop finished pids (portable fallback without wait -n)
             still=()
             for pid in "${pids[@]}"; do
               if kill -0 "$pid" 2>/dev/null; then
@@ -240,7 +282,6 @@ case "$MODE" in
               sleep 0.05
             fi
           fi
-          # Reap finished from pids after wait -n
           still=()
           for pid in "${pids[@]}"; do
             if kill -0 "$pid" 2>/dev/null; then
@@ -261,6 +302,7 @@ case "$MODE" in
             [ -f "$rc_file" ] || continue
             if [ "$(cat "$rc_file")" != "0" ]; then
               for pid in "${pids[@]}"; do wait "$pid" || true; done
+              orch_progress_dashboard_stop
               exit 1
             fi
           done
@@ -272,17 +314,32 @@ case "$MODE" in
       set +m
     fi
 
+    orch_progress_dashboard_stop
+
     for rc_file in "$REPO/.orch/run"/*.rc; do
       [ -f "$rc_file" ] || continue
       if [ "$(cat "$rc_file")" != "0" ]; then
         any_blocked=1
       fi
     done
-    # Missing rc for an issue → treat as blocked
     for id in "${ISSUES[@]}"; do
       if [ ! -f "$REPO/.orch/run/${id}.rc" ]; then
-        printf 'blocked: issue %s (no worker status file)\n' "$id" >&2
+        orch_progress_set "$id" blocked "no worker status file"
         any_blocked=1
+      fi
+    done
+
+    # Plain summary after dashboard (or when progress off)
+    for id in "${ISSUES[@]}"; do
+      st="$REPO/.orch/run/${id}.status"
+      rc="$REPO/.orch/run/${id}.rc"
+      if [ -f "$st" ]; then
+        line="$(cat "$st")"
+        printf 'summary #%s %s — %s\n' "$id" "${line%%|*}" "${line#*|}"
+      elif [ -f "$rc" ] && [ "$(cat "$rc")" = "0" ]; then
+        printf 'summary #%s done\n' "$id"
+      else
+        printf 'summary #%s blocked\n' "$id"
       fi
     done
 

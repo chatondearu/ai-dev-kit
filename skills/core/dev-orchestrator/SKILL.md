@@ -79,6 +79,9 @@ bash "$SKILL/scripts/orch.sh" --mode pr-fix --pr 88 --sandbox
 bash "$SKILL/scripts/orch.sh" --mode ready-pickup --issue 12 --dry-run
 ```
 
+On a TTY, workers show a live progress board (spinner + phase). Disable with
+`--no-progress` or `ORCH_PROGRESS=0`.
+
 Optional `--sandbox`: bubblewrap (Linux, off by default). If `bwrap` is missing,
 warn and continue without sandbox.
 

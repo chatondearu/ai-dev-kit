@@ -24,23 +24,38 @@ orch_render_prompt() {
 orch_loop_worker() {
   local wt="$1" prompt="$2"
   local max="${ORCH_MAX_ITER:-10}" i=1
-  local agent_rc vcmd
+  local agent_rc vcmd wid="${ORCH_WORKER_ID:-}"
   while [ "$i" -le "$max" ]; do
-    printf 'orch loop iter %s/%s\n' "$i" "$max" >&2
+    if [ -n "$wid" ] && type orch_progress_set >/dev/null 2>&1; then
+      orch_progress_set "$wid" agent "iter ${i}/${max}"
+    else
+      printf 'orch loop iter %s/%s\n' "$i" "$max" >&2
+    fi
     rm -f "$wt/.orch/agent-ok" 2>/dev/null || true
     agent_rc=0
     orch_agent_run "$wt" "$prompt" || agent_rc=$?
     vcmd="$(orch_resolve_verify "$wt")"
+    if [ -n "$wid" ] && type orch_progress_set >/dev/null 2>&1; then
+      orch_progress_set "$wid" verify "${vcmd:0:36}"
+    fi
     if orch_run_verify "$wt"; then
       if [ "$vcmd" = "true" ] && [ "$agent_rc" -ne 0 ] && [ ! -f "$wt/.orch/agent-ok" ]; then
-        printf 'orch loop: agent failed and verify is fallback true (iter %s/%s)\n' "$i" "$max" >&2
+        if [ -n "$wid" ] && type orch_progress_set >/dev/null 2>&1; then
+          orch_progress_set "$wid" agent "retry after agent fail (${i}/${max})"
+        else
+          printf 'orch loop: agent failed and verify is fallback true (iter %s/%s)\n' "$i" "$max" >&2
+        fi
       else
-        printf 'verify ok\n' >&2
+        if [ -z "$wid" ] || ! type orch_progress_set >/dev/null 2>&1; then
+          printf 'verify ok\n' >&2
+        fi
         return 0
       fi
     fi
     i=$((i + 1))
   done
-  printf 'blocked\n' >&2
+  if [ -z "$wid" ] || ! type orch_progress_set >/dev/null 2>&1; then
+    printf 'blocked\n' >&2
+  fi
   return 1
 }

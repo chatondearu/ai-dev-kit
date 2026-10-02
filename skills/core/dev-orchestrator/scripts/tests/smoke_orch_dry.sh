@@ -88,6 +88,7 @@ chmod +x "$STUB_BIN/gh"
 
 export PATH="$STUB_BIN:$PATH"
 export ORCH_AGENT="$STUB_BIN/stub-agent"
+export ORCH_PROGRESS=0
 
 echo "# run-tests.sh"
 bash "$TROOT/run-tests.sh"

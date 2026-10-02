@@ -27,7 +27,7 @@ Before offering GO, you must know:
 
 1. Restate the user’s subject list in your own words (short).
 2. Ask until the goals above are filled (skip what the user already answered).
-3. Fill [templates/epic-breakdown.md](../../foam-batch-orchestrator/templates/epic-breakdown.md).
+3. Fill [templates/epic-breakdown.md](../templates/epic-breakdown.md).
 4. Present the full breakdown and ask:
 
    > Reply **GO** to bootstrap foam/kanban and start parallel workers, or say what to change.

@@ -10,18 +10,16 @@ to it, so edits are versioned and shared everywhere at once.
 
 ## Why it works across agents
 
-Skills use the common **`SKILL.md`** format (YAML frontmatter `name` +
-`description`, markdown body). Every major agent discovers skills the same way —
-only the install directory differs:
+| Asset | Cursor | Claude Code | opencode | Portable |
+| ----- | ------ | ----------- | -------- | -------- |
+| **Skills** (`SKILL.md`) | `~/.cursor/skills/` | `~/.claude/skills/` | `~/.config/opencode/skills/` | Yes |
+| **Rules** (`rules/*.md`) | `~/.cursor/user-rules/` | `~/.claude/CLAUDE.md` (assembled) | — | Partial |
+| **AGENTS.md** | per repo | per repo | per repo | Yes |
+| **Subagents** | `~/.cursor/agents/` | — | — | Cursor only |
+| **Plugins** | `~/.cursor/plugins/local/` | — | — | Cursor only |
 
-| Agent | Global skills dir |
-|-------|-------------------|
-| Cursor | `~/.cursor/skills/<name>/SKILL.md` |
-| Claude Code | `~/.claude/skills/<name>/SKILL.md` |
-| opencode | `~/.config/opencode/skills/` (also reads `~/.claude/skills`, `~/.agents/skills`) |
-| universal | `~/.agents/skills/<name>/SKILL.md` |
-
-So the **same** `skills/` tree is linked into each agent you use.
+Skills use the common **`SKILL.md`** format. Installers **flatten** nested folders
+under `skills/` (e.g. `skills/core/foam-project-memory/` → `~/.cursor/skills/foam-project-memory/`).
 
 Each tool's install root can be overridden via its native env var (the default
 is used otherwise): `CURSOR_HOME`, `CLAUDE_CONFIG_DIR`, `XDG_CONFIG_HOME`
@@ -31,21 +29,20 @@ is used otherwise): `CURSOR_HOME`, `CLAUDE_CONFIG_DIR`, `XDG_CONFIG_HOME`
 
 ```
 ai-dev-kit/
-├── skills/                 # CANONICAL, agent-agnostic skills (SKILL.md) → all agents
-│   ├── github-kanban-orchestrator/
-│   ├── nix-develop-shell/
-│   └── technical-docs-sync/
-├── rules/                  # global user rules            → Cursor (~/.cursor/user-rules)
-├── agents/                 # custom subagents             → Cursor (~/.cursor/agents)
-├── cursor/plugins/local/   # Cursor local plugins         → Cursor
-├── claude/ codex/ vscode/  # tool-specific placeholders
-├── nix/maid.nix            # nix-maid declarations (auto-discovers the trees)
-├── flake.nix               # nix-maid package + NixOS module (aiDevKit.tools)
-└── install.sh              # portable multi-agent symlink installer (no Nix)
+├── skills/                      # Agent-agnostic skills (nested by category)
+│   ├── core/                    # foam, orchestrator, kanban, project-agents-setup
+│   ├── dev/                     # nix-develop-shell, nix-direnv-setup
+│   ├── quality/                 # git-commit, code-reviewer, technical-docs-sync
+│   ├── design/                  # frontend-design
+│   └── tools/                   # context7, task-management
+├── rules/                       # Global user rules → Cursor + Claude (assembled)
+├── scripts/assemble-claude-md.sh
+├── claude/                      # CLAUDE.header.md + generated CLAUDE.md
+├── agents/                      # Cursor subagents
+├── cursor/plugins/local/        # Cursor local plugins
+├── nix/maid.nix
+└── install.sh
 ```
-
-Only the **immediate children** of each tree are linked, so assets a tool
-installs itself are never clobbered.
 
 ## Install — portable (any OS, no Nix)
 
@@ -53,89 +50,95 @@ installs itself are never clobbered.
 ./install.sh --dry-run     # preview
 ./install.sh               # link into every detected agent
 ./install.sh --force       # overwrite conflicts instead of backing up
-./install.sh --uninstall   # remove only the symlinks we created
-```
-
-Tool selection (a tool is auto-enabled when its config dir exists; Cursor is
-always on; `agents` is opt-in):
-
-```bash
-./install.sh --claude --opencode      # force on
-./install.sh --no-claude              # force off
-./install.sh --agents                 # also link ~/.agents/skills (universal)
-./install.sh --cursor-home /path/.cursor
+./install.sh --claude      # include ~/.claude/CLAUDE.md from rules/
 ```
 
 ## Install — Nix (NixOS, via nix-maid)
 
-Use **one** mechanism per machine (don't mix with `install.sh` on the same host).
-
-### NixOS module
-
 ```nix
-# flake inputs
-inputs.ai-dev-kit.url = "github:chatondearu/ai-dev-kit";
-
-# configuration.nix
-imports = [ inputs.ai-dev-kit.nixosModules.default ];
 aiDevKit = {
   enable = true;
   user = "chaton";
-  tools = [ "cursor" "claude" "opencode" ];   # which agents get the skills
-  repoPath = "{{home}}/dev/chatondearu/ai-dev-kit";  # live-edit friendly
+  tools = [ "cursor" "claude" "opencode" ];
+  repoPath = "{{home}}/dev/chatondearu/ai-dev-kit";
 };
 ```
 
-### Standalone
-
-```bash
-nix build .#default        # builds the nix-maid activation package
-# then follow nix-maid activation (nix-env -if … && activate)
-```
-
-`nix/maid.nix` derives entries from the repo at eval time, so adding a
-skill/rule/agent/plugin needs no Nix edits.
+Run `./scripts/assemble-claude-md.sh` before Nix eval if you changed `rules/`.
 
 ## Included skills
 
-| Skill | Purpose |
-|-------|---------|
-| `github-kanban-orchestrator` | Repo-agnostic GitHub Projects (v2) Kanban orchestration (milestones, issues, PRs, multi-agent). Auto-detects repo/project/field IDs via `gh` (`scripts/gh-board.sh`). |
-| `nix-develop-shell` | Wrap project commands in `nix develop -c`. |
-| `technical-docs-sync` | Keep `doc/` aligned with code and runtime config. |
-| `code-reviewer` | Structured code review for local changes or remote PRs. |
-| `context7` | Fetch up-to-date library docs via the Context7 API. |
-| `frontend-design` | Build distinctive, production-grade frontend UIs. |
-| `git-commit` | Conventional Commits with diff analysis and smart staging. |
-| `task-management` | CLI to track feature subtasks, dependencies and status. |
-| `foam-project-memory` | Foam graph at repo-root `foam/`, ADRs, PRDs, plans, kanban import; agent decision memory. |
+| Skill | Category | Purpose |
+| ----- | -------- | ------- |
+| `project-agents-setup` | core | Bootstrap / update `AGENTS.md` |
+| `foam-project-memory` | core | Foam graph, ADRs, kanban import |
+| `foam-prd` | core | PRD from Kanban issues |
+| `foam-plan` | core | Implementation plans from PRDs |
+| `dev-orchestrator` | core | Meta-orchestrator: intake → foam/kanban → worktrees → verify/CI → PRs |
+| `foam-batch-orchestrator` | core | **Alias** → `dev-orchestrator` (deprecated name) |
+| `github-kanban-orchestrator` | core | GitHub Projects Kanban |
+| `nix-develop-shell` | dev | Run commands in `nix develop` |
+| `nix-direnv-setup` | dev | Scaffold flake + direnv |
+| `git-commit` | quality | Conventional Commits |
+| `code-reviewer` | quality | Structured code review |
+| `technical-docs-sync` | quality | Keep `doc/` aligned with code |
+| `frontend-design` | design | Production-grade UI |
+| `context7` | tools | Library docs via Context7 |
+| `task-management` | tools | Feature subtask CLI |
 
-Plus the `coolify-ops` Cursor local plugin.
+## Default project workflow (foam + kanban)
 
-> `code-reviewer`, `context7`, `frontend-design`, `git-commit` and
-> `task-management` were imported from a prior opencode setup and kept as-is
-> (their original licenses are preserved in each `SKILL.md`).
-> `foam-project-memory` was added for cross-repo ADR/PRD/foam workflows.
+Every repository should use:
 
-## Project memory + Kanban
+1. **`AGENTS.md`** — portable agent contract (`project-agents-setup`)
+2. **`foam/`** — ADRs, PRDs, plans (`foam-project-memory`)
+3. **GitHub Kanban** — issues and board (`github-kanban-orchestrator`)
 
-1. **Kanban** (`github-kanban-orchestrator`) — issues, board, PRs.
-2. **Foam memory** (`foam-project-memory`) — `foam/`, `prd/`, `plans/`, ADRs.
+Before any feature or technical/product/design decision, agents must read foam,
+search open GitHub issues and PRs, and confront new proposals with existing
+decisions.
+
+### Bootstrap a new repo
 
 ```bash
-bash ~/.cursor/skills/foam-project-memory/scripts/init.sh          # scaffold (no git commit)
-bash ~/.cursor/skills/foam-project-memory/scripts/import-kanban.sh # sync issue lists
+bash ~/.cursor/skills/project-agents-setup/scripts/setup-agents.sh \
+  --type auto --init-foam
+
+# Feature pipeline (issue #42 example):
+bash ~/.cursor/skills/foam-prd/scripts/new-prd.sh 42
+bash ~/.cursor/skills/foam-plan/scripts/new-plan.sh 42
+
+bash ~/.cursor/skills/foam-project-memory/scripts/import-kanban.sh
 ```
 
-## Requirements
+Multi-subject chat batches (intake → epic PRD → N child plans → parallel PRs):
+use skill **`dev-orchestrator`** (`foam-batch-orchestrator` is a deprecated alias).
 
-- **Portable path**: `bash`, `coreutils`. Kanban and foam-import skills need `gh`
-  and `jq` (`project` scope for board features).
-- **Nix path**: flakes enabled; `nix-maid` is fetched as a flake input.
+
+### Refresh agent instructions after kit changes
+
+```bash
+./scripts/assemble-claude-md.sh && ./install.sh
+bash ~/.cursor/skills/project-agents-setup/scripts/setup-agents.sh --type auto --force
+```
+
+## Global rules (Cursor + Claude)
+
+| File | Topic |
+| ---- | ----- |
+| `rules/00-communication.md` | French replies, Vue/Nuxt, commits |
+| `rules/01-project-workflow.md` | Mandatory foam + kanban on every project |
+| `rules/nix-develop-shell.md` | Nix develop wrapper |
+
+Claude receives the same content in `claude/CLAUDE.md` (assembled).
 
 ## Adding a new asset
 
-1. Drop it under `skills/<name>/`, `rules/`, `agents/`, or
-   `cursor/plugins/local/<name>/`.
-2. Re-run `./install.sh` (or rebuild on Nix). Done — it propagates to every
-   enabled agent.
+1. Add `skills/<category>/<name>/SKILL.md`, or a file under `rules/`, `agents/`,
+   or `cursor/plugins/local/<name>/`.
+2. Re-run `./install.sh` (and `assemble-claude-md.sh` if rules changed).
+
+## Requirements
+
+- **Portable path**: `bash`, `coreutils`. Kanban and foam skills need `gh` and `jq`.
+- **Nix path**: flakes enabled; `nix-maid` as flake input.

@@ -1,10 +1,24 @@
-# Claude config (placeholder)
+# Claude Code configuration
 
-Reserved for Claude / Claude Code assets shared across machines, e.g.:
+Global instructions for Claude Code are **assembled** from portable `rules/*.md`
+(same source as Cursor user rules).
 
-- `CLAUDE.md` global instructions
-- custom commands / skills
-- MCP server configuration
+## Files
 
-Nothing is wired into `install.sh` or `nix/maid.nix` yet. Add files here, then
-extend the installer mapping when ready.
+| File | Role |
+| ---- | ---- |
+| `CLAUDE.header.md` | Preamble (edit by hand) |
+| `../rules/*.md` | Canonical rule fragments (sorted by filename) |
+| `CLAUDE.md` | **Generated** — do not edit by hand |
+
+## Regenerate and install
+
+```bash
+./scripts/assemble-claude-md.sh
+./install.sh --claude
+```
+
+`install.sh` runs the assembler automatically when Claude is enabled.
+
+Skills are shared via `~/.claude/skills/` (flattened from `skills/**/SKILL.md`).
+Per-project guidance: `AGENTS.md` (skill `project-agents-setup`).

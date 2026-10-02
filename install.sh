@@ -9,8 +9,10 @@
 #   opencode  ${XDG_CONFIG_HOME:-~/.config}/opencode/skills
 #   agents    ${AGENTS_HOME:-~/.agents}/skills   (universal; opencode also reads this)
 #
-# Cursor-specific assets (user rules, subagents, local plugins) are linked into
-# ~/.cursor only.
+# Cursor-specific assets (user rules, subagents, local plugins) → ~/.cursor only.
+# Claude: assembled claude/CLAUDE.md → ~/.claude/CLAUDE.md
+# Skills may live in nested folders (skills/core/foo/); installers flatten by
+# skill directory name (each dir containing SKILL.md).
 #
 # Idempotent: re-running fixes/refreshes links. Existing non-symlink targets are
 # backed up to <target>.bak-<timestamp> unless --force is given.
@@ -79,6 +81,29 @@ apply_children() {
   done
 }
 
+# Link every directory under $srcdir that contains SKILL.md (flattened by name).
+link_skill_tree() {
+  local srcdir="$1" destdir="$2" skill_md skill_dir skill_name
+  [ -d "$srcdir" ] || return 0
+  while IFS= read -r skill_md; do
+    [ -n "$skill_md" ] || continue
+    skill_dir="$(dirname "$skill_md")"
+    skill_name="$(basename "$skill_dir")"
+    if [ "$UNINSTALL" = 1 ]; then unlink_one "$skill_dir" "$destdir/$skill_name"
+    else link_one "$skill_dir" "$destdir/$skill_name"; fi
+  done < <(find "$srcdir" -name SKILL.md -type f 2>/dev/null | sort)
+}
+
+assemble_claude_md() {
+  local script="$REPO_DIR/scripts/assemble-claude-md.sh"
+  [ -x "$script" ] || chmod +x "$script" 2>/dev/null || true
+  if [ "$DRY" = 1 ]; then
+    log "DRY  $script"
+    return
+  fi
+  bash "$script"
+}
+
 skill_dir_for() {
   case "$1" in
     cursor) printf '%s/skills' "$CURSOR_HOME";;
@@ -125,10 +150,10 @@ main() {
   log "tools: ${enabled[*]:-none}"
   log ""
 
-  # Shared skills → every enabled tool
+  # Shared skills → every enabled tool (nested categories flattened)
   for tool in "${enabled[@]}"; do
     log "# skills → $tool"
-    apply_children "$REPO_DIR/skills" "$(skill_dir_for "$tool")"
+    link_skill_tree "$REPO_DIR/skills" "$(skill_dir_for "$tool")"
   done
 
   # Cursor-specific assets
@@ -137,6 +162,13 @@ main() {
     apply_children "$REPO_DIR/rules" "$CURSOR_HOME/user-rules"
     apply_children "$REPO_DIR/agents" "$CURSOR_HOME/agents"
     apply_children "$REPO_DIR/cursor/plugins/local" "$CURSOR_HOME/plugins/local"
+  fi
+
+  # Claude Code — global instructions from rules/
+  if is_enabled claude; then
+    log "# claude CLAUDE.md (from rules/)"
+    assemble_claude_md
+    link_one "$REPO_DIR/claude/CLAUDE.md" "$HOME/.claude/CLAUDE.md"
   fi
 
   log ""

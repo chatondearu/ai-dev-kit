@@ -120,6 +120,7 @@ Add `.orch/` to `.gitignore` in target repos so worktrees and ledger artifacts s
 | `ORCH_MAX_PARALLEL` | `3` | Max concurrent workers |
 | `ORCH_MAX_ITER` | `10` | Max verify/fix iterations per worker |
 | `ORCH_BASE_PORT` | `3900` | Base port for local services (increment per worker) |
+| `ORCH_PROGRESS` | `auto` | TTY live board when stderr is a TTY; `0` / `--no-progress` = plain logs |
 
 ## Parallelism
 

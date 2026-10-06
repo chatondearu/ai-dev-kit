@@ -1,10 +1,17 @@
 ---
 name: frontend-design
-description: Create distinctive, production-grade frontend interfaces with high design quality. Use this skill when the user asks to build web components, pages, artifacts, posters, or applications (examples include websites, landing pages, dashboards, React components, HTML/CSS layouts, or when styling/beautifying any web UI). Generates creative, polished code and UI design that avoids generic AI aesthetics.
+description: >-
+  Create distinctive, production-grade frontend interfaces with high design
+  quality. Prefer for bold creative UI when no brand DESIGN.md applies. For
+  anti-slop landings/portfolios use design-taste-frontend; for brand match use
+  cda-design-md; for a11y/UX audit use web-design-guidelines.
 license: Apache License Version 2.0, January 2004
 ---
 
 This skill guides creation of distinctive, production-grade frontend interfaces that avoid generic "AI slop" aesthetics. Implement real working code with exceptional attention to aesthetic details and creative choices.
+
+**Related kit skills:** `design-taste-frontend` (direction + anti-slop),
+`cda-design-md` (brand templates), `web-design-guidelines` (post-build audit).
 
 The user provides frontend requirements: a component, page, application, or interface to build. They may include context about the purpose, audience, or technical constraints.
 

@@ -9,7 +9,7 @@ file by hand — change files under `rules/` and run:
 ```
 
 Portable skills are symlinked into `~/.claude/skills/`. Per-repository guidance
-lives in each project's `AGENTS.md` (bootstrap with skill `project-agents-setup`).
+lives in each project's `AGENTS.md` (bootstrap with skill `cda-agents`).
 
 ---
 
@@ -46,21 +46,20 @@ lives in each project's `AGENTS.md` (bootstrap with skill `project-agents-setup`
 
 In **every** repository you work on:
 
-1. **Bootstrap** if missing: run `project-agents-setup/scripts/setup-agents.sh`
+1. **Bootstrap** if missing: run `cda-agents/scripts/setup-agents.sh`
    (and `--init-foam` when `foam/` does not exist).
 2. **Before** planning or implementing a feature: read `AGENTS.md`, then
    `foam/index.md`; check Kanban issues and open PRs for overlap.
 3. **Before** any technical, product, or design decision that affects the
    project: search existing ADRs, foam notes, GitHub issues, and PRs; read
    relevant material and **confront** the new proposal with recorded decisions.
-4. **During** work: keep PRD/plan/ADR artifacts aligned (`foam-project-memory`,
-   `github-kanban-orchestrator`).
+4. **During** work: keep PRD/plan/ADR artifacts aligned (`cda-foam`,
+   `cda-kanban`).
 5. **After** shipping or deciding: update foam (ADR, PRD status, feature lists)
    and `AGENTS.md` when stack, skills, or protocols change.
 
-Skills (ai-dev-kit): `foam-project-memory`, `foam-prd`, `foam-plan`,
-`dev-orchestrator` (`foam-batch-orchestrator` alias), `github-kanban-orchestrator`,
-`project-agents-setup`, `git-commit`, `code-reviewer`.
+Skills (ai-dev-kit): `cda-foam`, `cda-prd`, `cda-plan`, `cda-dev`,
+`cda-kanban`, `cda-agents`, `git-commit`, `code-reviewer`.
 
 ---
 

@@ -9,4 +9,4 @@ file by hand — change files under `rules/` and run:
 ```
 
 Portable skills are symlinked into `~/.claude/skills/`. Per-repository guidance
-lives in each project's `AGENTS.md` (bootstrap with skill `project-agents-setup`).
+lives in each project's `AGENTS.md` (bootstrap with skill `cda-agents`).

@@ -21,4 +21,4 @@ Global instructions for Claude Code are **assembled** from portable `rules/*.md`
 `install.sh` runs the assembler automatically when Claude is enabled.
 
 Skills are shared via `~/.claude/skills/` (flattened from `skills/**/SKILL.md`).
-Per-project guidance: `AGENTS.md` (skill `project-agents-setup`).
+Per-project guidance: `AGENTS.md` (skill `cda-agents`).

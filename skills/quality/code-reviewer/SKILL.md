@@ -23,17 +23,20 @@ This skill guides the agent in conducting professional and thorough code reviews
     ```bash
     gh pr checkout <PR_NUMBER>
     ```
-2.  **Preflight**: Execute the project's standard verification suite to catch automated failures early.
-    ```bash
-    npm run preflight
-    ```
+2.  **Preflight**: Execute the project's standard verification suite to catch automated failures early. **Detect the command** rather than assuming one — look for the conventional entrypoint in this order and run the first that applies:
+    *   A `Makefile` target such as `make check` / `make test` / `make lint`.
+    *   An npm/pnpm/yarn script (`package.json` → `preflight`, `check`, `test`, `lint`).
+    *   A language-native runner (`cargo test`, `pytest`, `go test ./...`, etc.).
+    *   If the repo root has a `flake.nix` or `.envrc` (direnv), wrap the command with `nix develop -c …` per the `nix-develop-shell` skill.
+
+    If no verification command is discoverable, skip this step and note it in the review.
 3.  **Context**: Read the PR description and any existing comments to understand the goal and history.
 
 #### For Local Changes:
 1.  **Identify Changes**:
     *   Check status: `git status`
     *   Read diffs: `git diff` (working tree) and/or `git diff --staged` (staged).
-2.  **Preflight (Optional)**: If the changes are substantial, ask the user if they want to run `npm run preflight` before reviewing.
+2.  **Preflight (Optional)**: If the changes are substantial, ask the user if they want to run the project's verification suite (detected as in the Remote PR flow above) before reviewing.
 
 ### 3. In-Depth Analysis
 Analyze the code changes based on the following pillars:

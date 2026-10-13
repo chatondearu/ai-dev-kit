@@ -21,7 +21,13 @@ assert.deepStrictEqual(L.parseCommand("/kiss ultra"), { mode: "ultra" });
 assert.deepStrictEqual(L.parseCommand("/kiss"), { mode: "full" });
 assert.deepStrictEqual(L.parseCommand("stop kiss"), { mode: "off" });
 assert.deepStrictEqual(L.parseCommand("normal mode"), { mode: "off" });
+assert.deepStrictEqual(L.parseCommand("  /KISS   ULTRA "), { mode: "ultra" });
+assert.deepStrictEqual(L.parseCommand("/kiss off"), { mode: "off" });
+assert.deepStrictEqual(L.parseCommand("kiss off"), { mode: "off" });
 assert.strictEqual(L.parseCommand("fix the login bug"), null);
+assert.strictEqual(L.parseCommand(""), null);
+for (const p of ["/kiss-audit", "/kiss-audit src/", "/kiss-x", "/kiss ultra please"])
+  assert.strictEqual(L.parseCommand(p), null, p);
 
 // getInstructions: header + level-filtered table (keeps active row, drops others)
 const lite = L.getInstructions("lite");
@@ -31,7 +37,32 @@ assert.ok(L.getInstructions("ultra").includes("**ultra**"), "ultra keeps its row
 
 // mode persistence round-trip
 L.setMode("ultra"); assert.strictEqual(L.readMode(), "ultra");
-L.clearMode();      assert.strictEqual(L.readMode(), null);
+
+// dir-level repo map: unique dirs (depth <= 2), not files, within budget
+const { execFileSync } = require("child_process");
+const fs = require("fs"), path = require("path");
+const repo = fs.mkdtempSync(path.join(process.env.CLAUDE_CONFIG_DIR, "repo-"));
+for (const f of ["README.md", "a/b/c/x.js", "a/b/y.js", "a/z.js", "d/w.js"]) {
+  fs.mkdirSync(path.dirname(path.join(repo, f)), { recursive: true });
+  fs.writeFileSync(path.join(repo, f), "");
+}
+execFileSync("git", ["init", "-q"], { cwd: repo });
+execFileSync("git", ["add", "."], { cwd: repo });
+const map = L.buildMap(repo);
+assert.deepStrictEqual(map.split("\n").slice(1), ["a/b", "a", "d"], map);
+process.env.KISS_MAP_CHARS = "60";
+const small = L.buildMap(repo);
+assert.ok(small.endsWith("…(truncated)") && small.length <= 60 + 12, small);
 
 console.log("kiss lib: all assertions passed");
 '
+
+# sticky off round trip: off -> fresh SessionStart is silent -> /kiss re-enables
+export CLAUDE_PROJECT_DIR="$tmp/proj"
+echo '{"prompt":"stop kiss"}' | node mode-tracker.js >/dev/null
+out="$(echo '{"source":"startup"}' | KISS_MAP=0 node activate.js)"
+[ -z "$out" ] || { echo "FAIL: activate.js not silent after off"; exit 1; }
+echo '{"prompt":"/kiss"}' | node mode-tracker.js >/dev/null
+echo '{"source":"startup"}' | KISS_MAP=0 node activate.js | grep -q "KISS MODE ACTIVE — level: full" \
+  || { echo "FAIL: /kiss did not re-enable"; exit 1; }
+echo "kiss hooks: sticky off round trip passed"

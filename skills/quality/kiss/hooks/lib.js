@@ -59,13 +59,6 @@ function setMode(mode) {
   }
 }
 
-function clearMode() {
-  const { shared, perProject } = statePaths();
-  for (const file of [perProject, shared]) {
-    if (file) try { fs.unlinkSync(file); } catch (e) { /* already gone */ }
-  }
-}
-
 // Keep only the active level's row in the Levels table; drop the other modes'
 // rows. Ordinary rule bullets (not keyed by a mode word) survive verbatim.
 function filterByMode(body, mode) {
@@ -96,19 +89,21 @@ function getInstructions(mode) {
   }
 }
 
-// Cheap repo map so "reuse first" costs no search. git-tracked paths, char-budgeted.
+// Cheap repo map so "reuse first" costs no search: unique git-tracked dirs
+// (depth ≤ 2, first-seen order), char-budgeted. Root-level files are skipped.
 function buildMap(cwd = process.cwd()) {
   const budget = Number(process.env.KISS_MAP_CHARS || 2000);
   try {
-    const files = execFileSync('git', ['ls-files'], {
+    const dirs = [...new Set(execFileSync('git', ['ls-files'], {
       cwd, encoding: 'utf8', timeout: 3000, maxBuffer: 4 * 1024 * 1024,
       stdio: ['ignore', 'pipe', 'ignore'],
-    }).split('\n').filter(Boolean);
-    if (!files.length) return '';
+    }).split('\n').filter((f) => f.includes('/'))
+      .map((f) => f.split('/').slice(0, -1).slice(0, 2).join('/')))];
+    if (!dirs.length) return '';
     let out = 'Repo map (reuse what already exists before writing):\n';
-    for (const f of files) {
-      if (out.length + f.length + 1 > budget) { out += '…(truncated)'; break; }
-      out += f + '\n';
+    for (const d of dirs) {
+      if (out.length + d.length + 1 > budget) { out += '…(truncated)'; break; }
+      out += d + '\n';
     }
     return out.trimEnd();
   } catch (e) {
@@ -139,13 +134,13 @@ function writeHookOutput(event, context) {
 function parseCommand(prompt) {
   const p = String(prompt || '').trim().toLowerCase();
   if (/^(stop kiss|normal mode|kiss off)\b/.test(p)) return { mode: 'off' };
-  const m = p.match(/^\/kiss(?:\s+(lite|full|ultra|off))?\b/);
+  const m = p.match(/^\/kiss(?:\s+(lite|full|ultra|off))?$/);
   if (m) return { mode: normalizeMode(m[1]) || DEFAULT_MODE };
   return null;
 }
 
 module.exports = {
   DEFAULT_MODE, isCursor, normalizeMode,
-  readMode, setMode, clearMode,
+  readMode, setMode,
   getInstructions, buildMap, writeHookOutput, parseCommand,
 };

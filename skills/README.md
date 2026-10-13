@@ -10,7 +10,7 @@ Kit-owned workflow skills use the **`cda-`** prefix so they are easy to spot.
 | -------- | ---- | ------ |
 | **core** | `core/` | `cda-explore`, `cda-triage`, `cda-foam`, `cda-prd`, `cda-plan`, `cda-dev`, `cda-kanban`, `cda-agents` |
 | **dev** | `dev/` | Nix shell, direnv |
-| **quality** | `quality/` | Review, commits, docs, `tdd`, `diagnosing-bugs`, `review-standards-spec`, `grilling`, `codebase-design`, `improve-codebase-architecture`, `writing-for-agents`, `retro`, `prototype`, `wizard` |
+| **quality** | `quality/` | Review, commits, docs, `tdd`, `diagnosing-bugs`, `review-standards-spec`, `grilling`, `codebase-design`, `improve-codebase-architecture`, `writing-for-agents`, `retro`, `prototype`, `wizard`, `kiss` (always-on via hooks) |
 | **design** | `design/` | `frontend-design`, taste, Vercel guidelines, `cda-design-md` |
 | **tools** | `tools/` | Context7 |
 

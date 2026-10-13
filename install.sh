@@ -240,6 +240,12 @@ main() {
       log "# kiss hooks → cursor"
       if [ "$UNINSTALL" = 1 ]; then unwire_hooks "$CURSOR_HOME/hooks.json"; else wire_cursor_hooks; fi
     fi
+    if is_enabled opencode; then
+      log "# kiss plugin → opencode"
+      local mjs="$REPO_DIR/skills/quality/kiss/opencode/kiss.mjs"
+      if [ "$UNINSTALL" = 1 ]; then unlink_one "$mjs" "$XDG/opencode/plugin/kiss.mjs"
+      else link_one "$mjs" "$XDG/opencode/plugin/kiss.mjs"; fi
+    fi
   fi
 
   log ""

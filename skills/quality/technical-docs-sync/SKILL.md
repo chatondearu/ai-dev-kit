@@ -1,6 +1,6 @@
 ---
 name: technical-docs-sync
-description: Maintains English technical documentation under /doc so it mirrors the codebase and runtime config (Docker, OpenAPI, Pydantic). Use when updating or reviewing docs, syncing documentation after code changes, refactoring APIs, adding endpoints, changing environment variables, Docker, deployment, or when the user asks to fix outdated markdown documentation.
+description: Maintains English technical documentation under /doc so it mirrors the codebase and runtime config (runtime/env config, API schemas and contracts, Docker/deployment). Use when updating or reviewing docs, syncing documentation after code changes, refactoring APIs, adding endpoints, changing environment variables, Docker, deployment, or when the user asks to fix outdated markdown documentation.
 ---
 
 # Technical documentation sync
@@ -13,11 +13,11 @@ description: Maintains English technical documentation under /doc so it mirrors 
 
 ## Analysis order (efficient)
 
-1. **Entry points**: app bootstrap, routers, CLI (`main.py`, `app/`, etc.).
-2. **Public contracts**: request/response models, status codes, response content types, file formats.
+1. **Entry points**: app bootstrap, routers, CLI (e.g. `nuxt.config.ts`, `server/`, `src/main.ts`, `app.js`, `main.py`—whatever the project uses).
+2. **Public contracts**: request/response models, status codes, response content types, file formats (e.g. Nest DTOs, Nitro `server/api` handlers, tRPC/GraphQL types, Pydantic models).
 3. **Deployment**: `Dockerfile`, `docker-compose.yml`, health checks, ports—values must match files, not assumptions.
-4. **Environment variables**: document only what code reads (`os.getenv`, settings modules). If compose declares vars the app does not read yet, note that gap accurately (e.g. "set in Compose for future use" vs "consumed by …").
-5. **Optional verification**: if the app exposes OpenAPI (`/openapi.json`), use it to align paths and schemas.
+4. **Environment variables**: document only what code reads (e.g. `process.env`, Nuxt `runtimeConfig`, `import.meta.env`, `os.getenv`/settings modules). If compose declares vars the app does not read yet, note that gap accurately (e.g. "set in Compose for future use" vs "consumed by …").
+5. **Optional verification**: if the app exposes a machine-readable contract (e.g. OpenAPI/Swagger JSON, GraphQL schema), use it to align paths and schemas.
 
 ## Doc structure (adapt to project)
 
@@ -27,7 +27,7 @@ Prefer:
 - `doc/architecture.md` — components and data flow (add Mermaid only when the system is non-trivial).
 - `doc/api.md` — HTTP API (methods, payloads, examples with real paths).
 - `doc/deployment.md` — Docker, compose, production notes.
-- `doc/configuration.md` — env vars, voice paths, feature flags.
+- `doc/configuration.md` — env vars, runtime config, asset paths, feature flags.
 
 Use **`doc/reference.md`** only for long tables or verbose material (progressive disclosure).
 

@@ -19,8 +19,13 @@ prompt as the cda-dev checklist and severity gate.
 4. **Tests** — Adequate for the change; verification commands actually run
 5. **Maintainability** — Clear boundaries; no unrelated refactors
 6. **Repo standards** — `AGENTS.md`, Conventional Commits, English artifacts
-7. **Kanban hygiene** — PR references `Closes #N`; one issue per PR
-8. **Security-sensitive changes** — Auth, crypto, secrets, injection surfaces, dependency trust boundaries: recommend the host **Security Review** and/or **Bugbot** plugins when available; run them if the worker has not. Still **block on Critical** findings from any review path.
+7. **Docs updated** — If the diff changes public behavior, API, config/env,
+   deployment, or architecture, the matching `doc/` pages are updated in the same
+   change (and the relevant foam ADR when it's an architectural decision). Run
+   `technical-docs-sync` in **check mode** on the diff; a behavior change whose doc
+   page is left untouched is an **Important** finding — fix via `technical-docs-sync`.
+8. **Kanban hygiene** — PR references `Closes #N`; one issue per PR
+9. **Security-sensitive changes** — Auth, crypto, secrets, injection surfaces, dependency trust boundaries: recommend the host **Security Review** and/or **Bugbot** plugins when available; run them if the worker has not. Still **block on Critical** findings from any review path.
 
 ## Severity
 

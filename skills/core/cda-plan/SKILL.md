@@ -96,5 +96,8 @@ Chat list → intake Q&A → GO on epic breakdown
 - Plan status → `done`.
 - PRD status → `shipped`.
 - Run `cda-foam/scripts/import-kanban.sh`.
+- Sync `doc/` when the change touched public behavior, API, config/env,
+  deployment, or architecture (`technical-docs-sync`); record an ADR via
+  `cda-foam` if it was an architectural decision.
 
 See [conventions.md](conventions.md).

@@ -55,6 +55,7 @@ epic breakdown. English for GitHub / foam artifacts; match user language in chat
 ```
 Resolve context (repo, foam, board, agent CLI)
   → Ensure artifacts (mode-dependent; GO gate for intake)
+  → Frontier gating (hold children with an open `Blocked by:` issue)
   → Ownership check (non-overlapping paths when parallel)
   → Provision worktrees under .orch/worktrees/
   → Dispatch workers (job pool, cap ORCH_MAX_PARALLEL=3, queue overflow)

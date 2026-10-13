@@ -59,6 +59,9 @@ Children do not get separate PRDs unless the user later splits the epic.
 `prd/PRD-<epic#>-slug.md` (epic)
 ```
 
+Add `Blocked by: #<n>` on its own line when the child depends on another child
+(see **Blocking edges and the frontier**). Omit the line when nothing blocks it.
+
 Link children from the parent and parent from each child. Prefer a board
 "Parent issue" field when the project has one; otherwise body links are enough.
 
@@ -121,15 +124,37 @@ Add `.orch/` to `.gitignore` in target repos so worktrees and ledger artifacts s
 | `ORCH_MAX_ITER` | `10` | Max verify/fix iterations per worker |
 | `ORCH_BASE_PORT` | `3900` | Base port for local services (increment per worker) |
 | `ORCH_PROGRESS` | `auto` | TTY live board when stderr is a TTY; `0` / `--no-progress` = plain logs |
+| `ORCH_FRONTIER` | `auto` | Frontier gating on blocking edges; `0` = dispatch every requested issue regardless of blockers |
 
 ## Parallelism
 
 - Default concurrent cap: **3** (`ORCH_MAX_PARALLEL`).
 - When `ORCH_MAX_PARALLEL` **> 1**, `orch.sh` runs a **job pool** (up to N
   concurrent workers, overflow queued) and **git worktrees are required**.
-- If the breakdown marks hard deps (B needs A), still create both issues; either
-  sequence those two workers or mark the dependent **blocked** until A's PR exists.
 - With `ORCH_MAX_PARALLEL=1`, workers run strictly sequentially.
+
+## Blocking edges and the frontier
+
+Hard dependencies are **first-class**, not managed by hand. When the breakdown
+marks that child B needs child A, still create both issues, and record the edge
+on B's body:
+
+```
+Blocked by: #<A>
+```
+
+`orch.sh` computes the dispatchable **frontier** before every `ready-pickup` run:
+a requested child is dispatched only when **every** issue on its `Blocked by:`
+line is closed. Children with an open blocker are **held** (progress `blocked`,
+reason `waiting on #A`), not dispatched; they become takeable on a later run once
+A's PR is merged and its issue closes. If *every* requested issue is held, the run
+exits non-zero with "no frontier". This is the same `Blocked by:` convention
+`cda-explore` uses, so a decision that graduates into work keeps one dependency
+language end to end.
+
+Gating is skipped in `--dry-run`, when `ORCH_FRONTIER=0`, or when `gh` is
+unavailable. It fail-opens if an issue body can't be fetched (can't see blockers →
+treat as unblocked) and holds a blocker whose state can't be read (safe default).
 
 ## Claim protocol
 

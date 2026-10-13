@@ -24,6 +24,7 @@ source "$ROOT/lib/ci.sh"
 source "$ROOT/lib/sandbox.sh"
 source "$ROOT/lib/loop.sh"
 source "$ROOT/lib/progress.sh"
+source "$ROOT/lib/frontier.sh"
 
 MODE=""; REPO="$(pwd)"; DRY=0; SANDBOX=0; FAIL_FAST=0
 MAX_P="${ORCH_MAX_PARALLEL:-3}"; MAX_I="${ORCH_MAX_ITER:-10}"
@@ -224,6 +225,25 @@ case "$MODE" in
     [ "${#ISSUES[@]}" -gt 0 ] || { echo "need --issue"; exit 2; }
     idx=0
     any_blocked=0
+
+    # Frontier gating: hold any requested child whose `Blocked by:` issues are
+    # not all closed; only the frontier is dispatched. Skipped in --dry-run,
+    # when ORCH_FRONTIER=0, or when gh is unavailable.
+    if [ "$DRY" != 1 ] && [ "${ORCH_FRONTIER:-auto}" != 0 ] && command -v gh >/dev/null 2>&1; then
+      orch_frontier_partition "$REPO" "${ISSUES[@]}"
+      if [ "${#HELD_IDS[@]}" -gt 0 ]; then
+        for i in "${!HELD_IDS[@]}"; do
+          orch_progress_set "${HELD_IDS[$i]}" blocked "waiting on #${HELD_REASON[$i]}"
+          printf 'orch: holding #%s (blocked by open #%s)\n' "${HELD_IDS[$i]}" "${HELD_REASON[$i]}" >&2
+        done
+        any_blocked=1
+      fi
+      if [ "${#FRONTIER_IDS[@]}" -eq 0 ]; then
+        printf 'orch: no frontier — every requested issue is blocked\n' >&2
+        exit 1
+      fi
+      ISSUES=("${FRONTIER_IDS[@]}")
+    fi
 
     if [ "$DRY" = 1 ]; then
       for id in "${ISSUES[@]}"; do

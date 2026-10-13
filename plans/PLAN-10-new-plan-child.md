@@ -1,6 +1,6 @@
 # PLAN-10 — new-plan.sh: child plans from the epic PRD
 
-- **Status**: verify
+- **Status**: done
 - **PRD**: — (trivial-scope waiver: single-script fix, see cda-plan "Plan-without-PRD only for trivial scope")
 - **GitHub**: [#10](https://github.com/chatondearu/ai-dev-kit/issues/10)
 - **Date**: 2026-10-13

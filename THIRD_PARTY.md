@@ -12,3 +12,14 @@ when updating. Pins recorded on 2026-10-07.
 Upstream `name` fields are preserved for third-party skills
 (`design-taste-frontend`, `web-design-guidelines`) so re-vendoring stays simple.
 Kit-authored wrapper: `cda-design-md`.
+
+## Adapted / inspired (re-authored, not vendored verbatim)
+
+These skills were re-written to fit the kit; the ideas and some wording come from
+the upstreams below (both MIT). See [`PHILOSOPHY.md`](PHILOSOPHY.md) for what each
+contributed.
+
+| Upstream | License | Adapted into |
+| -------- | ------- | ------------ |
+| [mattpocock/skills](https://github.com/mattpocock/skills) | MIT | `tdd`, `diagnosing-bugs`, `grilling`, `prototype`, `retro`, `wizard`, `writing-for-agents`, `codebase-design`, `improve-codebase-architecture`, `review-standards-spec`; pipeline ideas in `cda-explore`, `cda-triage`, `cda-dev`, `cda-foam` |
+| [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail) | MIT | `kiss` (+ hooks), `kiss-audit`, and the leanness lens in `code-reviewer` / `cda-dev` |

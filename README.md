@@ -8,6 +8,11 @@ declaratively with **Nix (nix-maid)**.
 This repo is the **single source of truth**. Each agent's config dir links back
 to it, so edits are versioned and shared everywhere at once.
 
+**Ideology & sources of inspiration:** [`PHILOSOPHY.md`](PHILOSOPHY.md) —
+project-first + memory-backed pipeline, KISS code attitude, and credit to the
+upstreams we adapted ([mattpocock/skills](https://github.com/mattpocock/skills),
+[DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail)).
+
 ## Why it works across agents
 
 | Asset | Cursor | Claude Code | opencode | Portable |

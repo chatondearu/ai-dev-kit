@@ -9,3 +9,6 @@ result-*
 
 # install.sh backups (should never be committed)
 *.bak-*
+
+# cda-dev worktrees and run ledger
+.orch/

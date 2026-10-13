@@ -63,9 +63,12 @@ when to commit the scaffold.
    ```
 5. If an issue, PR, ADR, or PRD already covers the topic — read it and
    **confront** the new proposal with recorded decisions. Cite sources.
-6. If the user requests something that **contradicts an accepted ADR**, cite the
+6. Check the **out-of-scope register** (`foam/features/out-of-scope.md`): if this
+   feature was already ruled out, surface that decision (and its reason) instead of
+   re-proposing it. Reopen only as a conscious, justified exception.
+7. If the user requests something that **contradicts an accepted ADR**, cite the
    ADR and ask whether to supersede it (new ADR required).
-7. After shipping or deciding: update foam, Kanban, and `AGENTS.md` when needed.
+8. After shipping or deciding: update foam, Kanban, and `AGENTS.md` when needed.
 
 ## Workflows
 
@@ -84,6 +87,25 @@ when to commit the scaffold.
 2. Fill context, decision, **alternatives rejected**, consequences.
 3. Add row to `foam/decisions/index.md` and `foam/index.md`.
 4. Link from relevant `foam/architecture/*.md` notes.
+
+### B2 — Rule a feature out of scope
+
+When a feature request is **declined** (not deferred — genuinely ruled out),
+append one entry to `foam/features/out-of-scope.md` (create it lazily) so the
+decision is queryable and the same request doesn't resurface unchallenged:
+
+```markdown
+## <feature name>
+- **Ruled out:** <date> — <who/where decided>
+- **Why:** <the load-bearing reason a future proposer needs>
+- **Revisit if:** <the condition that would reopen it, or "—">
+- **Refs:** [[decisions/ADR-NNN-slug|ADR-NNN]] / #issue
+```
+
+This is the dedup register the agent protocol checks before proposing. A *rejected
+alternative within a decision* still belongs in that ADR's "alternatives rejected";
+out-of-scope.md is for whole features ruled beyond the product's scope. Don't dump
+every "not now" here — only conscious scope decisions worth defending later.
 
 ### C — Sync from Kanban
 

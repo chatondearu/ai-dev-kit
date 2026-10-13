@@ -26,6 +26,10 @@
 > dependency is written on the dependent child's body as `Blocked by: #<issue>`
 > (see cda-dev conventions, "Blocking edges and the frontier"). `orch.sh` reads
 > those edges to gate dispatch — a blocked child is held until its blocker closes.
+>
+> Prefer **tracer-bullet children**: each a thin vertical slice that ships
+> something observable end to end, not a horizontal layer (all types, then all UI).
+> Fewer, deeper edges beat a wide fan of shallow ones. See the `tdd` skill.
 
 ## Cross-cutting constraints
 

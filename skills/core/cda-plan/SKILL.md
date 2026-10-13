@@ -70,8 +70,18 @@ Chat list → intake Q&A → GO on epic breakdown
 ## Plan quality bar
 
 - **Constraints** table lists accepted ADRs — violations need a new ADR.
-- **Tasks** are checkboxes an agent can tick during implementation.
-- **Test plan** matches project conventions (nix develop, CI, etc.).
+- **Tasks** are checkboxes an agent can tick during implementation. Write them
+  **behaviorally** (a contract that survives refactors): describe *what* each task
+  must achieve and its acceptance signal, name the types / signatures / config
+  shapes involved, and let the implementer discover the files. **Avoid file paths
+  and line numbers** in tasks — they go stale between planning and implementation.
+- **Vertical slices.** Order tasks as **tracer bullets** — one thin end-to-end
+  slice at a time (interface → implementation → test), not all of layer A then all
+  of layer B. See the `tdd` skill.
+- **Test plan** declares the **seams under test** up front: the public boundaries
+  where behavior is observed (not internals). Use the `codebase-design` /`tdd`
+  vocabulary (seam, interface, depth) and confirm the seams before coding. Match
+  project conventions (nix develop, CI, etc.).
 - **Verification** section completed before merge.
 - English for all plan content.
 

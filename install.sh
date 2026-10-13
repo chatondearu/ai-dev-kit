@@ -10,7 +10,7 @@
 #   agents    ${AGENTS_HOME:-~/.agents}/skills   (universal; opencode also reads this)
 #
 # Cursor-specific assets (user rules, subagents, local plugins) → ~/.cursor only.
-# Claude: assembled claude/CLAUDE.md → ~/.claude/CLAUDE.md
+# Claude: assembled claude/CLAUDE.md → ${CLAUDE_CONFIG_DIR:-~/.claude}/CLAUDE.md
 # Skills may live in nested folders (skills/core/foo/); installers flatten by
 # skill directory name (each dir containing SKILL.md).
 #
@@ -126,7 +126,8 @@ KISS_HOOKS_DIR="$REPO_DIR/skills/quality/kiss/hooks"
 _kiss_jq_inplace() { # $1=file  $2=jq-program  (rest: --arg pairs already in program via env)
   local file="$1" prog="$2"; shift 2
   local tmp="$file.kiss.tmp"
-  if jq "$@" "$prog" "$file" > "$tmp" 2>/dev/null; then mv "$tmp" "$file"; else rm -f "$tmp"; return 1; fi
+  if jq "$@" "$prog" "$file" > "$tmp" 2>/dev/null; then mv "$tmp" "$file"
+  else rm -f "$tmp"; log "warn: $file is not valid JSON — left unchanged, kiss hooks not (un)wired"; return 1; fi
 }
 
 wire_claude_hooks() {
@@ -141,12 +142,13 @@ wire_claude_hooks() {
     | .hooks.SubagentStart    = (strip("SubagentStart")    + [{hooks:[{type:"command", command:$sub, timeout:5}]}])
     | .hooks.UserPromptSubmit = (strip("UserPromptSubmit") + [{hooks:[{type:"command", command:$trk, timeout:5}]}])
   ' --arg dir "$dir" --arg act "node \"$dir/activate.js\"" --arg sub "node \"$dir/subagent.js\"" --arg trk "node \"$dir/mode-tracker.js\"" \
-    && log "hook $f (kiss: SessionStart/SubagentStart/UserPromptSubmit)"
+    || return 0
+  log "hook $f (kiss: SessionStart/SubagentStart/UserPromptSubmit)"
   # statusLine badge — set ONLY when the user has none (never clobber theirs).
   local sl="bash \"$dir/kiss-statusline.sh\""
   if jq -e '.statusLine == null' "$f" >/dev/null 2>&1; then
-    _kiss_jq_inplace "$f" '.statusLine = {type:"command", command:$sl}' --arg sl "$sl" \
-      && log "statusline $f (kiss badge set)"
+    _kiss_jq_inplace "$f" '.statusLine = {type:"command", command:$sl}' --arg sl "$sl" || return 0
+    log "statusline $f (kiss badge set)"
   elif ! jq -e --arg d "$dir" '(.statusLine.command? // "") | contains($d)' "$f" >/dev/null 2>&1; then
     log "note: existing statusLine kept — add [KISS] badge by hand if you want it"
   fi
@@ -163,7 +165,8 @@ wire_cursor_hooks() {
     | .hooks.sessionStart       = (strip("sessionStart")       + [{command:$act, timeout:5}])
     | .hooks.beforeSubmitPrompt = (strip("beforeSubmitPrompt") + [{command:$trk, timeout:5}])
   ' --arg dir "$dir" --arg act "node \"$dir/activate.js\"" --arg trk "node \"$dir/mode-tracker.js\"" \
-    && log "hook $f (kiss: sessionStart/beforeSubmitPrompt)"
+    || return 0
+  log "hook $f (kiss: sessionStart/beforeSubmitPrompt)"
 }
 
 unwire_hooks() { # strip kiss entries from a tool's hook file, drop now-empty events
@@ -177,7 +180,8 @@ unwire_hooks() { # strip kiss entries from a tool's hook file, drop now-empty ev
         (.command? // "" | contains($dir)) or (any(.hooks[]?; .command | contains($dir))) | not)))
     | .hooks |= with_entries(select(.value | length > 0))
     | if (.statusLine.command? // "") | contains($dir) then del(.statusLine) else . end
-  ' --arg dir "$dir" && log "unhook $f (kiss removed)"
+  ' --arg dir "$dir" || return 0
+  log "unhook $f (kiss removed)"
 }
 
 is_enabled() {
@@ -204,7 +208,7 @@ main() {
       --agents) WANT[agents]=1;; --no-agents) WANT[agents]=0;;
       --hooks) HOOKS=1;; --no-hooks) HOOKS=0;;
       --cursor-home) CURSOR_HOME="$2"; shift;;
-      -h|--help) sed -n '2,28p' "$0"; exit 0;;
+      -h|--help) sed -n '2,/^[^#]/{/^#/p;}' "$0"; exit 0;;  # leading comment block
       *) log "unknown arg: $1"; exit 2;;
     esac
     shift
@@ -236,7 +240,7 @@ main() {
   if is_enabled claude; then
     log "# claude CLAUDE.md (from rules/)"
     assemble_claude_md
-    link_one "$REPO_DIR/claude/CLAUDE.md" "$HOME/.claude/CLAUDE.md"
+    link_one "$REPO_DIR/claude/CLAUDE.md" "$CLAUDE_HOME/CLAUDE.md"
   fi
 
   # kiss code-attitude hooks → enabled tools (SessionStart inject + mode toggle)

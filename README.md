@@ -37,12 +37,12 @@ is used otherwise): `CURSOR_HOME`, `CLAUDE_CONFIG_DIR`, `XDG_CONFIG_HOME`
 
 ```
 ai-dev-kit/
-├── skills/                      # Agent-agnostic skills (nested by category)
-│   ├── core/                    # cda-foam, cda-dev, cda-kanban, cda-agents, …
-│   ├── dev/                     # nix-develop-shell, nix-direnv-setup
-│   ├── quality/                 # git-commit, code-reviewer, technical-docs-sync
-│   ├── design/                  # frontend-design, taste, guidelines, cda-design-md
-│   └── tools/                   # context7
+├── skills/                      # Agent-agnostic skills (index: skills/README.md)
+│   ├── core/                    # cda-* project workflow
+│   ├── dev/                     # dev environment
+│   ├── quality/                 # code quality & review
+│   ├── design/                  # UI / design
+│   └── tools/                   # external tools
 ├── rules/                       # Global user rules → Cursor + Claude (assembled)
 ├── scripts/assemble-claude-md.sh
 ├── claude/                      # CLAUDE.header.md + generated CLAUDE.md
@@ -75,26 +75,12 @@ aiDevKit = {
 
 Run `./scripts/assemble-claude-md.sh` before Nix eval if you changed `rules/`.
 
+The Nix path links skills only: the always-on `kiss` hooks (Claude
+`settings.json` / Cursor `hooks.json`) need one `./install.sh` run.
+
 ## Included skills
 
-| Skill | Category | Purpose |
-| ----- | -------- | ------- |
-| `cda-agents` | core | Bootstrap / update `AGENTS.md` |
-| `cda-foam` | core | Foam graph, ADRs, kanban import |
-| `cda-prd` | core | PRD from Kanban issues |
-| `cda-plan` | core | Implementation plans from PRDs |
-| `cda-dev` | core | Meta-orchestrator: intake → foam/kanban → worktrees → verify/CI → PRs |
-| `cda-kanban` | core | GitHub Projects Kanban |
-| `nix-develop-shell` | dev | Run commands in `nix develop` |
-| `nix-direnv-setup` | dev | Scaffold flake + direnv |
-| `git-commit` | quality | Conventional Commits |
-| `code-reviewer` | quality | Structured code review |
-| `technical-docs-sync` | quality | Keep `doc/` aligned with code |
-| `frontend-design` | design | Bold creative UI |
-| `design-taste-frontend` | design | Anti-slop direction (Taste Skill) |
-| `web-design-guidelines` | design | Vercel interaction / a11y checklist |
-| `cda-design-md` | design | Curated brand `DESIGN.md` templates |
-| `context7` | tools | Library docs via Context7 |
+Full index: [`skills/README.md`](skills/README.md).
 
 Archived (not installed): see [`archive/`](archive/).
 

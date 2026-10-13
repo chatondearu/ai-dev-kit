@@ -31,12 +31,12 @@ usage() {
 prefill_from_issue() {
   local dest="$1" title="$2" url="$3" body="$4" num="$5" slug="$6" st="$7"
   local problem
-  problem="$(printf '%s' "$body" | sed -n '/^## Goal/,/^## /p' | head -n -1 | tail -n +2)"
+  problem="$(printf '%s' "$body" | sed -n '/^## Goal/,/^## /p' | sed '$d' | tail -n +2)"
   [ -n "$problem" ] || problem="$(printf '%s' "$body" | head -n 20)"
 
-  awk -v title="$title" -v url="$url" -v num="$num" -v slug="$slug" \
-      -v date="$(today)" -v st="$st" -v problem="$problem" '
-    BEGIN { n=0 }
+  PRD_PROBLEM="$problem" awk -v title="$title" -v url="$url" -v num="$num" -v slug="$slug" \
+      -v date="$(today)" -v st="$st" '
+    BEGIN { n=0; problem = ENVIRON["PRD_PROBLEM"] }  # via env: BSD awk rejects newlines in -v
     /^# PRD-XXX/ { print "# PRD-" num " — " title; next }
     /^- \*\*Status\*\*/ { print "- **Status**: " st; next }
     /^- \*\*GitHub\*\*/ { print "- **GitHub**: [#" num "](" url ")"; next }

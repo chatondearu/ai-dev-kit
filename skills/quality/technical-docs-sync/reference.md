@@ -21,7 +21,7 @@ Use as a starting point; trim sections that do not apply.
 
 - Base URL / default port (from compose or app).
 - Table: method, path, summary, auth if any.
-- Request/response JSON with field types; link to Pydantic models by name.
+- Request/response JSON with field types; link to the defining type by name (e.g. Nest DTO, Nitro `server/api` handler, tRPC/GraphQL type, Pydantic model).
 - Example `curl` for each mutating or main read path.
 - Error responses: HTTP codes actually raised in code.
 
@@ -39,10 +39,10 @@ Use as a starting point; trim sections that do not apply.
 
 ## Sync checklist (after substantive code changes)
 
-- [ ] Entry points and public routes match `doc/api.md` (and OpenAPI if used).
-- [ ] Env vars table matches `getenv`/settings usage.
+- [ ] Entry points and public routes match `doc/api.md` (and the machine-readable contract if one exists, e.g. OpenAPI/GraphQL schema).
+- [ ] Env vars table matches actual reads (e.g. `process.env`, Nuxt `runtimeConfig`, `import.meta.env`, `getenv`/settings).
 - [ ] Docker ports, volumes, healthcheck match compose/Dockerfile.
-- [ ] Voice/asset paths and extensions match code (e.g. `.wav` listing logic).
+- [ ] Asset paths and extensions match code (e.g. upload/static file listing logic).
 - [ ] Root README still links to `doc/README.md` and is not a duplicate manual.
 - [ ] Remove obsolete sections; no conflicting instructions across files.
 

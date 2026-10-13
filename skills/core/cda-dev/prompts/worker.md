@@ -22,6 +22,9 @@ branches. **Do not merge.**
    - Branch: `<type>/<issue#>-<slug>` per kanban conventions
    - Work from the assigned worktree cwd; do not switch repos mid-task
 3. **Implement**
+   - Treat the plan as a **behavioral contract**, not a file map: it tells you
+     *what* and the acceptance signal — **discover the files yourself** (paths or
+     line numbers in the brief may be stale). Verify by acceptance criteria.
    - Follow the plan checklist; tick items as you go
    - Stay inside epic PRD + ADR constraints; no scope expansion
 4. **Test / verify**

@@ -46,7 +46,17 @@ cat >"$STUB_BIN/gh" <<'EOF'
 #!/usr/bin/env bash
 case "$*" in
   *"issue view"*)
-    echo "Test Issue"
+    case "$*" in
+      *"--json body"*)
+        if [ "${GH_STUB_BLOCKED:-0}" = "1" ]; then
+          printf 'Goal\nBlocked by: #999\n'
+        else
+          echo "Test Issue"
+        fi
+        ;;
+      *"--json state"*) echo "${GH_STUB_BLOCKER_STATE:-OPEN}" ;;
+      *) echo "Test Issue" ;;
+    esac
     ;;
   *"pr list"*)
     case "$*" in
@@ -98,6 +108,15 @@ out_dry="$(bash "$SCRIPTS/orch.sh" --repo "$TMP" --mode ready-pickup --issue 1 -
 assert_contains "$out_dry" "worker id=1 branch=feat/1-issue-1" "dry-run plans issue 1"
 assert_contains "$out_dry" "worker id=2 branch=feat/2-issue-2" "dry-run plans issue 2"
 assert_contains "$out_dry" "worker id=3 branch=feat/3-issue-3" "dry-run plans issue 3 without dropping"
+
+echo "# frontier gating: every requested issue blocked -> exit 1, held surfaced"
+set +e
+out_held="$(GH_STUB_BLOCKED=1 bash "$SCRIPTS/orch.sh" --repo "$TMP" --mode ready-pickup --issue 20 2>&1)"
+rc_held=$?
+set -e
+assert_eq "$rc_held" "1" "all-blocked run exits nonzero"
+assert_contains "$out_held" "no frontier" "no-frontier message emitted"
+assert_contains "$out_held" "holding #20 (blocked by open #999)" "held issue surfaced to human"
 
 echo "# orch ready-pickup (issue 1: loop succeeds, no PR found -> status blocked, exit nonzero)"
 set +e

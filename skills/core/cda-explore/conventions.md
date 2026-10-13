@@ -33,9 +33,11 @@ This is the same `Blocked by:` convention `cda-dev` reads to compute its dispatc
 ### Frontier query
 
 ```bash
-# open sub-issues of the map, with assignee and body, to compute the frontier locally
-gh issue list --repo "$OWNER/$REPO" --label explore:grilling --label explore:research \
-  --label explore:prototype --label explore:task --state open \
+# Open decision tickets, with assignee + body, to compute the frontier locally.
+# NOTE: repeated --label is AND; a ticket has only one explore:<type>, so use a
+# comma-OR search qualifier (label:a,b,c matches any) instead.
+gh issue list --repo "$OWNER/$REPO" \
+  --search "label:explore:grilling,explore:research,explore:prototype,explore:task state:open" \
   --json number,title,assignees,body
 # a ticket is on the frontier when: assignees == [] AND every `Blocked by:` number is a closed issue
 ```

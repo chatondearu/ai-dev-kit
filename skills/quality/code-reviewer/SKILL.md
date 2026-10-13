@@ -48,6 +48,7 @@ Analyze the code changes based on the following pillars:
 *   **Security**: Are there any potential security vulnerabilities or insecure coding practices?
 *   **Edge Cases and Error Handling**: Does the code appropriately handle edge cases and potential errors?
 *   **Testability**: Is the new or modified code adequately covered by tests (even if preflight checks pass)? Suggest additional test cases that would improve coverage or robustness.
+*   **Leanness & reuse** (KISS lens): Could this fully work with less code? Does it reinvent a helper, component, service or pattern that already exists in the repo — or something the standard library, the platform, or an already-installed dependency provides? Flag unrequested abstractions, options, wrappers and "for later" code. **Read beyond the diff**: open the code the change touches *and its callers* — the worst finding is often an untouched file that now breaks. State each finding as: what the code does, what goes wrong, the fix, and the cost of skipping it. Never label removing validation, security, accessibility or error handling as "leaner".
 
 ### 4. Provide Feedback
 

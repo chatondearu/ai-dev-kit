@@ -142,6 +142,14 @@ wire_claude_hooks() {
     | .hooks.UserPromptSubmit = (strip("UserPromptSubmit") + [{hooks:[{type:"command", command:$trk, timeout:5}]}])
   ' --arg dir "$dir" --arg act "node \"$dir/activate.js\"" --arg sub "node \"$dir/subagent.js\"" --arg trk "node \"$dir/mode-tracker.js\"" \
     && log "hook $f (kiss: SessionStart/SubagentStart/UserPromptSubmit)"
+  # statusLine badge — set ONLY when the user has none (never clobber theirs).
+  local sl="bash \"$dir/kiss-statusline.sh\""
+  if jq -e '.statusLine == null' "$f" >/dev/null 2>&1; then
+    _kiss_jq_inplace "$f" '.statusLine = {type:"command", command:$sl}' --arg sl "$sl" \
+      && log "statusline $f (kiss badge set)"
+  elif ! jq -e --arg d "$dir" '(.statusLine.command? // "") | contains($d)' "$f" >/dev/null 2>&1; then
+    log "note: existing statusLine kept — add [KISS] badge by hand if you want it"
+  fi
 }
 
 wire_cursor_hooks() {
@@ -168,6 +176,7 @@ unwire_hooks() { # strip kiss entries from a tool's hook file, drop now-empty ev
     | .hooks |= with_entries(.value |= map(select(
         (.command? // "" | contains($dir)) or (any(.hooks[]?; .command | contains($dir))) | not)))
     | .hooks |= with_entries(select(.value | length > 0))
+    | if (.statusLine.command? // "") | contains($dir) then del(.statusLine) else . end
   ' --arg dir "$dir" && log "unhook $f (kiss removed)"
 }
 

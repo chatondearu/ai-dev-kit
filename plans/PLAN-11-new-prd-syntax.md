@@ -1,6 +1,6 @@
 # PLAN-11 — new-prd.sh syntax error
 
-- **Status**: in-progress
+- **Status**: done
 - **PRD**: [[../prd/PRD-6-kiss-audit-fixes|PRD-6]]
 - **GitHub**: [#11](https://github.com/chatondearu/ai-dev-kit/issues/11)
 - **Date**: 2026-10-13

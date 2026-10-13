@@ -1,6 +1,6 @@
 # PLAN-8 — kiss hooks fixes
 
-- **Status**: in-progress
+- **Status**: done
 - **PRD**: [[../prd/PRD-6-kiss-audit-fixes|PRD-6]]
 - **GitHub**: [#8](https://github.com/chatondearu/ai-dev-kit/issues/8)
 - **Date**: 2026-10-13

@@ -1,6 +1,6 @@
 # PLAN-7 — Install fixes
 
-- **Status**: in-progress
+- **Status**: done
 - **PRD**: [[../prd/PRD-6-kiss-audit-fixes|PRD-6]]
 - **GitHub**: [#7](https://github.com/chatondearu/ai-dev-kit/issues/7)
 - **Date**: 2026-10-13

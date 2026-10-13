@@ -27,6 +27,9 @@ branches. **Do not merge.**
      line numbers in the brief may be stale). Verify by acceptance criteria.
    - Follow the plan checklist; tick items as you go
    - Stay inside epic PRD + ADR constraints; no scope expansion
+   - Update `doc/` in the same change when you alter public behavior, API,
+     config/env, deployment, or architecture (`technical-docs-sync`) — don't defer
+     it to review
 4. **Test / verify**
    - Run the project’s normal verification (see `AGENTS.md`, plan test section,
      `nix develop -c …` when the repo uses Nix)

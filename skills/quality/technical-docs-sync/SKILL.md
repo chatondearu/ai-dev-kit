@@ -19,6 +19,28 @@ description: Maintains English technical documentation under /doc so it mirrors 
 4. **Environment variables**: document only what code reads (`os.getenv`, settings modules). If compose declares vars the app does not read yet, note that gap accurately (e.g. "set in Compose for future use" vs "consumed by …").
 5. **Optional verification**: if the app exposes OpenAPI (`/openapi.json`), use it to align paths and schemas.
 
+## Check mode (diff-driven, report-only)
+
+Invoked as an **oracle** (e.g. by a reviewer) to answer "does this change leave
+`doc/` stale?" — it **reports, it does not rewrite**. Give it a diff or changed-file
+list (`git diff <base>...HEAD`, a PR diff, or an explicit list).
+
+Map each changed area to the doc page that owns it, then judge whether that page is
+now out of date:
+
+| Change in the diff | Doc page to check |
+| ------------------ | ----------------- |
+| Public contract / endpoint / payload / status code | `doc/api.md` |
+| Env var read by the app, feature flag, settings module | `doc/configuration.md` |
+| Dockerfile / compose / ports / health check / deploy | `doc/deployment.md` |
+| New/removed module, changed data flow, component boundary | `doc/architecture.md` |
+| Feature added or removed (user-visible) | `doc/README.md` index + the owning page |
+
+Report per candidate page: **stale** (what changed vs what the page still says, and
+what needs updating) or **ok**. A change that updates behavior but whose page is
+untouched in the same diff is the finding. End with a one-line verdict: pages needing
+an update (if any), else "docs in sync". Switch to sync mode to apply the updates.
+
 ## Doc structure (adapt to project)
 
 Prefer:

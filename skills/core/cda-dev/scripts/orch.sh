@@ -225,15 +225,17 @@ case "$MODE" in
     [ "${#ISSUES[@]}" -gt 0 ] || { echo "need --issue"; exit 2; }
     idx=0
     any_blocked=0
+    HELD_IDS=(); HELD_REASON=()
 
     # Frontier gating: hold any requested child whose `Blocked by:` issues are
-    # not all closed; only the frontier is dispatched. Skipped in --dry-run,
-    # when ORCH_FRONTIER=0, or when gh is unavailable.
+    # not all closed; only the frontier is dispatched. Held issues are surfaced
+    # on the progress board and in the summary below (not here — the progress dir
+    # is reset further down). Skipped in --dry-run, when ORCH_FRONTIER=0, or when
+    # gh is unavailable.
     if [ "$DRY" != 1 ] && [ "${ORCH_FRONTIER:-auto}" != 0 ] && command -v gh >/dev/null 2>&1; then
       orch_frontier_partition "$REPO" "${ISSUES[@]}"
       if [ "${#HELD_IDS[@]}" -gt 0 ]; then
         for i in "${!HELD_IDS[@]}"; do
-          orch_progress_set "${HELD_IDS[$i]}" blocked "waiting on #${HELD_REASON[$i]}"
           printf 'orch: holding #%s (blocked by open #%s)\n' "${HELD_IDS[$i]}" "${HELD_REASON[$i]}" >&2
         done
         any_blocked=1
@@ -260,9 +262,17 @@ case "$MODE" in
     mkdir -p "$REPO/.orch/run"
     rm -f "$REPO/.orch/run"/*.rc "$REPO/.orch/run"/*.status "$REPO/.orch/run"/.dashboard-stop 2>/dev/null || true
 
-    export ORCH_PROGRESS_IDS="${ISSUES[*]}"
+    if [ "${#HELD_IDS[@]}" -gt 0 ]; then
+      export ORCH_PROGRESS_IDS="${ISSUES[*]} ${HELD_IDS[*]}"
+    else
+      export ORCH_PROGRESS_IDS="${ISSUES[*]}"
+    fi
     for id in "${ISSUES[@]}"; do
       orch_progress_set "$id" pending "queued"
+    done
+    # Surface held children on the board (survives the .status reset above).
+    for i in "${!HELD_IDS[@]}"; do
+      orch_progress_set "${HELD_IDS[$i]}" blocked "waiting on #${HELD_REASON[$i]}"
     done
     orch_progress_dashboard_start
 
@@ -361,6 +371,10 @@ case "$MODE" in
       else
         printf 'summary #%s blocked\n' "$id"
       fi
+    done
+    # Held-by-dependency children (never dispatched this run).
+    for i in "${!HELD_IDS[@]}"; do
+      printf 'summary #%s blocked — waiting on #%s\n' "${HELD_IDS[$i]}" "${HELD_REASON[$i]}"
     done
 
     if [ "$any_blocked" -ne 0 ]; then

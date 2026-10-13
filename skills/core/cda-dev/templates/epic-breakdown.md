@@ -22,6 +22,11 @@
 | 1 | feat/fix/chore/docs | | | XS–XL | P0–P2 | — / row # | |
 | 2 | | | | | | | |
 
+> **Depends on** is by row number here. After GO, when rows become issues, each
+> dependency is written on the dependent child's body as `Blocked by: #<issue>`
+> (see cda-dev conventions, "Blocking edges and the frontier"). `orch.sh` reads
+> those edges to gate dispatch — a blocked child is held until its blocker closes.
+
 ## Cross-cutting constraints
 
 - …

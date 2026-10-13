@@ -81,10 +81,18 @@ main() {
   [ -f "$TEMPLATE" ] || die "template not found: $TEMPLATE"
   [ -d "$ROOT/plans" ] || die "missing plans/ — run foam init first"
 
-  PRD="$(find_prd_for_issue "$ISSUE" "$ROOT" || true)"
-  [ -n "$PRD" ] || die "no PRD for issue #$ISSUE — run cda-prd/scripts/new-prd.sh first"
-
   DATA="$(issue_json "$ISSUE")" || die "cannot read issue #$ISSUE"
+
+  PRD="$(find_prd_for_issue "$ISSUE" "$ROOT" || true)"
+  if [ -z "$PRD" ]; then
+    # cda-dev children carry no PRD: fall back to the epic named under "## Parent".
+    PARENT="$(printf '%s' "$DATA" | jq -r '.body // ""' | tr -d '\r' | awk '
+      /^##[[:space:]]+Parent[[:space:]]*$/ { p=1; next }
+      p && /^##/ { exit }
+      p && match($0, /#[0-9]+/) { print substr($0, RSTART+1, RLENGTH-1); exit }')"
+    [ -n "$PARENT" ] && PRD="$(find_prd_for_issue "$PARENT" "$ROOT" || true)"
+    [ -n "$PRD" ] || die "no PRD for issue #$ISSUE${PARENT:+ nor its parent #$PARENT} — run cda-prd/scripts/new-prd.sh first"
+  fi
   TITLE="$(printf '%s' "$DATA" | jq -r .title)"
   URL="$(printf '%s' "$DATA" | jq -r .url)"
   PRD_BASE="$(basename "$PRD" .md)"

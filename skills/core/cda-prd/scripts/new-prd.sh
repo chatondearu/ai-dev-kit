@@ -78,7 +78,7 @@ main() {
 
   DATA="$(issue_json "$ISSUE")" || die "cannot read issue #$ISSUE (gh auth?)"
   TITLE="$(printf '%s' "$DATA" | jq -r .title)"
-  BODY="$(printf '%s' "$DATA" | jq -r .body // ""')"
+  BODY="$(printf '%s' "$DATA" | jq -r '.body // ""')"
   URL="$(printf '%s' "$DATA" | jq -r .url)"
 
   [ -z "$SLUG" ] && SLUG="$(slugify "$TITLE")"

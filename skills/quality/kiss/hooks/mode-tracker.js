@@ -2,7 +2,7 @@
 // kiss — UserPromptSubmit (Claude) / beforeSubmitPrompt (Cursor) hook.
 // Watches the prompt for `/kiss [lite|full|ultra|off]`, "stop kiss" or
 // "normal mode" and switches the persisted level. No command → no-op.
-const { parseCommand, setMode, clearMode, getInstructions, writeHookOutput, isCursor } = require('./lib');
+const { parseCommand, setMode, getInstructions, writeHookOutput, isCursor } = require('./lib');
 
 let input = '', done = false;
 function finish() {
@@ -12,7 +12,7 @@ function finish() {
   const cmd = parseCommand(prompt);
   if (!cmd) { if (isCursor) writeHookOutput('beforeSubmitPrompt', ''); return; }
   if (cmd.mode === 'off') {
-    clearMode();
+    setMode('off'); // sticky: next SessionStart stays silent until /kiss
     writeHookOutput('UserPromptSubmit', 'KISS MODE OFF — back to normal. Re-enable with `/kiss`.');
   } else {
     setMode(cmd.mode);

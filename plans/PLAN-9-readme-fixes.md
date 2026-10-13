@@ -1,6 +1,6 @@
 # PLAN-9 — README fixes
 
-- **Status**: in-progress
+- **Status**: done
 - **PRD**: [[../prd/PRD-6-kiss-audit-fixes|PRD-6]]
 - **GitHub**: [#9](https://github.com/chatondearu/ai-dev-kit/issues/9)
 - **Date**: 2026-10-13

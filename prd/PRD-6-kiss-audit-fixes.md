@@ -1,6 +1,6 @@
 # PRD-6 — Fix kiss-audit findings
 
-- **Status**: approved
+- **Status**: shipped
 - **GitHub**: [#6](https://github.com/chatondearu/ai-dev-kit/issues/6)
 - **Date**: 2026-10-13
 - **Tags**: #quality #tooling

@@ -25,4 +25,5 @@ contributed.
 | [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail) | MIT | `kiss` (+ hooks), `kiss-audit`, and the leanness lens in `code-reviewer` / `cda-dev` |
 | [ayghri/i-have-adhd](https://github.com/ayghri/i-have-adhd) | MIT | `rules/02-adhd-output.md` (reply shape, always-on via CLAUDE.md / Cursor user-rules) |
 | [Citability/claude-code-adhd-skills](https://github.com/Citability/claude-code-adhd-skills) | MIT | `standing` (extended to every project) |
-| [onion-42/nadja-public-claude-skills](https://github.com/onion-42/nadja-public-claude-skills) | MIT | `goal`; the anti-loop rule in `kiss` (from `step-back`) |
+| [onion-42/nadja-public-claude-skills](https://github.com/onion-42/nadja-public-claude-skills) | MIT | `goal`, `mini-reflection`, `nopanic`; the anti-loop rule in `kiss` (from `step-back`) |
+| [mohitagw15856/pm-claude-skills](https://github.com/mohitagw15856/pm-claude-skills) | MIT | `where-was-i`, `overwhelm-triage`, `hyperfocus-exit`, `body-double`, `weekly-unstuck` (made evidence-first) |

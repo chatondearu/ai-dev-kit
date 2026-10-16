@@ -76,7 +76,11 @@ The maintainer has ADHD, so the kit shapes its own output for that reader:
 `rules/02-adhd-output.md` (next action first, numbered steps, state restated,
 wins made visible — always-on through `CLAUDE.md` and Cursor user-rules, no hook),
 `standing` (weekly progress against your own trailing month, every number
-sourced), `goal` (pin the task, catch drift), and an anti-loop rule in `kiss`.
+sourced), `goal` (pin the task, catch drift), an anti-loop rule in `kiss`, and
+personal-use helpers adapted from [pm-claude-skills](https://github.com/mohitagw15856/pm-claude-skills)
+and nadja (`where-was-i`, `overwhelm-triage`, `hyperfocus-exit`, `body-double`,
+`weekly-unstuck`, `mini-reflection`, `nopanic`) — rebuilt to read the user's own
+evidence (transcripts, git, notes) instead of asking them to remember.
 None of these upstreams ships automation; we kept it that way — they plug into
 existing routines instead of adding cron jobs.
 

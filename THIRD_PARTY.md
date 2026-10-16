@@ -16,10 +16,13 @@ Kit-authored wrapper: `cda-design-md`.
 ## Adapted / inspired (re-authored, not vendored verbatim)
 
 These skills were re-written to fit the kit; the ideas and some wording come from
-the upstreams below (both MIT). See [`PHILOSOPHY.md`](PHILOSOPHY.md) for what each
+the upstreams below (all MIT). See [`PHILOSOPHY.md`](PHILOSOPHY.md) for what each
 contributed.
 
 | Upstream | License | Adapted into |
 | -------- | ------- | ------------ |
 | [mattpocock/skills](https://github.com/mattpocock/skills) | MIT | `tdd`, `diagnosing-bugs`, `grilling`, `prototype`, `retro`, `wizard`, `writing-for-agents`, `codebase-design`, `improve-codebase-architecture`, `review-standards-spec`; pipeline ideas in `cda-explore`, `cda-triage`, `cda-dev`, `cda-foam` |
 | [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail) | MIT | `kiss` (+ hooks), `kiss-audit`, and the leanness lens in `code-reviewer` / `cda-dev` |
+| [ayghri/i-have-adhd](https://github.com/ayghri/i-have-adhd) | MIT | `rules/02-adhd-output.md` (reply shape, always-on via CLAUDE.md / Cursor user-rules) |
+| [Citability/claude-code-adhd-skills](https://github.com/Citability/claude-code-adhd-skills) | MIT | `standing` (extended to every project) |
+| [onion-42/nadja-public-claude-skills](https://github.com/onion-42/nadja-public-claude-skills) | MIT | `goal`; the anti-loop rule in `kiss` (from `step-back`) |

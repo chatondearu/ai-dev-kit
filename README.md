@@ -41,6 +41,7 @@ ai-dev-kit/
 │   ├── core/                    # cda-* project workflow
 │   ├── dev/                     # dev environment
 │   ├── quality/                 # code quality & review
+│   ├── productivity/            # focus & progress (standing, goal)
 │   ├── design/                  # UI / design
 │   └── tools/                   # external tools
 ├── rules/                       # Global user rules → Cursor + Claude (assembled)

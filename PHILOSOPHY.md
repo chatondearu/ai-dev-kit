@@ -70,7 +70,17 @@ We took the attitude + the hook engine and left the product shell: marketplace/n
 packaging, auto-update, the ~20-agent matrix, i18n, benchmarks and the marketing
 site. We audited its hooks before re-authoring — local-only, no network, fail-open.
 
+### ADHD-friendly layer — [i-have-adhd](https://github.com/ayghri/i-have-adhd), [Citability](https://github.com/Citability/claude-code-adhd-skills), [nadja](https://github.com/onion-42/nadja-public-claude-skills) (all MIT)
+
+The maintainer has ADHD, so the kit shapes its own output for that reader:
+`rules/02-adhd-output.md` (next action first, numbered steps, state restated,
+wins made visible — always-on through `CLAUDE.md` and Cursor user-rules, no hook),
+`standing` (weekly progress against your own trailing month, every number
+sourced), `goal` (pin the task, catch drift), and an anti-loop rule in `kiss`.
+None of these upstreams ships automation; we kept it that way — they plug into
+existing routines instead of adding cron jobs.
+
 ---
 
-Both upstreams are MIT. This kit's adaptations are re-written, not vendored
+All upstreams are MIT. This kit's adaptations are re-written, not vendored
 verbatim; see each skill's `SKILL.md` for inline credit where applicable.

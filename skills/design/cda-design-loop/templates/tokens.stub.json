@@ -1,0 +1,29 @@
+{
+  "$schema": "https://design-tokens.github.io/community-group/format/",
+  "color": {
+    "primitive": {
+      "ink": { "$value": "#0a0a0a" },
+      "paper": { "$value": "#fafafa" },
+      "accent": { "$value": "#0d9488" }
+    },
+    "semantic": {
+      "fg": { "$value": "{color.primitive.ink}" },
+      "bg": { "$value": "{color.primitive.paper}" },
+      "focus": { "$value": "{color.primitive.accent}" }
+    }
+  },
+  "font": {
+    "primitive": {
+      "display": { "$value": "\"Fraunces\", Georgia, serif" },
+      "body": { "$value": "\"Source Sans 3\", system-ui, sans-serif" }
+    },
+    "semantic": {
+      "heading": { "$value": "{font.primitive.display}" },
+      "text": { "$value": "{font.primitive.body}" }
+    }
+  },
+  "radius": {
+    "sm": { "$value": "4px" },
+    "md": { "$value": "8px" }
+  }
+}

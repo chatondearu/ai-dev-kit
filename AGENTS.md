@@ -80,7 +80,8 @@ agents by `install.sh`. Index: `skills/README.md`. Ideology: `PHILOSOPHY.md`.
 
 ```bash
 for t in skills/core/cda-dev/scripts/tests/test_*.sh skills/core/cda-dev/scripts/tests/smoke_orch_dry.sh; do bash "$t"; done
-bash skills/quality/kiss/hooks/test.sh
+bash skills/quality/cda-kiss/hooks/test.sh
+bash skills/design/cda-design-loop/scripts/tests/test_seed_design.sh
 ```
 
 **Gotchas**

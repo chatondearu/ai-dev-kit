@@ -31,12 +31,38 @@ brand_dir_for() {
   echo "${BRAND_DIR[$key]}"
 }
 
+# Brand tokens: -qiw for long names; linear/cal/cursor need explicit headers or capitalized product names (avoids linear-gradient, cursor: pointer).
+brand_match_in_file() {
+  local f="$1" b="$2"
+  case "$b" in
+    linear)
+      grep -qiE '(^|[[:space:]])Brand:[[:space:]]*Linear\b|linear\.app|Linear-design' "$f" && return 0
+      grep -qE '\bLinear\b' "$f" && return 0
+      return 1
+      ;;
+    cal)
+      grep -qiE '(^|[[:space:]])Brand:[[:space:]]*Cal\b|#+[[:space:]]*Cal\b|cal\.com|\bCal\b' "$f" && return 0
+      return 1
+      ;;
+    cursor)
+      grep -qiE '(^|[[:space:]])Brand:[[:space:]]*Cursor\b|cursor\.com|Cursor-design' "$f" && return 0
+      grep -qE '\bCursor\b' "$f" && return 0
+      return 1
+      ;;
+    notion|raycast|resend)
+      grep -qiw "$b" "$f" && return 0
+      return 1
+      ;;
+    *) return 1 ;;
+  esac
+}
+
 detect_brand_in_file() {
   local f="$1"
   [[ -f "$f" ]] || return 1
   local b
   for b in "${KNOWN_BRANDS[@]}"; do
-    if grep -qi "$b" "$f"; then
+    if brand_match_in_file "$f" "$b"; then
       echo "$b"
       return 0
     fi
@@ -117,7 +143,12 @@ else
       skipped+=("DESIGN.md")
     fi
   elif [[ -n "$brief_path" ]]; then
-    skipped+=("DESIGN.md")
+    if [[ "$FORCE" -eq 1 ]]; then
+      cp "$SKILL_DIR/templates/DESIGN.stub.md" "$brief_path"
+      written+=("DESIGN.md (taste stub)")
+    else
+      skipped+=("DESIGN.md")
+    fi
   else
     cp "$SKILL_DIR/templates/DESIGN.stub.md" "$TARGET/DESIGN.md"
     written+=("DESIGN.md (taste stub)")

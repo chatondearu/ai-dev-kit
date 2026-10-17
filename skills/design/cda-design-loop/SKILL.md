@@ -15,7 +15,7 @@ Announce: **Using cda-design-loop.**
 ## Inputs (resolve in order)
 
 1. **Brief:** Read `DESIGN.md`, else `docs/DESIGN.md`. If absent → seed a **taste stub** (or ask once for vibe), not a brand pack. Copy from [templates/DESIGN.stub.md](templates/DESIGN.stub.md) or run the project seed script when available. Use **`cda-design-md`** only when a brand is already evidenced on the project (existing brief names Linear/Notion/Cal/Raycast/Cursor/Resend, a copied brand file, or repo already ships that language) or the user explicitly asks for a curated brand.
-2. **Base URL:** `DEV_URL` env, else ask once, else probe common defaults (`http://127.0.0.1:3000`, `http://127.0.0.1:5173`) with a single HTTP check.
+2. **Base URL:** `DEV_URL` env, else ask once, else probe common defaults (`http://127.0.0.1:3000`, `http://127.0.0.1:5173`) with a single HTTP check. If the probe fails, run the project's documented dev start command once (`AGENTS.md`, `package.json` — e.g. `pnpm dev`, `npm run dev`), wait briefly, re-probe; only then **FAIL_SERVER**.
 3. **Routes:** user args, else UI routes touched in the diff, else `/`.
 4. **Eyes backend:** first available among:
    - Playwright MCP / browser automation already in the session
@@ -31,7 +31,7 @@ Curated brand templates are **not** the default for greenfield work. Apply `cda-
 
 ```
 for i in 1..3:
-  assert HTTP 200 on each route (fail if server dead — never count as SKIP pass)
+  assert HTTP 200 on each route (start dev server once per Inputs if probe failed; fail if still dead — never count as SKIP pass)
   if eyes available:
     screenshot each route @ 375, 768, 1440
   run cheap gates:

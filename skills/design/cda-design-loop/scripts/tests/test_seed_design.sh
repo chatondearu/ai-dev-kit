@@ -32,4 +32,19 @@ printf '%s\n' "$CUSTOM" >"$TMP4/proj/docs/DESIGN.md"
 bash "$SEED" --target "$TMP4/proj" --no-tokens --no-shot
 test ! -e "$TMP4/proj/DESIGN.md"
 grep -q "$CUSTOM" "$TMP4/proj/docs/DESIGN.md"
+# linear-gradient alone must not trigger Linear brand pack
+TMP5="$(mktemp -d)"
+mkdir -p "$TMP5/proj"
+printf '%s\n' 'background: linear-gradient(180deg, #000, #111);' >"$TMP5/proj/DESIGN.md"
+bash "$SEED" --target "$TMP5/proj" --no-tokens --no-shot
+grep -q 'linear-gradient' "$TMP5/proj/DESIGN.md"
+grep -qi 'linear-design-analysis' "$TMP5/proj/DESIGN.md" && exit 1 || true
+# --force refreshes taste stub over a modified stub (no brand in brief)
+TMP6="$(mktemp -d)"
+mkdir -p "$TMP6/proj"
+bash "$SEED" --target "$TMP6/proj" --no-tokens --no-shot
+printf '%s\n' 'MODIFIED BRIEF' >>"$TMP6/proj/DESIGN.md"
+bash "$SEED" --target "$TMP6/proj" --force --no-tokens --no-shot
+grep -q 'Taste stub' "$TMP6/proj/DESIGN.md"
+grep -q 'MODIFIED BRIEF' "$TMP6/proj/DESIGN.md" && exit 1
 echo "test_seed_design: ok"

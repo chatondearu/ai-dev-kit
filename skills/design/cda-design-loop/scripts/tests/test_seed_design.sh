@@ -24,4 +24,12 @@ TMP3="$(mktemp -d)"
 mkdir -p "$TMP3/proj"
 bash "$SEED" --target "$TMP3/proj" --brand linear --no-tokens --no-shot
 grep -qi 'linear' "$TMP3/proj/DESIGN.md"
+# docs/DESIGN.md only (custom brief, no brand): must not add root taste stub
+TMP4="$(mktemp -d)"
+mkdir -p "$TMP4/proj/docs"
+CUSTOM='Our product design principles — no kit brand here.'
+printf '%s\n' "$CUSTOM" >"$TMP4/proj/docs/DESIGN.md"
+bash "$SEED" --target "$TMP4/proj" --no-tokens --no-shot
+test ! -e "$TMP4/proj/DESIGN.md"
+grep -q "$CUSTOM" "$TMP4/proj/docs/DESIGN.md"
 echo "test_seed_design: ok"

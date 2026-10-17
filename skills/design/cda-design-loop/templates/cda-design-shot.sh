@@ -37,7 +37,7 @@ const { chromium } = require('playwright');
   await browser.close();
 })().catch(e => { console.error(e.message); process.exit(1); });
 " "$URL" "$OUT" || {
-    echo "$SKIP_MSG" >&2
-    exit 2
+    echo "cda-design-shot: capture failed (width ${w})" >&2
+    exit 3
   }
 done

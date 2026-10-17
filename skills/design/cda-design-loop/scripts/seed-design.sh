@@ -116,7 +116,7 @@ else
     else
       skipped+=("DESIGN.md")
     fi
-  elif [[ -f "$TARGET/DESIGN.md" && "$FORCE" -eq 0 ]]; then
+  elif [[ -n "$brief_path" ]]; then
     skipped+=("DESIGN.md")
   else
     cp "$SKILL_DIR/templates/DESIGN.stub.md" "$TARGET/DESIGN.md"

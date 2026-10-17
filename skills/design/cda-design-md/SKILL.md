@@ -22,9 +22,10 @@ UI consistent with a known product language. Templates are a curated subset of
 | Skill | Use when |
 | ----- | -------- |
 | **cda-design-md** | Match one of the curated brands below |
-| **design-taste-frontend** | Anti-slop direction for landings / portfolios / redesigns |
-| **frontend-design** | Bold creative UI without a brand template |
-| **web-design-guidelines** | Audit interactions, a11y, UX quality after UI exists |
+| **cda-design-taste** | Anti-slop direction for landings / portfolios / redesigns |
+| **cda-design-bold** | Bold creative UI without a brand template |
+| **cda-design-audit** | Audit interactions, a11y, UX quality after UI exists |
+| **cda-design-loop** | After UI exists: visual pass vs project `DESIGN.md` |
 
 ## Brands shipped
 
@@ -44,7 +45,7 @@ UI consistent with a known product language. Templates are a curated subset of
 3. Copy it into the target repo as `DESIGN.md` (or `docs/DESIGN.md`) when the
    user wants a durable project brief.
 4. Implement UI following that file; do not invent a conflicting system.
-5. Optionally run **web-design-guidelines** for a compliance pass.
+5. Prefer **cda-design-loop** after UI exists; optionally **cda-design-audit** for a checklist pass.
 
 ## Extending the set
 

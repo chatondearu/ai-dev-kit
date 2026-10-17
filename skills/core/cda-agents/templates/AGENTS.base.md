@@ -25,7 +25,7 @@ must follow this sequence:
 
 Skills: **cda-foam**, **cda-prd**, **cda-plan**,
 **cda-dev**, **cda-kanban**,
-**cda-agents**, **git-commit**, **code-reviewer**.
+**cda-agents**, **cda-commit**, **cda-review**.
 
 ## Project memory (foam)
 
@@ -51,15 +51,15 @@ Cursor rule (if present): `.cursor/rules/product-memory.mdc`.
 | Implementation plan from PRD | `cda-plan` |
 | Multi-task chat batch → epic + parallel PRs | `cda-dev` |
 | Issues, board, PRs, milestones | `cda-kanban` |
-| Commits | `git-commit` |
-| Code review | `code-reviewer` |
-| Bold creative UI | `frontend-design` |
-| Anti-slop landings / redesigns | `design-taste-frontend` |
+| Commits | `cda-commit` |
+| Code review | `cda-review` |
+| Bold creative UI | `cda-design-bold` |
+| Anti-slop landings / redesigns | `cda-design-taste` |
 | Brand DESIGN.md templates | `cda-design-md` |
-| UI a11y / UX audit | `web-design-guidelines` |
+| UI a11y / UX audit | `cda-design-audit` |
 | Visual design pass (screenshot loop) | `cda-design-loop` |
-| User-facing `doc/` | `technical-docs-sync` |
-| Library docs | `context7` |
+| User-facing `doc/` | `cda-docs` |
+| Library docs | `cda-context7` |
 | Nix / direnv projects | `nix-develop-shell`, `nix-direnv-setup` |
 
 <!-- TYPE_OVERLAY -->

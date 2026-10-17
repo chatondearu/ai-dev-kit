@@ -56,4 +56,4 @@ gh issue close <n> --repo "$OWNER/$REPO" --comment "…"            # wontfix
 - **Brief ⇒ `cda-dev`.** `ready-for-agent` + Status Ready is the handoff: the brief
   is the behavioral contract `cda-dev`'s worker implements. Keep it path-free and
   acceptance-driven (see SKILL.md, "durable, behavioral contracts").
-- **Grill via `grilling`**; record domain/ADR updates through `cda-foam`.
+- **Grill via `cda-grill`**; record domain/ADR updates through `cda-foam`.

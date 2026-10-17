@@ -22,7 +22,7 @@ Turn an **approved PRD** + **Kanban issue** into an implementation **plan**
 | PRD | `cda-prd` (required before plan) |
 | Plan | **this skill** |
 | Claim + branch + PR | `cda-kanban` workflow B |
-| Commit / review | `git-commit`, `code-reviewer` |
+| Commit / review | `cda-commit`, `cda-review` |
 
 ## Before writing
 
@@ -77,9 +77,9 @@ Chat list → intake Q&A → GO on epic breakdown
   and line numbers** in tasks — they go stale between planning and implementation.
 - **Vertical slices.** Order tasks as **tracer bullets** — one thin end-to-end
   slice at a time (interface → implementation → test), not all of layer A then all
-  of layer B. See the `tdd` skill.
+  of layer B. See the `cda-tdd` skill.
 - **Test plan** declares the **seams under test** up front: the public boundaries
-  where behavior is observed (not internals). Use the `codebase-design` /`tdd`
+  where behavior is observed (not internals). Use the `cda-codebase` /`cda-tdd`
   vocabulary (seam, interface, depth) and confirm the seams before coding. Match
   project conventions (nix develop, CI, etc.).
 - **Verification** section completed before merge.
@@ -97,7 +97,7 @@ Chat list → intake Q&A → GO on epic breakdown
 - PRD status → `shipped`.
 - Run `cda-foam/scripts/import-kanban.sh`.
 - Sync `doc/` when the change touched public behavior, API, config/env,
-  deployment, or architecture (`technical-docs-sync`); record an ADR via
+  deployment, or architecture (`cda-docs`); record an ADR via
   `cda-foam` if it was an architectural decision.
 
 See [conventions.md](conventions.md).

@@ -41,9 +41,9 @@ credited below and in [`THIRD_PARTY.md`](THIRD_PARTY.md).
 
 The engineering-practice backbone. Directly adapted into the kit:
 
-- **Practices** → `tdd`, `diagnosing-bugs`, `grilling`, `prototype`, `retro`,
-  `wizard`, `writing-for-agents`, `codebase-design`,
-  `improve-codebase-architecture`, and `review-standards-spec` (the two-axis
+- **Practices** → `cda-tdd`, `cda-diagnose`, `cda-grill`, `cda-prototype`, `cda-retro`,
+  `cda-wizard`, `cda-writing`, `cda-codebase`,
+  `cda-architecture`, and `cda-standards` (the two-axis
   Standards ∥ Spec review).
 - **Pipeline ideas folded into `cda-*`**: tracer-bullet tickets with first-class
   **blocking edges / frontier** dispatch (`cda-dev`), durable **agent-ready
@@ -57,13 +57,13 @@ to its own stack.
 
 The KISS code-attitude layer. Re-authored into the kit:
 
-- **`kiss`** — the ruleset (smallest complete change, reuse-first ladder, never
+- **`cda-kiss`** — the ruleset (smallest complete change, reuse-first ladder, never
   cut the essentials) delivered **always-on via lifecycle hooks**: session +
   subagent injection, a `git ls-files` repo map, `/kiss lite|full|ultra|off`
   toggle, and a statusline badge.
-- **`kiss-audit`** — whole-repo ranked quality audit (must-fix / should-fix /
+- **`cda-kiss-audit`** — whole-repo ranked quality audit (must-fix / should-fix /
   nice-to-have).
-- The **leanness & reuse lens** grafted into `code-reviewer` and the `cda-dev`
+- The **leanness & reuse lens** grafted into `cda-review` and the `cda-dev`
   reviewer.
 
 We took the attitude + the hook engine and left the product shell: marketplace/npm
@@ -75,11 +75,11 @@ site. We audited its hooks before re-authoring — local-only, no network, fail-
 The maintainer has ADHD, so the kit shapes its own output for that reader:
 `rules/02-adhd-output.md` (next action first, numbered steps, state restated,
 wins made visible — always-on through `CLAUDE.md` and Cursor user-rules, no hook),
-`standing` (weekly progress against your own trailing month, every number
-sourced), `goal` (pin the task, catch drift), an anti-loop rule in `kiss`, and
+`cda-standing` (weekly progress against your own trailing month, every number
+sourced), `cda-goal` (pin the task, catch drift), an anti-loop rule in `cda-kiss`, and
 personal-use helpers adapted from [pm-claude-skills](https://github.com/mohitagw15856/pm-claude-skills)
-and nadja (`where-was-i`, `overwhelm-triage`, `hyperfocus-exit`, `body-double`,
-`weekly-unstuck`, `mini-reflection`, `nopanic`) — rebuilt to read the user's own
+and nadja (`cda-where`, `cda-overwhelm`, `cda-hyperfocus`, `cda-body-double`,
+`cda-unstuck`, `cda-reflect`, `cda-nopanic`) — rebuilt to read the user's own
 evidence (transcripts, git, notes) instead of asking them to remember.
 None of these upstreams ships automation; we kept it that way — they plug into
 existing routines instead of adding cron jobs.

@@ -15,4 +15,4 @@ In **every** repository you work on:
    and `AGENTS.md` when stack, skills, or protocols change.
 
 Skills (ai-dev-kit): `cda-foam`, `cda-prd`, `cda-plan`, `cda-dev`,
-`cda-kanban`, `cda-agents`, `git-commit`, `code-reviewer`.
+`cda-kanban`, `cda-agents`, `cda-commit`, `cda-review`.

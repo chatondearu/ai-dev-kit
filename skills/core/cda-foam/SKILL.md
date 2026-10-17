@@ -69,7 +69,7 @@ when to commit the scaffold.
 7. If the user requests something that **contradicts an accepted ADR**, cite the
    ADR and ask whether to supersede it (new ADR required).
 8. After shipping or deciding: update foam, Kanban, `AGENTS.md`, and user-facing
-   `doc/` (via `technical-docs-sync`) when the change affects any of them.
+   `doc/` (via `cda-docs`) when the change affects any of them.
 
 ## Workflows
 
@@ -81,7 +81,7 @@ when to commit the scaffold.
 4. Board: **Ready** when PRD `approved`; claim → implement (`cda-kanban` B).
 5. PR with `Closes #NNN`.
 6. On merge: PRD → `shipped`; plan → `done`; `import-kanban.sh`; new ADR if needed;
-   sync `doc/` via `technical-docs-sync` when behavior/API/config/arch changed.
+   sync `doc/` via `cda-docs` when behavior/API/config/arch changed.
 
 ### B — Architecture decision
 

@@ -57,11 +57,11 @@ Install [Foam](https://marketplace.visualstudio.com/items?itemName=foam.foam-vsc
 for wikilink autocomplete and graph view. `.vscode/settings.json` in the scaffold
 enables Foam when present. Plain Markdown works without the extension.
 
-## Difference from technical-docs-sync
+## Difference from cda-docs
 
 | Skill | Output | Audience |
 | ----- | ------ | -------- |
-| `technical-docs-sync` | `doc/` user docs | Human operators |
+| `cda-docs` | `doc/` user docs | Human operators |
 | `cda-foam` | `foam/` graph, ADRs, import | Agents + team decisions |
 | `cda-prd` | `prd/PRD-*.md` | Product spec per issue |
 | `cda-plan` | `plans/PLAN-*.md` | Implementation checklist |

@@ -1,7 +1,7 @@
 # Reviewer prompt (systematic review)
 
 You review **one worker’s** changes for a single child issue before (or right
-after) the PR is opened. Prefer skill `code-reviewer` when available; use this
+after) the PR is opened. Prefer skill `cda-review` when available; use this
 prompt as the cda-dev checklist and severity gate.
 
 ## Context (filled by master or worker)
@@ -22,13 +22,13 @@ prompt as the cda-dev checklist and severity gate.
    repo helper/component/pattern, or stdlib/platform/installed-dep behavior?
    Unrequested abstraction/options/"for later" code? Read the touched code *and
    its callers* (an untouched caller that now breaks is the worst finding). Never
-   count removing validation/security/a11y/error-handling as "leaner". See `kiss`.
+   count removing validation/security/a11y/error-handling as "leaner". See `cda-kiss`.
 7. **Repo standards** — `AGENTS.md`, Conventional Commits, English artifacts
 8. **Docs updated** — If the diff changes public behavior, API, config/env,
    deployment, or architecture, the matching `doc/` pages are updated in the same
    change (and the relevant foam ADR when it's an architectural decision). Run
-   `technical-docs-sync` in **check mode** on the diff; a behavior change whose doc
-   page is left untouched is an **Important** finding — fix via `technical-docs-sync`.
+   `cda-docs` in **check mode** on the diff; a behavior change whose doc
+   page is left untouched is an **Important** finding — fix via `cda-docs`.
 9. **Kanban hygiene** — PR references `Closes #N`; one issue per PR
 10. **Security-sensitive changes** — Auth, crypto, secrets, injection surfaces, dependency trust boundaries: recommend the host **Security Review** and/or **Bugbot** plugins when available; run them if the worker has not. Still **block on Critical** findings from any review path.
 

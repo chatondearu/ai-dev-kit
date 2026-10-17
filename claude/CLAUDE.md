@@ -59,7 +59,7 @@ In **every** repository you work on:
    and `AGENTS.md` when stack, skills, or protocols change.
 
 Skills (ai-dev-kit): `cda-foam`, `cda-prd`, `cda-plan`, `cda-dev`,
-`cda-kanban`, `cda-agents`, `git-commit`, `code-reviewer`.
+`cda-kanban`, `cda-agents`, `cda-commit`, `cda-review`.
 
 ---
 
@@ -85,9 +85,9 @@ off for the session; confirm in one line.
 8. **Small visible sets.** Group and rank; about 5 items per group. Never drop relevant items when completeness matters — this shapes presentation, not analysis.
 9. **No preamble, no recap, no pleasantries.** No "Great question", "Let me…", "Hope this helps", "Let me know…".
 
-## Ending (shared with `kiss`)
+## Ending (shared with `cda-kiss`)
 
-When both apply, end in this order: the `kiss` line (what was skipped / not checked, and any risk), then **`Next: <one action doable in under two minutes>` as the very last line**.
+When both apply, end in this order: the `cda-kiss` line (what was skipped / not checked, and any risk), then **`Next: <one action doable in under two minutes>` as the very last line**.
 
 ## Break the shape when
 

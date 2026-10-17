@@ -36,8 +36,8 @@ Open tickets are **not** listed — they are open sub-issues, found by the front
 Each ticket carries one `explore:<type>` label. Every ticket is either **HITL** (worked *with* a human who speaks for themselves) or **AFK** (agent alone). A HITL ticket only resolves through live exchange; the agent never answers the human's side of it.
 
 - **research** (AFK): surface a fact a decision waits on from docs, third-party APIs, or local resources. Resolve with a subagent that calls the `deep-research` skill. Capture findings on a throwaway `research/<name>` branch with a context pointer from the ticket; push it, open no PR.
-- **prototype** (HITL): raise the fidelity of the discussion with a cheap, rough, concrete artifact to react to. Resolve by calling the `prototype` skill; link the prototype as an asset. Use when "how should it look / behave" is the key question.
-- **grilling** (HITL): conversation — the default case. Call the `grilling` skill; for domain/terminology decisions also record vocabulary and ADRs through `cda-foam`.
+- **cda-prototype** (HITL): raise the fidelity of the discussion with a cheap, rough, concrete artifact to react to. Resolve by calling the `cda-prototype` skill; link the prototype as an asset. Use when "how should it look / behave" is the key question.
+- **cda-grill** (HITL): conversation — the default case. Call the `cda-grill` skill; for domain/terminology decisions also record vocabulary and ADRs through `cda-foam`.
 - **task** (HITL or AFK): manual work that must happen before a *decision* can be made (provision access, sign up for a service so its API can be judged, move data so its shape can be seen). The one type that *does* rather than decides — it earns its place by unblocking a decision. Drive it AFK where possible; otherwise hand the human a precise checklist. The resolution records what was done and any facts later tickets depend on (credential location, new URLs, row counts).
 
 ## Fog of war
@@ -61,7 +61,7 @@ Two modes. Either way, **never resolve more than one ticket per session**, excep
 
 User invokes with a loose idea.
 
-1. **Name the destination.** Call `grilling` to pin down what this map is finding its way to (spec/PRD, decision, or change); record domain terms and any locked constraints as ADRs via `cda-foam`. The destination is settled first — it fixes the scope.
+1. **Name the destination.** Call `cda-grill` to pin down what this map is finding its way to (spec/PRD, decision, or change); record domain terms and any locked constraints as ADRs via `cda-foam`. The destination is settled first — it fixes the scope.
 2. **Map the frontier.** Grill again **breadth-first**: fan out across the whole space, surfacing the open decisions and the first steps takeable now. **If this surfaces no fog** (the way is already clear, small enough for one session), you don't need a map — stop and hand straight to `cda-prd`.
 3. **Create the map issue** (`explore:map`): Destination and Notes filled, Decisions-so-far empty, the fog sketched into Not yet specified. If the effort is tracked on the kanban board, link the map to its epic (see `cda-kanban`).
 4. **Create the tickets you can specify now** as sub-issues of the map, then **wire blocking edges in a second pass** (issues need numbers before they can reference each other). See conventions.md for the GitHub blocking mechanic.

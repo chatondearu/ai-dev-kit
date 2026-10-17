@@ -45,8 +45,8 @@ bash "$SKILL/scripts/setup-agents.sh" --dry-run --type auto
 | `--type` | Overlay |
 | -------- | ------- |
 | `auto` | Detect from `package.json`, `nuxt.config.*`, `pyproject.toml`, `flake.nix`, … |
-| `web` | Vue/Nuxt, frontend-design |
-| `api` | Backend contracts, technical-docs-sync |
+| `web` | Vue/Nuxt, cda-design-bold |
+| `api` | Backend contracts, cda-docs |
 | `infra` | Nix, direnv, deployment ADRs |
 | `fullstack` | Combines web + api + infra hints |
 | `minimal` | Base workflow only |
@@ -70,7 +70,7 @@ Before **any** feature or technical/product/design decision:
 | `cda-prd` | PRD from Kanban issue |
 | `cda-plan` | Plan from approved PRD |
 | `cda-kanban` | Issues, board, PRs |
-| `technical-docs-sync` | User-facing `doc/` (listed in overlays) |
+| `cda-docs` | User-facing `doc/` (listed in overlays) |
 
 ## Templates
 

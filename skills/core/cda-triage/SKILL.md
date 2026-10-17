@@ -51,7 +51,7 @@ Query the board and present three buckets, oldest first: **Unlabeled** (never tr
    - **Prior rejection** — read `cda-foam`'s out-of-scope register (`foam/features/out-of-scope.md`) and surface any entry that resembles this request.
 2. **Recommend.** Give your category + state recommendation with reasoning and a short codebase summary (including whether it's already implemented). Wait for direction.
 3. **Verify the claim.** Before grilling, check it holds up. Bug → reproduce from the reporter's steps. PR → check it out, run the relevant tests/commands, confirm the diff does what it claims. Report: confirmed (with the code path), failed, or insufficient detail (a strong `needs-info` signal). A confirmed verification makes a far stronger brief.
-4. **Grill (if needed).** If the request needs fleshing out, call `grilling` and sharpen domain terms, recording glossary/ADR updates through `cda-foam` as decisions land. One round of questions at a time.
+4. **Grill (if needed).** If the request needs fleshing out, call `cda-grill` and sharpen domain terms, recording glossary/ADR updates through `cda-foam` as decisions land. One round of questions at a time.
 5. **Apply the outcome:**
    - **ready-for-agent** → post an agent brief ([templates/agent-brief.md](templates/agent-brief.md)); move the card to **Ready**. The brief is a *behavioral* contract — see below.
    - **ready-for-human** → same brief structure, plus why it can't be delegated (judgment calls, external access, design decisions, manual testing); label `triage:ready-for-human`, Status Ready.

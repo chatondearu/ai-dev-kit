@@ -41,7 +41,7 @@ ai-dev-kit/
 │   ├── core/                    # cda-* project workflow
 │   ├── dev/                     # dev environment
 │   ├── quality/                 # code quality & review
-│   ├── productivity/            # focus & progress (standing, goal)
+│   ├── productivity/            # focus & progress (cda-standing, cda-goal)
 │   ├── design/                  # UI / design
 │   └── tools/                   # external tools
 ├── rules/                       # Global user rules → Cursor + Claude (assembled)
@@ -76,7 +76,7 @@ aiDevKit = {
 
 Run `./scripts/assemble-claude-md.sh` before Nix eval if you changed `rules/`.
 
-The Nix path links skills only: the always-on `kiss` hooks (Claude
+The Nix path links skills only: the always-on `cda-kiss` hooks (Claude
 `settings.json` / Cursor `hooks.json`) need one `./install.sh` run.
 
 ## Included skills

@@ -10,10 +10,10 @@ Kit-owned workflow skills use the **`cda-`** prefix so they are easy to spot.
 | -------- | ---- | ------ |
 | **core** | `core/` | `cda-explore`, `cda-triage`, `cda-foam`, `cda-prd`, `cda-plan`, `cda-dev`, `cda-kanban`, `cda-agents` |
 | **dev** | `dev/` | Nix shell, direnv |
-| **quality** | `quality/` | Review, commits, docs, `tdd`, `diagnosing-bugs`, `review-standards-spec`, `grilling`, `codebase-design`, `improve-codebase-architecture`, `writing-for-agents`, `retro`, `prototype`, `wizard`, `kiss` (always-on via hooks), `kiss-audit` |
-| **productivity** | `productivity/` | `standing`, `goal`, `where-was-i`, `overwhelm-triage`, `hyperfocus-exit`, `body-double`, `weekly-unstuck`, `mini-reflection`, `nopanic` (ADHD-friendly, see below) |
-| **design** | `design/` | `frontend-design`, taste, Vercel guidelines, `cda-design-md`, `cda-design-loop` |
-| **tools** | `tools/` | Context7 |
+| **quality** | `quality/` | `cda-review`, `cda-commit`, `cda-docs`, `cda-tdd`, `cda-diagnose`, `cda-standards`, `cda-grill`, `cda-codebase`, `cda-architecture`, `cda-writing`, `cda-retro`, `cda-prototype`, `cda-wizard`, `cda-kiss` (always-on via hooks), `cda-kiss-audit` |
+| **productivity** | `productivity/` | `cda-standing`, `cda-goal`, `cda-where`, `cda-overwhelm`, `cda-hyperfocus`, `cda-body-double`, `cda-unstuck`, `cda-reflect`, `cda-nopanic` (ADHD-friendly, see below) |
+| **design** | `design/` | `cda-design-bold`, `cda-design-taste`, `cda-design-audit`, `cda-design-md`, `cda-design-loop` |
+| **tools** | `tools/` | `cda-context7` |
 
 **Personal sources (productivity skills).** Several productivity skills read
 optional personal sources from `${XDG_CONFIG_HOME:-$HOME/.config}/ai-dev-kit/sources.env`

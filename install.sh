@@ -121,7 +121,7 @@ skill_dir_for() {
 # Wire the always-on KISS ruleset into a tool's lifecycle hooks (merge, never
 # clobber; idempotent; needs jq). Claude: settings.json SessionStart/Subagent/
 # UserPromptSubmit. Cursor: hooks.json sessionStart/beforeSubmitPrompt.
-KISS_HOOKS_DIR="$REPO_DIR/skills/quality/kiss/hooks"
+KISS_HOOKS_DIR="$REPO_DIR/skills/quality/cda-kiss/hooks"
 
 _kiss_jq_inplace() { # $1=file  $2=jq-program  (rest: --arg pairs already in program via env)
   local file="$1" prog="$2"; shift 2
@@ -255,7 +255,7 @@ main() {
     fi
     if is_enabled opencode; then
       log "# kiss plugin → opencode"
-      local mjs="$REPO_DIR/skills/quality/kiss/opencode/kiss.mjs"
+      local mjs="$REPO_DIR/skills/quality/cda-kiss/opencode/kiss.mjs"
       if [ "$UNINSTALL" = 1 ]; then unlink_one "$mjs" "$XDG/opencode/plugin/kiss.mjs"
       else link_one "$mjs" "$XDG/opencode/plugin/kiss.mjs"; fi
     fi

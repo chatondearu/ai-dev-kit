@@ -29,7 +29,7 @@
 >
 > Prefer **tracer-bullet children**: each a thin vertical slice that ships
 > something observable end to end, not a horizontal layer (all types, then all UI).
-> Fewer, deeper edges beat a wide fan of shallow ones. See the `tdd` skill.
+> Fewer, deeper edges beat a wide fan of shallow ones. See the `cda-tdd` skill.
 
 ## Cross-cutting constraints
 

@@ -35,3 +35,13 @@ upstream when you need additional brand `DESIGN.md` files, then copy them into
 The checklist is also available as skill `web-design-guidelines` in this kit
 (vendored from vercel-labs/agent-skills). Prefer the skill for agent reviews;
 use the live page for human reading / updates.
+
+## Eyes for design agents (screenshots)
+
+Agents need to **see** rendered pages for `cda-design-loop`. Prefer, in order:
+
+1. Playwright MCP or Cursor browser tools already available in the session
+2. Project script `scripts/cda-design-shot.sh` (from `seed-design.sh`) if Playwright is already installed locally
+3. Otherwise the loop reports `SKIP_VISUAL` and still runs textual checks
+
+Do not auto-install Playwright from the kit. Superdesign remains optional for image→code (see above).

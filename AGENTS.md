@@ -55,6 +55,7 @@ Cursor rule (if present): `.cursor/rules/product-memory.mdc`.
 | Anti-slop landings / redesigns | `design-taste-frontend` |
 | Brand DESIGN.md templates | `cda-design-md` |
 | UI a11y / UX audit | `web-design-guidelines` |
+| Visual design pass (screenshot loop) | `cda-design-loop` |
 | User-facing `doc/` | `technical-docs-sync` |
 | Library docs | `context7` |
 | Nix / direnv projects | `nix-develop-shell`, `nix-direnv-setup` |

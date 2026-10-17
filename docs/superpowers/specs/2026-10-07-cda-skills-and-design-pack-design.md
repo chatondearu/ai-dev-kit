@@ -58,3 +58,4 @@ After rename: `./install.sh --force` so old symlinks are replaced by `cda-*` tar
 - Renaming quality/dev/tools skills to `cda-*`
 - Vendoring the full ECC tree or entire awesome-design-md catalogue
 - Auto-merge or CI changes unrelated to skill naming
+- Visual loop — see `2026-10-17-cda-design-loop-design.md`.

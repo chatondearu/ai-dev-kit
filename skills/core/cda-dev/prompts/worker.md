@@ -28,14 +28,19 @@ branches. **Do not merge.**
    - Follow the plan checklist; tick items as you go
    - Stay inside epic PRD + ADR constraints; no scope expansion
    - Update `doc/` in the same change when you alter public behavior, API,
-     config/env, deployment, or architecture (`technical-docs-sync`) — don't defer
+     config/env, deployment, or architecture (`cda-docs`) — don't defer
      it to review
 4. **Test / verify**
    - Run the project’s normal verification (see `AGENTS.md`, plan test section,
      `nix develop -c …` when the repo uses Nix)
    - Fix failures you can fix without product decisions
+3b. **Design loop (opt-in only)**
+   - If `CDA_DESIGN_LOOP=1` or `AGENTS.md` notes `design-loop: auto` or dispatch passed `--design-loop`,
+     and this diff touches UI paths, and `DESIGN.md` or `docs/DESIGN.md` exists:
+     run skill `cda-design-loop` on affected routes; treat `FAIL_SERVER` / remaining Blocker|High after CAP as verify failures.
+   - Otherwise skip.
 5. **Systematic review**
-   - Follow [reviewer.md](reviewer.md) and/or skill `code-reviewer`
+   - Follow [reviewer.md](reviewer.md) and/or skill `cda-review`
    - Fix Critical and Important findings; re-review until clean or BLOCKED
 6. **PR**
    - Open PR with `Closes #{{ISSUE}}`

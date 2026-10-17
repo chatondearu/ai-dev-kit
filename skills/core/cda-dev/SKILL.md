@@ -21,7 +21,7 @@ not full worker diffs.
 | ----- | ---- | ------------ |
 | Resolve / artifacts | Mode-dependent bootstrap | `cda-foam`, `cda-prd`, `cda-plan`, `cda-kanban` |
 | Dispatch | Parallel workers in worktrees | [prompts/worker.md](prompts/worker.md), [prompts/reviewer.md](prompts/reviewer.md) |
-| Verify loop | Local verify + review + CI watch | `scripts/orch.sh`, `code-reviewer`, project `AGENTS.md` |
+| Verify loop | Local verify + review + CI watch | `scripts/orch.sh`, `cda-review`, project `AGENTS.md` |
 | Aggregate | Ledger + human report | [templates/run-ledger.md](templates/run-ledger.md) |
 
 Details: [conventions.md](conventions.md). Design:
@@ -68,6 +68,17 @@ Verify oracle (order): project commands from `AGENTS.md` / `nix develop` →
 systematic review (critical/important fixed or BLOCKED) → remote CI green.
 Loop budget: `ORCH_MAX_ITER=10` per worker; fresh agent context per iteration.
 
+### Optional design loop (`CDA_DESIGN_LOOP`)
+
+Default: workers do **not** run `cda-design-loop`.
+Opt-in when UI files change and a project brief exists, if any of:
+
+- env `CDA_DESIGN_LOOP=1`
+- `--design-loop` on orch / dispatch (when wired)
+- `AGENTS.md` Project-specific notes contains `design-loop: auto`
+
+UI path heuristic: `*.vue`, `*.tsx`, `*.jsx`, `*.css`, `*.scss`, or paths under `pages/`, `app/`, `components/`, `layouts/`.
+
 ## When to use the harness
 
 Prefer `scripts/orch.sh` when a supported agent CLI is on `PATH` (Cursor agent,
@@ -111,8 +122,8 @@ collision, max iterations, CI red needing product/decision input.
 | `cda-prd` | Epic PRD (`intake`) |
 | `cda-plan` | Plan per child issue |
 | `cda-kanban` | Issues, board, claim protocol |
-| `git-commit` | Conventional Commits on worker branches |
-| `code-reviewer` | Systematic review before / with PR |
+| `cda-commit` | Conventional Commits on worker branches |
+| `cda-review` | Systematic review before / with PR |
 | Host plugins | Compose `loop-on-ci`, Bugbot, security review — do not replace |
 
 ## Out of scope (v1)

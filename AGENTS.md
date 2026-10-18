@@ -75,6 +75,7 @@ _Add stack versions, deployment URLs, gotchas, and links below._
 
 This repo **is** the ai-dev-kit: skills under `skills/<category>/<name>/`, linked into
 agents by `install.sh`. Index: `skills/README.md`. Ideology: `PHILOSOPHY.md`.
+Operator docs: `doc/README.md` (orchestration, architecture, configuration).
 
 **Verify (run before every PR):**
 
@@ -90,5 +91,9 @@ bash skills/design/cda-design-loop/scripts/tests/test_seed_design.sh
   override `HOME`, `CLAUDE_CONFIG_DIR`, `CURSOR_HOME`, `XDG_CONFIG_HOME` with temp dirs.
 - The live Claude config on the maintainer's machine is `CLAUDE_CONFIG_DIR=/cda/.claude`.
 - The kiss hooks run on every session: keep them local-only, fail-open, fast.
+- AFK Ready pickup: `orch-auto.sh` + optional systemd templates under
+  `skills/core/cda-dev/templates/systemd/` (ADR-002). Do not enable from
+  `install.sh`. Stop the timer to free the machine; prefer a dedicated host.
+- `headless.sh` does **not** open PRs from issues (ADR-001); use orch / orch-auto.
 
 verify: bash -n skills/core/cda-kanban/scripts/gh-board.sh && bash skills/core/cda-kanban/scripts/gh-board.sh reconcile-backlog --help

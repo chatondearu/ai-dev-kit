@@ -13,6 +13,8 @@
 #   ./gh-board.sh reconcile-backlog [--owner O] [--repo O/R] [--project-number N]
 #     [--base origin/dev] [--status Backlog] [--apply] [--json] [--limit 100]
 #     [--chunk 40]
+#   ./gh-board.sh list-ready [--json] [--limit N]
+#     Ready-column open Issues (numbers); used by orch-auto.sh
 #
 # `events` aggregates, per board item and since a cursor, a normalized activity
 # feed: comments, reviews, labels, assignment, PR merge/close, and Status column
@@ -143,6 +145,30 @@ cmd_item_id() {
   gh project item-list "$PROJECT_NUMBER" --owner "$OWNER" --format json --limit 200 \
     | jq -r --argjson n "$issue" \
         '.items[] | select(.content.number == $n) | .id'
+}
+
+# Print Ready-column open Issues (one number per line, or JSON with --json).
+cmd_list_ready() {
+  need gh; need jq
+  resolve_status_board
+  local ready_line ready_name items
+  ready_line="$(closest_status_option "Ready" "$STATUS_OPTIONS")"
+  [ -n "$ready_line" ] || die "no Status option matching Ready"
+  ready_name="$(printf '%s' "$ready_line" | cut -f2)"
+  items="$(list_project_items_graphql)"
+  if [ "$OUT_JSON" = 1 ]; then
+    printf '%s' "$items" | jq -c --arg st "$ready_name" '
+      [.[] | select(.status == $st
+                    and .typename == "Issue"
+                    and (.state | ascii_upcase) == "OPEN")
+       | {number, title, status}]'
+  else
+    printf '%s' "$items" | jq -r --arg st "$ready_name" '
+      .[] | select(.status == $st
+                   and .typename == "Issue"
+                   and (.state | ascii_upcase) == "OPEN")
+      | .number'
+  fi
 }
 
 # Map intent name to closest existing Status option id (never invents names).
@@ -650,10 +676,11 @@ main() {
   case "$sub" in
     env) cmd_env;;
     item-id) cmd_item_id "${positional[0]:-}";;
+    list-ready) cmd_list_ready;;
     events) cmd_events;;
     watch) cmd_watch;;
     reconcile-backlog) cmd_reconcile_backlog;;
-    *) die "unknown subcommand: $sub (use: env | item-id | events | watch | reconcile-backlog)";;
+    *) die "unknown subcommand: $sub (use: env | item-id | list-ready | events | watch | reconcile-backlog)";;
   esac
 }
 

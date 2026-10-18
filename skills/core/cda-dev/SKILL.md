@@ -32,8 +32,11 @@ Details: [conventions.md](conventions.md). Design:
 | Mode | Trigger | Human GO | Bootstrap | Exit |
 | ---- | ------- | -------- | --------- | ---- |
 | `intake` | Multi-subject chat list | Yes (epic breakdown) | Epic issue + approved PRD + N Ready children + N plans | PRs CI-green |
-| `ready-pickup` | Ready Kanban cards with PRD/plan | No | None (validate artifacts exist) | PRs CI-green |
+| `ready-pickup` | Ready Kanban cards | No | Plan **or** triage agent brief (fast-lane) | PRs CI-green |
 | `pr-fix` | PR URL/number | No | None | Same PR CI-green |
+
+**Lanes (ready-pickup):** if `plans/PLAN-<id>-*` exists → `full` (plan/PRD).
+Else → `fast` (triage agent brief required). See foam ADR-002.
 
 Intake Q&A: [prompts/intake.md](prompts/intake.md). PR repair: [prompts/pr-fix.md](prompts/pr-fix.md).
 Epic table: [templates/epic-breakdown.md](templates/epic-breakdown.md).
@@ -91,9 +94,23 @@ bash "$SKILL/scripts/orch.sh" --mode pr-fix --pr 88 --sandbox
 bash "$SKILL/scripts/orch.sh" --mode ready-pickup --issue 12 --dry-run
 ```
 
+### AFK auto (Ready poller)
+
+Opt-in poller: discover Ready cards and run `ready-pickup` (not headless):
+
+```bash
+bash "$SKILL/scripts/orch-auto.sh" --repo /path/to/repo --once --dry-run
+bash "$SKILL/scripts/orch-auto.sh" --repo /path/to/repo --once
+```
+
+Systemd user templates: `templates/systemd/` — copy, set `ORCH_REPO`, then
+`systemctl --user enable --now cda-orch-auto.timer` (stop the timer to free the
+machine). Prefer a dedicated host for AFK load. Units are **not** enabled by
+`install.sh`.
+
 ### Headless one-task (no Kanban / worktree)
 
-For a single prompt + verify loop against the current repo:
+For a single prompt + verify loop against the current repo (no issue/PR):
 
 ```bash
 bash "$SKILL/scripts/headless.sh" --prompt "fix the flaky auth test" --dry-run
@@ -147,7 +164,10 @@ collision, max iterations, CI red needing product/decision input.
 
 | Resource | Path |
 | -------- | ---- |
+| Operator docs | [doc/orchestration.md](../../../doc/orchestration.md), [doc/architecture.md](../../../doc/architecture.md) |
 | Conventions | [conventions.md](conventions.md) |
 | Intake / worker / reviewer / pr-fix | [prompts/](prompts/) |
 | Ledger | [templates/run-ledger.md](templates/run-ledger.md) |
-| Harness | [scripts/orch.sh](scripts/orch.sh) |
+| Harness | [scripts/orch.sh](scripts/orch.sh), [scripts/orch-auto.sh](scripts/orch-auto.sh) |
+| Systemd templates | [templates/systemd/](templates/systemd/) |
+| ADR-002 | [foam/decisions/ADR-002-orch-auto-and-fast-lane.md](../../../foam/decisions/ADR-002-orch-auto-and-fast-lane.md) |

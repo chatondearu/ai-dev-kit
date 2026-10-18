@@ -21,3 +21,9 @@ important items into PRDs and ADRs manually._
 
 Link substantial features to `prd/` and `foam/decisions/` — not every closed
 issue needs an ADR.
+
+| ADR / doc | Topic |
+| --------- | ----- |
+| [[../decisions/ADR-001-host-tools-vs-kit\|ADR-001]] | Host tools outside kit; headless vs orch |
+| [[../decisions/ADR-002-orch-auto-and-fast-lane\|ADR-002]] | Fast-lane + orch-auto systemd poller |
+| Repo `doc/` | Operator guide for orch / orch-auto / headless |

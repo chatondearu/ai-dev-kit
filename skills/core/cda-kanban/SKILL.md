@@ -122,6 +122,16 @@ If the board uses different option names, map intent to the closest existing opt
 3. Move cards between Backlog ↔ Ready based on clarity
 4. Comment on issue with rationale (one short paragraph max)
 
+### E0 — List Ready (for orch-auto)
+
+```bash
+./scripts/gh-board.sh list-ready          # open Issues in Ready, one number per line
+./scripts/gh-board.sh list-ready --json
+```
+
+Used by `cda-dev` `orch-auto.sh` (AFK poller). Filtering `triage:ready-for-human`
+and open PRs is orch-auto’s job, not this helper.
+
 ### E — Reconcile Backlog (API-efficient)
 
 When cards sit in **Backlog** (or other non-Done columns) but the work already

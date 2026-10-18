@@ -77,6 +77,8 @@ else
   warn "missing $REC"
 fi
 printf '  tip  headless loop: bash skills/core/cda-dev/scripts/headless.sh --help\n'
+printf '  tip  AFK Ready poller: bash skills/core/cda-dev/scripts/orch-auto.sh --help\n'
+printf '  tip  systemd templates: skills/core/cda-dev/templates/systemd/ (opt-in)\n'
 printf '  tip  orchestrator:  bash skills/core/cda-dev/scripts/orch.sh --help\n'
 
 printf '\n'

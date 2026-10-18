@@ -1,8 +1,15 @@
 # Design: dev-orchestrator (unified meta-orchestrator)
 
 Date: 2026-10-02  
-Status: approved  
+Status: approved (historical)  
 Repo: ai-dev-kit
+
+> **Current operator docs:** [`doc/orchestration.md`](../../../doc/orchestration.md),
+> [`doc/architecture.md`](../../../doc/architecture.md).
+> **Updates since this spec:** fast-lane + `orch-auto` ([ADR-002](../../../foam/decisions/ADR-002-orch-auto-and-fast-lane.md));
+> headless remains separate ([ADR-001](../../../foam/decisions/ADR-001-host-tools-vs-kit.md)).
+> The `ready-pickup` row below still says “PRD/plan”; runtime accepts plan **or**
+> triage agent brief.
 
 ## Problem
 

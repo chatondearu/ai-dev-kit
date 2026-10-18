@@ -16,9 +16,34 @@ Install via each product’s official channel (or your NixOS / home-manager).
 | Claude Code (`claude`) | Anthropic subscription / CLI |
 | OpenCode (`opencode`) | Alternative coding CLI |
 | `gh`, `git` | Required for Kanban / CI modes of `orch.sh` |
+| `flock`, `jq` | Required for `orch-auto.sh` (Ready poller) |
 
 Optional: `bwrap` for `--sandbox`, `llama-swap` for local models (point
 `ORCH_AGENT` at a harness that talks to your local endpoint).
+
+## AFK orch-auto (systemd, opt-in)
+
+Poll Ready Kanban cards and run `orch.sh --mode ready-pickup` without sitting in
+the IDE. Templates live in
+`skills/core/cda-dev/templates/systemd/` (not enabled by `install.sh`).
+
+```bash
+SKILL=~/.cursor/skills/cda-dev
+mkdir -p ~/.config/systemd/user
+cp "$SKILL/templates/systemd/cda-orch-auto."{service,timer} ~/.config/systemd/user/
+cp "$SKILL/templates/systemd/cda-orch-auto.env.example" ~/.config/cda-orch-auto.env
+# edit ORCH_REPO (and PATH / ORCH_AGENT) in ~/.config/cda-orch-auto.env
+systemctl --user daemon-reload
+systemctl --user enable --now cda-orch-auto.timer   # AFK ON
+systemctl --user stop cda-orch-auto.timer            # free this machine
+```
+
+Prefer a **dedicated host** (repo clone + `gh auth` + agent CLI) when you want
+the laptop free for other work. Operator guide:
+[`doc/orchestration.md`](../doc/orchestration.md). Fast-lane (brief without
+PRD/plan): foam [ADR-002](../foam/decisions/ADR-002-orch-auto-and-fast-lane.md);
+headless stays a separate one-prompt tool
+([ADR-001](../foam/decisions/ADR-001-host-tools-vs-kit.md)).
 
 ## ECC — agent harness OS
 

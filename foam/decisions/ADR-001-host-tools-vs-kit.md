@@ -37,5 +37,6 @@ or fast-moving host apps.
 
 ## References
 
+- Operator docs: [`doc/orchestration.md`](../../doc/orchestration.md)
 - `scripts/doctor.sh`, `skills/core/cda-dev/scripts/headless.sh`
 - Personal notes: chatondearu foam `dev/openclaw-agents-autonomes`

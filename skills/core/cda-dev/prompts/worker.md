@@ -7,11 +7,24 @@ branches. **Do not merge.**
 ## Context (filled by master / harness)
 
 - Child issue: `#{{ISSUE}}` — {{TITLE}}
+- Lane: `{{LANE}}` (`full` = plan/PRD; `fast` = triage agent brief only)
 - Plan: `{{PLAN_PATH}}`
+- Agent brief: `{{BRIEF_PATH}}`
 - Epic PRD: `{{PRD_PATH}}` (parent `#{{EPIC}}`)
 - ADRs / constraints: {{CONSTRAINTS}}
 - Repo root: {{REPO_ROOT}}
 - Worktree cwd: {{WORKTREE}} (run all git/verify commands here)
+
+## Contract
+
+- **`full`**: treat the plan as the behavioral contract (checklist + acceptance).
+  Stay inside epic PRD + ADR constraints.
+- **`fast`**: treat the agent brief as the behavioral contract (desired behavior +
+  acceptance criteria + out of scope). No PRD required. Do not invent product
+  decisions beyond the brief.
+
+In both lanes: discover files yourself (paths in briefs go stale). Verify by
+acceptance criteria. No scope expansion.
 
 ## Steps (mandatory order)
 
@@ -22,17 +35,13 @@ branches. **Do not merge.**
    - Branch: `<type>/<issue#>-<slug>` per kanban conventions
    - Work from the assigned worktree cwd; do not switch repos mid-task
 3. **Implement**
-   - Treat the plan as a **behavioral contract**, not a file map: it tells you
-     *what* and the acceptance signal — **discover the files yourself** (paths or
-     line numbers in the brief may be stale). Verify by acceptance criteria.
-   - Follow the plan checklist; tick items as you go
-   - Stay inside epic PRD + ADR constraints; no scope expansion
+   - Follow the contract for this lane (plan checklist or brief criteria)
    - Update `doc/` in the same change when you alter public behavior, API,
      config/env, deployment, or architecture (`cda-docs`) — don't defer
      it to review
 4. **Test / verify**
-   - Run the project’s normal verification (see `AGENTS.md`, plan test section,
-     `nix develop -c …` when the repo uses Nix)
+   - Run the project’s normal verification (see `AGENTS.md`, plan/brief test
+     section, `nix develop -c …` when the repo uses Nix)
    - Fix failures you can fix without product decisions
 3b. **Design loop (opt-in only)**
    - If `CDA_DESIGN_LOOP=1` or `AGENTS.md` notes `design-loop: auto` or dispatch passed `--design-loop`,
@@ -44,7 +53,7 @@ branches. **Do not merge.**
    - Fix Critical and Important findings; re-review until clean or BLOCKED
 6. **PR**
    - Open PR with `Closes #{{ISSUE}}`
-   - English title/body; link plan + epic PRD
+   - English title/body; link plan + epic PRD when `full`, or the issue brief when `fast`
    - Move board card → In review
 7. **CI**
    - Ensure PR exists; wait for checks green (harness `orch_pr_checks_watch` or `gh pr checks`)

@@ -1,0 +1,27 @@
+# Opt-in AFK Ready poller (ADR-002). NOT enabled by install.sh.
+#
+# Setup:
+#   1. Copy this file + cda-orch-auto.timer to ~/.config/systemd/user/
+#   2. Copy cda-orch-auto.env.example → ~/.config/cda-orch-auto.env and edit
+#   3. systemctl --user daemon-reload
+#   4. systemctl --user enable --now cda-orch-auto.timer
+# Stop (free the machine): systemctl --user stop cda-orch-auto.timer
+#
+# Prefer a dedicated host (clone + gh auth + agent CLI) so the laptop stays free.
+
+[Unit]
+Description=cda-dev orch-auto (one Ready pickup cycle)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=-%h/.config/cda-orch-auto.env
+# Override ExecStart paths after copy if the skill lives elsewhere.
+ExecStart=/bin/bash %h/.cursor/skills/cda-dev/scripts/orch-auto.sh --repo ${ORCH_REPO} --once
+Nice=10
+# Soften laptop impact; raise on a dedicated box if needed.
+CPUQuota=50%
+
+[Install]
+WantedBy=default.target

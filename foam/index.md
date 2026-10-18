@@ -21,6 +21,7 @@ Map of Content (MOC). Start here before product or architecture decisions.
 
 ## Architecture
 
+- Operator docs (orch / headless / AFK): repo [`doc/`](../doc/README.md)
 - _(Add topic notes under `foam/architecture/` and link ADRs here.)_
 
 ## Decisions (ADRs)
@@ -28,6 +29,7 @@ Map of Content (MOC). Start here before product or architecture decisions.
 Index: [[decisions/index|All ADRs]]
 
 - [[decisions/ADR-001-host-tools-vs-kit|ADR-001 — Host tools stay outside the kit]]
+- [[decisions/ADR-002-orch-auto-and-fast-lane|ADR-002 — Orch auto poller and fast-lane]]
 
 ## PRDs & plans
 

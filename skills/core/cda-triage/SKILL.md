@@ -25,7 +25,7 @@ Every comment or issue body cda-triage posts **must** start with:
 
 - `needs-triage` — on the board as **Backlog**, not yet evaluated.
 - `needs-info` — waiting on the reporter (label `triage:needs-info`, stays Backlog).
-- `ready-for-agent` — fully specified; an agent brief is attached and the card is moved to **Ready** so `cda-dev` (ready-pickup) can take it.
+- `ready-for-agent` — fully specified; an agent brief is attached and the card is moved to **Ready** so `cda-dev` (ready-pickup) can take it. **Fast-lane:** bugs / bounded scope may ship with the brief alone (no PRD/plan). Fuzzy features still need PRD → plan before Ready.
 - `ready-for-human` — specified but needs human hands (label `triage:ready-for-human`, Status Ready); the brief notes *why* it can't be delegated.
 - `wontfix` — closed (see outcomes).
 

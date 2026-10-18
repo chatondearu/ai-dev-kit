@@ -13,6 +13,9 @@ project-first + memory-backed pipeline, KISS code attitude, and credit to the
 upstreams we adapted ([mattpocock/skills](https://github.com/mattpocock/skills),
 [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail)).
 
+Full documentation: [`doc/README.md`](doc/README.md) (architecture, orch /
+orch-auto / headless, configuration).
+
 ## Why it works across agents
 
 | Asset | Cursor | Claude Code | opencode | Portable |
@@ -49,7 +52,9 @@ ai-dev-kit/
 ├── claude/                      # CLAUDE.header.md + generated CLAUDE.md
 ├── agents/                      # Cursor subagents
 ├── cursor/plugins/local/        # Cursor local plugins
+├── doc/                         # Operator docs (orch, headless, AFK auto)
 ├── docs/recommended.md          # External tools (ECC, Superdesign, …)
+├── foam/decisions/              # ADRs (e.g. headless vs orch, orch-auto)
 ├── nix/maid.nix
 └── install.sh
 ```
@@ -93,8 +98,10 @@ Check host CLIs (never installs packages):
 ./scripts/doctor.sh
 ```
 
-One-task headless agent + verify loop (no Kanban): see `cda-dev` skill
-(`skills/core/cda-dev/scripts/headless.sh`).
+Orchestration (Ready → PR, AFK poller, headless): see
+[`doc/orchestration.md`](doc/orchestration.md). Decisions:
+[ADR-001](foam/decisions/ADR-001-host-tools-vs-kit.md),
+[ADR-002](foam/decisions/ADR-002-orch-auto-and-fast-lane.md).
 
 Third-party attributions: [`THIRD_PARTY.md`](THIRD_PARTY.md).
 
@@ -152,4 +159,5 @@ Claude receives the same content in `claude/CLAUDE.md` (assembled).
 ## Requirements
 
 - **Portable path**: `bash`, `coreutils`. Kanban and foam skills need `gh` and `jq`.
+- **orch-auto**: also `flock` (see [`doc/configuration.md`](doc/configuration.md)).
 - **Nix path**: flakes enabled; `nix-maid` as flake input.

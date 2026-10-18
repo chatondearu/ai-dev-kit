@@ -1,0 +1,15 @@
+# Fires cda-orch-auto.service every 15 minutes while enabled.
+# systemctl --user enable --now cda-orch-auto.timer
+# systemctl --user stop cda-orch-auto.timer
+
+[Unit]
+Description=Timer for cda-dev orch-auto Ready poller
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=15min
+Persistent=true
+Unit=cda-orch-auto.service
+
+[Install]
+WantedBy=timers.target

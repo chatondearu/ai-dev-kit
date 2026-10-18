@@ -93,6 +93,25 @@ orch_wait_for_slot() {
   done
 }
 
+# Write the latest triage agent brief for issue $1 into $2. Returns 0 if found.
+orch_fetch_agent_brief() {
+  local id="$1" dest="$2" body="" raw=""
+  mkdir -p "$(dirname "$dest")"
+  if ! command -v gh >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1; then
+    return 1
+  fi
+  raw="$(gh issue view "$id" --comments --json comments 2>/dev/null || true)"
+  [ -n "$raw" ] || return 1
+  body="$(printf '%s' "$raw" | jq -r \
+    '[.comments[].body] | map(select(test("## Agent Brief"))) | last // empty' \
+    2>/dev/null || true)"
+  if [ -z "$body" ] || [ "$body" = "null" ]; then
+    return 1
+  fi
+  printf '%s\n' "$body" >"$dest"
+  return 0
+}
+
 # Run one ready-pickup worker end-to-end. Writes $ORCH_REPO/.orch/run/<id>.rc (0|1).
 orch_ready_pickup_one() {
   local id="$1" idx="$2"
@@ -101,6 +120,7 @@ orch_ready_pickup_one() {
   local path port worker_prompt title plan_path p
   local loop_rc=0 pr_num="" pr_json="" m=""
   local rc_dir rc_file
+  local lane="full" brief_path="N/A" brief_file=""
 
   export ORCH_WORKER_ID="$id"
   path="$(orch_worktree_path "$ORCH_REPO" "$id" "$slug")"
@@ -142,12 +162,33 @@ orch_ready_pickup_one() {
     fi
   done
 
+  # Fast-lane: no PLAN → triage agent brief is the contract (ADR-002).
+  if [ "$plan_path" = "N/A" ]; then
+    lane="fast"
+    brief_file="$path/.orch/brief.md"
+    if ! orch_fetch_agent_brief "$id" "$brief_file"; then
+      orch_progress_set "$id" blocked "fast-lane needs agent brief"
+      if ! orch_progress_enabled; then
+        printf 'blocked: issue %s has no PLAN and no agent brief\n' "$id" >&2
+      fi
+      echo 1 >"$rc_file"
+      return 1
+    fi
+    brief_path="${brief_file#$ORCH_REPO/}"
+    # Prefer path relative to worktree when under it
+    case "$brief_file" in
+      "$path"/*) brief_path="${brief_file#$path/}" ;;
+    esac
+  fi
+
   orch_render_prompt "$ORCH_ROOT/../prompts/worker.md" "$worker_prompt" \
     "ISSUE=$id" \
     "WORKTREE=$path" \
     "REPO_ROOT=$ORCH_REPO" \
     "TITLE=$title" \
-    "PLAN_PATH=$plan_path"
+    "PLAN_PATH=$plan_path" \
+    "BRIEF_PATH=$brief_path" \
+    "LANE=$lane"
 
   export ORCH_WT="$path"
   orch_detect_agent >/dev/null
@@ -211,7 +252,7 @@ orch_ready_pickup_one() {
   return 0
 }
 
-export -f orch_ready_pickup_one orch_wait_for_slot
+export -f orch_ready_pickup_one orch_wait_for_slot orch_fetch_agent_brief
 export -f orch_loop_worker orch_agent_run orch_run_verify orch_resolve_verify
 export -f _orch_extract_agents_verify orch_detect_agent orch_render_prompt
 export -f orch_pr_mergeable orch_pr_checks_watch _orch_pr_checks_classify

@@ -56,4 +56,6 @@ gh issue close <n> --repo "$OWNER/$REPO" --comment "…"            # wontfix
 - **Brief ⇒ `cda-dev`.** `ready-for-agent` + Status Ready is the handoff: the brief
   is the behavioral contract `cda-dev`'s worker implements. Keep it path-free and
   acceptance-driven (see SKILL.md, "durable, behavioral contracts").
+  Without `plans/PLAN-<id>-*`, orch runs **fast-lane** (`LANE=fast`); with a plan,
+  **full**. Fuzzy enhancements still get PRD + plan before Ready (ADR-002).
 - **Grill via `cda-grill`**; record domain/ADR updates through `cda-foam`.

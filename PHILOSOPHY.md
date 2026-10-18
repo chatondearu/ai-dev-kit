@@ -11,7 +11,10 @@ an agent reads the memory, searches open issues/PRs, and **confronts the proposa
 against recorded decisions** instead of re-deciding from scratch. The pipeline is
 explicit: **explore (clear the fog) → PRD → plan → orchestrate (workers in
 worktrees, verify loops, CI-green PRs, never auto-merge) → review / test / docs →
-write it back to memory.** One dependency language (`Blocked by:`), one
+write it back to memory.** Clear bugs may take a **fast-lane** (triage agent
+brief → Ready → orch, no PRD/plan). AFK pickup is opt-in (`orch-auto` / systemd),
+not default. Headless stays a local one-prompt loop without Kanban/PR. Operator
+guide: [`doc/orchestration.md`](doc/orchestration.md). One dependency language (`Blocked by:`), one
 out-of-scope register, one behavioral-brief contract run across the whole pipeline
 so a decision keeps its meaning from intake to implementation.
 

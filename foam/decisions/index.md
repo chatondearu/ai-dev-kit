@@ -6,7 +6,7 @@ Status values: `proposed` | `accepted` | `deprecated` | `superseded`.
 
 | ID | Title | Status | Tags |
 | -- | ----- | ------ | ---- |
-| _(none yet)_ | | | |
+| [[ADR-001-host-tools-vs-kit|ADR-001]] | Host tools stay outside the kit | accepted | #architecture #tooling |
 
 ## Template
 

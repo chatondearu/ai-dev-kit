@@ -87,6 +87,15 @@ Archived (not installed): see [`archive/`](archive/).
 
 Optional external tools (not vendored): [`docs/recommended.md`](docs/recommended.md).
 
+Check host CLIs (never installs packages):
+
+```bash
+./scripts/doctor.sh
+```
+
+One-task headless agent + verify loop (no Kanban): see `cda-dev` skill
+(`skills/core/cda-dev/scripts/headless.sh`).
+
 Third-party attributions: [`THIRD_PARTY.md`](THIRD_PARTY.md).
 
 ## Default project workflow (foam + kanban)

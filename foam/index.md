@@ -27,7 +27,7 @@ Map of Content (MOC). Start here before product or architecture decisions.
 
 Index: [[decisions/index|All ADRs]]
 
-_(No ADRs yet — copy [[decisions/ADR-template|ADR-template]] to record the first decision.)_
+- [[decisions/ADR-001-host-tools-vs-kit|ADR-001 — Host tools stay outside the kit]]
 
 ## PRDs & plans
 

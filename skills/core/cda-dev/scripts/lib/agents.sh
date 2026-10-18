@@ -41,7 +41,8 @@ orch_agent_run() {
       (cd "$wt" && "${bin[@]}" run <"$prompt_file")
       ;;
     agent|cursor-agent)
-      (cd "$wt" && "${bin[@]}" -p <"$prompt_file")
+      # --print for scripts; --force avoids interactive approval hangs in headless
+      (cd "$wt" && "${bin[@]}" -p --force "$(cat "$prompt_file")")
       ;;
     *)
       (cd "$wt" && "${bin[@]}" <"$prompt_file")

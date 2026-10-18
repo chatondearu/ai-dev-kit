@@ -1,7 +1,24 @@
 # Recommended external tools (not vendored)
 
 These are useful alongside ai-dev-kit but are **not** copied into this repo.
-Install them separately when you need them.
+Install them separately when you need them. The kit does **not** package or
+update host apps — run `./scripts/doctor.sh` to see what is on your `PATH`.
+
+## Host agent CLIs (for orch / headless)
+
+Install via each product’s official channel (or your NixOS / home-manager).
+`orch.sh` and `headless.sh` auto-detect, in order: `agent`, `cursor-agent`,
+`claude`, `opencode` (override with `ORCH_AGENT`).
+
+| CLI | Notes |
+| --- | ----- |
+| Cursor Agent | Cursor subscription; headless often needs trust/auto-approve flags |
+| Claude Code (`claude`) | Anthropic subscription / CLI |
+| OpenCode (`opencode`) | Alternative coding CLI |
+| `gh`, `git` | Required for Kanban / CI modes of `orch.sh` |
+
+Optional: `bwrap` for `--sandbox`, `llama-swap` for local models (point
+`ORCH_AGENT` at a harness that talks to your local endpoint).
 
 ## ECC — agent harness OS
 

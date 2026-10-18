@@ -91,6 +91,17 @@ bash "$SKILL/scripts/orch.sh" --mode pr-fix --pr 88 --sandbox
 bash "$SKILL/scripts/orch.sh" --mode ready-pickup --issue 12 --dry-run
 ```
 
+### Headless one-task (no Kanban / worktree)
+
+For a single prompt + verify loop against the current repo:
+
+```bash
+bash "$SKILL/scripts/headless.sh" --prompt "fix the flaky auth test" --dry-run
+bash "$SKILL/scripts/headless.sh" --prompt-file ./task.md --max-iter 5
+```
+
+Host readiness (does not install packages): `./scripts/doctor.sh` from the kit root.
+
 On a TTY, workers show a live progress board (spinner + phase). Disable with
 `--no-progress` or `ORCH_PROGRESS=0`.
 

@@ -126,6 +126,53 @@ gh issue close 12 --comment "Merged via PR #N"
 gh issue reopen 12
 ```
 
+## Reconcile Backlog → Done (API-efficient)
+
+Move cards out of **Backlog** (or other columns via `--status`) when local git /
+issue state already proves the work landed. Minimizes GitHub HTTP calls:
+
+| Step | HTTP |
+|------|------|
+| List items + Status + issue state | **1** GraphQL `projectV2.items` (paginated) |
+| “Already on `origin/dev`?” | **0** (`git fetch` + `git log`) |
+| Move N cards to Done | **ceil(N/chunk)** aliased `updateProjectV2ItemFieldValue` |
+
+```bash
+# Dry-run (default)
+scripts/gh-board.sh reconcile-backlog
+scripts/gh-board.sh reconcile-backlog --base origin/dev --status Backlog --json
+
+# Apply (Status only — never force-closes issues)
+scripts/gh-board.sh reconcile-backlog --apply --chunk 40
+
+# Several non-Done columns
+scripts/gh-board.sh reconcile-backlog --status "Backlog,Ready" --apply
+```
+
+Done heuristics (any one → move; else `action: skip`):
+- Issue/PR `state == CLOSED`
+- PR `merged == true` already in the list payload (no per-issue timeline calls)
+- `git log <base> --grep` finds `#N` / `Closes #N` / `Fixes #N` / `Resolves #N` / `Refs #N`
+
+Aliased mutation shape (chunked; shared `projectId` / `fieldId` / `doneId`):
+
+```graphql
+mutation($projectId:ID!, $fieldId:ID!, $doneId:String!, $item0:ID!, $item1:ID!) {
+  m0: updateProjectV2ItemFieldValue(input: {
+    projectId: $projectId, itemId: $item0, fieldId: $fieldId,
+    value: { singleSelectOptionId: $doneId }
+  }) { projectV2Item { id } }
+  m1: updateProjectV2ItemFieldValue(input: {
+    projectId: $projectId, itemId: $item1, fieldId: $fieldId,
+    value: { singleSelectOptionId: $doneId }
+  }) { projectV2Item { id } }
+}
+```
+
+Default `--base` is `origin/dev` (falls back to the repo default branch). Status
+option names are mapped to the closest existing board options — never invented.
+Zero per-item `gh project item-edit` loops.
+
 ## Listen to board events
 
 ```bash
@@ -154,7 +201,7 @@ Types: `comment`, `review_approved`, `review_changes_requested`,
 - The cursor advances to the run start time, so the next `events` only returns
   newer activity. Use `--since` for one-off windows without touching the cursor.
 
-Reactions per type: see SKILL.md → "E — Listen & react to board events".
+Reactions per type: see SKILL.md → "F — Listen & react to board events".
 
 ## Push automation (GitHub Actions)
 

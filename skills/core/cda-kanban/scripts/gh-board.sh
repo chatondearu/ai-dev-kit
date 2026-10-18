@@ -10,10 +10,18 @@
 #   ./gh-board.sh item-id <ISSUE_NUMBER>   # resolve a board item id from issue #
 #   ./gh-board.sh events [--since ISO|--since-file PATH] [--json] [--limit N]
 #   ./gh-board.sh watch [--interval SECONDS] [--limit N] [--json]
+#   ./gh-board.sh reconcile-backlog [--owner O] [--repo O/R] [--project-number N]
+#     [--base origin/dev] [--status Backlog] [--apply] [--json] [--limit 100]
+#     [--chunk 40]
 #
 # `events` aggregates, per board item and since a cursor, a normalized activity
 # feed: comments, reviews, labels, assignment, PR merge/close, and Status column
 # changes (detected via snapshot diff — Projects v2 has no field-history API).
+#
+# `reconcile-backlog` moves cards from Backlog (or --status) to Done when local
+# git / issue state already proves the work landed — API-efficient (1 list query
+# + ceil(N/chunk) aliased mutations). Dry-run unless --apply. Status only;
+# never force-closes issues. See: reconcile-backlog --help
 #
 # Requires: gh (with `project` scope), jq.
 set -euo pipefail
@@ -24,8 +32,14 @@ die() { err "$*"; exit 1; }
 need() { command -v "$1" >/dev/null 2>&1 || die "missing dependency: $1"; }
 
 # Temp-file cleanup (set -u safe), runs on exit.
+# Use `if` not `&&` so an empty slot cannot flip the script exit status under set -e.
 _CLEANUP=()
-cleanup() { local f; for f in "${_CLEANUP[@]:-}"; do [ -n "$f" ] && rm -f "$f"; done; }
+cleanup() {
+  local f
+  for f in "${_CLEANUP[@]+"${_CLEANUP[@]}"}"; do
+    if [ -n "$f" ]; then rm -f "$f"; fi
+  done
+}
 trap cleanup EXIT
 
 now_iso() { date -u +%Y-%m-%dT%H:%M:%SZ; }
@@ -129,6 +143,356 @@ cmd_item_id() {
   gh project item-list "$PROJECT_NUMBER" --owner "$OWNER" --format json --limit 200 \
     | jq -r --argjson n "$issue" \
         '.items[] | select(.content.number == $n) | .id'
+}
+
+# Map intent name to closest existing Status option id (never invents names).
+# Prints: <optionId>\t<optionName>  or empty if none.
+closest_status_option() {
+  local want="$1" options_json="$2"
+  printf '%s' "$options_json" | jq -r --arg w "$want" '
+    ($w | ascii_downcase) as $needle
+    | (map(select((.name | ascii_downcase) == $needle)) | .[0]) as $exact
+    | if $exact then "\($exact.id)\t\($exact.name)"
+      else
+        (map(select((.name | ascii_downcase) | contains($needle))) | .[0]) as $soft
+        | if $soft then "\($soft.id)\t\($soft.name)" else empty end
+      end
+  '
+}
+
+# Resolve PROJECT_ID + Status field/options (same sources as cmd_env).
+resolve_status_board() {
+  resolve_repo
+  resolve_project_number
+  PROJECT_ID="$(gh project view "$PROJECT_NUMBER" --owner "$OWNER" --format json --jq '.id')" \
+    || die "cannot view project #$PROJECT_NUMBER"
+  local fields
+  fields="$(gh project field-list "$PROJECT_NUMBER" --owner "$OWNER" --format json 2>/dev/null)" \
+    || die "cannot read fields for project #$PROJECT_NUMBER"
+  STATUS_FIELD_ID="$(printf '%s' "$fields" | jq -r '
+    .fields[] | select(.name=="Status" and .options != null) | .id' | head -1)"
+  [ -n "$STATUS_FIELD_ID" ] && [ "$STATUS_FIELD_ID" != "null" ] \
+    || die "no Status single-select field on project #$PROJECT_NUMBER"
+  STATUS_OPTIONS="$(printf '%s' "$fields" | jq -c '
+    [.fields[] | select(.name=="Status" and .options != null) | .options[]]')"
+}
+
+resolve_base_ref() {
+  # Sets BASE_REF. Default origin/dev; fallback to remote default branch.
+  local want="${OVR_BASE:-origin/dev}"
+  git fetch origin --quiet 2>/dev/null || true
+  if git rev-parse --verify "$want" >/dev/null 2>&1; then
+    BASE_REF="$want"; return
+  fi
+  local def
+  def="$(git symbolic-ref -q refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/@@')"
+  if [ -z "$def" ]; then
+    def="origin/$(gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name' 2>/dev/null || echo main)"
+  fi
+  err "base '$want' missing; falling back to $def"
+  git rev-parse --verify "$def" >/dev/null 2>&1 \
+    || die "cannot resolve git base (tried $want and $def)"
+  BASE_REF="$def"
+}
+
+# Strong local signal: commit on BASE_REF mentions #N / Closes #N / Fixes #N.
+git_mentions_issue() {
+  local n="$1" hit
+  hit="$(git log "$BASE_REF" --extended-regexp -i \
+    --grep="(Closes|Fixes|Resolves|Refs)[[:space:]]+#${n}([^0-9]|$)" \
+    --grep="#${n}([^0-9]|$)" \
+    --pretty=format:'%h' -n 1 2>/dev/null || true)"
+  [ -n "$hit" ]
+}
+
+# One paginated GraphQL list of project items (issue/PR + Status). Honors LIMIT.
+list_project_items_graphql() {
+  local after="" collected=0 page_size=100 chunk slug="$OWNER/$REPO"
+  local out; out="$(mktemp)"; _CLEANUP+=("$out")
+  printf '[]' > "$out"
+
+  while true; do
+    local remaining=$((LIMIT - collected))
+    [ "$remaining" -gt 0 ] || break
+    page_size=100
+    [ "$remaining" -lt "$page_size" ] && page_size="$remaining"
+
+    local page
+    if [ -n "$after" ]; then
+      page="$(gh api graphql -f query='
+        query($id:ID!, $first:Int!, $after:String!) {
+          node(id:$id) {
+            ... on ProjectV2 {
+              items(first:$first, after:$after) {
+                pageInfo { hasNextPage endCursor }
+                nodes {
+                  id
+                  fieldValueByName(name:"Status") {
+                    ... on ProjectV2ItemFieldSingleSelectValue { name }
+                  }
+                  content {
+                    __typename
+                    ... on Issue {
+                      number title state closedAt
+                      repository { nameWithOwner }
+                    }
+                    ... on PullRequest {
+                      number title state closedAt merged
+                      repository { nameWithOwner }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }' -f id="$PROJECT_ID" -F first="$page_size" -f after="$after" 2>/dev/null)" \
+        || die "GraphQL project items query failed (need project scope)"
+    else
+      page="$(gh api graphql -f query='
+        query($id:ID!, $first:Int!) {
+          node(id:$id) {
+            ... on ProjectV2 {
+              items(first:$first) {
+                pageInfo { hasNextPage endCursor }
+                nodes {
+                  id
+                  fieldValueByName(name:"Status") {
+                    ... on ProjectV2ItemFieldSingleSelectValue { name }
+                  }
+                  content {
+                    __typename
+                    ... on Issue {
+                      number title state closedAt
+                      repository { nameWithOwner }
+                    }
+                    ... on PullRequest {
+                      number title state closedAt merged
+                      repository { nameWithOwner }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }' -f id="$PROJECT_ID" -F first="$page_size" 2>/dev/null)" \
+        || die "GraphQL project items query failed (need project scope)"
+    fi
+
+    local page_n
+    page_n="$(printf '%s' "$page" | jq '.data.node.items.nodes | length')"
+    collected=$((collected + page_n))
+
+    chunk="$(printf '%s' "$page" | jq -c --arg slug "$slug" '
+      [.data.node.items.nodes[]?
+       | select(.content != null
+                and .content.number != null
+                and (.content.repository.nameWithOwner // "") == $slug)
+       | {
+           itemId: .id,
+           number: .content.number,
+           title: (.content.title // ""),
+           state: (.content.state // ""),
+           closedAt: (.content.closedAt // null),
+           merged: (.content.merged // false),
+           typename: (.content.__typename // ""),
+           status: (.fieldValueByName.name // "")
+         }]')"
+
+    local merged_json
+    merged_json="$(jq -c -n --slurpfile a "$out" --argjson b "$chunk" '$a[0] + $b')"
+    printf '%s\n' "$merged_json" > "$out"
+
+    local has next
+    has="$(printf '%s' "$page" | jq -r '.data.node.items.pageInfo.hasNextPage // false')"
+    next="$(printf '%s' "$page" | jq -r '.data.node.items.pageInfo.endCursor // empty')"
+    if [ "$has" != "true" ] || [ -z "$next" ] || [ "$collected" -ge "$LIMIT" ]; then
+      break
+    fi
+    after="$next"
+  done
+  cat "$out"
+}
+
+# Apply Status→Done moves via aliased updateProjectV2ItemFieldValue (chunked).
+apply_status_moves_chunked() {
+  local done_id="$1"
+  shift
+  local -a move_ids=("$@")
+  local n_moves="${#move_ids[@]}"
+  [ "$n_moves" -gt 0 ] || return 0
+
+  local chunk_size="${OVR_CHUNK:-40}" i=0
+  while [ "$i" -lt "$n_moves" ]; do
+    local mut_vars="\$projectId:ID!, \$fieldId:ID!, \$doneId:String!" body="" j=0
+    local -a call=(gh api graphql)
+    call+=(-f projectId="$PROJECT_ID" -f fieldId="$STATUS_FIELD_ID" -f doneId="$done_id")
+    while [ "$j" -lt "$chunk_size" ] && [ $((i + j)) -lt "$n_moves" ]; do
+      local idx=$((i + j))
+      mut_vars+=", \$item$idx:ID!"
+      body+=" m$idx: updateProjectV2ItemFieldValue(input: {"
+      body+=" projectId: \$projectId, itemId: \$item$idx, fieldId: \$fieldId,"
+      body+=" value: { singleSelectOptionId: \$doneId }"
+      body+=" }) { projectV2Item { id } }"
+      call+=(-f "item$idx=${move_ids[$idx]}")
+      j=$((j + 1))
+    done
+    local mutation="mutation($mut_vars) {$body }"
+    call+=(-f "query=$mutation")
+    "${call[@]}" >/dev/null \
+      || die "aliased Status update failed (chunk starting at index $i)"
+    i=$((i + j))
+  done
+}
+
+reconcile_backlog_help() {
+  cat <<'EOF'
+Usage:
+  gh-board.sh reconcile-backlog [options]
+
+Reconcile non-Done Status columns against local git evidence that work already
+landed on the integration branch. Status field only — never force-closes issues.
+
+Options:
+  --owner O              Project owner override
+  --repo O/R             Repository override
+  --project-number N     Linked project number
+  --base REF             Git ref to search (default: origin/dev; else default branch)
+  --status NAME[,NAME]   Column(s) to scan (default: Backlog); mapped to closest options
+  --apply                Apply moves (default: dry-run)
+  --json                 Machine-readable JSON array
+  --limit N              Max project items to list (default: 100)
+  --chunk N              Aliased mutations per GraphQL HTTP call (default: 40)
+  --help                 Show this help
+
+Done heuristics (ANY strong signal → move to Done; else skip):
+  - issue/PR state == CLOSED
+  - git log <base> mentions #N / Closes #N / Fixes #N / Resolves #N / Refs #N
+  - PR content with merged==true already in the list payload (no per-issue REST)
+
+API shape (minimize HTTP calls):
+  1× GraphQL projectV2.items list (paginated) + ceil(moves/chunk) aliased
+  updateProjectV2ItemFieldValue mutations. Zero per-item gh project item-edit.
+EOF
+}
+
+cmd_reconcile_backlog() {
+  need gh; need jq
+  if [ "${WANT_HELP:-0}" = "1" ]; then reconcile_backlog_help; return 0; fi
+
+  resolve_status_board
+  resolve_base_ref
+
+  local done_line done_id done_name
+  done_line="$(closest_status_option "Done" "$STATUS_OPTIONS")"
+  [ -n "$done_line" ] || die "no Status option matching 'Done' on this board"
+  done_id="${done_line%%$'\t'*}"; done_name="${done_line#*$'\t'}"
+
+  # Resolve --status names (comma-separated) to actual option names on the board.
+  local want_status="${OVR_STATUS:-Backlog}"
+  local target_names=() part line oname
+  while IFS= read -r part; do
+    part="$(printf '%s' "$part" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+    [ -n "$part" ] || continue
+    line="$(closest_status_option "$part" "$STATUS_OPTIONS")"
+    [ -n "$line" ] || die "no Status option matching '$part' (available: $(
+      printf '%s' "$STATUS_OPTIONS" | jq -r '.[].name' | paste -sd, -))"
+    oname="${line#*$'\t'}"
+    target_names+=("$oname")
+  done < <(printf '%s\n' "$want_status" | tr ',' '\n')
+  [ "${#target_names[@]}" -gt 0 ] || die "no --status columns resolved"
+
+  err "listing project #$PROJECT_NUMBER items (limit=$LIMIT, base=$BASE_REF, status=${target_names[*]})"
+  local items
+  items="$(list_project_items_graphql)"
+
+  local targets_json
+  targets_json="$(printf '%s\n' "${target_names[@]}" | jq -R . | jq -s -c .)"
+
+  # Filter to target columns, decide action per item (local git = 0 API).
+  local decisions
+  decisions="$(printf '%s' "$items" | jq -c --argjson targets "$targets_json" --arg done "$done_name" '
+    [.[] | select(.status as $s | $targets | index($s) != null)
+     | . + {from_status:.status, to_status:$done, action:"pending", reason:""}]')"
+
+  local results_file; results_file="$(mktemp)"; _CLEANUP+=("$results_file")
+  printf '[]' > "$results_file"
+
+  local row number state merged title from_status item_id reason action
+  while IFS= read -r row; do
+    [ -z "$row" ] && continue
+    number="$(printf '%s' "$row" | jq -r '.number')"
+    state="$(printf '%s' "$row" | jq -r '.state')"
+    merged="$(printf '%s' "$row" | jq -r '.merged')"
+    title="$(printf '%s' "$row" | jq -r '.title')"
+    from_status="$(printf '%s' "$row" | jq -r '.from_status')"
+    item_id="$(printf '%s' "$row" | jq -r '.itemId')"
+    reason=""; action="skip"
+
+    if [ "$state" = "CLOSED" ]; then
+      action="move"; reason="issue_closed"
+    elif [ "$merged" = "true" ]; then
+      action="move"; reason="pr_merged"
+    elif git_mentions_issue "$number"; then
+      action="move"; reason="commit_on_base"
+    else
+      reason="no_strong_signal"
+    fi
+
+    local applied="dry-run"
+    [ "$action" = "move" ] || applied="skipped"
+    [ "${OVR_APPLY:-0}" = "1" ] && [ "$action" = "move" ] && applied="pending"
+
+    local entry
+    entry="$(jq -nc \
+      --argjson n "$number" \
+      --arg title "$title" \
+      --arg from "$from_status" \
+      --arg to "$done_name" \
+      --arg reason "$reason" \
+      --arg action "$action" \
+      --arg itemId "$item_id" \
+      --arg applied "$applied" \
+      '{number:$n, title:$title, from_status:$from, to_status:$to,
+        reason:$reason, action:$action, itemId:$itemId, applied:$applied}')"
+    jq -c -n --slurpfile a "$results_file" --argjson b "$entry" '$a[0] + [$b]' > "$results_file.tmp"
+    mv "$results_file.tmp" "$results_file"
+  done < <(printf '%s' "$decisions" | jq -c '.[]')
+
+  # Apply moves in aliased GraphQL chunks (≤ ceil(N/chunk) HTTP calls).
+  if [ "${OVR_APPLY:-0}" = "1" ]; then
+    local move_ids=()
+    while IFS= read -r item_id; do
+      [ -n "$item_id" ] && move_ids+=("$item_id")
+    done < <(jq -r '.[] | select(.action=="move") | .itemId' "$results_file")
+    apply_status_moves_chunked "$done_id" "${move_ids[@]+"${move_ids[@]}"}"
+    jq -c '[.[] | if .action=="move" then .applied="applied" else . end]' \
+      "$results_file" > "$results_file.tmp"
+    mv "$results_file.tmp" "$results_file"
+  fi
+
+  if [ "${OUT_JSON:-0}" = "1" ]; then
+    jq '.' "$results_file"
+  else
+    local n_move n_skip mode
+    n_move="$(jq '[.[] | select(.action=="move")] | length' "$results_file")"
+    n_skip="$(jq '[.[] | select(.action=="skip")] | length' "$results_file")"
+    mode="dry-run"; [ "${OVR_APPLY:-0}" = "1" ] && mode="apply"
+    printf 'reconcile-backlog (%s) base=%s → Done=%s | move=%s skip=%s\n' \
+      "$mode" "$BASE_REF" "$done_name" "$n_move" "$n_skip"
+    if [ ! -s "$results_file" ] || [ "$(jq 'length' "$results_file")" = "0" ]; then
+      printf 'no items in target Status column(s)\n'
+    else
+      printf '%-6s  %-8s  %-12s  %-12s  %-18s  %s  %s\n' \
+        "NUMBER" "ACTION" "FROM" "TO" "REASON" "APPLIED" "TITLE"
+      jq -r '.[] | [
+          ("#" + (.number|tostring)),
+          .action, .from_status, .to_status, .reason, .applied, .title
+        ] | @tsv' "$results_file" \
+        | while IFS=$'\t' read -r a b c d e f g; do
+            printf '%-6s  %-8s  %-12s  %-12s  %-18s  %s  %s\n' "$a" "$b" "$c" "$d" "$e" "$f" "$g"
+          done
+    fi
+  fi
 }
 
 # Emit normalized event objects (JSONL) from one issue/PR timeline since $SINCE.
@@ -262,7 +626,8 @@ main() {
   local sub="${1:-env}"; shift || true
   OVR_OWNER=""; OVR_REPO=""; OVR_PNUM=""
   OVR_SINCE=""; OVR_SINCEFILE=""; OVR_INTERVAL=""
-  OUT_JSON=0; LIMIT=100
+  OVR_BASE=""; OVR_STATUS=""; OVR_APPLY=0; OVR_CHUNK=40
+  OUT_JSON=0; LIMIT=100; WANT_HELP=0
   local positional=()
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -272,8 +637,13 @@ main() {
       --since) OVR_SINCE="$2"; shift 2;;
       --since-file) OVR_SINCEFILE="$2"; shift 2;;
       --interval) OVR_INTERVAL="$2"; shift 2;;
+      --base) OVR_BASE="$2"; shift 2;;
+      --status) OVR_STATUS="$2"; shift 2;;
+      --chunk) OVR_CHUNK="$2"; shift 2;;
       --limit) LIMIT="$2"; shift 2;;
+      --apply) OVR_APPLY=1; shift;;
       --json) OUT_JSON=1; shift;;
+      --help|-h) WANT_HELP=1; shift;;
       *) positional+=("$1"); shift;;
     esac
   done
@@ -282,7 +652,8 @@ main() {
     item-id) cmd_item_id "${positional[0]:-}";;
     events) cmd_events;;
     watch) cmd_watch;;
-    *) die "unknown subcommand: $sub (use: env | item-id | events | watch)";;
+    reconcile-backlog) cmd_reconcile_backlog;;
+    *) die "unknown subcommand: $sub (use: env | item-id | events | watch | reconcile-backlog)";;
   esac
 }
 

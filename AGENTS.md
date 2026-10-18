@@ -90,3 +90,5 @@ bash skills/design/cda-design-loop/scripts/tests/test_seed_design.sh
   override `HOME`, `CLAUDE_CONFIG_DIR`, `CURSOR_HOME`, `XDG_CONFIG_HOME` with temp dirs.
 - The live Claude config on the maintainer's machine is `CLAUDE_CONFIG_DIR=/cda/.claude`.
 - The kiss hooks run on every session: keep them local-only, fail-open, fast.
+
+verify: bash -n skills/core/cda-kanban/scripts/gh-board.sh && bash skills/core/cda-kanban/scripts/gh-board.sh reconcile-backlog --help

@@ -122,7 +122,24 @@ If the board uses different option names, map intent to the closest existing opt
 3. Move cards between Backlog ↔ Ready based on clarity
 4. Comment on issue with rationale (one short paragraph max)
 
-### E — Listen & react to board events
+### E — Reconcile Backlog (API-efficient)
+
+When cards sit in **Backlog** (or other non-Done columns) but the work already
+landed on the integration branch, reconcile Status without per-item REST loops:
+
+```bash
+# Dry-run (default): candidates + proposed moves
+./scripts/gh-board.sh reconcile-backlog
+
+# Apply moves: 1 GraphQL list + ceil(N/chunk) aliased mutations
+./scripts/gh-board.sh reconcile-backlog --apply --chunk 40
+```
+
+Strong signals only (else `skip`): issue/PR `CLOSED`, PR `merged` in the list
+payload, or `git log <base>` mentioning `#N` / `Closes #N` / `Fixes #N`. Status
+field only — never force-closes issues. Details: [reference.md](reference.md).
+
+### F — Listen & react to board events
 
 The skill cannot run as a daemon. "Listening" = **polling the board activity feed**
 and reacting. The helper aggregates, per board item and since a cursor, a

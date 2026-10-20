@@ -1,0 +1,10 @@
+# cda.aitools — Ghostty snippet for ccmux / tmux (merge into ~/.config/ghostty/config)
+# Experimental. On macOS, Option-as-Alt is required for tmux M-* binds (e.g. M-p → ccmux).
+
+# OSC 52 / copy from tmux panes (ccmux, Claude, …) → host clipboard
+clipboard-read = allow
+clipboard-write = allow
+copy-on-select = clipboard
+
+# left = left Option is Alt/Meta ; right Option keeps special characters (π, …)
+macos-option-as-alt = left

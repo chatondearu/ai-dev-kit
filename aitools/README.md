@@ -60,8 +60,9 @@ No automatic bridge to ccmux worktrees (v1).
 aitools/
 ├── README.md
 ├── prompts/bootstrap.md
-├── templates/tmux.conf
-├── templates/ccmux/               # placeholders / notes
+├── templates/tmux.conf            # M-p/C-p ccmux picker + clipboard
+├── templates/ghostty/config       # option-as-alt + OSC 52 clipboard
+├── templates/ccmux/               # ccmux.json + notes
 └── nix/
     ├── common.nix                 # shared options
     └── module.nix                 # nixos + darwin entry

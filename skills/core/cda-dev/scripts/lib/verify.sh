@@ -70,9 +70,29 @@ orch_resolve_verify() {
   printf 'true\n'
 }
 
+# Allowlist for untrusted trees (pr-fix). Free-form AGENTS.md verify is refused.
+_orch_verify_is_allowed() {
+  case "$1" in
+    true|npm\ test|pnpm\ test|make\ test|cargo\ test) return 0 ;;
+    "nix develop -c npm test"|"nix develop -c pnpm test"|"nix develop -c make test"|"nix develop -c cargo test") return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 orch_run_verify() {
   local dir="$1"
   local cmd
-  cmd="$(orch_resolve_verify "$dir")"
+  if [ -n "${ORCH_VERIFY:-}" ]; then
+    cmd="$ORCH_VERIFY"
+  else
+    cmd="$(orch_resolve_verify "$dir")"
+  fi
+  if [ "${ORCH_VERIFY_TRUST:-trusted}" = "untrusted" ]; then
+    if ! _orch_verify_is_allowed "$cmd"; then
+      printf 'orch_run_verify: refusing non-allowlisted verify (untrusted): %s\n' "$cmd" >&2
+      printf 'orch_run_verify: set ORCH_VERIFY to an allowlisted command if needed\n' >&2
+      return 1
+    fi
+  fi
   (cd "$dir" && eval "$cmd")
 }

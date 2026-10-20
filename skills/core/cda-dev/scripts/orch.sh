@@ -124,14 +124,13 @@ orch_ready_pickup_one() {
 
   export ORCH_WORKER_ID="$id"
   path="$(orch_worktree_path "$ORCH_REPO" "$id" "$slug")"
-  port=$(( ${ORCH_BASE_PORT:-3900} + idx ))
   rc_dir="$ORCH_REPO/.orch/run"
   mkdir -p "$rc_dir"
   rc_file="$rc_dir/${id}.rc"
 
   orch_progress_set "$id" pending "branch ${branch}"
   if ! orch_progress_enabled; then
-    echo "worker id=$id branch=$branch wt=$path port=$port"
+    echo "worker id=$id branch=$branch wt=$path"
   fi
 
   orch_progress_set "$id" worktree "creating ${path##*/}"
@@ -261,9 +260,35 @@ export -f orch_sandbox_wrap
 export -f orch_progress_dir orch_progress_enabled orch_progress_set
 export -f orch_progress_icon orch_progress_draw
 
+# Serialize ready-pickup / pr-fix against orch-auto and concurrent orch (ADR-002).
+orch_acquire_lock() {
+  mkdir -p "$ORCH_REPO/.orch"
+  local lock="$ORCH_REPO/.orch/orch.lock"
+  if command -v flock >/dev/null 2>&1; then
+    exec 8>"$lock"
+    if ! flock -n 8; then
+      printf 'orch: another run holds %s\n' "$lock" >&2
+      exit 0
+    fi
+    return 0
+  fi
+  # Portable fallback when flock is absent (e.g. stock macOS): atomic mkdir.
+  local dir="${lock}.d"
+  if mkdir "$dir" 2>/dev/null; then
+    # shellcheck disable=SC2064
+    trap "rmdir '$dir' 2>/dev/null || true" EXIT
+    return 0
+  fi
+  printf 'orch: another run holds %s\n' "$dir" >&2
+  exit 0
+}
+
 case "$MODE" in
   ready-pickup)
     [ "${#ISSUES[@]}" -gt 0 ] || { echo "need --issue"; exit 2; }
+    if [ "$DRY" != 1 ]; then
+      orch_acquire_lock
+    fi
     idx=0
     any_blocked=0
     HELD_IDS=(); HELD_REASON=()
@@ -293,8 +318,7 @@ case "$MODE" in
         slug="issue-$id"
         branch="feat/${id}-${slug}"
         path="$(orch_worktree_path "$REPO" "$id" "$slug")"
-        port=$(( ${ORCH_BASE_PORT:-3900} + idx ))
-        echo "worker id=$id branch=$branch wt=$path port=$port"
+        echo "worker id=$id branch=$branch wt=$path"
         idx=$((idx + 1))
       done
       exit 0
@@ -426,6 +450,8 @@ case "$MODE" in
     [ -n "$PR" ] || { echo "need --pr"; exit 2; }
     echo "pr-fix pr=$PR dry=$DRY"
     if [ "$DRY" = 0 ]; then
+      orch_acquire_lock
+      export ORCH_VERIFY_TRUST=untrusted
       pr_clean="${PR%/}"
       while [ "${pr_clean%/}" != "$pr_clean" ]; do
         pr_clean="${pr_clean%/}"

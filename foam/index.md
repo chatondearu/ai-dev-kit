@@ -35,7 +35,8 @@ Index: [[decisions/index|All ADRs]]
 
 | PRD | Status |
 | --- | ------ |
-| _(none yet)_ | |
+| [[../prd/PRD-25-kiss-audit-orch-gh-board|PRD-25]] kiss-audit orch+gh-board | approved |
+| [[../prd/PRD-6-kiss-audit-fixes|PRD-6]] prior kiss-audit batch | shipped |
 
 - PRD template: `prd/template.md`
 - Plan template: `plans/template.md`

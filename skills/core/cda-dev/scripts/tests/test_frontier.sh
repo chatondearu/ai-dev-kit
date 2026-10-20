@@ -16,25 +16,23 @@ assert_eq "$(orch_parse_blockers 'Blocked by: #5, #5')" "5" "dedup repeats"
 
 # --- partition with a stubbed gh -------------------------------------------
 # Layout: #20 blocked by closed #12 → frontier; #21 blocked by open #15 → held;
-#         #22 no blockers → frontier.
+#         #22 no blockers → frontier; #23 body fetch fails → held.
 _ORIG_PATH="$PATH"
 FAKE="$(mktemp -d)"
 STUB_BASH="$(command -v bash)"
 trap 'PATH="$_ORIG_PATH"; rm -rf "$FAKE"' EXIT
 cat >"$FAKE/gh" <<EOF
 #!$STUB_BASH
-# args: issue view <num> --repo R --json body|state -q .<field>
 num="\$3"
 case "\$*" in
   *"--json state"*)
     case "\$num" in 12) echo CLOSED ;; *) echo OPEN ;; esac ;;
   *"--json body"*)
     case "\$num" in
-      20) echo "Goal: x
-Blocked by: #12" ;;
-      21) echo "Goal: y
-Blocked by: #15" ;;
-      *) echo "Goal: z" ;;
+      20) printf '%s\n' '{"body":"Goal: x\nBlocked by: #12"}' ;;
+      21) printf '%s\n' '{"body":"Goal: y\nBlocked by: #15"}' ;;
+      23) exit 1 ;;
+      *) printf '%s\n' '{"body":"Goal: z"}' ;;
     esac ;;
 esac
 EOF
@@ -45,5 +43,10 @@ orch_frontier_partition "owner/repo" 20 21 22
 assert_eq "${FRONTIER_IDS[*]}" "20 22" "frontier = unblocked + closed-blocker"
 assert_eq "${HELD_IDS[*]}" "21" "held = open blocker"
 assert_eq "${HELD_REASON[*]}" "15" "held reason = the open blocker"
+
+orch_frontier_partition "owner/repo" 23
+assert_eq "${#FRONTIER_IDS[@]}" "0" "body fetch fail → not frontier"
+assert_eq "${HELD_IDS[*]}" "23" "body fetch fail → held"
+assert_eq "${HELD_REASON[*]}" "body-fetch-failed" "held reason = body-fetch-failed"
 
 summary

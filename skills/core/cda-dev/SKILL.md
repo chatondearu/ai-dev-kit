@@ -123,7 +123,7 @@ On a TTY, workers show a live progress board (spinner + phase). Disable with
 `--no-progress` or `ORCH_PROGRESS=0`.
 
 Optional `--sandbox`: bubblewrap (Linux, off by default). If `bwrap` is missing,
-warn and continue without sandbox.
+exit non-zero — do not continue unsandboxed.
 
 ## Skill-only fallback
 

@@ -30,12 +30,14 @@ Index: [[decisions/index|All ADRs]]
 
 - [[decisions/ADR-001-host-tools-vs-kit|ADR-001 — Host tools stay outside the kit]]
 - [[decisions/ADR-002-orch-auto-and-fast-lane|ADR-002 — Orch auto poller and fast-lane]]
+- [[decisions/ADR-003-cda-aitools|ADR-003 — cda.aitools companion (experimental)]]
 
 ## PRDs & plans
 
 | PRD | Status |
 | --- | ------ |
-| [[../prd/PRD-25-kiss-audit-orch-gh-board|PRD-25]] kiss-audit orch+gh-board | approved |
+| [[../prd/PRD-33-cda-aitools|PRD-33]] cda.aitools companion | approved |
+| [[../prd/PRD-25-kiss-audit-orch-gh-board|PRD-25]] kiss-audit orch+gh-board | shipped |
 | [[../prd/PRD-6-kiss-audit-fixes|PRD-6]] prior kiss-audit batch | shipped |
 
 - PRD template: `prd/template.md`

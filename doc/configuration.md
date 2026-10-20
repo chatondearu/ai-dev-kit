@@ -40,6 +40,7 @@ these (`./scripts/doctor.sh` only checks `PATH`).
 | `.orch/headless/` | Headless prompt copy |
 | `.orch/auto.lock` | orch-auto mutex |
 | `.orch/orch.lock` | orch ready-pickup / pr-fix mutex |
+| `.orch/worktrees/` | Per-issue worktrees (prune with `orch-cleanup.sh`) |
 | `.orch/auto/*.log` | orch-auto run logs |
 
 ## Systemd env file

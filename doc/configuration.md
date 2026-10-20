@@ -6,8 +6,8 @@
 | ---- | ------- |
 | Agent CLI (`agent`, `cursor-agent`, `claude`, `opencode`) | `orch.sh`, `headless.sh` |
 | `gh`, `git` | Kanban / CI modes of orch |
-| `jq`, `flock` | `orch-auto.sh` |
-| `bwrap` (optional) | `--sandbox` |
+| `jq`, `flock` | `orch-auto.sh`, `orch.sh` (ready-pickup / pr-fix) |
+| `bwrap` (required for `--sandbox`) | `--sandbox` exits if missing (no unsandboxed fallback) |
 
 See [`docs/recommended.md`](../docs/recommended.md). The kit never installs
 these (`./scripts/doctor.sh` only checks `PATH`).
@@ -20,7 +20,10 @@ these (`./scripts/doctor.sh` only checks `PATH`).
 | `ORCH_MAX_PARALLEL` | `3` (`1` for orch-auto default) | Parallel ready-pickup workers |
 | `ORCH_MAX_ITER` | `10` | Verify-loop retries per worker |
 | `ORCH_PROGRESS` | `auto` | Set `0` to disable TTY dashboard |
-| `ORCH_SANDBOX` | off | `1` / `--sandbox` → bubblewrap when available |
+| `ORCH_SANDBOX` | off | `1` / `--sandbox` → bubblewrap required |
+| `ORCH_ALLOW_NO_CHECKS` | `0` | `1` → empty PR checks count as green |
+| `ORCH_COPY_ENV` | `0` | `1` → copy `.env` into worktrees |
+| `ORCH_VERIFY` | unset | Override verify command (allowlisted under pr-fix) |
 | `ORCH_FRONTIER` | `auto` | `0` disables Blocked-by gating |
 | `ORCH_FORCE_CLEAN` | off | Remove worktrees after success |
 | `ORCH_REPO` | cwd / `--repo` | Target git tree (required in systemd env) |
@@ -36,6 +39,7 @@ these (`./scripts/doctor.sh` only checks `PATH`).
 | `.orch/run/` | Worker exit codes / progress |
 | `.orch/headless/` | Headless prompt copy |
 | `.orch/auto.lock` | orch-auto mutex |
+| `.orch/orch.lock` | orch ready-pickup / pr-fix mutex |
 | `.orch/auto/*.log` | orch-auto run logs |
 
 ## Systemd env file

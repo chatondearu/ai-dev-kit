@@ -171,18 +171,15 @@ cmd_list_ready() {
   fi
 }
 
-# Map intent name to closest existing Status option id (never invents names).
-# Prints: <optionId>\t<optionName>  or empty if none.
+# Map intent name to an existing Status option id (case-insensitive exact match only).
+# Soft substring match was removed: "Done" must not match "Abandoned", "Ready"
+# must not match "Already Reviewed". Prints: <optionId>\t<optionName> or empty.
 closest_status_option() {
   local want="$1" options_json="$2"
   printf '%s' "$options_json" | jq -r --arg w "$want" '
     ($w | ascii_downcase) as $needle
     | (map(select((.name | ascii_downcase) == $needle)) | .[0]) as $exact
-    | if $exact then "\($exact.id)\t\($exact.name)"
-      else
-        (map(select((.name | ascii_downcase) | contains($needle))) | .[0]) as $soft
-        | if $soft then "\($soft.id)\t\($soft.name)" else empty end
-      end
+    | if $exact then "\($exact.id)\t\($exact.name)" else empty end
   '
 }
 

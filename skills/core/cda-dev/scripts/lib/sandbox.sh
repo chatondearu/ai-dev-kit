@@ -7,9 +7,8 @@ orch_sandbox_wrap() {
     return $?
   fi
   if ! command -v bwrap >/dev/null 2>&1; then
-    printf 'warn: --sandbox requested but bwrap missing; continuing unsandboxed\n' >&2
-    "$@"
-    return $?
+    printf 'error: --sandbox requested but bwrap missing; refusing to continue unsandboxed\n' >&2
+    return 1
   fi
   local wt="${ORCH_WT:?ORCH_WT required for sandbox}"
   local args=(--die-with-parent --new-session)

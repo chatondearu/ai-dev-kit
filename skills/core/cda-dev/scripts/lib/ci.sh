@@ -9,7 +9,12 @@ _orch_pr_checks_classify() {
     return 0
   fi
   if [ "$json" = "[]" ]; then
-    printf 'green\n'
+    # No checks configured: not CI-green unless operator opts in.
+    if [ "${ORCH_ALLOW_NO_CHECKS:-0}" = "1" ]; then
+      printf 'green\n'
+    else
+      printf 'pending\n'
+    fi
     return 0
   fi
   if command -v jq >/dev/null 2>&1; then
@@ -64,7 +69,7 @@ orch_pr_checks_watch() {
       printf 'green\n'
       return 0
     fi
-    if [ "$status" = "fail" ] && (( SECONDS - start >= timeout )); then
+    if [ "$status" = "fail" ]; then
       printf 'red\n'
       return 1
     fi

@@ -38,14 +38,20 @@ orch_issue_state() {
 #   FRONTIER_IDS  — ids whose blockers are all closed (or that declare none)
 #   HELD_IDS      — ids with at least one open blocker
 #   HELD_REASON   — parallel to HELD_IDS: the first open blocker number
-# Fail-open on a body-fetch error (can't see blockers → treat as unblocked),
-# so a flaky gh never stalls the whole run.
+# Fail-closed on a body-fetch error (can't verify blockers → hold), so a flaky
+# gh never silently clears dependencies. Empty body with successful fetch is OK.
 orch_frontier_partition() {
   local repo="$1"; shift
   FRONTIER_IDS=(); HELD_IDS=(); HELD_REASON=()
-  local id body blockers b open_blocker
+  local id body blockers b open_blocker raw gh_rc
   for id in "$@"; do
-    body="$(gh issue view "$id" --repo "$repo" --json body -q .body 2>/dev/null || printf '')"
+    gh_rc=0
+    raw="$(gh issue view "$id" --repo "$repo" --json body 2>/dev/null)" || gh_rc=$?
+    if [ "$gh_rc" -ne 0 ] || [ -z "$raw" ]; then
+      HELD_IDS+=("$id"); HELD_REASON+=("body-fetch-failed")
+      continue
+    fi
+    body="$(printf '%s' "$raw" | jq -r '.body // empty' 2>/dev/null || true)"
     blockers="$(orch_parse_blockers "$body")"
     open_blocker=""
     for b in $blockers; do

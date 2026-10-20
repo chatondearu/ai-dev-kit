@@ -27,6 +27,23 @@ assert_eq "$branch" "feat/42-auth-fix" "branch name"
 
 echo SECRET=1 >"$TMP/.env"
 orch_worktree_bootstrap "$TMP" "$TMP/.orch/worktrees/42-auth-fix"
-assert_file "$TMP/.orch/worktrees/42-auth-fix/.env" "env copied"
+if [ -e "$TMP/.orch/worktrees/42-auth-fix/.env" ]; then
+  FAILS=$((FAILS + 1))
+  printf 'FAIL .env must not copy by default\n' >&2
+else
+  PASSES=$((PASSES + 1))
+  printf 'ok   .env not copied by default\n'
+fi
+ORCH_COPY_ENV=1 orch_worktree_bootstrap "$TMP" "$TMP/.orch/worktrees/42-auth-fix"
+assert_file "$TMP/.orch/worktrees/42-auth-fix/.env" "env copied with ORCH_COPY_ENV=1"
+
+# Reuse existing worktree on retry
+set +e
+orch_worktree_add "$TMP" 42 auth-fix "feat/42-auth-fix" main
+reuse_rc=$?
+set -e
+assert_eq "$reuse_rc" "0" "reuse existing worktree returns 0"
+branch2="$(git -C "$TMP/.orch/worktrees/42-auth-fix" branch --show-current)"
+assert_eq "$branch2" "feat/42-auth-fix" "reuse keeps branch"
 
 summary

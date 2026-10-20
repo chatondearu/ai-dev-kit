@@ -116,6 +116,13 @@ Path pattern: `.orch/worktrees/<issue_or_pr>-<slug>/`
 
 Add `.orch/` to `.gitignore` in target repos so worktrees and ledger artifacts stay local.
 
+Prune leftovers (dry-run default):
+
+```bash
+bash scripts/orch-cleanup.sh --repo DIR --dry-run
+bash scripts/orch-cleanup.sh --repo DIR --apply
+```
+
 ## Environment defaults
 
 | Variable | Default | Meaning |

@@ -77,6 +77,9 @@ This repo **is** the ai-dev-kit: skills under `skills/<category>/<name>/`, linke
 agents by `install.sh`. Index: `skills/README.md`. Ideology: `PHILOSOPHY.md`.
 Operator docs: `doc/README.md` (orchestration, architecture, configuration).
 
+Experimental opt-in companion: `aitools/` (`cda.aitools` Nix modules, ADR-003).
+Never enabled by `install.sh`. Relocatable root: `CDA_AITOOLS_HOME`.
+
 **Verify (run before every PR):**
 
 ```bash

@@ -66,6 +66,11 @@
           };
         };
 
+      # Experimental cda.aitools companion (tmux/ccmux wiring). Opt-in; never
+      # enabled by install.sh. Same module for NixOS and nix-darwin.
+      nixosModules.cdaAitools = import ./aitools/nix/module.nix;
+      darwinModules.cdaAitools = import ./aitools/nix/module.nix;
+
       formatter = forAllSystems (pkgs: pkgs.nixpkgs-fmt);
     };
 }

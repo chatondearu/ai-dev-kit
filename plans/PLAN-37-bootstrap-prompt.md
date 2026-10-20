@@ -1,6 +1,6 @@
 # PLAN-37 — bootstrap prompt
 
-- **Status**: in-progress
+- **Status**: done
 - **PRD**: [[../prd/PRD-33-cda-aitools|PRD-33]]
 - **GitHub**: [#37](https://github.com/chatondearu/ai-dev-kit/issues/37)
 - **Date**: 2026-10-20

@@ -1,6 +1,6 @@
 # PRD-33 — cda.aitools companion (experimental)
 
-- **Status**: approved
+- **Status**: shipped
 - **GitHub**: [#33](https://github.com/chatondearu/ai-dev-kit/issues/33)
 - **Date**: 2026-10-20
 - **Tags**: #architecture #tooling #deployment

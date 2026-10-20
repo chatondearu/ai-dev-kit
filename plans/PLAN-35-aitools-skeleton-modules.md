@@ -1,6 +1,6 @@
 # PLAN-35 — aitools skeleton + nix modules
 
-- **Status**: in-progress
+- **Status**: done
 - **PRD**: [[../prd/PRD-33-cda-aitools|PRD-33]]
 - **GitHub**: [#35](https://github.com/chatondearu/ai-dev-kit/issues/35)
 - **Date**: 2026-10-20

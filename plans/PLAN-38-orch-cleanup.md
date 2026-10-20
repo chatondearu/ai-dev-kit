@@ -1,6 +1,6 @@
 # PLAN-38 — orch worktree cleanup
 
-- **Status**: in-progress
+- **Status**: done
 - **PRD**: [[../prd/PRD-33-cda-aitools|PRD-33]]
 - **GitHub**: [#38](https://github.com/chatondearu/ai-dev-kit/issues/38)
 - **Date**: 2026-10-20

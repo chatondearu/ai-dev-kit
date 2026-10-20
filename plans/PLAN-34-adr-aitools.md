@@ -1,6 +1,6 @@
 # PLAN-34 — ADR-001 amend + ADR cda.aitools
 
-- **Status**: in-progress
+- **Status**: done
 - **PRD**: [[../prd/PRD-33-cda-aitools|PRD-33]]
 - **GitHub**: [#34](https://github.com/chatondearu/ai-dev-kit/issues/34)
 - **Date**: 2026-10-20

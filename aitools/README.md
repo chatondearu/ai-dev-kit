@@ -1,58 +1,68 @@
 # cda.aitools — experimental companion
 
-**Status: experimental.** Dogfood on nix-darwin first; not a stable primary
-install path until validated on ≥2 hosts. See foam
+**Status: experimental.** Shared tmux / ccmux / Moshi wiring for all machines. See
 [ADR-003](../foam/decisions/ADR-003-cda-aitools.md).
 
-Opt-in Nix companion for **tmux / ccmux** session configs and relocatable
-roots. The portable kit (`./install.sh`) stays **config-only** and never
-enables this module ([ADR-001](../foam/decisions/ADR-001-host-tools-vs-kit.md)).
+Portable kit (`./install.sh`) stays **skills-only** ([ADR-001](../foam/decisions/ADR-001-host-tools-vs-kit.md)).
+Session tools and configs are opt-in via **Nix** (`cda.aitools`).
+
+## What lives here (source of truth)
+
+| Path | Purpose |
+| ---- | ------- |
+| `templates/tmux.conf` | Shared tmux + ccmux picker |
+| `templates/ccmux/config.toml` | ccmux daemon/agents (`@PROJECTS_ROOT@` substituted by Nix) |
+| `templates/ccmux/ccmux.json` | Claude dirs sidecar |
+| `scripts/moshi-hook-bootstrap.sh` | Pair Moshi + install hooks (e.g. `--target cursor`) |
+| `scripts/ccmux-align-mac.sh` | macOS: brew skzv/ccmux + template sync |
+| `nix/` | `nixosModules.cdaAitools` + `darwinModules.cdaAitools` |
+
+## Host Nix (thin overlay)
+
+**NixOS** — `dev/aitools.nix` on neo-nix is the reference:
+
+```nix
+imports = [ inputs.ai-dev-kit.nixosModules.cdaAitools ];
+cda.aitools = {
+  enable = true;
+  user = "chaton";
+  deploy.enable = true;
+  ccmux.projectsRoot = "/hdd/dev";
+  tmux.clipboard = "wayland";
+  mosh.enable = true;
+  ccmuxd.enable = true;
+  moshiHook = { enable = true; hookTargets = [ "cursor" ]; };
+};
+```
+
+**nix-darwin** — `darwinModules.cdaAitools`; `tmux.clipboard = "darwin"`,
+`installMethod = "brew"` or `auto`, optional `darwin.ccmuxdPath` for Homebrew `ccmuxd`.
+
+## Parity
+
+| Feature | NixOS | nix-darwin | Manual |
+| ------- | ----- | ---------- | ------ |
+| Packages (tmux, ccmux, moshi-hook) | yes | yes | brew / scripts |
+| Deploy configs (maid) | `deploy.enable` | `deploy.enable` | `ccmux-align-mac.sh` |
+| ccmuxd | systemd | launchd | `ccmux daemon install` |
+| mosh server | `mosh.enable` | — | brew / apt |
+| moshi-hook | systemd + hook oneshots | launchd | `moshi-hook service install` |
+
+Secrets (Moshi token, SSH keys) stay **per host** — not in the kit.
+
+## Moshi
+
+```bash
+bash aitools/scripts/moshi-hook-bootstrap.sh --target cursor
+```
 
 ## Relocatable root
 
 | Source | Meaning |
 | ------ | ------- |
-| `CDA_AITOOLS_HOME` | Env override (highest priority at runtime) |
-| `cda.aitools.configRoot` | Nix module option (e.g. `/cda/aitools`) |
-| Default | `$XDG_CONFIG_HOME/cda-aitools` or `~/.config/cda-aitools` |
-
-## Nix (opt-in)
-
-```nix
-# nix-darwin
-imports = [ inputs.ai-dev-kit.darwinModules.cdaAitools ];
-cda.aitools = {
-  enable = true;
-  configRoot = "/cda/aitools";  # optional
-  installMethod = "auto";       # auto | nix | brew | none
-};
-
-# NixOS
-imports = [ inputs.ai-dev-kit.nixosModules.cdaAitools ];
-# same options under cda.aitools
-```
-
-`installMethod`:
-
-- **auto** — prefer Nix package when available; on Darwin fall back to documenting brew for ccmux
-- **nix** — Nix only
-- **brew** — Darwin/Homebrew path for ccmux (never required on NixOS)
-- **none** — configs only; no package install
-
-## Bootstrap other machines
-
-Use the agent prompt [`prompts/bootstrap.md`](prompts/bootstrap.md) — **not** a
-project skill in the `install.sh` flatten.
-
-## Orch worktrees
-
-Kanban worktrees stay under `<repo>/.orch/worktrees/`. Cleanup:
-
-```bash
-bash skills/core/cda-dev/scripts/orch-cleanup.sh --repo /path/to/repo --dry-run
-```
-
-No automatic bridge to ccmux worktrees (v1).
+| `CDA_AITOOLS_HOME` | Env override |
+| `cda.aitools.configRoot` | Nix option |
+| Default | `~/.config/cda-aitools` |
 
 ## Layout
 
@@ -60,10 +70,13 @@ No automatic bridge to ccmux worktrees (v1).
 aitools/
 ├── README.md
 ├── prompts/bootstrap.md
-├── templates/tmux.conf            # M-p/C-p ccmux picker + clipboard
-├── templates/ghostty/config       # option-as-alt + OSC 52 clipboard
-├── templates/ccmux/               # ccmux.json + notes
+├── scripts/
+├── templates/
 └── nix/
-    ├── common.nix                 # shared options
-    └── module.nix                 # nixos + darwin entry
+    ├── common.nix
+    ├── module-core.nix
+    ├── nixos.nix / darwin.nix
+    ├── linux-services.nix / darwin-services.nix
+    ├── maid-deploy.nix
+    └── moshi-hook-package.nix
 ```

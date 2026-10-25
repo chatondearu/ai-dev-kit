@@ -100,7 +100,8 @@ orch_fetch_agent_brief() {
   if ! command -v gh >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1; then
     return 1
   fi
-  raw="$(gh issue view "$id" --comments --json comments 2>/dev/null || true)"
+  # Do not pass --comments with --json (gh rejects the combination).
+  raw="$(gh issue view "$id" --json comments 2>/dev/null || true)"
   [ -n "$raw" ] || return 1
   body="$(printf '%s' "$raw" | jq -r \
     '[.comments[].body] | map(select(test("## Agent Brief"))) | last // empty' \
@@ -154,9 +155,18 @@ orch_ready_pickup_one() {
   [ -z "$title" ] && title="N/A"
 
   plan_path="N/A"
-  for p in "$ORCH_REPO"/plans/PLAN-"$id"-*.md "$path"/plans/PLAN-"$id"-*.md; do
+  # Prefer foam/plans (ADR-017); keep root plans/ for harness-compat repos.
+  for p in \
+    "$ORCH_REPO"/foam/plans/PLAN-"$id"-*.md \
+    "$path"/foam/plans/PLAN-"$id"-*.md \
+    "$ORCH_REPO"/plans/PLAN-"$id"-*.md \
+    "$path"/plans/PLAN-"$id"-*.md
+  do
     if [ -f "$p" ]; then
-      plan_path="${p#$ORCH_REPO/}"
+      case "$p" in
+        "$path"/*) plan_path="${p#$path/}" ;;
+        *) plan_path="${p#$ORCH_REPO/}" ;;
+      esac
       break
     fi
   done

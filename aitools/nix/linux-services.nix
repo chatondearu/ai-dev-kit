@@ -126,7 +126,9 @@
         home = config.users.users.${config.cda.aitools.user}.home;
         user = config.cda.aitools.user;
       in {
+        # Parent + resurrect: fix mode/owner on every boot (avoids root-owned ~/.local/share/tmux).
         systemd.tmpfiles.rules = [
+          "d ${home}/.local/share/tmux 0755 ${user} users - -"
           "d ${home}/.local/share/tmux/resurrect 0755 ${user} users - -"
         ];
       }

@@ -5,6 +5,7 @@
   templates,
   projectsRoot,
   tmuxClipboard,
+  tmuxPersist,
 }:
 let
   configToml =
@@ -25,6 +26,27 @@ let
       none = "";
     }
     .${tmuxClipboard};
+
+  resurrectPlugin = "${pkgs.tmuxPlugins.resurrect}/share/tmux-plugins/resurrect";
+  continuumPlugin = "${pkgs.tmuxPlugins.continuum}/share/tmux-plugins/continuum";
+
+  persistBody =
+    builtins.replaceStrings ["@CONTINUUM_SAVE_INTERVAL@"] [(toString tmuxPersist.saveInterval)] (
+      builtins.readFile "${templates}/tmux-persist.conf"
+    )
+    + "\n"
+    + "run-shell '${resurrectPlugin}/resurrect.tmux'\n"
+    + "run-shell '${continuumPlugin}/continuum.tmux'\n";
+
+  tmuxConfSource =
+    if tmuxPersist.enable then
+      pkgs.writeText "tmux.conf" (
+        builtins.readFile "${templates}/tmux.conf"
+        + "\n\n"
+        + persistBody
+      )
+    else
+      "${templates}/tmux.conf";
 in {
   file.home.".tmux.conf".text = ''
     # Managed by cda.aitools (ai-dev-kit)
@@ -32,7 +54,7 @@ in {
     ${tmuxHomeExtra}
   '';
 
-  file.xdg_config."cda-aitools/tmux.conf".source = "${templates}/tmux.conf";
+  file.xdg_config."cda-aitools/tmux.conf".source = tmuxConfSource;
   file.xdg_config."cda-aitools/ccmux/ccmux.json".source = "${templates}/ccmux/ccmux.json";
   file.xdg_config."ccmux/ccmux.json".source = "${templates}/ccmux/ccmux.json";
   file.xdg_config."ccmux/config.toml".source = configToml;

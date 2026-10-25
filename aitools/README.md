@@ -11,6 +11,7 @@ Session tools and configs are opt-in via **Nix** (`cda.aitools`).
 | Path | Purpose |
 | ---- | ------- |
 | `templates/tmux.conf` | Shared tmux + ccmux picker |
+| `templates/tmux-persist.conf` | Optional resurrect/continuum fragment (`tmux.persist.enable`) |
 | `templates/ccmux/config.toml` | ccmux daemon/agents (`@PROJECTS_ROOT@` substituted by Nix) |
 | `templates/ccmux/ccmux.json` | Claude dirs sidecar |
 | `scripts/moshi-hook-bootstrap.sh` | Pair Moshi + install hooks (e.g. `--target cursor`) |
@@ -28,7 +29,10 @@ cda.aitools = {
   user = "chaton";
   deploy.enable = true;
   ccmux.projectsRoot = "/hdd/dev";
-  tmux.clipboard = "wayland";
+  tmux = {
+    clipboard = "wayland";
+    persist.enable = true;
+  };
   mosh.enable = true;
   ccmuxd.enable = true;
   moshiHook = { enable = true; hookTargets = [ "cursor" ]; };

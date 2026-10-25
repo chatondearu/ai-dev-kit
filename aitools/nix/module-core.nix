@@ -53,6 +53,13 @@ in {
             || config.cda.aitools.ccmux.projectsRoot != "";
           message = "cda.aitools.ccmux.projectsRoot required when deploy.enable.";
         }
+        {
+          assertion =
+            !config.cda.aitools.enable
+            || !config.cda.aitools.tmux.persist.enable
+            || config.cda.aitools.deploy.enable;
+          message = "cda.aitools.tmux.persist requires deploy.enable.";
+        }
       ];
     }
     (lib.mkIf config.cda.aitools.enable {
@@ -99,6 +106,7 @@ in {
           inherit lib pkgs templates;
           projectsRoot = config.cda.aitools.ccmux.projectsRoot;
           tmuxClipboard = config.cda.aitools.tmux.clipboard;
+          tmuxPersist = config.cda.aitools.tmux.persist;
         };
     })
   ];

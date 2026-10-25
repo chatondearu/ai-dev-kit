@@ -116,5 +116,20 @@
         // cond;
       }
     ))
+    (lib.mkIf (
+      config.cda.aitools.enable
+      && config.cda.aitools.deploy.enable
+      && config.cda.aitools.tmux.persist.enable
+      && config.cda.aitools.user != null
+    ) (
+      let
+        home = config.users.users.${config.cda.aitools.user}.home;
+        user = config.cda.aitools.user;
+      in {
+        systemd.tmpfiles.rules = [
+          "d ${home}/.local/share/tmux/resurrect 0755 ${user} users - -"
+        ];
+      }
+    ))
   ];
 }

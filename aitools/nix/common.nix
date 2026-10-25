@@ -62,6 +62,16 @@
       default = "darwin";
       description = "Extra ~/.tmux.conf binds on top of the shared template.";
     };
+
+    persist = {
+      enable = lib.mkEnableOption "tmux-resurrect + continuum (recover sessions after reboot)";
+
+      saveInterval = lib.mkOption {
+        type = lib.types.int;
+        default = 15;
+        description = "Continuum auto-save interval in minutes.";
+      };
+    };
   };
 
   darwin = {

@@ -51,6 +51,8 @@ Install the `cdamux` binary on `PATH` (e.g. `cargo install --path crates/cdamux-
 - [ ] `cdamux spawn -i` — skim project tree + agent
 - [ ] `cdamux list` shows `name`, `path`, `state` columns
 - [ ] `cdamux --pick` from `tmux display-popup -E` closes popup after selection
+- [ ] `cdamux` (no args) opens ratatui dashboard; `q` quits; Enter attaches; `n` spawn (`-i` skim)
+- [ ] In tmux popups use `cdamux --pick` only (full dashboard needs a normal terminal)
 - [ ] Repo at `org/nested/repo` appears when `discover = "git_only"` (`cdamux projects`)
 - [ ] `list --group-by cwd` prints `##` group headers (text mode)
 - [ ] `list --json --group-by project` returns grouped JSON

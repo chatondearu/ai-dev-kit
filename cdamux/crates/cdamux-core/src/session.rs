@@ -28,13 +28,13 @@ pub struct EnrichedSession {
     pub state: SessionState,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionGroup {
     pub key: String,
     pub sessions: Vec<EnrichedSession>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GroupedSessions {
     pub group_by: GroupBy,
     pub groups: Vec<SessionGroup>,

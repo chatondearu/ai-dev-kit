@@ -77,6 +77,8 @@ When `$TMUX` is set (popup or inner session):
 
 Auth: tailnet only (bind to Tailscale IP); no public internet in v0.2.
 
+Operator curl examples: [tailnet-api.md](tailnet-api.md).
+
 ## Relationship to ai-dev-kit
 
 - Lives at `cdamux/` until extract (ADR-004).

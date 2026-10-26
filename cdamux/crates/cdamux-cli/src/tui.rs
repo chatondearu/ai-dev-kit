@@ -1,7 +1,9 @@
 //! Full-screen ratatui dashboard (default `cdamux` with no subcommand).
 
 use ansi_to_tui::IntoText as _;
-use crate::spawn_modal::{draw_modal, on_key as spawn_modal_on_key, ModalState, SpawnModalAction};
+use crate::spawn_modal::{
+    draw_modal, draw_overlay_scrim, on_key as spawn_modal_on_key, ModalState, SpawnModalAction,
+};
 use crate::app_tabs::{
     draw_agents, draw_projects, draw_sessions_list, draw_settings, draw_tab_bar, flat_sessions,
     help_for_tab, try_save, AppTab, bump_preview_lines, cycle_attach_mode, cycle_group_by,
@@ -137,19 +139,26 @@ enum RenameAction {
 }
 
 fn draw_rename_modal(f: &mut Frame, state: &RenameState) {
+    const MODAL_BG: Color = Color::Rgb(22, 26, 34);
+    const MODAL_FG: Color = Color::Rgb(230, 234, 240);
     let area = centered_rect(60, 25, f.area());
     let block = Block::default()
         .title(" Rename session ")
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Cyan));
+        .border_style(Style::default().fg(Color::Cyan))
+        .style(Style::default().bg(MODAL_BG).fg(MODAL_FG));
     let inner = block.inner(area);
     f.render_widget(block, area);
+    f.render_widget(Block::default().style(Style::default().bg(MODAL_BG)), inner);
     let body = format!(
         "from: {}\nnew name: {}█\nEnter save · Esc cancel",
         state.old_name,
         state.input
     );
-    f.render_widget(Paragraph::new(body), inner);
+    f.render_widget(
+        Paragraph::new(body).style(Style::default().bg(MODAL_BG).fg(MODAL_FG)),
+        inner,
+    );
 }
 
 fn rename_on_key(state: &mut RenameState, key: KeyEvent) -> RenameAction {
@@ -607,43 +616,48 @@ pub fn run_dashboard() -> ExitCode {
             status_line.as_str()
         };
 
+        let modal_open = spawn_overlay.is_some() || rename_overlay.is_some();
         terminal
             .draw(|f| {
-                draw_app_screen(
-                    f,
-                    app_tab,
-                    DrawState {
-                        rows: &rows,
-                        selected_row,
-                        side_tab,
-                        focus,
-                        preview_text: &preview_text,
-                        preview_scroll,
-                        notes_text: &notes_text,
-                        review_text: &review_text,
-                        composer_line: &composer_line,
-                        composer_session,
-                        status_line: help_status,
-                    },
-                    &cfg,
-                    settings_dirty,
-                    &config_path_display,
-                    &discovered,
-                    projects_scroll,
-                    &flat,
-                    sessions_selected,
-                    sessions_scroll,
-                    &agent_lines,
-                    waiting_only,
-                    show_help,
-                    &mut fleet_tree_rect,
-                    &mut sidecar_preview_rect,
-                );
-                if let Some(overlay) = &spawn_overlay {
-                    draw_modal(f, overlay);
-                }
-                if let Some(overlay) = &rename_overlay {
-                    draw_rename_modal(f, overlay);
+                if modal_open {
+                    draw_overlay_scrim(f);
+                    if let Some(overlay) = &spawn_overlay {
+                        draw_modal(f, overlay);
+                    }
+                    if let Some(overlay) = &rename_overlay {
+                        draw_rename_modal(f, overlay);
+                    }
+                } else {
+                    draw_app_screen(
+                        f,
+                        app_tab,
+                        DrawState {
+                            rows: &rows,
+                            selected_row,
+                            side_tab,
+                            focus,
+                            preview_text: &preview_text,
+                            preview_scroll,
+                            notes_text: &notes_text,
+                            review_text: &review_text,
+                            composer_line: &composer_line,
+                            composer_session,
+                            status_line: help_status,
+                        },
+                        &cfg,
+                        settings_dirty,
+                        &config_path_display,
+                        &discovered,
+                        projects_scroll,
+                        &flat,
+                        sessions_selected,
+                        sessions_scroll,
+                        &agent_lines,
+                        waiting_only,
+                        show_help,
+                        &mut fleet_tree_rect,
+                        &mut sidecar_preview_rect,
+                    );
                 }
             })
             .ok();

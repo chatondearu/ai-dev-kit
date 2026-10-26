@@ -24,6 +24,8 @@ tailnet_port = 7480
 default = "cursor"
 
 [agents.cursor]
+# If cursor-agent segfaults on --use-system-ca (Nix cursor-cli), use:
+# command = "env AGENT_CLI_CREDENTIAL_STORE=file cursor-agent"
 command = "cursor-agent"
 
 [agents.opencode]

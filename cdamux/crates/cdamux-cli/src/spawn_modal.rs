@@ -303,14 +303,29 @@ fn execute_spawn(
     }
 }
 
+const OVERLAY_SCRIM: Color = Color::Rgb(10, 12, 16);
+const MODAL_BG: Color = Color::Rgb(22, 26, 34);
+const MODAL_FG: Color = Color::Rgb(230, 234, 240);
+
+/// Opaque scrim over the dashboard (call before `draw_modal`).
+pub(crate) fn draw_overlay_scrim(f: &mut Frame) {
+    f.render_widget(
+        Block::default().style(Style::default().bg(OVERLAY_SCRIM)),
+        f.area(),
+    );
+}
+
 pub(crate) fn draw_modal(f: &mut Frame, state: &ModalState) {
     let area = centered_rect(70, 70, f.area());
     let block = Block::default()
         .title(" New session ")
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Cyan));
+        .border_style(Style::default().fg(Color::Cyan))
+        .style(Style::default().bg(MODAL_BG).fg(MODAL_FG));
     let inner = block.inner(area);
     f.render_widget(block, area);
+    let fill = Block::default().style(Style::default().bg(MODAL_BG));
+    f.render_widget(fill, inner);
 
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -332,7 +347,10 @@ pub(crate) fn draw_modal(f: &mut Frame, state: &ModalState) {
         ),
         Span::raw("  (Tab cycle)"),
     ]);
-    f.render_widget(Paragraph::new(mode_line), chunks[0]);
+    f.render_widget(
+        Paragraph::new(mode_line).style(Style::default().bg(MODAL_BG).fg(MODAL_FG)),
+        chunks[0],
+    );
 
     let list_body = match state.path_mode {
         PathMode::Running => {
@@ -382,7 +400,10 @@ pub(crate) fn draw_modal(f: &mut Frame, state: &ModalState) {
             }
         }
     };
-    f.render_widget(Paragraph::new(list_body), chunks[1]);
+    f.render_widget(
+        Paragraph::new(list_body).style(Style::default().bg(MODAL_BG).fg(MODAL_FG)),
+        chunks[1],
+    );
 
     let opts = if state.shell_only {
         format!(
@@ -401,14 +422,20 @@ pub(crate) fn draw_modal(f: &mut Frame, state: &ModalState) {
             state.layout_label()
         )
     };
-    f.render_widget(Paragraph::new(opts), chunks[2]);
+    f.render_widget(
+        Paragraph::new(opts).style(Style::default().bg(MODAL_BG).fg(MODAL_FG)),
+        chunks[2],
+    );
 
     let help = if state.message.is_empty() {
         "Enter create · Esc cancel · j/k pick · Tab mode · s shell · a agent · p layout"
     } else {
         state.message.as_str()
     };
-    f.render_widget(Paragraph::new(help), chunks[3]);
+    f.render_widget(
+        Paragraph::new(help).style(Style::default().bg(MODAL_BG).fg(MODAL_FG)),
+        chunks[3],
+    );
 }
 
 fn centered_rect(percent_x: u16, percent_y: u16, r: ratatui::layout::Rect) -> ratatui::layout::Rect {

@@ -86,6 +86,7 @@ pub fn spawn_tmux_session(
         agent_command,
         PaneLayout::Single,
         attach_mode,
+        true,
     )
 }
 
@@ -96,6 +97,7 @@ pub fn spawn_tmux_session_with_layout(
     primary_command: &str,
     layout: PaneLayout,
     _attach_mode: AttachMode,
+    switch_to_session: bool,
 ) -> Result<SpawnOutcome, SpawnError> {
     if !path.exists() {
         return Err(SpawnError::PathNotFound(path.to_path_buf()));
@@ -105,7 +107,7 @@ pub fn spawn_tmux_session_with_layout(
     }
 
     if tmux_has_session(session_name) {
-        if std::env::var_os("TMUX").is_some() {
+        if switch_to_session && std::env::var_os("TMUX").is_some() {
             let _ = Command::new("tmux")
                 .args(["switch-client", "-t", session_name])
                 .status();
@@ -113,6 +115,7 @@ pub fn spawn_tmux_session_with_layout(
         return Ok(SpawnOutcome::ReusedExisting);
     }
 
+    let shell = default_shell_command();
     let status = Command::new("tmux")
         .args([
             "new-session",
@@ -121,7 +124,7 @@ pub fn spawn_tmux_session_with_layout(
             session_name,
             "-c",
             &path.to_string_lossy(),
-            primary_command,
+            &shell,
         ])
         .status()
         .map_err(|e| SpawnError::Tmux(e.to_string()))?;
@@ -130,11 +133,21 @@ pub fn spawn_tmux_session_with_layout(
         return Err(SpawnError::TmuxFailed);
     }
 
+    if primary_command != shell {
+        let send = Command::new("tmux")
+            .args(["send-keys", "-t", session_name, primary_command, "Enter"])
+            .status()
+            .map_err(|e| SpawnError::Tmux(e.to_string()))?;
+        if !send.success() {
+            return Err(SpawnError::TmuxFailed);
+        }
+    }
+
     if layout != PaneLayout::Single {
         apply_pane_split(session_name, layout)?;
     }
 
-    if std::env::var_os("TMUX").is_some() {
+    if switch_to_session && std::env::var_os("TMUX").is_some() {
         let _ = Command::new("tmux")
             .args(["switch-client", "-t", session_name])
             .status();

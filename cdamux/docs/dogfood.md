@@ -38,7 +38,7 @@ cargo run -p cdamuxd
 ## tmux popup bind (kit target)
 
 ```tmux
-bind-key -n M-p display-popup -E -w 80% -h 75% "cdamux --pick"
+bind-key -n M-p display-popup -E -w 80% -h 75% "cdamux"
 ```
 
 Install the `cdamux` binary on `PATH` (e.g. `cargo install --path crates/cdamux-cli`).
@@ -52,7 +52,7 @@ Install the `cdamux` binary on `PATH` (e.g. `cargo install --path crates/cdamux-
 - [ ] `cdamux list` shows `name`, `path`, `state` columns
 - [ ] `cdamux --pick` from `tmux display-popup -E` closes popup after selection
 - [ ] `cdamux` (no args) opens ratatui dashboard; `q` quits; Enter attaches; `n` spawn (`-i` skim)
-- [ ] In tmux popups use `cdamux --pick` only (full dashboard needs a normal terminal)
+- [ ] Alt+p popup runs full dashboard (`cdamux`); `--pick` optional for skim-only
 - [ ] Repo at `org/nested/repo` appears when `discover = "git_only"` (`cdamux projects`)
 - [ ] `list --group-by cwd` prints `##` group headers (text mode)
 - [ ] `list --json --group-by project` returns grouped JSON

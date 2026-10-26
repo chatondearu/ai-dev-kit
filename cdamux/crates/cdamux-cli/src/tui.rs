@@ -1,6 +1,7 @@
 //! Full-screen ratatui dashboard (default `cdamux` with no subcommand).
 
 use ansi_to_tui::IntoText as _;
+use crate::spawn_modal::{draw_modal, on_key as spawn_modal_on_key, ModalState, SpawnModalAction};
 use crate::app_tabs::{
     draw_agents, draw_projects, draw_sessions_list, draw_settings, draw_tab_bar, flat_sessions,
     help_for_tab, try_save, AppTab, bump_preview_lines, cycle_attach_mode, cycle_group_by,
@@ -99,7 +100,7 @@ pub fn map_key_event(key: KeyEvent) -> DashboardAction {
     match key.code {
         KeyCode::Char('q') => DashboardAction::Quit,
         KeyCode::Esc => DashboardAction::None,
-        KeyCode::Char('n') | KeyCode::Char('s') => DashboardAction::Spawn,
+        KeyCode::Char('n') => DashboardAction::Spawn,
         KeyCode::Char(' ') => DashboardAction::FocusComposer,
         KeyCode::Tab => DashboardAction::CycleSideTab,
         KeyCode::Enter => DashboardAction::Attach,
@@ -423,7 +424,7 @@ pub fn run_dashboard() -> ExitCode {
 
     let mut should_quit = false;
     let mut attach_name: Option<String> = None;
-    let mut spawn_requested = false;
+    let mut spawn_overlay: Option<ModalState> = None;
     let mut review_session: Option<String> = None;
     let mut fleet_tree_rect: Option<ratatui::layout::Rect> = None;
     let mut sidecar_preview_rect: Option<ratatui::layout::Rect> = None;
@@ -435,7 +436,7 @@ pub fn run_dashboard() -> ExitCode {
     const TREE_REFRESH: Duration = Duration::from_millis(2000);
     const PREVIEW_REFRESH: Duration = Duration::from_millis(800);
 
-    while !should_quit && attach_name.is_none() && !spawn_requested && review_session.is_none() {
+    while !should_quit && attach_name.is_none() && review_session.is_none() {
         let group_by = cfg.sessions.group_by;
         if tree_dirty || last_tree_refresh.elapsed() >= TREE_REFRESH {
             cached_tree = build_project_session_tree(
@@ -541,6 +542,9 @@ pub fn run_dashboard() -> ExitCode {
                     &mut fleet_tree_rect,
                     &mut sidecar_preview_rect,
                 );
+                if let Some(overlay) = &spawn_overlay {
+                    draw_modal(f, overlay);
+                }
             })
             .ok();
 
@@ -583,6 +587,30 @@ pub fn run_dashboard() -> ExitCode {
                     continue;
                 }
                 Ok(Event::Key(key)) => {
+                if let Some(ref mut overlay) = spawn_overlay {
+                    match spawn_modal_on_key(&cfg, overlay, key) {
+                        SpawnModalAction::Continue => continue,
+                        SpawnModalAction::DismissCancel => {
+                            spawn_overlay = None;
+                            continue;
+                        }
+                        SpawnModalAction::DismissDone { status } => {
+                            spawn_overlay = None;
+                            tree_dirty = true;
+                            status_line = status;
+                            selected_row = 0;
+                            continue;
+                        }
+                    }
+                }
+                if spawn_overlay.is_none()
+                    && !show_help
+                    && key.modifiers.is_empty()
+                    && key.code == KeyCode::Char('n')
+                {
+                    spawn_overlay = Some(ModalState::new(&cfg));
+                    continue;
+                }
                 if let KeyCode::Char(c) = key.code {
                     if key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT {
                         if let Some(tab) = AppTab::from_digit(c) {
@@ -764,7 +792,9 @@ pub fn run_dashboard() -> ExitCode {
                         _ => {}
                         }
                     }
-                    DashboardAction::Spawn => spawn_requested = true,
+                    DashboardAction::Spawn => {
+                        spawn_overlay = Some(ModalState::new(&cfg));
+                    }
                     DashboardAction::ToggleWaitingFilter => {
                         waiting_only = !waiting_only;
                         selected_row = 0;
@@ -805,9 +835,6 @@ pub fn run_dashboard() -> ExitCode {
 
     if let Some(name) = attach_name {
         return crate::tmux_attach_session_with_mode(&name, Some(cfg.sessions.attach_mode));
-    }
-    if spawn_requested {
-        return crate::spawn_modal::run(&cfg);
     }
     if let Some(name) = review_session {
         return crate::run_review_for_session(&name);

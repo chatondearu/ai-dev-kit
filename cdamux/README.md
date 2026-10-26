@@ -25,11 +25,13 @@ cargo test
 
 Example config: copy `config/cdamux.example.toml` to `~/.config/cdamux/config.toml`.
 
-## tmux popup (target)
+## tmux popup
 
 ```tmux
-bind-key -n M-p display-popup -E -w 80% -h 75% "cdamux --pick"
+bind-key -n M-p display-popup -E -w 80% -h 75% "cdamux"
 ```
+
+Minimal skim picker only: `cdamux --pick` (exits right after attach).
 
 ## Licence
 

@@ -5,16 +5,14 @@ use cdamux_core::{
     list_tmux_sessions, resolve_agent_command, session_name_for_path,
     spawn_tmux_session_with_layout, Config, PaneLayout, SpawnOutcome,
 };
-use crossterm::event::{self, Event, KeyCode, KeyModifiers};
+use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
-    backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
-    Frame, Terminal,
+    Frame,
 };
-use std::io::{self, stdout, Stdout};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -43,7 +41,7 @@ impl PathMode {
     }
 }
 
-struct ModalState {
+pub(crate) struct ModalState {
     path_mode: PathMode,
     running: Vec<(String, PathBuf)>,
     discovered: Vec<PathBuf>,
@@ -58,7 +56,7 @@ struct ModalState {
 }
 
 impl ModalState {
-    fn new(cfg: &Config) -> Self {
+    pub(crate) fn new(cfg: &Config) -> Self {
         let running: Vec<(String, PathBuf)> = list_tmux_sessions()
             .unwrap_or_default()
             .into_iter()
@@ -132,25 +130,112 @@ impl ModalState {
     }
 }
 
-struct TerminalGuard;
+pub(crate) enum SpawnModalAction {
+    Continue,
+    DismissCancel,
+    DismissDone { status: String },
+}
 
-impl TerminalGuard {
-    fn enter() -> io::Result<(Terminal<CrosstermBackend<Stdout>>, Self)> {
-        crossterm::terminal::enable_raw_mode()?;
-        crossterm::execute!(stdout(), crossterm::terminal::EnterAlternateScreen)?;
-        Ok((Terminal::new(CrosstermBackend::new(stdout()))?, Self))
+pub(crate) fn on_key(cfg: &Config, state: &mut ModalState, key: KeyEvent) -> SpawnModalAction {
+    if state.editing_custom {
+        if key.code == KeyCode::Esc {
+            state.editing_custom = false;
+            return SpawnModalAction::Continue;
+        }
+        if key.code == KeyCode::Enter {
+            state.editing_custom = false;
+            return SpawnModalAction::Continue;
+        }
+        if key.code == KeyCode::Backspace {
+            state.custom_path.pop();
+            return SpawnModalAction::Continue;
+        }
+        if let KeyCode::Char(c) = key.code {
+            if key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT {
+                state.custom_path.push(c);
+            }
+        }
+        return SpawnModalAction::Continue;
+    }
+
+    match key.code {
+        KeyCode::Esc => SpawnModalAction::DismissCancel,
+        KeyCode::Tab => {
+            state.path_mode = state.path_mode.next();
+            state.pick_index = 0;
+            SpawnModalAction::Continue
+        }
+        KeyCode::Char('s') if key.modifiers.is_empty() => {
+            state.shell_only = !state.shell_only;
+            SpawnModalAction::Continue
+        }
+        KeyCode::Char('a') if key.modifiers.is_empty() && !state.shell_only => {
+            if !state.agents.is_empty() {
+                state.agent_index = (state.agent_index + 1) % state.agents.len();
+            }
+            SpawnModalAction::Continue
+        }
+        KeyCode::Char('p') if key.modifiers.is_empty() => {
+            state.cycle_layout();
+            SpawnModalAction::Continue
+        }
+        KeyCode::Char('c') if key.modifiers.is_empty() && state.path_mode == PathMode::Custom => {
+            state.editing_custom = true;
+            SpawnModalAction::Continue
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            if state.list_len() > 0 {
+                state.pick_index = (state.pick_index + 1) % state.list_len();
+            }
+            SpawnModalAction::Continue
+        }
+        KeyCode::Up | KeyCode::Char('k') => {
+            if state.list_len() > 0 {
+                state.pick_index = (state.pick_index + state.list_len() - 1) % state.list_len();
+            }
+            SpawnModalAction::Continue
+        }
+        KeyCode::Enter => {
+            if let Some(path) = state.resolved_path() {
+                match execute_spawn(cfg, state, path, false) {
+                    Ok(msg) => SpawnModalAction::DismissDone { status: msg },
+                    Err(e) => {
+                        state.message = e;
+                        SpawnModalAction::Continue
+                    }
+                }
+            } else {
+                state.message = "pick a path".into();
+                SpawnModalAction::Continue
+            }
+        }
+        _ => SpawnModalAction::Continue,
     }
 }
 
-impl Drop for TerminalGuard {
-    fn drop(&mut self) {
-        let _ = crossterm::execute!(stdout(), crossterm::terminal::LeaveAlternateScreen);
-        let _ = crossterm::terminal::disable_raw_mode();
-    }
-}
-
-/// Run spawn modal on the alternate screen (caller must have restored main TUI).
+/// Standalone spawn UI (alternate screen). Prefer overlay via `ModalState` in the dashboard.
 pub fn run(cfg: &Config) -> ExitCode {
+    use crossterm::event::{self, Event};
+    use ratatui::{backend::CrosstermBackend, Terminal};
+    use std::io::{self, stdout, Stdout};
+
+    struct TerminalGuard;
+
+    impl TerminalGuard {
+        fn enter() -> io::Result<(Terminal<CrosstermBackend<Stdout>>, Self)> {
+            crossterm::terminal::enable_raw_mode()?;
+            crossterm::execute!(stdout(), crossterm::terminal::EnterAlternateScreen)?;
+            Ok((Terminal::new(CrosstermBackend::new(stdout()))?, Self))
+        }
+    }
+
+    impl Drop for TerminalGuard {
+        fn drop(&mut self) {
+            let _ = crossterm::execute!(stdout(), crossterm::terminal::LeaveAlternateScreen);
+            let _ = crossterm::terminal::disable_raw_mode();
+        }
+    }
+
     let mut state = ModalState::new(cfg);
     let (mut terminal, _guard) = match TerminalGuard::enter() {
         Ok(t) => t,
@@ -160,93 +245,31 @@ pub fn run(cfg: &Config) -> ExitCode {
         }
     };
 
-    let mut done = false;
-    let mut cancelled = false;
-
-    while !done {
+    loop {
         terminal.draw(|f| draw_modal(f, &state)).ok();
-
         if !event::poll(std::time::Duration::from_millis(200)).unwrap_or(false) {
             continue;
         }
         let Ok(Event::Key(key)) = event::read() else {
             continue;
         };
-
-        if state.editing_custom {
-            if key.code == KeyCode::Esc {
-                state.editing_custom = false;
-                continue;
+        match on_key(cfg, &mut state, key) {
+            SpawnModalAction::Continue => {}
+            SpawnModalAction::DismissCancel => return ExitCode::SUCCESS,
+            SpawnModalAction::DismissDone { status } => {
+                println!("{status}");
+                return ExitCode::SUCCESS;
             }
-            if key.code == KeyCode::Enter {
-                state.editing_custom = false;
-                continue;
-            }
-            if key.code == KeyCode::Backspace {
-                state.custom_path.pop();
-                continue;
-            }
-            if let KeyCode::Char(c) = key.code {
-                if key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT {
-                    state.custom_path.push(c);
-                }
-            }
-            continue;
         }
-
-        match key.code {
-            KeyCode::Esc => {
-                cancelled = true;
-                done = true;
-            }
-            KeyCode::Tab => {
-                state.path_mode = state.path_mode.next();
-                state.pick_index = 0;
-            }
-            KeyCode::Char('s') if key.modifiers.is_empty() => {
-                state.shell_only = !state.shell_only;
-            }
-            KeyCode::Char('a') if key.modifiers.is_empty() && !state.shell_only => {
-                if !state.agents.is_empty() {
-                    state.agent_index = (state.agent_index + 1) % state.agents.len();
-                }
-            }
-            KeyCode::Char('p') if key.modifiers.is_empty() => state.cycle_layout(),
-            KeyCode::Char('c') if key.modifiers.is_empty() && state.path_mode == PathMode::Custom => {
-                state.editing_custom = true;
-            }
-            KeyCode::Down | KeyCode::Char('j') => {
-                if state.list_len() > 0 {
-                    state.pick_index = (state.pick_index + 1) % state.list_len();
-                }
-            }
-            KeyCode::Up | KeyCode::Char('k') => {
-                if state.list_len() > 0 {
-                    state.pick_index = (state.pick_index + state.list_len() - 1) % state.list_len();
-                }
-            }
-            KeyCode::Enter => {
-                if let Some(path) = state.resolved_path() {
-                    drop(terminal);
-                    drop(_guard);
-                    return execute_spawn(cfg, &state, path);
-                }
-                state.message = "pick a path".into();
-            }
-            _ => {}
-        }
-    }
-
-    drop(terminal);
-    drop(_guard);
-    if cancelled {
-        ExitCode::SUCCESS
-    } else {
-        ExitCode::SUCCESS
     }
 }
 
-fn execute_spawn(cfg: &Config, state: &ModalState, path: PathBuf) -> ExitCode {
+fn execute_spawn(
+    cfg: &Config,
+    state: &ModalState,
+    path: PathBuf,
+    switch_to_session: bool,
+) -> Result<String, String> {
     let command = if state.shell_only {
         default_shell_command()
     } else {
@@ -255,13 +278,8 @@ fn execute_spawn(cfg: &Config, state: &ModalState, path: PathBuf) -> ExitCode {
             .get(state.agent_index)
             .cloned()
             .unwrap_or_else(|| default_agent_name(&cfg.agents));
-        match resolve_agent_command(&cfg.agents, &agent) {
-            Ok(c) => c,
-            Err(e) => {
-                eprintln!("spawn: {e}");
-                return ExitCode::from(1);
-            }
-        }
+        resolve_agent_command(&cfg.agents, &agent)
+            .map_err(|e| e.to_string())?
     };
 
     let session_name = session_name_for_path(&path);
@@ -271,23 +289,20 @@ fn execute_spawn(cfg: &Config, state: &ModalState, path: PathBuf) -> ExitCode {
         &command,
         state.layout,
         cfg.sessions.attach_mode,
+        switch_to_session,
     ) {
-        Ok(SpawnOutcome::ReusedExisting) => {
-            println!("reusing session '{}'", session_name);
-            ExitCode::SUCCESS
-        }
-        Ok(SpawnOutcome::Created) => {
-            println!("spawned '{}' in {} ({})", session_name, path.display(), state.layout_label());
-            ExitCode::SUCCESS
-        }
-        Err(e) => {
-            eprintln!("spawn: {e}");
-            ExitCode::from(1)
-        }
+        Ok(SpawnOutcome::ReusedExisting) => Ok(format!("reusing session '{}'", session_name)),
+        Ok(SpawnOutcome::Created) => Ok(format!(
+            "spawned '{}' in {} ({})",
+            session_name,
+            path.display(),
+            state.layout_label()
+        )),
+        Err(e) => Err(e.to_string()),
     }
 }
 
-fn draw_modal(f: &mut Frame, state: &ModalState) {
+pub(crate) fn draw_modal(f: &mut Frame, state: &ModalState) {
     let area = centered_rect(70, 70, f.area());
     let block = Block::default()
         .title(" New session ")

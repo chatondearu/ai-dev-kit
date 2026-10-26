@@ -140,7 +140,7 @@ bind-key -n M-p display-popup -E -w 80% -h 75% "ccmux"
 Target for cdamux:
 
 ```tmux
-bind-key -n M-p display-popup -E -w 80% -h 75% "cdamux --pick"
+bind-key -n M-p display-popup -E -w 80% -h 75% "cdamux"
 ```
 
 ## skzv vs epilande CLI (do not confuse)

@@ -100,6 +100,21 @@ TUI keybindings:
 
 Diff source: `git diff` plus `git diff --cached` in the resolved repo directory.
 
+## Mission control dashboard (v2)
+
+- [ ] `cdamux` shows project → session tree with status icons (○ ● ◆)
+- [ ] Preview sidecar updates when selecting a session
+- [ ] Notes tab shows `<project>/.cdamux/notes.md` (or central path) for session cwd
+- [ ] Review tab: `Ctrl+R` or Enter opens hunk review TUI for selected session
+- [ ] Composer (`Space`) sends to session without attach
+- [ ] `n` spawn modal: running / discovered / custom path; optional shell-only and pane split
+
+| Key | Action |
+| --- | --- |
+| `Tab` | Cycle Preview / Notes / Review |
+| `Ctrl+R` | Open review TUI |
+| `n` | Spawn modal |
+
 ## Regression vs skzv/ccmux
 
 - [ ] Can still use skzv/ccmux in parallel on same tmux server (document session name collisions on `c-*`)

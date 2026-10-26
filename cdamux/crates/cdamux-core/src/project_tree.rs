@@ -1,7 +1,10 @@
 //! Join discovered projects with tmux sessions for the Fleet tree UI.
 
 use crate::session::{EnrichedSession, SessionState};
-use crate::{discover_projects, enrich_sessions, list_tmux_sessions, Project, ProjectsConfig};
+use crate::{
+    discover_projects, enrich_sessions, group_sessions, list_tmux_sessions, GroupBy, GroupedSessions,
+    Project, ProjectsConfig,
+};
 use std::collections::BTreeMap;
 use std::path::Path;
 
@@ -41,16 +44,21 @@ pub fn project_key(path: &Path) -> String {
 pub fn build_project_session_tree(
     projects_cfg: &ProjectsConfig,
     idle_seconds_for_needs_input: u32,
+    group_by: GroupBy,
 ) -> ProjectSessionTree {
-    let projects = discover_projects(projects_cfg);
     let raw = list_tmux_sessions().unwrap_or_default();
     let enriched = enrich_sessions(
         &raw,
-        crate::GroupBy::Project,
+        group_by,
         projects_cfg,
         idle_seconds_for_needs_input,
     );
 
+    if group_by != GroupBy::Project {
+        return tree_from_grouped(group_sessions(enriched, group_by));
+    }
+
+    let projects = discover_projects(projects_cfg);
     let mut by_project: BTreeMap<String, Vec<EnrichedSession>> = BTreeMap::new();
     for proj in &projects {
         by_project.insert(project_key(&proj.path), Vec::new());
@@ -82,6 +90,33 @@ pub fn build_project_session_tree(
     unassigned.sort_by(|a, b| a.name.cmp(&b.name));
 
     ProjectSessionTree { nodes, unassigned }
+}
+
+fn tree_from_grouped(grouped: GroupedSessions) -> ProjectSessionTree {
+    let nodes = grouped
+        .groups
+        .into_iter()
+        .map(|g| {
+            let mut sessions = g.sessions;
+            sessions.sort_by(|a, b| a.name.cmp(&b.name));
+            let path = sessions
+                .first()
+                .map(|s| Path::new(&s.path))
+                .unwrap_or_else(|| Path::new(""));
+            ProjectTreeNode {
+                project: Project {
+                    name: g.key,
+                    path: path.to_path_buf(),
+                    root_label: format!("{:?}", grouped.group_by),
+                },
+                sessions,
+            }
+        })
+        .collect();
+    ProjectSessionTree {
+        nodes,
+        unassigned: Vec::new(),
+    }
 }
 
 pub fn state_icon(state: SessionState) -> char {
@@ -130,6 +165,31 @@ mod tests {
             root_label: "dev".into(),
         }];
         assert!(project_for_path("/other/path", &projects).is_none());
+    }
+
+    #[test]
+    fn tree_from_grouped_agent_buckets() {
+        use crate::session::{EnrichedSession, SessionState};
+        let grouped = group_sessions(
+            vec![
+                EnrichedSession {
+                    name: "c-a".into(),
+                    path: "/tmp/a".into(),
+                    group_key: "cursor".into(),
+                    state: SessionState::Idle,
+                },
+                EnrichedSession {
+                    name: "o-b".into(),
+                    path: "/tmp/b".into(),
+                    group_key: "opencode".into(),
+                    state: SessionState::Active,
+                },
+            ],
+            GroupBy::Agent,
+        );
+        let tree = tree_from_grouped(grouped);
+        assert_eq!(tree.nodes.len(), 2);
+        assert!(tree.unassigned.is_empty());
     }
 
     #[test]

@@ -48,7 +48,8 @@ See `config/cdamux.example.toml`. Highlights:
 
 - `[[projects.roots]]` — path + optional label.
 - `projects.discover` — `flat` | `depth(N)` | `git_only`.
-- `sessions.group_by` — `project | cwd | agent | group_path | none`.
+- `sessions.group_by` — `project | cwd | agent | group_path | none`. Fleet tree uses
+  discovered projects when `project`; other values regroup top-level nodes (TUI `g` cycles).
 - `sessions.attach_mode` — `mirror | exclusive` (tmux `-d`), same semantics as skzv.
 - `daemon.listen_tailnet`, `daemon.tailnet_port`.
 - `[agents.cursor]` command override (kit: `cursor-agent`).

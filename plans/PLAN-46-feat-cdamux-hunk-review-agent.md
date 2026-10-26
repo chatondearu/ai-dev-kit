@@ -1,6 +1,6 @@
 # PLAN-46 — cdamux hunk review → agent
 
-- **Status**: in-progress
+- **Status**: done
 - **PRD**: [[../prd/PRD-39-cdamux|PRD-39]] (v1)
 - **GitHub**: [#46](https://github.com/chatondearu/ai-dev-kit/issues/46)
 - **Date**: 2026-10-26
@@ -43,4 +43,4 @@ Use `git diff` subprocess; ratatui list of hunks; format message → `send` help
 
 ## Verification
 
-- [ ] Depends on #42, #43; manual review on sample repo
+- [x] Merged via PR #54; manual review on sample repo (maintainer)

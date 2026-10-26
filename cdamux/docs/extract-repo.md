@@ -12,3 +12,16 @@ When v0 dogfood passes (see PRD-39 success metrics):
 6. Add `cda.aitools.cdamux.enable` only after second host dogfood.
 
 Until then, develop in-tree and reference paths as `cdamux/` in docs.
+
+## Validation (#48, 2026-10-26)
+
+| Step | Ready | Notes |
+| ---- | ----- | ----- |
+| 1. Create GitHub repo | Human | [#56](https://github.com/chatondearu/ai-dev-kit/issues/56) |
+| 2. Copy / subtree split | Yes | `cdamux/` is self-contained workspace |
+| 3. CI (test, clippy, release) | Planned | Add in extracted repo |
+| 4. Submodule or Nix pin in kit | After extract | ADR-003: no default `aitools` enable |
+| 5. ADR-004 + PRD shipped | After dogfood sign-off | Maintainer confirms metrics |
+| 6. Second-host dogfood before Nix | Blocked | Explicit gate in ADR-003 |
+
+Prerequisite: maintainer completes interactive rows in `dogfood.md` (issue #48).

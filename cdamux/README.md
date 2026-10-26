@@ -1,7 +1,7 @@
 # cdamux
 
 Rust orchestrator for **AI coding agent sessions on tmux**: spawn, classify, group,
-and pick sessions — with multi-root project discovery and popup-friendly `--pick`.
+and pick sessions — with multi-root project discovery, a default **ratatui** dashboard (`cdamux`), and popup-friendly `--pick`.
 
 **Status**: bootstrap / v0 in progress. Lives **in-tree** under [ai-dev-kit](https://github.com/chatondearu/ai-dev-kit) until functional; then [extract](docs/extract-repo.md) to its own repo (ADR-004).
 

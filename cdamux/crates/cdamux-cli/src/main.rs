@@ -1,5 +1,7 @@
 //! cdamux — CLI for agent session orchestration on tmux.
 
+mod tui;
+
 use cdamux_core::{
     config_path, configured_agent_ids, default_agent_name, discover_projects, grouped_for_list,
     list_tmux_sessions, load_config, resolve_agent_command, session_name_for_path,
@@ -86,10 +88,7 @@ fn main() -> ExitCode {
     }
 
     match cli.command {
-        None => {
-            eprintln!("cdamux dashboard TUI: not implemented yet. Try: cdamux list, cdamux doctor");
-            ExitCode::from(2)
-        }
+        None => tui::run_dashboard(),
         Some(Commands::Doctor) => cmd_doctor(),
         Some(Commands::List { json, group_by }) => cmd_list(json, group_by.into()),
         Some(Commands::Projects) => cmd_projects(),
@@ -324,6 +323,10 @@ fn cmd_projects() -> ExitCode {
 }
 
 fn cmd_attach(session: &str) -> ExitCode {
+    tmux_attach_session(session)
+}
+
+pub(crate) fn tmux_attach_session(session: &str) -> ExitCode {
     let attach_mode = load_config()
         .map(|c| c.sessions.attach_mode)
         .unwrap_or(AttachMode::Mirror);
@@ -384,6 +387,22 @@ fn cmd_spawn(agent: Option<String>, path: Option<String>, interactive: bool) -> 
         (path_buf, agent_name)
     };
 
+    spawn_with_path_and_agent(&cfg, path_buf, agent_name)
+}
+
+pub(crate) fn cmd_spawn_interactive(cfg: &cdamux_core::Config) -> ExitCode {
+    let (path_buf, agent_name) = match interactive_spawn(cfg) {
+        Ok(v) => v,
+        Err(()) => return ExitCode::from(1),
+    };
+    spawn_with_path_and_agent(cfg, path_buf, agent_name)
+}
+
+fn spawn_with_path_and_agent(
+    cfg: &cdamux_core::Config,
+    path_buf: PathBuf,
+    agent_name: String,
+) -> ExitCode {
     let command = match resolve_agent_command(&cfg.agents, &agent_name) {
         Ok(c) => c,
         Err(SpawnError::UnknownAgent(a)) => {

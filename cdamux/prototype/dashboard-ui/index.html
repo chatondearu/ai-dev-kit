@@ -1,0 +1,673 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PROTOTYPE — cdamux dashboard (variant C)</title>
+  <style>
+    :root {
+      --bg: #0d0f12;
+      --panel: #141820;
+      --border: #2a3140;
+      --text: #e6eaf0;
+      --muted: #8b95a8;
+      --accent: #6eb5ff;
+      --project: #9ec8ff;
+      --warn: #e8b84a;
+      --ok: #6bcf8e;
+      --idle: #5c6578;
+      --mono: "JetBrains Mono", "SF Mono", ui-monospace, monospace;
+      --sans: system-ui, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 13px;
+      line-height: 1.45;
+      min-height: 100vh;
+      padding-bottom: 52px;
+    }
+    .proto-banner {
+      background: #3d2a00;
+      color: #ffd48a;
+      text-align: center;
+      padding: 5px 12px;
+      font-family: var(--sans);
+      font-size: 11px;
+      border-bottom: 1px solid #6b4a00;
+    }
+    .shell { height: calc(100vh - 30px - 52px); display: flex; flex-direction: column; overflow: hidden; }
+    .status-bar {
+      display: flex; gap: 14px; padding: 5px 12px;
+      border-bottom: 1px solid var(--border);
+      background: var(--panel);
+      font-size: 11px; color: var(--muted); flex-wrap: wrap;
+    }
+    .dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; margin-right: 4px; }
+    .dot.ok { background: var(--ok); }
+    .dot.off { background: #555; }
+    .app-tabs {
+      display: flex;
+      gap: 0;
+      border-bottom: 1px solid var(--border);
+      background: #0f1218;
+      padding: 0 8px;
+      flex-shrink: 0;
+    }
+    .app-tab {
+      padding: 10px 14px;
+      border: none;
+      background: transparent;
+      color: var(--muted);
+      font-family: inherit;
+      font-size: 12px;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
+    }
+    .app-tab.on { color: var(--accent); border-bottom-color: var(--accent); }
+    .app-tab:hover { color: var(--text); }
+    .screen { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+    .screen.hidden { display: none; }
+    .main-row { flex: 1; display: flex; min-height: 0; }
+    .col { border-right: 1px solid var(--border); overflow: auto; min-height: 0; min-width: 0; }
+    .col-tree { width: min(400px, 40vw); flex-shrink: 0; background: #0e1116; }
+    .col-detail { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+    h2.panel-title {
+      margin: 0; padding: 8px 10px;
+      font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;
+      color: var(--muted);
+      border-bottom: 1px solid var(--border);
+      background: #10141c;
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    }
+    .panel-title button, .toolbar button {
+      font-family: inherit; font-size: 10px;
+      padding: 4px 8px; border-radius: 4px;
+      border: 1px solid var(--border);
+      background: #1c2433; color: var(--muted); cursor: pointer;
+    }
+    .toolbar button.primary { background: var(--accent); color: #0a1020; border-color: transparent; }
+    .toolbar { padding: 8px 10px; display: flex; gap: 8px; flex-wrap: wrap; border-bottom: 1px solid var(--border); }
+    .tree-list { padding: 6px 0 16px; }
+    .tree-row {
+      display: grid;
+      grid-template-columns: 18px 16px 1fr auto;
+      align-items: center;
+      gap: 4px 6px;
+      width: 100%;
+      text-align: left;
+      background: transparent;
+      border: none;
+      font-family: inherit;
+      cursor: pointer;
+      border-left: 3px solid transparent;
+    }
+    .tree-row.project {
+      color: var(--project);
+      font-size: 13px;
+      font-weight: 600;
+      padding: 7px 8px 7px 6px;
+    }
+    .tree-row.session {
+      color: var(--text);
+      font-size: 11px;
+      font-weight: 400;
+      padding: 5px 8px 5px 12px;
+      margin-left: 8px;
+      border-left: 1px solid #252d3d;
+    }
+    .tree-row:hover { background: #1a2230; }
+    .tree-row.selected { background: #243044; border-left-color: var(--accent); }
+    .tree-row.session.selected { border-left-color: var(--accent); }
+    .status-icon { font-size: 11px; text-align: center; line-height: 1; }
+    .status-icon.idle { color: var(--idle); }
+    .status-icon.active { color: var(--ok); }
+    .status-icon.needs { color: var(--warn); }
+    .status-icon.project-dot { color: var(--muted); font-size: 9px; }
+    .chevron { color: var(--muted); font-size: 10px; text-align: center; }
+    .tree-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tree-meta { display: flex; gap: 4px; font-size: 10px; }
+    .badge { padding: 1px 5px; border-radius: 3px; background: #252d3d; color: var(--muted); }
+    .badge.root { background: #1a2840; color: var(--accent); }
+    .tree-children.collapsed { display: none; }
+    .tree-hint { padding: 4px 12px; font-size: 10px; color: var(--muted); }
+    .side-tabs { display: flex; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+    .side-tab {
+      flex: 1; padding: 8px; border: none;
+      border-bottom: 2px solid transparent;
+      background: #10141c; color: var(--muted);
+      font-family: inherit; font-size: 11px; cursor: pointer;
+    }
+    .side-tab.on { color: var(--accent); border-bottom-color: var(--accent); }
+    .preview-scroll {
+      flex: 1; overflow: auto; padding: 10px;
+      white-space: pre-wrap; color: #b8c0d0; font-size: 12px;
+    }
+    .preview-composer {
+      flex-shrink: 0;
+      border-top: 1px solid var(--border);
+      background: #10141c;
+      padding: 8px 10px;
+    }
+    .preview-composer label {
+      font-size: 10px; color: var(--muted);
+      display: block; margin-bottom: 4px;
+    }
+    .composer-row { display: flex; gap: 8px; }
+    .preview-composer input {
+      flex: 1;
+      background: #0a0c10;
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-family: inherit;
+      padding: 8px 10px;
+      border-radius: 4px;
+      font-size: 12px;
+    }
+    .preview-composer button {
+      font-family: inherit;
+      padding: 8px 12px;
+      border-radius: 4px;
+      border: none;
+      background: var(--accent);
+      color: #0a1020;
+      cursor: pointer;
+      font-weight: 600;
+    }
+    .composer-hint { font-size: 10px; color: var(--muted); margin-top: 6px; }
+    .help {
+      padding: 6px 10px; border-top: 1px solid var(--border);
+      font-size: 10px; color: var(--muted); background: #10141c;
+    }
+    .state-panel {
+      position: fixed; right: 10px; top: 38px;
+      width: 300px; max-height: 38vh; overflow: auto;
+      background: #1a1020; border: 1px solid #4a3050;
+      border-radius: 8px; padding: 8px; font-size: 10px; z-index: 5;
+    }
+    .state-panel h3 { margin: 0 0 4px; color: #c9a0dc; font-size: 10px; }
+    .state-panel pre { margin: 0; white-space: pre-wrap; }
+    .overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.7); align-items: center; justify-content: center; z-index: 20; }
+    .overlay.open { display: flex; }
+    .modal {
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 8px; width: min(560px, 94vw);
+      max-height: 90vh; overflow: auto; padding: 16px;
+    }
+    .modal h3 { margin: 0 0 12px; font-size: 14px; }
+    .modal section { margin-bottom: 14px; padding-bottom: 14px; border-bottom: 1px solid var(--border); }
+    .modal section:last-of-type { border-bottom: none; }
+    .modal label { display: block; margin: 6px 0 4px; color: var(--muted); font-size: 11px; }
+    .modal input[type="text"], .modal select, .modal textarea {
+      width: 100%; background: #0a0c10; border: 1px solid var(--border);
+      color: var(--text); font-family: inherit; padding: 6px 8px; border-radius: 4px;
+    }
+    .modal textarea { min-height: 64px; }
+    .radio-row { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+    .radio-row label { display: flex; align-items: center; gap: 8px; color: var(--text); cursor: pointer; }
+    .check-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+    .pane-options { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+    .pane-options label {
+      flex: 1; min-width: 120px; padding: 8px; border: 1px solid var(--border);
+      border-radius: 6px; cursor: pointer; text-align: center; color: var(--text);
+    }
+    .pane-options input { display: none; }
+    .pane-options input:checked + span { color: var(--accent); font-weight: 600; }
+    .pane-options label:has(input:checked) { border-color: var(--accent); background: #1a2840; }
+    .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
+    .modal-actions button {
+      font-family: inherit; padding: 8px 14px; border-radius: 4px;
+      border: 1px solid var(--border); background: #243044; color: var(--text); cursor: pointer;
+    }
+    .modal-actions button.primary { background: var(--accent); color: #0a1020; border: none; }
+    .settings-grid { padding: 12px; display: grid; gap: 12px; max-width: 640px; }
+    .settings-grid fieldset { border: 1px solid var(--border); border-radius: 6px; padding: 10px; margin: 0; }
+    .settings-grid legend { color: var(--accent); font-size: 11px; padding: 0 4px; }
+    .table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .table th, .table td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+    .table th { color: var(--muted); font-size: 10px; text-transform: uppercase; }
+    .proto-switcher {
+      position: fixed; bottom: 10px; left: 50%; transform: translateX(-50%);
+      display: flex; align-items: center; gap: 10px;
+      background: #ff6b00; color: #1a0a00; padding: 6px 14px;
+      border-radius: 999px; font-family: var(--sans); font-size: 12px; font-weight: 600;
+      z-index: 30;
+    }
+    .proto-switcher button {
+      background: rgba(0,0,0,.12); border: none; width: 28px; height: 28px;
+      border-radius: 50%; cursor: pointer;
+    }
+    .am-tools {
+      padding: 10px 12px; font-size: 11px; color: var(--muted);
+      columns: 2; column-gap: 24px;
+    }
+    .am-tools kbd {
+      background: #252d3d; padding: 1px 5px; border-radius: 3px; color: var(--text);
+    }
+  </style>
+</head>
+<body>
+  <div class="proto-banner">PROTOTYPE C+ — main tabs (Fleet / Projects / Sessions / Agents / Settings) · tree + sidecar · not production</div>
+  <div id="app"></div>
+  <div class="state-panel"><h3>State</h3><pre id="stateOut"></pre></div>
+
+  <div class="overlay" id="overlayNew">
+    <div class="modal">
+      <h3>New session <span class="badge">n</span></h3>
+
+      <section>
+        <label>Where to work</label>
+        <div class="radio-row" id="pathModeRadios">
+          <label><input type="radio" name="pathMode" value="running" checked /> Project already in progress (active session)</label>
+          <select id="runningProjectSelect"></select>
+          <label><input type="radio" name="pathMode" value="discovered" /> Pick from discovered repos</label>
+          <select id="discoveredSelect"></select>
+          <label><input type="radio" name="pathMode" value="custom" /> Custom folder path</label>
+          <input type="text" id="customPath" placeholder="/path/to/dir" />
+        </div>
+      </section>
+
+      <section>
+        <label>What to run</label>
+        <div class="check-row">
+          <input type="checkbox" id="shellOnly" />
+          <label for="shellOnly" style="margin:0;color:var(--text)">Empty shell only (no agent CLI — bash in pane)</label>
+        </div>
+        <label>Agent (when not shell-only)</label>
+        <select id="newAgent">
+          <option>cursor</option>
+          <option>opencode</option>
+          <option>claude</option>
+        </select>
+        <label>Initial prompt (optional)</label>
+        <textarea id="newPrompt" placeholder="Sent after spawn…"></textarea>
+      </section>
+
+      <section>
+        <label>tmux layout for new session</label>
+        <div class="pane-options" id="paneLayout">
+          <label><input type="radio" name="pane" value="single" checked /><span>Single pane</span></label>
+          <label><input type="radio" name="pane" value="horizontal" /><span>Split horizontal</span></label>
+          <label><input type="radio" name="pane" value="vertical" /><span>Split vertical</span></label>
+        </div>
+        <p style="font-size:10px;color:var(--muted);margin:8px 0 0">Maps to tmux new-session then split-window -h / -v; agent in primary pane, shell or logs in other (TBD impl).</p>
+      </section>
+
+      <div class="modal-actions">
+        <button type="button" data-close>Cancel</button>
+        <button type="button" class="primary" id="newSpawn">Create session</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="proto-switcher">
+    <span>Variant C (reference)</span>
+  </div>
+
+  <script>
+    const PROJECTS = [
+      { id: 'ai-dev-kit', name: 'ai-dev-kit', path: '/hdd/dev/chatondearu/ai-dev-kit', root: 'dev' },
+      { id: 'wiregraph', name: 'wiregraph', path: '/hdd/dev/chatondearu/wiregraph', root: 'dev' },
+      { id: 'barajeuxonline', name: 'barajeuxonline', path: '/hdd/dev/barajeuxonline/barajeuxonline', root: 'dev' },
+      { id: 'motoko-ops', name: 'motoko-ops', path: '/hdd/dev/neomatix/motoko-ops', root: 'dev' },
+      { id: 'nixos', name: 'nixos', path: '/home/chaton/etc/nixos', root: 'nixos' },
+      { id: 'cool-tts', name: 'cool-tts-service', path: '/hdd/dev/chatondearu/cool-tts-service', root: 'dev' },
+    ];
+
+    const SESSIONS = [
+      { name: 'ai-dev-kit', path: '/hdd/dev/chatondearu/ai-dev-kit', agent: 'cursor', state: 'active', projectId: 'ai-dev-kit', needs: false },
+      { name: 'c-wiregraph', path: '/hdd/dev/chatondearu/wiregraph', agent: 'cursor', state: 'needs_input', projectId: 'wiregraph', needs: true },
+      { name: 'bajo-secu', path: '/hdd/dev/barajeuxonline/barajeuxonline', agent: 'opencode', state: 'idle', projectId: 'barajeuxonline', needs: false },
+      { name: 'motoko-ops', path: '/hdd/dev/neomatix/motoko-ops', agent: 'cursor', state: 'idle', projectId: 'motoko-ops', needs: false },
+      { name: 'neonix-default', path: '/home/chaton/etc/nixos', agent: 'cursor', state: 'idle', projectId: 'nixos', needs: false },
+    ];
+
+    const COPY = {
+      preview: `$ cargo test -q
+...
+ok. 27 passed
+
+agent> waiting for input…`,
+      notes: `# ai-dev-kit\n\n- Dashboard variant C\n- Preview composer = agent-manager inline input`,
+      review: `diff --git a/src/tui.rs\n+ inline composer in preview tab`,
+    };
+
+    const state = {
+      appTab: 'fleet',
+      sideTab: 'preview',
+      selectedSession: 'ai-dev-kit',
+      selectedProject: 'ai-dev-kit',
+      expandedProjects: new Set(['ai-dev-kit', 'wiregraph', 'barajeuxonline', 'motoko-ops', 'nixos']),
+      filterWaiting: false,
+      previewLines: [COPY.preview],
+      lastAction: 'init',
+    };
+
+    function statusIcon(session) {
+      if (session.needs || session.state === 'needs_input') return { char: '◆', class: 'needs', title: 'needs input' };
+      if (session.state === 'active') return { char: '●', class: 'active', title: 'active' };
+      return { char: '○', class: 'idle', title: 'idle' };
+    }
+
+    function projectById(id) { return PROJECTS.find(p => p.id === id); }
+    function sessionsForProject(id) {
+      let list = SESSIONS.filter(s => s.projectId === id);
+      if (state.filterWaiting) list = list.filter(s => s.needs);
+      return list;
+    }
+    function selectedSession() {
+      if (!state.selectedSession) return null;
+      return SESSIONS.find(s => s.name === state.selectedSession);
+    }
+
+    function syncStatePanel() {
+      document.getElementById('stateOut').textContent = JSON.stringify({
+        appTab: state.appTab,
+        sideTab: state.sideTab,
+        selectedSession: state.selectedSession,
+        selectedProject: state.selectedProject,
+        lastAction: state.lastAction,
+      }, null, 2);
+    }
+
+    function logAction(name, detail = {}) {
+      Object.assign(state, detail, { lastAction: name });
+      syncStatePanel();
+      render();
+    }
+
+    function renderTree() {
+      const rows = [];
+      for (const proj of [...PROJECTS].sort((a, b) => a.name.localeCompare(b.name))) {
+        const sessions = sessionsForProject(proj.id);
+        const expanded = state.expandedProjects.has(proj.id);
+        const chevron = sessions.length ? (expanded ? '▼' : '▶') : '·';
+        rows.push(`
+          <button type="button" class="tree-row project ${state.selectedProject === proj.id && !state.selectedSession ? 'selected' : ''}" data-project="${proj.id}">
+            <span class="chevron" data-toggle="${proj.id}">${chevron}</span>
+            <span class="status-icon project-dot" title="project">◇</span>
+            <span class="tree-label">${proj.name}</span>
+            <span class="tree-meta"><span class="badge root">${proj.root}</span><span class="badge">${sessions.length}</span></span>
+          </button>
+        `);
+        const childClass = expanded ? 'tree-children' : 'tree-children collapsed';
+        let inner = '';
+        if (sessions.length) {
+          inner = sessions.map(s => {
+            const ic = statusIcon(s);
+            const sel = state.selectedSession === s.name;
+            return `
+              <button type="button" class="tree-row session ${sel ? 'selected' : ''}" data-session="${s.name}" data-project="${proj.id}" title="${ic.title}">
+                <span></span>
+                <span class="status-icon ${ic.class}">${ic.char}</span>
+                <span class="tree-label">${s.name}</span>
+                <span class="tree-meta"><span class="badge">${s.agent}</span></span>
+              </button>
+            `;
+          }).join('');
+        } else {
+          inner = `<div class="tree-hint" style="margin-left:20px">no session · <button type="button" data-spawn-project="${proj.id}" style="font:inherit;color:var(--accent);background:none;border:none;cursor:pointer">spawn</button></div>`;
+        }
+        rows.push(`<div class="${childClass}">${inner}</div>`);
+      }
+      return rows.join('');
+    }
+
+    function renderFleetScreen() {
+      const side = state.sideTab;
+      let body = state.previewLines.join('\n\n');
+      if (side === 'notes') body = COPY.notes;
+      if (side === 'review') body = COPY.review;
+      const s = selectedSession();
+      const composerSession = s ? s.name : '(select a session)';
+
+      return `
+        <div class="toolbar">
+          <button type="button" class="primary" data-action="new">+ New session (n)</button>
+          <button type="button" data-action="filterWaiting">${state.filterWaiting ? 'Waiting only ✓' : 'Filter waiting (w)'}</button>
+          <button type="button" data-action="expandAll">Expand all</button>
+          <button type="button" data-action="collapseAll">Fold all</button>
+        </div>
+        <div class="main-row">
+          <div class="col col-tree">
+            <h2 class="panel-title">Projects → sessions</h2>
+            <div class="tree-hint">Projects: <span style="color:var(--project)">blue</span> · Sessions: indented + status icon (○ idle ● active ◆ needs)</div>
+            <div class="tree-list">${renderTree()}</div>
+          </div>
+          <div class="col-detail">
+            <div class="side-tabs">
+              <button type="button" class="side-tab ${side === 'preview' ? 'on' : ''}" data-side="preview">Preview</button>
+              <button type="button" class="side-tab ${side === 'notes' ? 'on' : ''}" data-side="notes">Notes</button>
+              <button type="button" class="side-tab ${side === 'review' ? 'on' : ''}" data-side="review">Review</button>
+            </div>
+            <div class="preview-scroll" id="previewBody">${body}</div>
+            <div class="preview-composer">
+              <label>Input to session <strong>${composerSession}</strong> (agent-manager style — type here or Space)</label>
+              <div class="composer-row">
+                <input type="text" id="composerInput" placeholder="Message → tmux send-keys; Enter submits" />
+                <button type="button" id="composerSend">Send ↵</button>
+              </div>
+              <div class="composer-hint">Same as <code>cdamux send</code> today; v2 embeds in TUI. Multi-line: Shift+Enter (TBD).</div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderProjectsScreen() {
+      const rows = PROJECTS.map(p => {
+        const n = sessionsForProject(p.id).length;
+        return `<tr><td>${p.name}</td><td>${p.path}</td><td><span class="badge root">${p.root}</span></td><td>${n}</td><td><button type="button" data-spawn-project="${p.id}">spawn</button></td></tr>`;
+      }).join('');
+      return `
+        <div class="toolbar"><button type="button" class="primary" data-action="new">+ New session</button></div>
+        <h2 class="panel-title">Projects — discovery &amp; roots</h2>
+        <div class="settings-grid" style="max-width:900px">
+          <fieldset>
+            <legend>Roots (config)</legend>
+            <p>/hdd/dev <span class="badge">dev</span> · /home/chaton/etc/nixos <span class="badge">nixos</span></p>
+            <p style="color:var(--muted);font-size:11px">discover = git_only · max_depth = 6</p>
+          </fieldset>
+        </div>
+        <table class="table"><thead><tr><th>Project</th><th>Path</th><th>Root</th><th>Sessions</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+      `;
+    }
+
+    function renderSessionsScreen() {
+      const rows = SESSIONS.map(s => {
+        const ic = statusIcon(s);
+        return `<tr>
+          <td><span class="status-icon ${ic.class}">${ic.char}</span> ${s.name}</td>
+          <td>${s.path}</td>
+          <td>${s.agent}</td>
+          <td>${s.state}</td>
+          <td><button type="button" data-session="${s.name}" data-project="${s.projectId}">focus</button></td>
+        </tr>`;
+      }).join('');
+      return `
+        <h2 class="panel-title">Sessions — all tmux on this server</h2>
+        <p class="tree-hint">Flat view for power users; Fleet tree stays canonical. Filters: waiting, attach mode, move (m) — TBD.</p>
+        <table class="table"><thead><tr><th>Session</th><th>Path</th><th>Agent</th><th>State</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+      `;
+    }
+
+    function renderAgentsScreen() {
+      return `
+        <h2 class="panel-title">Agents &amp; CLIs</h2>
+        <table class="table">
+          <thead><tr><th>Id</th><th>Command</th><th>PATH</th><th>Default</th></tr></thead>
+          <tbody>
+            <tr><td>cursor</td><td>cursor-agent</td><td style="color:var(--ok)">ok</td><td>✓</td></tr>
+            <tr><td>opencode</td><td>opencode</td><td style="color:var(--ok)">ok</td><td></td></tr>
+            <tr><td>claude</td><td>claude</td><td style="color:var(--warn)">missing</td><td></td></tr>
+            <tr><td>pi</td><td>pi</td><td style="color:var(--warn)">missing</td><td></td></tr>
+          </tbody>
+        </table>
+        <div class="am-tools">
+          <p><strong>agent-manager parity (target)</strong></p>
+          <p><kbd>n</kbd> new · <kbd>Space</kbd> quick send · <kbd>Enter</kbd> attach in place · <kbd>A</kbd> fullscreen</p>
+          <p><kbd>w</kbd> waiting · <kbd>m</kbd> move session · <kbd>Ctrl+R</kbd> review · <kbd>F</kbd> fold tree</p>
+          <p><kbd>g</kbd> group (AM) / groupBy cycle (cdamux) — reconcile in PRD</p>
+        </div>
+      `;
+    }
+
+    function renderSettingsScreen() {
+      return `
+        <div class="settings-grid">
+          <fieldset><legend>Sessions</legend>
+            <label>attach_mode</label><select><option>mirror</option><option>exclusive</option></select>
+            <label>default group_by</label><select><option>project</option><option>cwd</option><option>agent</option></select>
+          </fieldset>
+          <fieldset><legend>Daemon</legend>
+            <label><input type="checkbox" /> listen_tailnet</label>
+            <label>tailnet_port</label><input type="text" value="7480" />
+          </fieldset>
+          <fieldset><legend>Notes</legend>
+            <label>central_root (optional)</label><input type="text" placeholder="~/.local/share/cdamux/notes" />
+          </fieldset>
+          <fieldset><legend>UI</legend>
+            <label>preview_lines</label><input type="text" value="80" />
+            <p style="font-size:10px;color:var(--muted)">Global keybind reference → Agents tab</p>
+          </fieldset>
+        </div>
+      `;
+    }
+
+    function render() {
+      const tabs = [
+        { id: 'fleet', label: 'Fleet' },
+        { id: 'projects', label: 'Projects' },
+        { id: 'sessions', label: 'Sessions' },
+        { id: 'agents', label: 'Agents / CLI' },
+        { id: 'settings', label: 'Settings' },
+      ];
+      const tabBar = tabs.map(t => `
+        <button type="button" class="app-tab ${state.appTab === t.id ? 'on' : ''}" data-app-tab="${t.id}">${t.label}</button>
+      `).join('');
+
+      let screen = '';
+      if (state.appTab === 'fleet') screen = renderFleetScreen();
+      else if (state.appTab === 'projects') screen = renderProjectsScreen();
+      else if (state.appTab === 'sessions') screen = renderSessionsScreen();
+      else if (state.appTab === 'agents') screen = renderAgentsScreen();
+      else screen = renderSettingsScreen();
+
+      document.getElementById('app').innerHTML = `
+        <div class="shell">
+          <div class="status-bar">
+            <span><span class="dot off"></span>cdamuxd off</span>
+            <span><span class="dot ok"></span>tailnet</span>
+            <span>tmux 3.7b</span>
+          </div>
+          <nav class="app-tabs">${tabBar}</nav>
+          <div class="screen">${screen}</div>
+          <div class="help">Main tabs = app surfaces · Fleet sidecar = Preview / Notes / Review · composer only on Preview tab</div>
+        </div>
+      `;
+      bindUI();
+      fillNewSessionForm();
+    }
+
+    function fillNewSessionForm() {
+      const runSel = document.getElementById('runningProjectSelect');
+      const discSel = document.getElementById('discoveredSelect');
+      if (!runSel) return;
+      const running = SESSIONS.map(s => {
+        const p = projectById(s.projectId);
+        return `<option value="${p.path}">${p.name} (session ${s.name})</option>`;
+      }).join('');
+      runSel.innerHTML = running;
+      discSel.innerHTML = PROJECTS.map(p => `<option value="${p.path}">${p.name}</option>`).join('');
+    }
+
+    function openNew() {
+      document.getElementById('overlayNew').classList.add('open');
+    }
+    function closeOverlays() {
+      document.querySelectorAll('.overlay').forEach(o => o.classList.remove('open'));
+    }
+
+    function bindUI() {
+      document.querySelectorAll('[data-app-tab]').forEach(el => {
+        el.addEventListener('click', () => logAction('app_tab', { appTab: el.dataset.appTab }));
+      });
+      document.querySelectorAll('[data-side]').forEach(el => {
+        el.addEventListener('click', () => logAction('side_tab', { sideTab: el.dataset.side }));
+      });
+      document.querySelectorAll('[data-session]').forEach(el => {
+        el.addEventListener('click', () => {
+          logAction('select_session', { selectedSession: el.dataset.session, selectedProject: el.dataset.project, appTab: 'fleet' });
+        });
+      });
+      document.querySelectorAll('.tree-row.project').forEach(el => {
+        el.addEventListener('click', (e) => {
+          const id = el.dataset.project;
+          if (e.target.closest('[data-toggle]')) {
+            const next = new Set(state.expandedProjects);
+            if (next.has(id)) next.delete(id); else next.add(id);
+            state.expandedProjects = next;
+            logAction('toggle_expand', { selectedProject: id });
+            return;
+          }
+          logAction('select_project', { selectedProject: id, selectedSession: '' });
+        });
+      });
+      document.querySelectorAll('[data-spawn-project]').forEach(el => {
+        el.addEventListener('click', () => {
+          const p = projectById(el.dataset.spawnProject);
+          if (p) document.getElementById('customPath').value = p.path;
+          openNew();
+        });
+      });
+      document.querySelectorAll('[data-action]').forEach(el => {
+        el.addEventListener('click', () => {
+          const a = el.dataset.action;
+          if (a === 'new') openNew();
+          if (a === 'filterWaiting') logAction('toggle_waiting', { filterWaiting: !state.filterWaiting });
+          if (a === 'expandAll') { state.expandedProjects = new Set(PROJECTS.map(p => p.id)); logAction('expand_all'); }
+          if (a === 'collapseAll') { state.expandedProjects = new Set(); logAction('collapse_all'); }
+        });
+      });
+      document.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', closeOverlays));
+      const sendBtn = document.getElementById('composerSend');
+      const input = document.getElementById('composerInput');
+      if (sendBtn && input) {
+        const doSend = () => {
+          const line = input.value.trim();
+          if (!line) return;
+          state.previewLines.push(`\n> you: ${line}\n… sent via send-keys + Enter`);
+          input.value = '';
+          logAction('composer_send', {});
+        };
+        sendBtn.addEventListener('click', doSend);
+        input.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doSend(); }
+        });
+      }
+      document.getElementById('newSpawn')?.addEventListener('click', () => {
+        const mode = document.querySelector('input[name="pathMode"]:checked')?.value;
+        const pane = document.querySelector('input[name="pane"]:checked')?.value;
+        const shellOnly = document.getElementById('shellOnly').checked;
+        logAction('spawn', { pathMode: mode, paneLayout: pane, shellOnly });
+        closeOverlays();
+      });
+    }
+
+    document.addEventListener('keydown', (e) => {
+      if (e.target.matches('input, textarea, select') && !e.target.id?.includes('composer')) return;
+      if (e.key === 'n' || e.key === 'N') { openNew(); logAction('key_n'); }
+      if (e.key === ' ' && state.appTab === 'fleet' && state.sideTab === 'preview') {
+        e.preventDefault();
+        document.getElementById('composerInput')?.focus();
+      }
+    });
+
+    render();
+  </script>
+</body>
+</html>

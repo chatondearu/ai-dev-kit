@@ -2,6 +2,7 @@
 
 mod daemon;
 mod diff;
+mod notes;
 mod send;
 mod session;
 mod spawn;
@@ -27,6 +28,7 @@ pub use tailnet_api::{
     decode_path_segment, dispatch_tailnet_request, resolve_tailnet_bind_ip, LiveTailnetBackend,
     TailnetApiBackend, TailnetResponse,
 };
+pub use notes::{ensure_note_file, note_refs_for_projects, resolve_note_path, NoteRef};
 pub use send::{build_send_keys_argv, send_to_session, SendError, tmux_has_session};
 pub use spawn::{
     configured_agent_ids, default_agent_name, resolve_agent_command, session_name_for_path,
@@ -58,6 +60,8 @@ pub struct Config {
     pub agents: AgentsConfig,
     #[serde(default)]
     pub ui: UiConfig,
+    #[serde(default)]
+    pub notes: NotesConfig,
 }
 
 impl Default for Config {
@@ -69,6 +73,7 @@ impl Default for Config {
             daemon: DaemonConfig::default(),
             agents: AgentsConfig::default(),
             ui: UiConfig::default(),
+            notes: NotesConfig::default(),
         }
     }
 }
@@ -248,6 +253,34 @@ pub enum UiMode {
     Pick,
 }
 
+/// Markdown notes: per-project file or optional central directory (ADR-004 local only).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NotesConfig {
+    /// When set, notes live here as `{slug}.md` derived from the project path.
+    #[serde(default)]
+    pub central_root: Option<PathBuf>,
+    /// Relative path under each project when `central_root` is unset.
+    #[serde(default = "default_notes_relative")]
+    pub relative_path: PathBuf,
+    /// External editor command; empty uses `$EDITOR` then `vi`.
+    #[serde(default)]
+    pub editor: String,
+}
+
+fn default_notes_relative() -> PathBuf {
+    PathBuf::from(".cdamux/notes.md")
+}
+
+impl Default for NotesConfig {
+    fn default() -> Self {
+        Self {
+            central_root: None,
+            relative_path: default_notes_relative(),
+            editor: String::new(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Project {
     pub name: String,
@@ -360,6 +393,21 @@ mod tests {
     use super::*;
     use std::fs;
     use tempfile::tempdir;
+
+    #[test]
+    fn config_parses_notes_section() {
+        let raw = r#"
+schema_version = 1
+[notes]
+central_root = "/tmp/notes"
+relative_path = "notes.md"
+editor = "nvim"
+"#;
+        let cfg: Config = toml::from_str(raw).unwrap();
+        assert_eq!(cfg.notes.central_root.as_deref(), Some(Path::new("/tmp/notes")));
+        assert_eq!(cfg.notes.relative_path, PathBuf::from("notes.md"));
+        assert_eq!(cfg.notes.editor, "nvim");
+    }
 
     #[test]
     fn discover_git_finds_nested_repo() {

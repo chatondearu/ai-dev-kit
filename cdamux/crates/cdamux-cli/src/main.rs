@@ -4,10 +4,11 @@ mod review_tui;
 mod tui;
 
 use cdamux_core::{
-    config_path, configured_agent_ids, default_agent_name, discover_projects, grouped_for_list,
-    git_diff_unified, list_tmux_sessions, load_config, parse_unified_diff, resolve_agent_command,
-    send_to_session, session_name_for_path, spawn_tmux_session, AttachMode, DiffError, GroupBy,
-    SendError, SpawnError, SpawnOutcome,
+    config_path, configured_agent_ids, default_agent_name, discover_projects, ensure_note_file,
+    grouped_for_list, git_diff_unified, list_tmux_sessions, load_config, note_refs_for_projects,
+    parse_unified_diff, resolve_agent_command, resolve_note_path, send_to_session,
+    session_name_for_path, spawn_tmux_session, AttachMode, DiffError, GroupBy, SendError,
+    SpawnError, SpawnOutcome,
 };
 use clap::{Parser, Subcommand};
 use skim::prelude::*;
@@ -77,6 +78,34 @@ enum Commands {
         #[arg(long, default_value = "Please review these diff hunks and suggest fixes.")]
         instruction: String,
     },
+    /// Per-project markdown notes (local files).
+    Notes {
+        #[command(subcommand)]
+        command: NotesCommands,
+    },
+}
+
+#[derive(Subcommand)]
+enum NotesCommands {
+    /// List note paths for configured projects (and tmux session cwds).
+    List,
+    /// Print a note (plain or rendered markdown).
+    Show {
+        #[arg(long, conflicts_with = "session")]
+        path: Option<String>,
+        #[arg(long, conflicts_with = "path")]
+        session: Option<String>,
+        /// Render markdown in the terminal (pulldown-cmark).
+        #[arg(long)]
+        render: bool,
+    },
+    /// Open note in $EDITOR (or config notes.editor).
+    Edit {
+        #[arg(long, conflicts_with = "session")]
+        path: Option<String>,
+        #[arg(long, conflicts_with = "path")]
+        session: Option<String>,
+    },
 }
 
 #[derive(Clone, Copy, clap::ValueEnum)]
@@ -132,6 +161,15 @@ fn main() -> ExitCode {
             path,
             instruction,
         }) => cmd_review(&session, path, &instruction),
+        Some(Commands::Notes { command }) => match command {
+            NotesCommands::List => cmd_notes_list(),
+            NotesCommands::Show {
+                path,
+                session,
+                render,
+            } => cmd_notes_show(path, session, render),
+            NotesCommands::Edit { path, session } => cmd_notes_edit(path, session),
+        },
     }
 }
 
@@ -560,6 +598,203 @@ fn interactive_pick_agent(cfg: &cdamux_core::Config) -> Result<String, ()> {
     let agents = configured_agent_ids(&cfg.agents);
     let agent_line = agents.join("\n");
     skim_pick("agent> ", &agent_line)
+}
+
+fn cmd_notes_list() -> ExitCode {
+    let cfg = match load_config() {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("{e}");
+            return ExitCode::from(1);
+        }
+    };
+    let projects = discover_projects(&cfg.projects);
+    let paths = projects.iter().map(|p| p.path.clone()).collect::<Vec<_>>();
+    let mut paths = paths;
+    if let Ok(sessions) = list_tmux_sessions() {
+        for s in sessions {
+            if !s.path.is_empty() {
+                let p = PathBuf::from(&s.path);
+                if !paths.iter().any(|x| x == &p) {
+                    paths.push(p);
+                }
+            }
+        }
+    }
+    let refs = note_refs_for_projects(&cfg.notes, &paths);
+    for r in refs {
+        let exists = if r.note_path.exists() { "yes" } else { "no" };
+        println!(
+            "{}\t{}\texists={}",
+            r.project_path.display(),
+            r.note_path.display(),
+            exists
+        );
+    }
+    ExitCode::SUCCESS
+}
+
+fn resolve_notes_project(
+    path: Option<String>,
+    session: Option<String>,
+) -> Result<PathBuf, ExitCode> {
+    if let Some(p) = path {
+        return Ok(PathBuf::from(p));
+    }
+    if let Some(name) = session {
+        return session_cwd(&name).map(PathBuf::from).ok_or_else(|| {
+            eprintln!("notes: unknown session '{name}'");
+            ExitCode::from(1)
+        });
+    }
+    if let Ok(sessions) = list_tmux_sessions() {
+        if sessions.len() == 1 {
+            return Ok(PathBuf::from(&sessions[0].path));
+        }
+        if let Ok(current) = current_tmux_session_name() {
+            if let Some(s) = sessions.iter().find(|x| x.name == current) {
+                return Ok(PathBuf::from(&s.path));
+            }
+        }
+    }
+    eprintln!("notes: pass --path or --session (or run with a single tmux session)");
+    Err(ExitCode::from(1))
+}
+
+fn session_cwd(session: &str) -> Option<String> {
+    list_tmux_sessions()
+        .ok()?
+        .into_iter()
+        .find(|s| s.name == session)
+        .map(|s| s.path)
+}
+
+fn current_tmux_session_name() -> Result<String, ()> {
+    let out = Command::new("tmux")
+        .args(["display-message", "-p", "#{session_name}"])
+        .output()
+        .map_err(|_| ())?;
+    if !out.status.success() {
+        return Err(());
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
+fn cmd_notes_show(path: Option<String>, session: Option<String>, render: bool) -> ExitCode {
+    let cfg = match load_config() {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("{e}");
+            return ExitCode::from(1);
+        }
+    };
+    let project = match resolve_notes_project(path, session) {
+        Ok(p) => p,
+        Err(code) => return code,
+    };
+    let note_path = resolve_note_path(&cfg.notes, &project);
+    if !note_path.exists() {
+        eprintln!("notes: no file at {}", note_path.display());
+        return ExitCode::from(1);
+    }
+    let body = match std::fs::read_to_string(&note_path) {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!("notes: read {}: {e}", note_path.display());
+            return ExitCode::from(1);
+        }
+    };
+    if render {
+        if let Err(e) = render_markdown_stdout(&body) {
+            eprintln!("notes: render: {e}");
+            return ExitCode::from(1);
+        }
+    } else if let Err(e) = writeln!(io::stdout(), "{body}") {
+        eprintln!("notes: {e}");
+        return ExitCode::from(1);
+    }
+    ExitCode::SUCCESS
+}
+
+fn cmd_notes_edit(path: Option<String>, session: Option<String>) -> ExitCode {
+    let cfg = match load_config() {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("{e}");
+            return ExitCode::from(1);
+        }
+    };
+    let project = match resolve_notes_project(path, session) {
+        Ok(p) => p,
+        Err(code) => return code,
+    };
+    let note_path = resolve_note_path(&cfg.notes, &project);
+    if let Err(e) = ensure_note_file(&note_path) {
+        eprintln!("notes: create {}: {e}", note_path.display());
+        return ExitCode::from(1);
+    }
+    let editor = notes_editor(&cfg.notes);
+    let status = Command::new("sh")
+        .arg("-c")
+        .arg(format!(
+            "exec {} {}",
+            editor,
+            shell_escape(note_path.to_string_lossy().as_ref())
+        ))
+        .stdin(Stdio::inherit())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .status();
+    match status {
+        Ok(s) if s.success() => ExitCode::SUCCESS,
+        Ok(s) => ExitCode::from(s.code().unwrap_or(1) as u8),
+        Err(e) => {
+            eprintln!("notes: editor: {e}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+fn render_markdown_stdout(md: &str) -> io::Result<()> {
+    use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
+    let parser = Parser::new_ext(md, Options::all());
+    let mut out = io::stdout().lock();
+    let mut heading_prefix = false;
+    for event in parser {
+        match event {
+            Event::Start(Tag::Heading { level, .. }) => {
+                writeln!(out)?;
+                for _ in 0..level as usize {
+                    write!(out, "#")?;
+                }
+                write!(out, " ")?;
+                heading_prefix = true;
+            }
+            Event::End(TagEnd::Heading(_)) => {
+                writeln!(out)?;
+                heading_prefix = false;
+            }
+            Event::Start(Tag::List(_)) => writeln!(out)?,
+            Event::Start(Tag::Item) => write!(out, "- ")?,
+            Event::Text(t) => write!(out, "{}", t)?,
+            Event::Code(t) => write!(out, "`{}`", t)?,
+            Event::SoftBreak => write!(out, " ")?,
+            Event::HardBreak => writeln!(out)?,
+            Event::Rule => writeln!(out, "---")?,
+            _ => {}
+        }
+    }
+    if heading_prefix {
+        writeln!(out)?;
+    }
+    Ok(())
+}
+
+fn notes_editor(notes: &cdamux_core::NotesConfig) -> String {
+    if !notes.editor.is_empty() {
+        return notes.editor.clone();
+    }
+    std::env::var("EDITOR").unwrap_or_else(|_| "vi".to_string())
 }
 
 fn skim_pick(prompt: &str, input: &str) -> Result<String, ()> {

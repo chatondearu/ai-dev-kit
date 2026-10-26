@@ -1,5 +1,6 @@
 //! cdamux — CLI for agent session orchestration on tmux.
 
+mod app_tabs;
 mod review_tui;
 mod spawn_modal;
 mod tui;
@@ -235,6 +236,33 @@ fn cmd_doctor() -> ExitCode {
         return ExitCode::from(1);
     }
     ExitCode::SUCCESS
+}
+
+/// Lines for the dashboard Agents tab (mirrors `cdamux doctor` agent section).
+pub(crate) fn doctor_agent_lines(cfg: &cdamux_core::Config) -> Vec<String> {
+    let mut lines = vec![
+        format!("roots: {}", cfg.projects.roots.len()),
+        format!("group_by: {:?}", cfg.sessions.group_by),
+        format!(
+            "agents (configured): {}",
+            configured_agent_ids(&cfg.agents).join(", ")
+        ),
+    ];
+    for id in ["cursor", "opencode", "claude", "pi"] {
+        let configured = agent_configured(&cfg.agents, id);
+        let exe = agent_executable_name(&cfg.agents, id);
+        let on_path = command_on_path(&exe);
+        let tag = if configured { "configured" } else { "optional" };
+        let line = if configured && !on_path {
+            format!("agent {id}: MISSING on PATH ({exe}) [{tag}]")
+        } else if on_path {
+            format!("agent {id}: ok ({exe}) [{tag}]")
+        } else {
+            format!("agent {id}: not on PATH ({exe}) [{tag}]")
+        };
+        lines.push(line);
+    }
+    lines
 }
 
 fn agent_configured(agents: &cdamux_core::AgentsConfig, id: &str) -> bool {
@@ -491,9 +519,18 @@ fn cmd_attach(session: &str) -> ExitCode {
 }
 
 pub(crate) fn tmux_attach_session(session: &str) -> ExitCode {
-    let attach_mode = load_config()
-        .map(|c| c.sessions.attach_mode)
-        .unwrap_or(AttachMode::Mirror);
+    tmux_attach_session_with_mode(session, None)
+}
+
+pub(crate) fn tmux_attach_session_with_mode(
+    session: &str,
+    attach_mode: Option<AttachMode>,
+) -> ExitCode {
+    let attach_mode = attach_mode.unwrap_or_else(|| {
+        load_config()
+            .map(|c| c.sessions.attach_mode)
+            .unwrap_or(AttachMode::Mirror)
+    });
     let nested = std::env::var_os("TMUX").is_some();
     let status = if nested {
         Command::new("tmux")

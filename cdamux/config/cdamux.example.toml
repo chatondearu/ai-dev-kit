@@ -50,3 +50,10 @@ command = "pi"
 # dashboard = full TUI (future)
 # pick      = minimal picker, exit after switch-client
 default_mode = "dashboard"
+
+[notes]
+# Default: <project>/.cdamux/notes.md
+# Optional central store (slug per project path):
+# central_root = "/home/you/.config/cdamux/notes"
+relative_path = ".cdamux/notes.md"
+# editor = "nvim"  # default: $EDITOR or vi

@@ -18,3 +18,4 @@ serde_json.workspace = true
 skim.workspace = true
 ratatui.workspace = true
 crossterm.workspace = true
+pulldown-cmark.workspace = true

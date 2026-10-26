@@ -52,6 +52,10 @@ See `config/cdamux.example.toml`. Highlights:
 - `sessions.attach_mode` — `mirror | exclusive` (tmux `-d`), same semantics as skzv.
 - `daemon.listen_tailnet`, `daemon.tailnet_port`.
 - `[agents.cursor]` command override (kit: `cursor-agent`).
+- `[notes]` — per-project markdown (local files only, ADR-004):
+  - Default file: `<project>/.cdamux/notes.md`.
+  - Optional `central_root` → one `{slug}.md` per project path under that directory.
+  - CLI: `cdamux notes list|show|edit` (`show --render` uses **pulldown-cmark** for terminal output).
 
 ## Session naming
 

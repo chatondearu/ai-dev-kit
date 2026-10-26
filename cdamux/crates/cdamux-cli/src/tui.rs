@@ -9,25 +9,40 @@ use cdamux_core::{
     project_key, send_to_session, state_icon, Config, EnrichedSession, GroupBy, ProjectSessionTree,
     ProjectTreeNode, SessionState,
 };
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{
+    self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers,
+    MouseButton, MouseEventKind,
+};
 use ratatui::{
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, Paragraph, Wrap},
+    widgets::{Block, Borders, List, ListItem, ListState, Paragraph, StatefulWidget, Wrap},
     Frame, Terminal,
 };
 use std::collections::HashSet;
 use std::io::{self, stdout, Stdout};
 use std::process::ExitCode;
+use std::time::{Duration, Instant};
 
 const COMPOSER_LABEL: &str = "send";
+
+/// Palette aligned with `prototype/dashboard-ui` (visible on dark terminals).
+const CLR_TEXT: Color = Color::Rgb(230, 234, 240);
+const CLR_MUTED: Color = Color::Rgb(139, 149, 168);
+const CLR_ACCENT: Color = Color::Rgb(110, 181, 255);
+const CLR_PROJECT: Color = Color::Rgb(158, 200, 255);
+const CLR_OK: Color = Color::Rgb(107, 207, 142);
+const CLR_WARN: Color = Color::Rgb(232, 184, 74);
+const CLR_IDLE: Color = Color::Rgb(92, 101, 120);
+const CLR_SEL_BG: Color = Color::Rgb(42, 49, 64);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FocusArea {
     Tree,
     Composer,
+    PreviewScroll,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -241,6 +256,19 @@ fn default_expanded(tree: &ProjectSessionTree, group_by: GroupBy) -> HashSet<Str
         .collect()
 }
 
+/// `scroll_from_bottom`: 0 = newest lines; higher = scroll up into history.
+fn preview_visible_text(text: &str, scroll_from_bottom: usize) -> String {
+    let lines: Vec<&str> = text.lines().collect();
+    if lines.is_empty() {
+        return text.to_string();
+    }
+    let end = lines.len().saturating_sub(scroll_from_bottom);
+    if end == 0 {
+        return String::new();
+    }
+    lines[..end].join("\n")
+}
+
 fn fetch_preview(session_name: &str, max_lines: u32) -> String {
     let lines = max_lines.clamp(10, 500) as i32;
     match capture_pane_text(session_name, lines) {
@@ -250,9 +278,9 @@ fn fetch_preview(session_name: &str, max_lines: u32) -> String {
     }
 }
 
-fn sidecar_body(tab: SideTab, preview: &str, notes: &str, review: &str) -> String {
+fn sidecar_body(tab: SideTab, preview: &str, scroll: usize, notes: &str, review: &str) -> String {
     match tab {
-        SideTab::Preview => preview.to_string(),
+        SideTab::Preview => preview_visible_text(preview, scroll),
         SideTab::Notes => notes.to_string(),
         SideTab::Review => review.to_string(),
     }
@@ -274,7 +302,11 @@ struct TerminalGuard;
 impl TerminalGuard {
     fn enter() -> io::Result<(Terminal<CrosstermBackend<Stdout>>, Self)> {
         crossterm::terminal::enable_raw_mode()?;
-        crossterm::execute!(stdout(), crossterm::terminal::EnterAlternateScreen)?;
+        crossterm::execute!(
+            stdout(),
+            crossterm::terminal::EnterAlternateScreen,
+            EnableMouseCapture,
+        )?;
         let backend = CrosstermBackend::new(stdout());
         let terminal = Terminal::new(backend)?;
         Ok((terminal, Self))
@@ -283,7 +315,11 @@ impl TerminalGuard {
 
 impl Drop for TerminalGuard {
     fn drop(&mut self) {
-        let _ = crossterm::execute!(stdout(), crossterm::terminal::LeaveAlternateScreen);
+        let _ = crossterm::execute!(
+            stdout(),
+            DisableMouseCapture,
+            crossterm::terminal::LeaveAlternateScreen,
+        );
         let _ = crossterm::terminal::disable_raw_mode();
     }
 }
@@ -294,6 +330,7 @@ struct DrawState<'a> {
     side_tab: SideTab,
     focus: FocusArea,
     preview_text: &'a str,
+    preview_scroll: usize,
     notes_text: &'a str,
     review_text: &'a str,
     composer_line: &'a str,
@@ -381,30 +418,64 @@ pub fn run_dashboard() -> ExitCode {
     let mut attach_name: Option<String> = None;
     let mut spawn_requested = false;
     let mut review_session: Option<String> = None;
+    let mut fleet_tree_rect: Option<ratatui::layout::Rect> = None;
+    let mut sidecar_preview_rect: Option<ratatui::layout::Rect> = None;
+    let mut preview_scroll = 0usize;
+    let mut cached_tree = tree;
+    let mut tree_dirty = true;
+    let mut last_tree_refresh = Instant::now();
+    let mut last_preview_refresh = Instant::now();
+    const TREE_REFRESH: Duration = Duration::from_millis(2000);
+    const PREVIEW_REFRESH: Duration = Duration::from_millis(800);
 
     while !should_quit && attach_name.is_none() && !spawn_requested && review_session.is_none() {
         let group_by = cfg.sessions.group_by;
-        let tree = build_project_session_tree(
-            &cfg.projects,
-            cfg.daemon.idle_seconds_for_needs_input,
-            group_by,
-        );
-        let rows = flatten_tree(&tree, &expanded, group_by, waiting_only);
+        if tree_dirty || last_tree_refresh.elapsed() >= TREE_REFRESH {
+            cached_tree = build_project_session_tree(
+                &cfg.projects,
+                cfg.daemon.idle_seconds_for_needs_input,
+                group_by,
+            );
+            last_tree_refresh = Instant::now();
+            tree_dirty = false;
+        }
+        let tree = &cached_tree;
+        let rows = flatten_tree(tree, &expanded, group_by, waiting_only);
         selected_row = clamp_selection(&rows, selected_row);
 
-        let discovered = discover_projects(&cfg.projects);
-        let flat = flat_sessions(&cfg);
-        if sessions_selected >= flat.len() && !flat.is_empty() {
+        let discovered = if app_tab == AppTab::Projects {
+            discover_projects(&cfg.projects)
+        } else {
+            Vec::new()
+        };
+        let flat = if app_tab == AppTab::Sessions {
+            flat_sessions(&cfg)
+        } else {
+            Vec::new()
+        };
+        if app_tab == AppTab::Sessions && sessions_selected >= flat.len() && !flat.is_empty() {
             sessions_selected = flat.len() - 1;
         }
-        let agent_lines = crate::doctor_agent_lines(&cfg);
+        let agent_lines = if app_tab == AppTab::Agents {
+            crate::doctor_agent_lines(&cfg)
+        } else {
+            Vec::new()
+        };
 
         let preview_max = cfg.ui.preview_max_lines;
         let session = session_at_row(&rows, selected_row);
         if let Some(s) = session {
-            if preview_for_session.as_deref() != Some(s.name.as_str()) {
+            let session_changed = preview_for_session.as_deref() != Some(s.name.as_str());
+            if session_changed {
+                preview_scroll = 0;
                 preview_text = fetch_preview(&s.name, preview_max);
                 preview_for_session = Some(s.name.clone());
+                last_preview_refresh = Instant::now();
+            } else if side_tab == SideTab::Preview
+                && last_preview_refresh.elapsed() >= PREVIEW_REFRESH
+            {
+                preview_text = fetch_preview(&s.name, preview_max);
+                last_preview_refresh = Instant::now();
             }
             if notes_for_session.as_deref() != Some(s.name.as_str()) {
                 notes_text = crate::note_text_for_session_cwd(&cfg, &s.path);
@@ -412,6 +483,7 @@ pub fn run_dashboard() -> ExitCode {
             }
         } else {
             preview_for_session = None;
+            preview_scroll = 0;
             preview_text = "(select a session for preview)".to_string();
             notes_for_session = None;
             notes_text = "Select a session to view project notes.".to_string();
@@ -441,6 +513,7 @@ pub fn run_dashboard() -> ExitCode {
                         side_tab,
                         focus,
                         preview_text: &preview_text,
+                        preview_scroll,
                         notes_text: &notes_text,
                         review_text: &review_text,
                         composer_line: &composer_line,
@@ -458,12 +531,51 @@ pub fn run_dashboard() -> ExitCode {
                     &agent_lines,
                     waiting_only,
                     show_help,
+                    &mut fleet_tree_rect,
+                    &mut sidecar_preview_rect,
                 );
             })
             .ok();
 
-        if event::poll(std::time::Duration::from_millis(250)).unwrap_or(false) {
-            if let Ok(Event::Key(key)) = event::read() {
+        if event::poll(Duration::from_millis(100)).unwrap_or(false) {
+            match event::read() {
+                Ok(Event::Mouse(m)) => {
+                    if app_tab == AppTab::Fleet {
+                        if focus == FocusArea::Tree
+                            && m.kind == MouseEventKind::Down(MouseButton::Left)
+                        {
+                            if let Some(area) = fleet_tree_rect {
+                                if let Some(idx) =
+                                    row_index_from_mouse(area, m.column, m.row, rows.len())
+                                {
+                                    selected_row = clamp_selection(&rows, idx);
+                                    preview_for_session = None;
+                                    notes_for_session = None;
+                                }
+                            }
+                        } else if side_tab == SideTab::Preview
+                            && focus != FocusArea::Composer
+                        {
+                            if let Some(area) = sidecar_preview_rect {
+                                if m.column >= area.x
+                                    && m.column < area.x + area.width
+                                    && m.row >= area.y
+                                    && m.row < area.y + area.height
+                                {
+                                    match m.kind {
+                                        MouseEventKind::ScrollUp => {
+                                            preview_scroll = preview_scroll.saturating_sub(3);
+                                        }
+                                        MouseEventKind::ScrollDown => preview_scroll += 3,
+                                        _ => {}
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    continue;
+                }
+                Ok(Event::Key(key)) => {
                 if let KeyCode::Char(c) = key.code {
                     if key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT {
                         if let Some(tab) = AppTab::from_digit(c) {
@@ -517,6 +629,41 @@ pub fn run_dashboard() -> ExitCode {
                     continue;
                 }
 
+                if focus == FocusArea::PreviewScroll {
+                    if key.code == KeyCode::Esc {
+                        focus = FocusArea::Tree;
+                        continue;
+                    }
+                    match key.code {
+                        KeyCode::Char(']') | KeyCode::PageDown | KeyCode::Char('j') => {
+                            preview_scroll += 3;
+                            continue;
+                        }
+                        KeyCode::Char('[') | KeyCode::PageUp | KeyCode::Char('k') => {
+                            preview_scroll = preview_scroll.saturating_sub(3);
+                            continue;
+                        }
+                        _ => {}
+                    }
+                }
+
+                if side_tab == SideTab::Preview
+                    && focus == FocusArea::Tree
+                    && matches!(
+                        key.code,
+                        KeyCode::Char(']') | KeyCode::PageDown | KeyCode::Char('[') | KeyCode::PageUp
+                    )
+                {
+                    match key.code {
+                        KeyCode::Char(']') | KeyCode::PageDown => preview_scroll += 3,
+                        KeyCode::Char('[') | KeyCode::PageUp => {
+                            preview_scroll = preview_scroll.saturating_sub(3);
+                        }
+                        _ => {}
+                    }
+                    continue;
+                }
+
                 if focus == FocusArea::Composer {
                     if key.code == KeyCode::Esc {
                         focus = FocusArea::Tree;
@@ -531,6 +678,8 @@ pub fn run_dashboard() -> ExitCode {
                                     composer_line.clear();
                                     preview_text = fetch_preview(name, preview_max);
                                     preview_for_session = Some(name.to_string());
+                                    last_preview_refresh = Instant::now();
+                                    tree_dirty = true;
                                 }
                                 Err(e) => status_line = e.to_string(),
                             }
@@ -638,6 +787,8 @@ pub fn run_dashboard() -> ExitCode {
                     DashboardAction::ToggleHelp => show_help = !show_help,
                     DashboardAction::None => {}
                 }
+                }
+                _ => {}
             }
         }
     }
@@ -659,9 +810,40 @@ pub fn run_dashboard() -> ExitCode {
 
 fn session_state_color(state: SessionState) -> Color {
     match state {
-        SessionState::Idle => Color::DarkGray,
-        SessionState::Active => Color::Green,
-        SessionState::NeedsInput => Color::Yellow,
+        SessionState::Idle => CLR_IDLE,
+        SessionState::Active => CLR_OK,
+        SessionState::NeedsInput => CLR_WARN,
+    }
+}
+
+fn tree_list_block() -> Block<'static> {
+    Block::default()
+        .borders(Borders::RIGHT)
+        .border_style(Style::default().fg(CLR_MUTED))
+        .title(Span::styled(
+            " projects → sessions ",
+            Style::default().fg(CLR_ACCENT).add_modifier(Modifier::BOLD),
+        ))
+}
+
+fn row_index_from_mouse(
+    area: ratatui::layout::Rect,
+    column: u16,
+    row: u16,
+    row_count: usize,
+) -> Option<usize> {
+    let inner = tree_list_block().inner(area);
+    if column < inner.x || column >= inner.x + inner.width {
+        return None;
+    }
+    if row < inner.y || row >= inner.y + inner.height {
+        return None;
+    }
+    let rel = (row - inner.y) as usize;
+    if rel < row_count {
+        Some(rel)
+    } else {
+        None
     }
 }
 
@@ -798,6 +980,8 @@ fn draw_app_screen(
     agent_lines: &[String],
     waiting_only: bool,
     show_help: bool,
+    fleet_tree_rect: &mut Option<ratatui::layout::Rect>,
+    sidecar_preview_rect: &mut Option<ratatui::layout::Rect>,
 ) {
     let root = Layout::default()
         .direction(Direction::Vertical)
@@ -811,7 +995,15 @@ fn draw_app_screen(
     draw_tab_bar(f, root[0], app_tab);
 
     match app_tab {
-        AppTab::Fleet => draw_fleet_body(f, root[1], &state, cfg.sessions.group_by, waiting_only),
+        AppTab::Fleet => draw_fleet_body(
+            f,
+            root[1],
+            &state,
+            cfg.sessions.group_by,
+            waiting_only,
+            fleet_tree_rect,
+            sidecar_preview_rect,
+        ),
         AppTab::Projects => draw_projects(
             f,
             root[1],
@@ -857,6 +1049,7 @@ fn draw_app_screen(
 
 const FLEET_HELP: &str = "Fleet keys\n\
 j/k ↑↓     navigate tree\n\
+click      select row in tree\n\
 Enter      attach session (or review tab)\n\
 h/l ←→     expand/collapse project\n\
 F          fold/unfold all groups\n\
@@ -890,6 +1083,8 @@ fn draw_fleet_body(
     state: &DrawState<'_>,
     group_by: GroupBy,
     waiting_only: bool,
+    tree_rect: &mut Option<ratatui::layout::Rect>,
+    preview_rect: &mut Option<ratatui::layout::Rect>,
 ) {
     let inner = Layout::default()
         .direction(Direction::Vertical)
@@ -897,17 +1092,19 @@ fn draw_fleet_body(
         .split(area);
 
     let mut title_parts = vec![
-        Span::styled("cdamux", Style::default().add_modifier(Modifier::BOLD)),
-        Span::raw(" — fleet"),
-        Span::styled("  ○ idle ● active ◆ needs", Style::default().fg(Color::DarkGray)),
+        Span::styled("cdamux", Style::default().fg(CLR_ACCENT).add_modifier(Modifier::BOLD)),
+        Span::styled(" — fleet", Style::default().fg(CLR_TEXT)),
+        Span::styled("  ○ idle ", Style::default().fg(CLR_IDLE)),
+        Span::styled("● active ", Style::default().fg(CLR_OK)),
+        Span::styled("◆ needs", Style::default().fg(CLR_WARN)),
     ];
     if waiting_only {
-        title_parts.push(Span::styled("  [waiting]", Style::default().fg(Color::Yellow)));
+        title_parts.push(Span::styled("  [waiting]", Style::default().fg(CLR_WARN)));
     }
     if group_by != GroupBy::Project {
         title_parts.push(Span::styled(
             format!("  group:{:?}", group_by),
-            Style::default().fg(Color::Magenta),
+            Style::default().fg(CLR_PROJECT),
         ));
     }
     let title = Paragraph::new(Line::from(title_parts)).block(Block::default().borders(Borders::BOTTOM));
@@ -918,35 +1115,35 @@ fn draw_fleet_body(
         .constraints([Constraint::Percentage(38), Constraint::Percentage(62)])
         .split(inner[1]);
 
+    *tree_rect = Some(columns[0]);
     draw_tree_column(f, columns[0], state.rows, state.selected_row);
-    draw_sidecar(f, columns[1], state);
+    draw_sidecar(f, columns[1], state, preview_rect);
 }
 
 fn draw_tree_column(f: &mut Frame, area: ratatui::layout::Rect, rows: &[TreeRow], selected_row: usize) {
     let items: Vec<ListItem> = if rows.is_empty() {
-        vec![ListItem::new("(no projects or sessions)")]
+        vec![ListItem::new(Span::styled(
+            "(no projects or sessions)",
+            Style::default().fg(CLR_MUTED),
+        ))]
     } else {
-        rows.iter()
-            .enumerate()
-            .map(|(i, row)| tree_row_item(row, i == selected_row))
-            .collect()
+        rows.iter().map(tree_row_item).collect()
     };
-    let list = List::new(items).block(
-        Block::default()
-            .borders(Borders::RIGHT)
-            .title("projects → sessions"),
-    );
-    f.render_widget(list, area);
+    let list = List::new(items)
+        .highlight_symbol("▸ ")
+        .highlight_style(
+            Style::default()
+                .bg(CLR_SEL_BG)
+                .fg(CLR_TEXT)
+                .add_modifier(Modifier::BOLD),
+        )
+        .block(tree_list_block());
+    let mut list_state = ListState::default();
+    list_state.select(Some(selected_row.min(rows.len().saturating_sub(1))));
+    StatefulWidget::render(list, area, f.buffer_mut(), &mut list_state);
 }
 
-fn tree_row_item(row: &TreeRow, selected: bool) -> ListItem<'_> {
-    let sel_style = if selected {
-        Style::default()
-            .bg(Color::DarkGray)
-            .add_modifier(Modifier::BOLD)
-    } else {
-        Style::default()
-    };
+fn tree_row_item(row: &TreeRow) -> ListItem<'_> {
     match row {
         TreeRow::Project {
             name,
@@ -957,41 +1154,51 @@ fn tree_row_item(row: &TreeRow, selected: bool) -> ListItem<'_> {
         } => {
             let chevron = if *expanded { "▼" } else { "▶" };
             ListItem::new(Line::from(vec![
-                Span::raw(format!("{} ", chevron)),
-                Span::styled("◇ ", Style::default().fg(Color::DarkGray)),
+                Span::styled(format!("{} ", chevron), Style::default().fg(CLR_MUTED)),
+                Span::styled("◇ ", Style::default().fg(CLR_ACCENT)),
                 Span::styled(
                     format!("{} ", name),
-                    sel_style.fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(CLR_PROJECT)
+                        .add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(
                     format!("({}) ", session_count),
-                    Style::default().fg(Color::DarkGray),
+                    Style::default().fg(CLR_MUTED),
                 ),
-                Span::styled(path.clone(), Style::default().fg(Color::DarkGray)),
+                Span::styled(path.clone(), Style::default().fg(CLR_MUTED)),
             ]))
         }
         TreeRow::Session(s) | TreeRow::Unassigned(s) => {
             let icon = state_icon(s.state);
             ListItem::new(Line::from(vec![
-                Span::raw("    "),
+                Span::raw("  "),
                 Span::styled(
                     format!("{} ", icon),
                     Style::default().fg(session_state_color(s.state)),
                 ),
-                Span::styled(format!("{}  ", s.name), sel_style),
-                Span::styled(s.path.clone(), Style::default().fg(Color::DarkGray)),
+                Span::styled(
+                    format!("{}  ", s.name),
+                    Style::default().fg(CLR_TEXT).add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(s.path.clone(), Style::default().fg(CLR_MUTED)),
             ]))
         }
         TreeRow::UnassignedHeader => ListItem::new(Line::from(Span::styled(
             "— unassigned sessions",
             Style::default()
-                .fg(Color::Magenta)
+                .fg(CLR_WARN)
                 .add_modifier(Modifier::ITALIC),
         ))),
     }
 }
 
-fn draw_sidecar(f: &mut Frame, area: ratatui::layout::Rect, state: &DrawState) {
+fn draw_sidecar(
+    f: &mut Frame,
+    area: ratatui::layout::Rect,
+    state: &DrawState,
+    preview_rect: &mut Option<ratatui::layout::Rect>,
+) {
     let show_composer = state.side_tab == SideTab::Preview;
     let vertical = if show_composer {
         Layout::default()
@@ -1015,10 +1222,10 @@ fn draw_sidecar(f: &mut Frame, area: ratatui::layout::Rect, state: &DrawState) {
             .map(|t| {
                 let style = if *t == state.side_tab {
                     Style::default()
-                        .fg(Color::Cyan)
-                        .add_modifier(Modifier::BOLD)
+                        .fg(CLR_ACCENT)
+                        .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
                 } else {
-                    Style::default().fg(Color::DarkGray)
+                    Style::default().fg(CLR_MUTED)
                 };
                 Span::styled(format!(" {} ", t.label()), style)
             })
@@ -1026,9 +1233,11 @@ fn draw_sidecar(f: &mut Frame, area: ratatui::layout::Rect, state: &DrawState) {
     );
     f.render_widget(Paragraph::new(tabs), vertical[0]);
 
+    *preview_rect = Some(vertical[1]);
     let body = sidecar_body(
         state.side_tab,
         state.preview_text,
+        state.preview_scroll,
         state.notes_text,
         state.review_text,
     );
@@ -1043,9 +1252,9 @@ fn draw_sidecar(f: &mut Frame, area: ratatui::layout::Rect, state: &DrawState) {
             .map(|n| format!("→ {}", n))
             .unwrap_or_else(|| "→ (no session)".to_string());
         let border_color = if state.focus == FocusArea::Composer {
-            Color::Cyan
+            CLR_ACCENT
         } else {
-            Color::DarkGray
+            CLR_MUTED
         };
         let line = if state.composer_line.is_empty() {
             format!("{} _", target)

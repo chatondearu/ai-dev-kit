@@ -12,6 +12,30 @@ use ratatui::{
     Frame,
 };
 
+pub const CLR_TEXT: Color = Color::Rgb(230, 234, 240);
+pub const CLR_MUTED: Color = Color::Rgb(139, 149, 168);
+pub const CLR_ACCENT: Color = Color::Rgb(110, 181, 255);
+pub const CLR_PROJECT: Color = Color::Rgb(158, 200, 255);
+pub const CLR_OK: Color = Color::Rgb(107, 207, 142);
+pub const CLR_WARN: Color = Color::Rgb(232, 184, 74);
+const CLR_SEL_BG: Color = Color::Rgb(42, 49, 64);
+const CLR_PANEL: Color = Color::Rgb(20, 24, 32);
+
+fn screen_block(title: &str) -> Block<'static> {
+    Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(CLR_MUTED))
+        .style(Style::default().bg(CLR_PANEL))
+        .title(
+            Line::from(Span::styled(
+                format!(" {title} "),
+                Style::default()
+                    .fg(CLR_ACCENT)
+                    .add_modifier(Modifier::BOLD),
+            )),
+        )
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AppTab {
     Fleet,
@@ -68,10 +92,11 @@ pub fn draw_tab_bar(f: &mut Frame, area: ratatui::layout::Rect, active: AppTab) 
         .flat_map(|tab| {
             let style = if *tab == active {
                 Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD)
+                    .fg(CLR_ACCENT)
+                    .bg(CLR_SEL_BG)
+                    .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
             } else {
-                Style::default().fg(Color::DarkGray)
+                Style::default().fg(CLR_MUTED)
             };
             [
                 Span::styled(format!(" {}:{} ", tab.digit(), tab.label()), style),
@@ -85,7 +110,7 @@ pub fn draw_tab_bar(f: &mut Frame, area: ratatui::layout::Rect, active: AppTab) 
 pub fn help_for_tab(tab: AppTab, settings_dirty: bool) -> &'static str {
     match tab {
         AppTab::Fleet => {
-            "↑/k ↓/j · w waiting · F fold all · g group_by · ? help · n spawn · 1-5 tabs · q quit"
+            "↑/k ↓/j · [/] preview scroll · Space composer · Enter attach · w/F/g · ? · 1-5 · q"
         }
         AppTab::Projects => "↑/k ↓/j scroll · 1-5 tabs · q quit",
         AppTab::Sessions => "↑/k ↓/j · Enter focus in Fleet · 1-5 tabs · q quit",
@@ -137,7 +162,9 @@ pub fn draw_projects(
         )
     };
     f.render_widget(
-        Paragraph::new(roots_block).block(Block::default().borders(Borders::ALL).title("roots")),
+        Paragraph::new(roots_block)
+            .style(Style::default().fg(CLR_TEXT))
+            .block(screen_block("roots")),
         chunks[0],
     );
 
@@ -148,11 +175,13 @@ pub fn draw_projects(
         .skip(start)
         .take(visible.max(1))
         .map(|p| {
-            ListItem::new(format!(
-                "{}  {}",
-                p.name,
-                p.path.display()
-            ))
+            ListItem::new(Line::from(vec![
+                Span::styled(
+                    format!("{}  ", p.name),
+                    Style::default().fg(CLR_PROJECT).add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(p.path.display().to_string(), Style::default().fg(CLR_MUTED)),
+            ]))
         })
         .collect();
     let title = if status.is_empty() {
@@ -165,7 +194,7 @@ pub fn draw_projects(
             vec![ListItem::new("(no repos under roots)")]
         } else {
             items
-        }).block(Block::default().borders(Borders::ALL).title(title)),
+        }).block(screen_block(&title)),
         chunks[1],
     );
 }
@@ -189,14 +218,15 @@ pub fn draw_sessions_list(
             let sel = global == selected;
             let style = if sel {
                 Style::default()
-                    .bg(Color::DarkGray)
+                    .bg(CLR_SEL_BG)
+                    .fg(CLR_TEXT)
                     .add_modifier(Modifier::BOLD)
             } else {
-                Style::default()
+                Style::default().fg(CLR_TEXT)
             };
             ListItem::new(Line::from(vec![
                 Span::styled(format!("{}  ", s.name), style),
-                Span::styled(s.path.clone(), Style::default().fg(Color::DarkGray)),
+                Span::styled(s.path.clone(), Style::default().fg(CLR_MUTED)),
             ]))
         })
         .collect();
@@ -205,25 +235,39 @@ pub fn draw_sessions_list(
             vec![ListItem::new("(no tmux sessions)")]
         } else {
             items
-        }).block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(format!("tmux sessions ({})", sessions.len())),
-        ),
+        }).block(screen_block(&format!("tmux sessions ({})", sessions.len()))),
         area,
     );
 }
 
 pub fn draw_agents(f: &mut Frame, area: ratatui::layout::Rect, lines: &[String]) {
-    let body = if lines.is_empty() {
-        "(no agent info)".to_string()
-    } else {
-        lines.join("\n")
-    };
+    if lines.is_empty() {
+        f.render_widget(
+            Paragraph::new(Span::styled("(no agent info)", Style::default().fg(CLR_MUTED)))
+                .block(screen_block("agents & PATH")),
+            area,
+        );
+        return;
+    }
+    let colored = lines
+        .iter()
+        .map(|line| {
+            let style = if line.contains("MISSING") {
+                Style::default().fg(CLR_WARN)
+            } else if line.contains(": ok") {
+                Style::default().fg(CLR_OK)
+            } else if line.starts_with("agent ") {
+                Style::default().fg(CLR_TEXT)
+            } else {
+                Style::default().fg(CLR_ACCENT)
+            };
+            Line::from(Span::styled(line.as_str(), style))
+        })
+        .collect::<Vec<_>>();
     f.render_widget(
-        Paragraph::new(body)
+        Paragraph::new(colored)
             .wrap(Wrap { trim: false })
-            .block(Block::default().borders(Borders::ALL).title("agents & PATH")),
+            .block(screen_block("agents & PATH")),
         area,
     );
 }
@@ -251,23 +295,62 @@ pub fn draw_settings(
     } else {
         status
     };
-    let body = format!(
-        "config: {config_path}{dirty_tag}\n\n\
-[sessions]\n\
-  attach_mode = {attach}     (a cycle)\n\
-  group_by = {:?}       (g cycle)\n\n\
-[ui]\n\
-  preview_max_lines = {}   (+/-)\n\n\
-[daemon]\n\
-  listen_tailnet = {tailnet}  (t toggle)\n\
-  idle_seconds_for_needs_input = {}\n\n\
-{status_msg}",
-        cfg.sessions.group_by,
-        cfg.ui.preview_max_lines,
-        cfg.daemon.idle_seconds_for_needs_input,
-    );
+    let lines = vec![
+        Line::from(vec![
+            Span::styled("config: ", Style::default().fg(CLR_MUTED)),
+            Span::styled(
+                format!("{config_path}{dirty_tag}"),
+                Style::default().fg(CLR_TEXT),
+            ),
+        ]),
+        Line::from(""),
+        Line::from(Span::styled("[sessions]", Style::default().fg(CLR_ACCENT))),
+        Line::from(vec![
+            Span::raw("  attach_mode = "),
+            Span::styled(attach, Style::default().fg(CLR_PROJECT)),
+            Span::styled("  (a)", Style::default().fg(CLR_MUTED)),
+        ]),
+        Line::from(vec![
+            Span::raw("  group_by = "),
+            Span::styled(format!("{:?}", cfg.sessions.group_by), Style::default().fg(CLR_PROJECT)),
+            Span::styled("  (g)", Style::default().fg(CLR_MUTED)),
+        ]),
+        Line::from(""),
+        Line::from(Span::styled("[ui]", Style::default().fg(CLR_ACCENT))),
+        Line::from(vec![
+            Span::raw("  preview_max_lines = "),
+            Span::styled(
+                cfg.ui.preview_max_lines.to_string(),
+                Style::default().fg(CLR_PROJECT),
+            ),
+            Span::styled("  (+/-)", Style::default().fg(CLR_MUTED)),
+        ]),
+        Line::from(""),
+        Line::from(Span::styled("[daemon]", Style::default().fg(CLR_ACCENT))),
+        Line::from(vec![
+            Span::raw("  listen_tailnet = "),
+            Span::styled(
+                tailnet,
+                Style::default().fg(if cfg.daemon.listen_tailnet {
+                    CLR_OK
+                } else {
+                    CLR_MUTED
+                }),
+            ),
+            Span::styled("  (t)", Style::default().fg(CLR_MUTED)),
+        ]),
+        Line::from(vec![
+            Span::raw("  idle_seconds_for_needs_input = "),
+            Span::styled(
+                cfg.daemon.idle_seconds_for_needs_input.to_string(),
+                Style::default().fg(CLR_TEXT),
+            ),
+        ]),
+        Line::from(""),
+        Line::from(Span::styled(status_msg, Style::default().fg(CLR_WARN))),
+    ];
     f.render_widget(
-        Paragraph::new(body).block(Block::default().borders(Borders::ALL).title("settings")),
+        Paragraph::new(lines).block(screen_block("settings")),
         area,
     );
 }

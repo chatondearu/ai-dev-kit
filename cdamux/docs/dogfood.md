@@ -54,6 +54,24 @@ Install the `cdamux` binary on `PATH` (e.g. `cargo install --path crates/cdamux-
 - [ ] Repo at `org/nested/repo` appears when `discover = "git_only"` (`cdamux projects`)
 - [ ] `list --group-by cwd` prints `##` group headers (text mode)
 - [ ] `list --json --group-by project` returns grouped JSON
+- [ ] `cdamux send <session> <message>` delivers text without attaching (targets session **active window / active pane** via `tmux send-keys -l -t`)
+- [ ] `cdamux send <session> --enter` (or message + `--enter`) submits with Enter
+
+## Send (without attach)
+
+```bash
+# Literal line to the active pane of session c-myapp
+cdamux send c-myapp "fix the flaky test in auth"
+
+# Same, then press Enter (e.g. submit a prompt)
+cdamux send c-myapp "run cargo test" --enter
+
+# Enter only
+cdamux send c-myapp --enter
+```
+
+Targeting matches tmux: `-t <session>` uses that session's current window and active pane.
+Core helper: `cdamux_core::send_to_session` / `build_send_keys_argv` (for future `cdamuxd` HTTP).
 
 ## Regression vs skzv/ccmux
 

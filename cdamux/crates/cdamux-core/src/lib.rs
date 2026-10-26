@@ -1,6 +1,7 @@
 //! Shared configuration and domain types for cdamux.
 
 mod daemon;
+mod send;
 mod session;
 mod spawn;
 mod tmux;
@@ -20,6 +21,7 @@ pub use session::{
 pub use tmux::{
     classify_pane_heuristics, pane_signals_for_session, PaneSignals,
 };
+pub use send::{build_send_keys_argv, send_to_session, SendError, tmux_has_session};
 pub use spawn::{
     configured_agent_ids, default_agent_name, resolve_agent_command, session_name_for_path,
     spawn_tmux_session, SpawnError, SpawnOutcome,

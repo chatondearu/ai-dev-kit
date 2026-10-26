@@ -23,16 +23,15 @@ pub use tailnet_api::{
     decode_path_segment, dispatch_tailnet_request, resolve_tailnet_bind_ip, LiveTailnetBackend,
     TailnetApiBackend, TailnetResponse,
 };
-pub use tmux::{
-    capture_pane_text, classify_pane_heuristics, pane_signals_for_session, send_line_to_session,
-    PaneSignals,
-};
 pub use send::{build_send_keys_argv, send_to_session, SendError, tmux_has_session};
 pub use spawn::{
     configured_agent_ids, default_agent_name, resolve_agent_command, session_name_for_path,
     spawn_tmux_session, SpawnError, SpawnOutcome,
 };
-pub use tmux::{list_tmux_sessions, parse_list_sessions, TmuxError, TmuxSession};
+pub use tmux::{
+    capture_pane_text, classify_pane_heuristics, list_tmux_sessions, parse_list_sessions,
+    pane_signals_for_session, send_line_to_session, PaneSignals, TmuxError, TmuxSession,
+};
 
 #[derive(Debug, Error)]
 pub enum ConfigError {

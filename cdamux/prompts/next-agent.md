@@ -1,19 +1,21 @@
 # cdamux — next agent session
 
-**Mode**: maintenance + extract prep (post–#48 dogfood sign-off)
+**Mode**: v2 mission control TUI (PRD-41) + extract prep
 
 **Epic**: https://github.com/chatondearu/ai-dev-kit/issues/40  
-**Milestone**: `cdamux-v1` (remaining: #45–#47)
+**Active**: [#58](https://github.com/chatondearu/ai-dev-kit/issues/58) — mission control dashboard  
+**Plan**: `plans/PLAN-41-cdamux-mission-control-tui.md` (phases 1–6)  
+**UX reference**: `prototype/dashboard-ui/index.html`  
+**Extract**: [#56](https://github.com/chatondearu/ai-dev-kit/issues/56) (after dogfood + v2 or parallel)
 
 ## Pick work from GitHub
 
-1. [#45](https://github.com/chatondearu/ai-dev-kit/issues/45) — static web UI (tailnet)
-2. [#46](https://github.com/chatondearu/ai-dev-kit/issues/46) — hunk review → agent
-3. [#47](https://github.com/chatondearu/ai-dev-kit/issues/47) — notes markdown per project
-
-Extract (human + follow-up issue): `cdamux/docs/extract-repo.md`
+1. [#58](https://github.com/chatondearu/ai-dev-kit/issues/58) — follow PLAN-41 phase order (tree → composer → spawn → sidecar → tabs → polish)
+2. [#56](https://github.com/chatondearu/ai-dev-kit/issues/56) — standalone repo extract (separate track)
 
 ## Orchestration
+
+Only for new issues after v1:
 
 ```bash
 bash ~/.cursor/skills/cda-dev/scripts/orch.sh \
@@ -30,6 +32,7 @@ bash ~/.cursor/skills/cda-dev/scripts/orch.sh \
 
 ```bash
 cd cdamux && cargo build && cargo test
+cargo run -p cdamux-cli -- doctor
 ```
 
 ## Reference

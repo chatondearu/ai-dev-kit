@@ -1,6 +1,6 @@
 # PRD-39 — cdamux (agent session orchestrator)
 
-- **Status**: dogfood (v0.1 in-tree; v1 issues #45–#47 remain)
+- **Status**: shipped (v1 in-tree; dashboard depth → [[PRD-41-cdamux-mission-control-tui|PRD-41]] / #58)
 - **GitHub**: [#40](https://github.com/chatondearu/ai-dev-kit/issues/40)
 - **Date**: 2026-10-26
 - **Tags**: #architecture #tooling

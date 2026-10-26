@@ -3,6 +3,7 @@
 mod daemon;
 mod diff;
 mod notes;
+mod project_tree;
 mod send;
 mod session;
 mod spawn;
@@ -19,6 +20,10 @@ pub use daemon::{
 };
 pub use diff::{
     format_review_prompt, git_diff_unified, parse_unified_diff, DiffError, DiffHunk,
+};
+pub use project_tree::{
+    build_project_session_tree, project_for_path, project_key, state_icon, ProjectSessionTree,
+    ProjectTreeNode,
 };
 pub use session::{
     classify_session, enrich_sessions, group_sessions, EnrichedSession, GroupedSessions,

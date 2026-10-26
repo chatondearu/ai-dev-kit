@@ -50,6 +50,7 @@ command = "pi"
 # dashboard = full TUI (future)
 # pick      = minimal picker, exit after switch-client
 default_mode = "dashboard"
+preview_max_lines = 80
 
 [notes]
 # Default: <project>/.cdamux/notes.md

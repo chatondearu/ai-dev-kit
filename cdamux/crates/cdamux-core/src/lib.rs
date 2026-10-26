@@ -237,16 +237,24 @@ pub struct AgentEntry {
 pub struct UiConfig {
     #[serde(default = "default_ui_mode")]
     pub default_mode: UiMode,
+    /// Max lines for dashboard pane preview (tmux capture-pane).
+    #[serde(default = "default_preview_max_lines")]
+    pub preview_max_lines: u32,
 }
 
 fn default_ui_mode() -> UiMode {
     UiMode::Dashboard
 }
 
+fn default_preview_max_lines() -> u32 {
+    80
+}
+
 impl Default for UiConfig {
     fn default() -> Self {
         Self {
             default_mode: UiMode::Dashboard,
+            preview_max_lines: default_preview_max_lines(),
         }
     }
 }

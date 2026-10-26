@@ -1,5 +1,7 @@
 //! cdamuxd — tmux poll loop + Unix socket IPC.
 
+mod tailnet_server;
+
 use cdamux_core::{
     handle_daemon_request, load_config, poll_sessions, socket_path, write_state_cache, GroupBy,
 };
@@ -55,6 +57,16 @@ fn main() {
         roots = cfg.projects.roots.len(),
         "cdamuxd listening"
     );
+
+    if cfg.daemon.listen_tailnet {
+        tailnet_server::spawn_tailnet_server(
+            cfg.daemon.tailnet_port,
+            env!("CARGO_PKG_VERSION").to_string(),
+            cfg.projects.clone(),
+            cfg.sessions.clone(),
+            cfg.daemon.idle_seconds_for_needs_input,
+        );
+    }
 
     let poll_secs = cfg.daemon.poll_interval_seconds.max(1);
     let projects = cfg.projects.clone();

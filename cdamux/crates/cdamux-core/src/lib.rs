@@ -3,6 +3,7 @@
 mod daemon;
 mod session;
 mod spawn;
+mod tailnet_api;
 mod tmux;
 
 use serde::{Deserialize, Serialize};
@@ -17,8 +18,13 @@ pub use session::{
     classify_session, enrich_sessions, group_sessions, EnrichedSession, GroupedSessions,
     SessionGroup, SessionState,
 };
+pub use tailnet_api::{
+    decode_path_segment, dispatch_tailnet_request, resolve_tailnet_bind_ip, LiveTailnetBackend,
+    TailnetApiBackend, TailnetResponse,
+};
 pub use tmux::{
-    classify_pane_heuristics, pane_signals_for_session, PaneSignals,
+    capture_pane_text, classify_pane_heuristics, pane_signals_for_session, send_line_to_session,
+    PaneSignals,
 };
 pub use spawn::{
     configured_agent_ids, default_agent_name, resolve_agent_command, session_name_for_path,

@@ -151,6 +151,59 @@ pub fn pane_signals_for_session(session_name: &str) -> Option<PaneSignals> {
     })
 }
 
+/// Capture active pane text for a session (negative start = lines from bottom).
+pub fn capture_pane_text(session_name: &str, max_lines: i32) -> Result<String, TmuxError> {
+    let start = format!("-{}", max_lines.max(1));
+    let capture = Command::new("tmux")
+        .args([
+            "capture-pane",
+            "-p",
+            "-t",
+            session_name,
+            "-S",
+            &start,
+        ])
+        .output()
+        .map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                TmuxError::NotFound
+            } else {
+                TmuxError::ListFailed
+            }
+        })?;
+    if !capture.status.success() {
+        return Err(TmuxError::ListFailed);
+    }
+    Ok(String::from_utf8_lossy(&capture.stdout).to_string())
+}
+
+/// Send a literal line to the session's active pane; optional Enter keypress.
+pub fn send_line_to_session(session_name: &str, line: &str, enter: bool) -> Result<(), TmuxError> {
+    let send = Command::new("tmux")
+        .args(["send-keys", "-t", session_name, "-l", "--", line])
+        .status()
+        .map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                TmuxError::NotFound
+            } else {
+                TmuxError::ListFailed
+            }
+        })?;
+    if !send.success() {
+        return Err(TmuxError::ListFailed);
+    }
+    if enter {
+        let enter_status = Command::new("tmux")
+            .args(["send-keys", "-t", session_name, "Enter"])
+            .status()
+            .map_err(|_| TmuxError::ListFailed)?;
+        if !enter_status.success() {
+            return Err(TmuxError::ListFailed);
+        }
+    }
+    Ok(())
+}
+
 fn parse_active_pane_idle(list_panes_output: &str) -> u32 {
     for line in list_panes_output.lines() {
         let parts: Vec<&str> = line.split_whitespace().collect();

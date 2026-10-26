@@ -1,11 +1,13 @@
 //! cdamux — CLI for agent session orchestration on tmux.
 
+mod review_tui;
 mod tui;
 
 use cdamux_core::{
     config_path, configured_agent_ids, default_agent_name, discover_projects, grouped_for_list,
-    list_tmux_sessions, load_config, resolve_agent_command, send_to_session, session_name_for_path,
-    spawn_tmux_session, AttachMode, GroupBy, SendError, SpawnError, SpawnOutcome,
+    git_diff_unified, list_tmux_sessions, load_config, parse_unified_diff, resolve_agent_command,
+    send_to_session, session_name_for_path, spawn_tmux_session, AttachMode, DiffError, GroupBy,
+    SendError, SpawnError, SpawnOutcome,
 };
 use clap::{Parser, Subcommand};
 use skim::prelude::*;
@@ -64,6 +66,17 @@ enum Commands {
         #[arg(long)]
         enter: bool,
     },
+    /// Inspect git diff hunks and send a review prompt to an agent session.
+    Review {
+        /// tmux session that receives the composed prompt (send-keys + Enter).
+        session: String,
+        /// Repo path for `git diff` (default: tmux session_path for `session`).
+        #[arg(long)]
+        path: Option<String>,
+        /// Lead sentence prepended to the hunk payload.
+        #[arg(long, default_value = "Please review these diff hunks and suggest fixes.")]
+        instruction: String,
+    },
 }
 
 #[derive(Clone, Copy, clap::ValueEnum)]
@@ -114,6 +127,11 @@ fn main() -> ExitCode {
             message,
             enter,
         }) => cmd_send(&session, &message, enter),
+        Some(Commands::Review {
+            session,
+            path,
+            instruction,
+        }) => cmd_review(&session, path, &instruction),
     }
 }
 
@@ -336,6 +354,39 @@ fn cmd_projects() -> ExitCode {
         println!("{}\t{}\t{}", p.root_label, p.name, p.path.display());
     }
     ExitCode::SUCCESS
+}
+
+fn cmd_review(session: &str, path: Option<String>, instruction: &str) -> ExitCode {
+    let repo = match resolve_review_repo(session, path) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("review: {e}");
+            return ExitCode::from(1);
+        }
+    };
+
+    let raw = match git_diff_unified(&repo) {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!("review: {e}");
+            return ExitCode::from(1);
+        }
+    };
+    let hunks = parse_unified_diff(&raw);
+    review_tui::run_review_tui(session, instruction, &hunks)
+}
+
+fn resolve_review_repo(session: &str, path: Option<String>) -> Result<PathBuf, DiffError> {
+    if let Some(p) = path {
+        return Ok(PathBuf::from(p));
+    }
+    let sessions = list_tmux_sessions().map_err(|_| DiffError::SessionNotFound(session.to_string()))?;
+    let found = sessions.iter().find(|s| s.name == session);
+    match found {
+        Some(s) if !s.path.is_empty() => Ok(PathBuf::from(&s.path)),
+        Some(_) => Err(DiffError::SessionPathMissing(session.to_string())),
+        None => Err(DiffError::SessionNotFound(session.to_string())),
+    }
 }
 
 fn cmd_send(session: &str, message: &[String], enter: bool) -> ExitCode {

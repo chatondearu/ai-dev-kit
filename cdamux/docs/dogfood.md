@@ -75,6 +75,31 @@ cdamux send c-myapp --enter
 Targeting matches tmux: `-t <session>` uses that session's current window and active pane.
 Core helper: `cdamux_core::send_to_session` / `build_send_keys_argv` (for future `cdamuxd` HTTP).
 
+## Hunk review → agent
+
+```bash
+# From repo cwd of session (tmux session_path) or explicit --path
+cdamux review c-myapp
+
+# Override repo root when session_path is wrong
+cdamux review c-myapp --path /path/to/git-repo
+
+# Custom lead line (hunks appended after)
+cdamux review c-myapp --instruction "Focus on error handling in these hunks."
+```
+
+TUI keybindings:
+
+| Key | Action |
+| --- | --- |
+| `j` / `k` or arrows | Move selection |
+| `Space` | Toggle hunk |
+| `a` | Select all / clear all |
+| `Enter` | Send composed prompt to session (`send-keys` + Enter) |
+| `q` / `Esc` | Quit without sending |
+
+Diff source: `git diff` plus `git diff --cached` in the resolved repo directory.
+
 ## Regression vs skzv/ccmux
 
 - [ ] Can still use skzv/ccmux in parallel on same tmux server (document session name collisions on `c-*`)

@@ -61,11 +61,15 @@ pub enum DashboardAction {
     ToggleExpand,
     FocusComposer,
     CycleSideTab,
+    StartReview,
 }
 
 pub fn map_key_event(key: KeyEvent) -> DashboardAction {
     if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
         return DashboardAction::Quit;
+    }
+    if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('r') {
+        return DashboardAction::StartReview;
     }
     match key.code {
         KeyCode::Char('q') => DashboardAction::Quit,
@@ -184,11 +188,22 @@ fn fetch_preview(session_name: &str, max_lines: u32) -> String {
     }
 }
 
-fn sidecar_body(tab: SideTab, preview: &str) -> String {
+fn sidecar_body(tab: SideTab, preview: &str, notes: &str, review: &str) -> String {
     match tab {
         SideTab::Preview => preview.to_string(),
-        SideTab::Notes => "(notes — coming in phase 4)\n\nUse: cdamux notes show --session <name>".to_string(),
-        SideTab::Review => "(review — coming in phase 4)\n\nUse: cdamux review <session>".to_string(),
+        SideTab::Notes => notes.to_string(),
+        SideTab::Review => review.to_string(),
+    }
+}
+
+fn review_sidecar_hint(session: Option<&EnrichedSession>) -> String {
+    match session {
+        None => "Select a session.\n\nCtrl+R or Enter: open hunk review TUI.".to_string(),
+        Some(s) => format!(
+            "Session: {}\nRepo: {}\n\nCtrl+R or Enter: open hunk review (git diff → send to session).",
+            s.name,
+            s.path
+        ),
     }
 }
 
@@ -217,6 +232,8 @@ struct DrawState<'a> {
     side_tab: SideTab,
     focus: FocusArea,
     preview_text: &'a str,
+    notes_text: &'a str,
+    review_text: &'a str,
     composer_line: &'a str,
     composer_session: Option<&'a str>,
     status_line: &'a str,
@@ -240,6 +257,8 @@ pub fn run_dashboard() -> ExitCode {
     let mut composer_line = String::new();
     let mut preview_text = String::new();
     let mut preview_for_session: Option<String> = None;
+    let mut notes_text = String::new();
+    let mut notes_for_session: Option<String> = None;
     let mut status_line = String::new();
 
     let (mut terminal, _guard) = match TerminalGuard::enter() {
@@ -253,8 +272,9 @@ pub fn run_dashboard() -> ExitCode {
     let mut should_quit = false;
     let mut attach_name: Option<String> = None;
     let mut spawn_requested = false;
+    let mut review_session: Option<String> = None;
 
-    while !should_quit && attach_name.is_none() && !spawn_requested {
+    while !should_quit && attach_name.is_none() && !spawn_requested && review_session.is_none() {
         let tree = build_project_session_tree(&cfg.projects, cfg.daemon.idle_seconds_for_needs_input);
         let rows = flatten_tree(&tree, &expanded);
         selected_row = clamp_selection(&rows, selected_row);
@@ -265,10 +285,17 @@ pub fn run_dashboard() -> ExitCode {
                 preview_text = fetch_preview(&s.name, preview_max);
                 preview_for_session = Some(s.name.clone());
             }
+            if notes_for_session.as_deref() != Some(s.name.as_str()) {
+                notes_text = crate::note_text_for_session_cwd(&cfg, &s.path);
+                notes_for_session = Some(s.name.clone());
+            }
         } else {
             preview_for_session = None;
             preview_text = "(select a session for preview)".to_string();
+            notes_for_session = None;
+            notes_text = "Select a session to view project notes.".to_string();
         }
+        let review_text = review_sidecar_hint(session);
 
         let composer_session = session.map(|s| s.name.as_str());
 
@@ -282,6 +309,8 @@ pub fn run_dashboard() -> ExitCode {
                         side_tab,
                         focus,
                         preview_text: &preview_text,
+                        notes_text: &notes_text,
+                        review_text: &review_text,
                         composer_line: &composer_line,
                         composer_session,
                         status_line: &status_line,
@@ -337,10 +366,12 @@ pub fn run_dashboard() -> ExitCode {
                     DashboardAction::SelectNext => {
                         selected_row = move_selection(&rows, selected_row, 1);
                         preview_for_session = None;
+                        notes_for_session = None;
                     }
                     DashboardAction::SelectPrev => {
                         selected_row = move_selection(&rows, selected_row, -1);
                         preview_for_session = None;
+                        notes_for_session = None;
                     }
                     DashboardAction::ToggleExpand => {
                         if let Some(TreeRow::Project { key, expanded: is_exp, .. }) =
@@ -353,7 +384,21 @@ pub fn run_dashboard() -> ExitCode {
                             }
                         }
                     }
-                    DashboardAction::Attach => match rows.get(selected_row) {
+                    DashboardAction::StartReview => {
+                        if let Some(s) = session_at_row(&rows, selected_row) {
+                            review_session = Some(s.name.clone());
+                        } else {
+                            status_line = "select a session for review".into();
+                        }
+                    }
+                    DashboardAction::Attach => {
+                        if side_tab == SideTab::Review {
+                            if let Some(s) = session_at_row(&rows, selected_row) {
+                                review_session = Some(s.name.clone());
+                            }
+                            continue;
+                        }
+                        match rows.get(selected_row) {
                         Some(TreeRow::Session(s) | TreeRow::Unassigned(s)) => {
                             attach_name = Some(s.name.clone());
                         }
@@ -365,7 +410,8 @@ pub fn run_dashboard() -> ExitCode {
                             }
                         }
                         _ => {}
-                    },
+                        }
+                    }
                     DashboardAction::Spawn => spawn_requested = true,
                     DashboardAction::None => {}
                 }
@@ -381,6 +427,9 @@ pub fn run_dashboard() -> ExitCode {
     }
     if spawn_requested {
         return crate::spawn_modal::run(&cfg);
+    }
+    if let Some(name) = review_session {
+        return crate::run_review_for_session(&name);
     }
     ExitCode::SUCCESS
 }
@@ -424,7 +473,7 @@ fn draw_dashboard(f: &mut Frame, state: DrawState) {
     let help = if focus == FocusArea::Composer {
         "composer: type · Enter send+↵ · Esc back"
     } else {
-        "↑/k ↓/j · Enter attach · Space composer · Tab sidecar · h/l fold · n spawn · q quit"
+        "↑/k ↓/j · Enter attach/review · Space composer · Tab sidecar · Ctrl+R review · n spawn · q quit"
     };
     let help_line = if status.is_empty() {
         help.to_string()
@@ -538,7 +587,12 @@ fn draw_sidecar(f: &mut Frame, area: ratatui::layout::Rect, state: &DrawState) {
     );
     f.render_widget(Paragraph::new(tabs), vertical[0]);
 
-    let body = sidecar_body(state.side_tab, state.preview_text);
+    let body = sidecar_body(
+        state.side_tab,
+        state.preview_text,
+        state.notes_text,
+        state.review_text,
+    );
     let preview = Paragraph::new(body)
         .wrap(Wrap { trim: false })
         .block(Block::default().borders(Borders::NONE).title(" "));
@@ -593,6 +647,17 @@ mod tests {
         assert_eq!(map_key_event(key(KeyCode::Right)), DashboardAction::ToggleExpand);
         assert_eq!(map_key_event(key(KeyCode::Char(' '))), DashboardAction::FocusComposer);
         assert_eq!(map_key_event(key(KeyCode::Tab)), DashboardAction::CycleSideTab);
+    }
+
+    #[test]
+    fn map_ctrl_r_review() {
+        let key = KeyEvent {
+            code: KeyCode::Char('r'),
+            modifiers: KeyModifiers::CONTROL,
+            kind: KeyEventKind::Press,
+            state: crossterm::event::KeyEventState::NONE,
+        };
+        assert_eq!(map_key_event(key), DashboardAction::StartReview);
     }
 
     #[test]

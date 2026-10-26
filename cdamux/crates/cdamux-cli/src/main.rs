@@ -395,6 +395,45 @@ fn cmd_projects() -> ExitCode {
     ExitCode::SUCCESS
 }
 
+pub(crate) const DASHBOARD_REVIEW_INSTRUCTION: &str =
+    "Please review these diff hunks and suggest fixes.";
+
+/// Sidecar Notes tab: load project note from session cwd (truncated).
+pub(crate) fn note_text_for_session_cwd(cfg: &cdamux_core::Config, cwd: &str) -> String {
+    if cwd.is_empty() {
+        return "Select a session with a working directory.".to_string();
+    }
+    let project = PathBuf::from(cwd);
+    let note_path = resolve_note_path(&cfg.notes, &project);
+    let header = format!("{}\n\n", note_path.display());
+    if !note_path.exists() {
+        return format!(
+            "{}(file missing — `cdamux notes edit --path {}`)",
+            header,
+            cwd
+        );
+    }
+    match std::fs::read_to_string(&note_path) {
+        Ok(body) if body.trim().is_empty() => format!("{}(empty note)", header),
+        Ok(body) => format!("{}{}", header, truncate_note_for_sidecar(&body, 120)),
+        Err(e) => format!("{}read error: {e}", header),
+    }
+}
+
+fn truncate_note_for_sidecar(body: &str, max_lines: usize) -> String {
+    let lines: Vec<&str> = body.lines().collect();
+    if lines.len() <= max_lines {
+        return body.to_string();
+    }
+    let mut out = lines[..max_lines].join("\n");
+    out.push_str("\n… (truncated)");
+    out
+}
+
+pub(crate) fn run_review_for_session(session: &str) -> ExitCode {
+    cmd_review(session, None, DASHBOARD_REVIEW_INSTRUCTION)
+}
+
 fn cmd_review(session: &str, path: Option<String>, instruction: &str) -> ExitCode {
     let repo = match resolve_review_repo(session, path) {
         Ok(p) => p,

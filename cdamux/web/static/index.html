@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>cdamux</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <header>
+      <h1>cdamux</h1>
+      <p id="health" class="muted">Loading…</p>
+    </header>
+    <main class="layout">
+      <section class="panel" aria-labelledby="sessions-heading">
+        <div class="panel-head">
+          <h2 id="sessions-heading">Sessions</h2>
+          <button type="button" id="refresh" class="secondary">Refresh</button>
+        </div>
+        <ul id="session-list" class="session-list"></ul>
+      </section>
+      <section class="panel grow" aria-labelledby="pane-heading">
+        <h2 id="pane-heading">Pane preview</h2>
+        <pre id="pane" class="pane" aria-live="polite">Select a session.</pre>
+        <form id="send-form" class="send-form" hidden>
+          <label for="line">Send to <span id="send-target"></span></label>
+          <div class="send-row">
+            <input id="line" name="line" type="text" autocomplete="off" required />
+            <label class="checkbox">
+              <input id="enter" name="enter" type="checkbox" checked />
+              Enter
+            </label>
+            <button type="submit">Send</button>
+          </div>
+          <p id="send-status" class="muted" role="status"></p>
+        </form>
+      </section>
+    </main>
+    <script src="/app.js" defer></script>
+  </body>
+</html>

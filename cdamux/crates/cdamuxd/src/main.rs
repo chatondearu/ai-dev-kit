@@ -1,6 +1,7 @@
 //! cdamuxd — tmux poll loop + Unix socket IPC.
 
 mod tailnet_server;
+mod web_static;
 
 use cdamux_core::{
     handle_daemon_request, load_config, poll_sessions, socket_path, write_state_cache, GroupBy,

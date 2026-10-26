@@ -1,9 +1,11 @@
 //! Optional HTTP API on the Tailscale interface (`daemon.listen_tailnet`).
 
+use crate::web_static::lookup_web_asset;
 use cdamux_core::{
     dispatch_tailnet_request, resolve_tailnet_bind_ip, LiveTailnetBackend, ProjectsConfig,
     SessionsConfig,
 };
+use std::io::Read;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::thread;
@@ -67,7 +69,18 @@ fn handle_one(mut request: tiny_http::Request, backend: Arc<LiveTailnetBackend>)
     };
     let path = request.url().to_string();
     let mut body = String::new();
-    let _ = std::io::Read::read_to_string(request.as_reader(), &mut body);
+    let _ = Read::read_to_string(request.as_reader(), &mut body);
+
+    if method == "GET" {
+        if let Some((bytes, mime)) = lookup_web_asset(&path) {
+            let mut response = Response::from_data(bytes).with_status_code(200);
+            response = response.with_header(
+                Header::from_bytes(&b"Content-Type"[..], mime.as_bytes()).expect("content-type"),
+            );
+            let _ = request.respond(response);
+            return;
+        }
+    }
 
     let resp = dispatch_tailnet_request(method, &path, &body, backend.as_ref());
     let status = StatusCode(resp.status);

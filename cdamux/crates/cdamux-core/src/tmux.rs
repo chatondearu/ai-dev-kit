@@ -158,6 +158,7 @@ pub fn capture_pane_text(session_name: &str, max_lines: i32) -> Result<String, T
         .args([
             "capture-pane",
             "-p",
+            "-e",
             "-t",
             session_name,
             "-S",

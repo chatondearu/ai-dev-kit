@@ -19,3 +19,4 @@ skim.workspace = true
 ratatui.workspace = true
 crossterm.workspace = true
 pulldown-cmark.workspace = true
+ansi-to-tui = "6"

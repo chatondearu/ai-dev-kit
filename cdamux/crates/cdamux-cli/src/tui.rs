@@ -1,5 +1,6 @@
 //! Full-screen ratatui dashboard (default `cdamux` with no subcommand).
 
+use ansi_to_tui::IntoText as _;
 use crate::app_tabs::{
     draw_agents, draw_projects, draw_sessions_list, draw_settings, draw_tab_bar, flat_sessions,
     help_for_tab, try_save, AppTab, bump_preview_lines, cycle_attach_mode, cycle_group_by,
@@ -17,7 +18,7 @@ use ratatui::{
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
-    text::{Line, Span},
+    text::{Line, Span, Text},
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph, StatefulWidget, Wrap},
     Frame, Terminal,
 };
@@ -257,16 +258,15 @@ fn default_expanded(tree: &ProjectSessionTree, group_by: GroupBy) -> HashSet<Str
 }
 
 /// `scroll_from_bottom`: 0 = newest lines; higher = scroll up into history.
-fn preview_visible_text(text: &str, scroll_from_bottom: usize) -> String {
-    let lines: Vec<&str> = text.lines().collect();
-    if lines.is_empty() {
-        return text.to_string();
-    }
-    let end = lines.len().saturating_sub(scroll_from_bottom);
+fn preview_display_lines(raw: &str, scroll_from_bottom: usize) -> Vec<Line<'_>> {
+    let text: Text = raw
+        .into_text()
+        .unwrap_or_else(|_| Text::raw(raw));
+    let end = text.lines.len().saturating_sub(scroll_from_bottom);
     if end == 0 {
-        return String::new();
+        return Vec::new();
     }
-    lines[..end].join("\n")
+    text.lines[..end].to_vec()
 }
 
 fn fetch_preview(session_name: &str, max_lines: u32) -> String {
@@ -278,9 +278,9 @@ fn fetch_preview(session_name: &str, max_lines: u32) -> String {
     }
 }
 
-fn sidecar_body(tab: SideTab, preview: &str, scroll: usize, notes: &str, review: &str) -> String {
+fn sidecar_plain_body(tab: SideTab, notes: &str, review: &str) -> String {
     match tab {
-        SideTab::Preview => preview_visible_text(preview, scroll),
+        SideTab::Preview => String::new(),
         SideTab::Notes => notes.to_string(),
         SideTab::Review => review.to_string(),
     }
@@ -1234,17 +1234,21 @@ fn draw_sidecar(
     f.render_widget(Paragraph::new(tabs), vertical[0]);
 
     *preview_rect = Some(vertical[1]);
-    let body = sidecar_body(
-        state.side_tab,
-        state.preview_text,
-        state.preview_scroll,
-        state.notes_text,
-        state.review_text,
-    );
-    let preview = Paragraph::new(body)
-        .wrap(Wrap { trim: false })
-        .block(Block::default().borders(Borders::NONE).title(" "));
-    f.render_widget(preview, vertical[1]);
+    let body_block = Block::default().borders(Borders::NONE).title(" ");
+    let body = if state.side_tab == SideTab::Preview {
+        Paragraph::new(preview_display_lines(state.preview_text, state.preview_scroll))
+            .wrap(Wrap { trim: false })
+            .block(body_block)
+    } else {
+        Paragraph::new(sidecar_plain_body(
+            state.side_tab,
+            state.notes_text,
+            state.review_text,
+        ))
+            .wrap(Wrap { trim: false })
+            .block(body_block)
+    };
+    f.render_widget(body, vertical[1]);
 
     if show_composer {
         let target = state
@@ -1374,6 +1378,14 @@ mod tests {
         let rows = flatten_tree(&tree, &exp, GroupBy::Project, true);
         assert_eq!(rows.len(), 2);
         assert!(matches!(&rows[1], TreeRow::Session(s) if s.name == "wait"));
+    }
+
+    #[test]
+    fn preview_renders_ansi_color() {
+        let raw = "\x1b[32mgreen\x1b[0m";
+        let lines = preview_display_lines(raw, 0);
+        assert_eq!(lines.len(), 1);
+        assert!(!lines[0].spans.is_empty());
     }
 
     #[test]

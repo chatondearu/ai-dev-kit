@@ -51,8 +51,8 @@ See `config/cdamux.example.toml`. Highlights:
 - `sessions.group_by` — `project | cwd | agent | group_path | none`. Fleet tree uses
   discovered projects when `project`; other values regroup top-level nodes (TUI `g` cycles).
   Fleet omits projects/groups with **no tmux sessions** (full discover list stays on Projects tab).
-- **Preview** — `tmux capture-pane` text in the sidecar (not a live PTY). ANSI color in
-  pane output is not rendered yet; **Enter** attaches for full interactive tmux.
+- **Preview** — `tmux capture-pane -e` in the sidecar (snapshot, not a live PTY). CLI
+  renders ANSI colors via `ansi-to-tui`; **Enter** attaches for full interactive tmux.
 - `sessions.attach_mode` — `mirror | exclusive` (tmux `-d`), same semantics as skzv.
 - `daemon.listen_tailnet`, `daemon.tailnet_port`.
 - `[agents.cursor]` command override (kit: `cursor-agent`).

@@ -108,3 +108,21 @@ Diff source: `git diff` plus `git diff --cached` in the resolved repo directory.
 ## Notes
 
 Record frictions in GitHub issue [#40](https://github.com/chatondearu/ai-dev-kit/issues/40) comments.
+
+## Sign-off (issue #48)
+
+| Evidence | Source |
+| -------- | ------ |
+| `cargo test` / `cargo build` | GitHub Actions on PRs #49–#52 and closure PR for #48 |
+| Merged v0.1 scope | #41–#44 → PRs #49, #51, #50, #52 |
+| Tailnet API | `cdamux/docs/tailnet-api.md` + unit tests in `tailnet_api.rs` |
+| Extract checklist | `cdamux/docs/extract-repo.md` validation table |
+
+**Maintainer (interactive tmux host):** confirm the scenario checkboxes above on the
+NixOS maintainer machine, then comment on [#48](https://github.com/chatondearu/ai-dev-kit/issues/48)
+with `Dogfood sign-off: OK` or list blockers. Worker closure does not replace this step.
+
+**v0 success metrics (PRD-39):**
+
+- [ ] Spawn 3 projects from 2 roots; pick via popup; no stuck overlay
+- [ ] Second host `curl` tailnet `/v1/health` when `listen_tailnet = true`

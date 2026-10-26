@@ -1,6 +1,6 @@
 # PLAN-42 — cdamux ratatui dashboard TUI
 
-- **Status**: in-progress
+- **Status**: done
 - **PRD**: [[../prd/PRD-39-cdamux|PRD-39]]
 - **GitHub**: [#42](https://github.com/chatondearu/ai-dev-kit/issues/42)
 - **Date**: 2026-10-26
@@ -55,4 +55,4 @@ handle keys for attach/quit/spawn. Delegate spawn to existing spawn module.
 ## Verification
 
 - [x] `cargo build && cargo test` in `cdamux/`
-- [ ] Manual: `cdamux` in tmux and outside
+- [x] Manual: `cdamux` in tmux and outside (see `dogfood.md` sign-off)

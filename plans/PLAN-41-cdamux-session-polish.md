@@ -1,6 +1,6 @@
 # PLAN-41 — cdamux session state & CLI polish
 
-- **Status**: in review
+- **Status**: done
 - **Issue**: [#41](https://github.com/chatondearu/ai-dev-kit/issues/41)
 - **Epic**: [#40](https://github.com/chatondearu/ai-dev-kit/issues/40)
 - **PRD**: [[../prd/PRD-39-cdamux|PRD-39]]

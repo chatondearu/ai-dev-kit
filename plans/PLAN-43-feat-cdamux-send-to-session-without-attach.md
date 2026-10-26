@@ -1,6 +1,6 @@
 # PLAN-43 — cdamux send without attach
 
-- **Status**: in-progress
+- **Status**: done
 - **PRD**: [[../prd/PRD-39-cdamux|PRD-39]] (research v0.1)
 - **GitHub**: [#43](https://github.com/chatondearu/ai-dev-kit/issues/43)
 - **Date**: 2026-10-26

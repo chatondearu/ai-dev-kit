@@ -12,11 +12,11 @@ In-TUI `n`: running / discovered / custom; shell-only; single | split-h | split-
 
 ## Tasks
 
-- [ ] Modal state machine (path mode, agent, shell_only, layout)
-- [ ] Wire discover + active session projects
-- [ ] Shell-only spawn (bash, no agent cmd)
-- [ ] tmux split after create; primary pane rule documented
-- [ ] Refresh tree + select new session
+- [x] Modal state machine (path mode, agent, shell_only, layout)
+- [x] Wire discover + active session projects
+- [x] Shell-only spawn (bash, no agent cmd)
+- [x] tmux split after create; secondary pane shell
+- [ ] Refresh tree + select new session (dashboard exits after spawn today)
 
 ## Verification
 

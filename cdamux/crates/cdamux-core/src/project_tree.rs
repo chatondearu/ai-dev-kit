@@ -79,11 +79,14 @@ pub fn build_project_session_tree(
 
     let nodes = projects
         .into_iter()
-        .map(|project| {
+        .filter_map(|project| {
             let key = project_key(&project.path);
             let mut sessions = by_project.remove(&key).unwrap_or_default();
+            if sessions.is_empty() {
+                return None;
+            }
             sessions.sort_by(|a, b| a.name.cmp(&b.name));
-            ProjectTreeNode { project, sessions }
+            Some(ProjectTreeNode { project, sessions })
         })
         .collect();
 
@@ -96,21 +99,24 @@ fn tree_from_grouped(grouped: GroupedSessions) -> ProjectSessionTree {
     let nodes = grouped
         .groups
         .into_iter()
-        .map(|g| {
+        .filter_map(|g| {
             let mut sessions = g.sessions;
+            if sessions.is_empty() {
+                return None;
+            }
             sessions.sort_by(|a, b| a.name.cmp(&b.name));
             let path = sessions
                 .first()
                 .map(|s| Path::new(&s.path))
                 .unwrap_or_else(|| Path::new(""));
-            ProjectTreeNode {
+            Some(ProjectTreeNode {
                 project: Project {
                     name: g.key,
                     path: path.to_path_buf(),
                     root_label: format!("{:?}", grouped.group_by),
                 },
                 sessions,
-            }
+            })
         })
         .collect();
     ProjectSessionTree {

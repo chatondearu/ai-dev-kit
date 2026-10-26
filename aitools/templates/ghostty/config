@@ -1,7 +1,7 @@
-# cda.aitools — Ghostty snippet for ccmux / tmux (merge into ~/.config/ghostty/config)
-# Experimental. On macOS, Option-as-Alt is required for tmux M-* binds (e.g. M-p → ccmux).
+# cda.aitools — Ghostty snippet for cdamux / tmux (merge into ~/.config/ghostty/config)
+# Experimental. On macOS, Option-as-Alt is required for tmux M-* binds (e.g. M-p → cdamux --pick).
 
-# OSC 52 / copy from tmux panes (ccmux, Claude, …) → host clipboard
+# OSC 52 / copy from tmux panes (cdamux, Claude, …) → host clipboard
 clipboard-read = allow
 clipboard-write = allow
 copy-on-select = clipboard

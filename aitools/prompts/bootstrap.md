@@ -8,7 +8,7 @@ Do **not** invent package-install steps inside the kit’s `install.sh`.
 
 1. Kit skills/rules linked (portable path).
 2. Host agent CLIs available (official installers).
-3. Optional: Nix `cda.aitools` for tmux/ccmux configs with relocatable root.
+3. Optional: Nix `cda.aitools` for tmux/cdamux configs with relocatable root.
 4. `doctor.sh` green enough to run orch/headless.
 
 ## Steps
@@ -30,7 +30,7 @@ Pick a stable path (examples: `~/dev/ai-dev-kit`, `/cda/dev/ai-dev-kit`).
 ```
 
 This only symlinks skills/rules/hooks. It must **never** install Cursor, Claude,
-tmux, or ccmux.
+tmux, or cdamux.
 
 ### C — Host agent CLIs (official channels)
 
@@ -62,13 +62,13 @@ cda.aitools = {
 ```
 
 4. Copy templates from `aitools/templates/` into `$CDA_AITOOLS_HOME`.
-5. If Darwin and ccmux is not in nixpkgs: `brew install ccmux && ccmux setup`.
+5. On Darwin without Nix: `aitools/scripts/cdamux-align-mac.sh` (build from in-tree `cdamux/`).
 
 Read `aitools/README.md` and foam ADR-003.
 
 ### E — Non-Nix session tools
 
-If skipping Nix companion: install tmux (and optionally ccmux via brew) yourself;
+If skipping Nix companion: install tmux and build `cdamux` from `cdamux/` yourself;
 copy `aitools/templates/tmux.conf` into your tmux config manually.
 
 ### F — Verify orch cleanup exists
@@ -81,4 +81,4 @@ bash skills/core/cda-dev/scripts/orch-cleanup.sh --help
 
 - Do not add app installs to `install.sh`.
 - Do not install this prompt as a project skill under `~/.cursor/skills/`.
-- Do not merge ccmux worktrees with `.orch/worktrees` automatically.
+- Do not merge agent worktrees with `.orch/worktrees` automatically.

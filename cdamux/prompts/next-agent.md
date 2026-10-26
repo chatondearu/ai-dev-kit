@@ -25,8 +25,7 @@ bash ~/.cursor/skills/cda-dev/scripts/orch.sh \
 
 ## Do not
 
-- Enable `cda.aitools.cdamux` in Nix until second-host dogfood (ADR-003)
-- Remove skzv/ccmux templates from `aitools/`
+- Re-enable skzv/ccmux in `aitools/` without an ADR
 - Wire `install.sh` (ADR-001)
 
 ## Verify

@@ -55,7 +55,7 @@ epilande/ccmux docs, pickers). Update this file when evaluating new tools.
 - TUI inside tmux popup: `switch-client` then **returns to dashboard** (popup stays).
 - No `ccmux config set` / epilande `groupBy` (different product line).
 
-**Config (kit)**: `aitools/templates/ccmux/config.toml`, `projects.root = /hdd/dev`.
+**Config (kit, historical)**: was `aitools/templates/ccmux/`; now `aitools/templates/cdamux/config.toml`.
 
 ### ccmux epilande (ccmux.dev, Homebrew core — kit removes in favor of skzv)
 
@@ -69,7 +69,7 @@ epilande/ccmux docs, pickers). Update this file when evaluating new tools.
 **Limits**
 
 - Often assumed **existing tmux**; less “greenfield project from UI” than skzv.
-- Kit explicitly migrates to skzv tap (`aitools/scripts/ccmux-align-mac.sh`).
+- Kit migrated to in-tree cdamux (`aitools/scripts/cdamux-align-mac.sh`).
 
 ### agent-manager (agent-manager.dev)
 

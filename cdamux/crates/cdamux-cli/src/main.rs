@@ -622,6 +622,7 @@ fn spawn_with_path_and_agent(
         &path_buf,
         &command,
         cfg.sessions.attach_mode,
+        Some(agent_name.as_str()),
     ) {
         Ok(SpawnOutcome::ReusedExisting) => {
             println!("reusing existing session '{}'", session_name);

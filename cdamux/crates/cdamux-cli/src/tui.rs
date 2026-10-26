@@ -12,7 +12,7 @@ use cdamux_core::{
     build_project_session_tree, capture_pane_text, config_path, discover_projects, kill_tmux_session,
     load_config, preferred_spawn_agent, project_key, rename_tmux_session, resolve_agent_command,
     send_to_session, session_name_for_path, spawn_tmux_session_with_layout, state_icon,
-    switch_client_to_session, unique_session_name, Config, EnrichedSession, GroupBy,
+    switch_client_to_session, unique_session_name, Config, EnrichedSession, GroupBy, SessionChrome,
     PaneLayout, ProjectSessionTree, ProjectTreeNode, SessionState, SpawnOutcome,
 };
 use std::path::PathBuf;
@@ -194,6 +194,7 @@ fn fork_selected_session(cfg: &Config, s: &EnrichedSession) -> Result<String, St
         PaneLayout::Single,
         cfg.sessions.attach_mode,
         false,
+        Some(agent.as_str()),
     ) {
         Ok(SpawnOutcome::Created) => Ok(format!("forked '{}' with {}", base, agent)),
         Ok(SpawnOutcome::ReusedExisting) => Ok(format!("reusing '{}'", base)),
@@ -448,6 +449,7 @@ struct DrawState<'a> {
     review_text: &'a str,
     composer_line: &'a str,
     composer_session: Option<&'a str>,
+    session_chrome: Option<&'a SessionChrome>,
     status_line: &'a str,
 }
 
@@ -515,6 +517,8 @@ pub fn run_dashboard() -> ExitCode {
     let mut composer_line = String::new();
     let mut preview_text = String::new();
     let mut preview_for_session: Option<String> = None;
+    let mut session_chrome = SessionChrome::gather("", "");
+    let mut chrome_for_session: Option<String> = None;
     let mut notes_text = String::new();
     let mut notes_for_session: Option<String> = None;
     let mut status_line = String::new();
@@ -584,6 +588,8 @@ pub fn run_dashboard() -> ExitCode {
                 preview_scroll = 0;
                 preview_text = fetch_preview(&s.name, preview_max);
                 preview_for_session = Some(s.name.clone());
+                session_chrome = SessionChrome::gather(&s.name, &s.path);
+                chrome_for_session = Some(s.name.clone());
                 last_preview_refresh = Instant::now();
             } else if side_tab == SideTab::Preview
                 && last_preview_refresh.elapsed() >= PREVIEW_REFRESH
@@ -597,8 +603,10 @@ pub fn run_dashboard() -> ExitCode {
             }
         } else {
             preview_for_session = None;
+            chrome_for_session = None;
             preview_scroll = 0;
             preview_text = "(select a session for preview)".to_string();
+            session_chrome = SessionChrome::gather("", "");
             notes_for_session = None;
             notes_text = "Select a session to view project notes.".to_string();
         }
@@ -642,6 +650,11 @@ pub fn run_dashboard() -> ExitCode {
                             review_text: &review_text,
                             composer_line: &composer_line,
                             composer_session,
+                            session_chrome: if chrome_for_session.is_some() {
+                                Some(&session_chrome)
+                            } else {
+                                None
+                            },
                             status_line: help_status,
                         },
                         &cfg,
@@ -1430,11 +1443,13 @@ fn draw_sidecar(
     preview_rect: &mut Option<ratatui::layout::Rect>,
 ) {
     let show_composer = state.side_tab == SideTab::Preview;
+    let show_chrome = state.side_tab == SideTab::Preview && state.session_chrome.is_some();
     let vertical = if show_composer {
         Layout::default()
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Length(1),
+                Constraint::Length(if show_chrome { 3 } else { 0 }),
                 Constraint::Min(4),
                 Constraint::Length(3),
             ])
@@ -1442,7 +1457,11 @@ fn draw_sidecar(
     } else {
         Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Length(1), Constraint::Min(4)])
+            .constraints([
+                Constraint::Length(1),
+                Constraint::Length(if show_chrome { 3 } else { 0 }),
+                Constraint::Min(4),
+            ])
             .split(area)
     };
 
@@ -1463,9 +1482,33 @@ fn draw_sidecar(
     );
     f.render_widget(Paragraph::new(tabs), vertical[0]);
 
-    *preview_rect = Some(vertical[1]);
+    let preview_idx = if show_chrome { 2 } else { 1 };
+    if show_chrome {
+        let chrome = state.session_chrome.unwrap();
+        let chrome_block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(CLR_MUTED))
+            .title(Span::styled(
+                " session ",
+                Style::default().fg(CLR_ACCENT).add_modifier(Modifier::BOLD),
+            ))
+            .style(Style::default().bg(CLR_SEL_BG));
+        let inner = chrome_block.inner(vertical[1]);
+        f.render_widget(chrome_block, vertical[1]);
+        f.render_widget(
+            Paragraph::new(chrome.lines().join("\n")).style(
+                Style::default()
+                    .fg(CLR_TEXT)
+                    .bg(CLR_SEL_BG)
+                    .add_modifier(Modifier::DIM),
+            ),
+            inner,
+        );
+    }
+
+    *preview_rect = Some(vertical[preview_idx]);
     let body_block = Block::default().borders(Borders::NONE).title(" ");
-    let view_rows = vertical[1].height;
+    let view_rows = vertical[preview_idx].height;
     let body = if state.side_tab == SideTab::Preview {
         Paragraph::new(preview_display_lines(
             state.preview_text,
@@ -1483,9 +1526,10 @@ fn draw_sidecar(
             .wrap(Wrap { trim: false })
             .block(body_block)
     };
-    f.render_widget(body, vertical[1]);
+    f.render_widget(body, vertical[preview_idx]);
 
     if show_composer {
+        let composer_idx = preview_idx + 1;
         let target = state
             .composer_session
             .map(|n| format!("→ {}", n))
@@ -1506,7 +1550,7 @@ fn draw_sidecar(
                 .border_style(Style::default().fg(border_color))
                 .title(COMPOSER_LABEL),
         );
-        f.render_widget(composer, vertical[2]);
+        f.render_widget(composer, vertical[composer_idx]);
     }
 }
 

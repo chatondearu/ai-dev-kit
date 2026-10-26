@@ -80,6 +80,7 @@ pub fn spawn_tmux_session(
     path: &Path,
     agent_command: &str,
     attach_mode: AttachMode,
+    agent_label: Option<&str>,
 ) -> Result<SpawnOutcome, SpawnError> {
     spawn_tmux_session_with_layout(
         session_name,
@@ -88,6 +89,7 @@ pub fn spawn_tmux_session(
         PaneLayout::Single,
         attach_mode,
         true,
+        agent_label,
     )
 }
 
@@ -99,6 +101,7 @@ pub fn spawn_tmux_session_with_layout(
     layout: PaneLayout,
     _attach_mode: AttachMode,
     switch_to_session: bool,
+    agent_label: Option<&str>,
 ) -> Result<SpawnOutcome, SpawnError> {
     if !path.exists() {
         return Err(SpawnError::PathNotFound(path.to_path_buf()));
@@ -146,6 +149,12 @@ pub fn spawn_tmux_session_with_layout(
 
     if layout != PaneLayout::Single {
         apply_pane_split(session_name, layout)?;
+    }
+
+    if let Some(label) = agent_label {
+        let _ = Command::new("tmux")
+            .args(["set-option", "-t", session_name, "@cdamux_agent", label])
+            .status();
     }
 
     if switch_to_session && std::env::var_os("TMUX").is_some() {

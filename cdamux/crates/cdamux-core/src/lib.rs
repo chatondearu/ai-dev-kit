@@ -7,6 +7,7 @@ mod notes;
 mod project_tree;
 mod send;
 mod session;
+mod session_chrome;
 mod session_manage;
 mod spawn;
 mod tailnet_api;
@@ -27,6 +28,7 @@ pub use project_tree::{
     build_project_session_tree, project_for_path, project_key, state_icon, ProjectSessionTree,
     ProjectTreeNode,
 };
+pub use session_chrome::SessionChrome;
 pub use session::{
     classify_session, enrich_sessions, group_sessions, EnrichedSession, GroupedSessions,
     SessionGroup, SessionState,

@@ -284,6 +284,12 @@ fn execute_spawn(
     };
 
     let session_name = session_name_for_path(&path);
+    let agent_label: Option<&str> = if state.shell_only {
+        Some("shell")
+    } else {
+        state.agents.get(state.agent_index).map(|s| s.as_str())
+    };
+
     match spawn_tmux_session_with_layout(
         &session_name,
         &path,
@@ -291,6 +297,7 @@ fn execute_spawn(
         state.layout,
         cfg.sessions.attach_mode,
         switch_to_session,
+        agent_label,
     ) {
         Ok(SpawnOutcome::ReusedExisting) => Ok(format!("reusing session '{}'", session_name)),
         Ok(SpawnOutcome::Created) => Ok(format!(

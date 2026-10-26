@@ -51,6 +51,8 @@ pub enum ConfigError {
     Read(String),
     #[error("parse config: {0}")]
     Parse(String),
+    #[error("write config: {0}")]
+    Write(String),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -316,6 +318,18 @@ pub fn load_config() -> Result<Config, ConfigError> {
     }
     let raw = std::fs::read_to_string(&path).map_err(|e| ConfigError::Read(e.to_string()))?;
     toml::from_str(&raw).map_err(|e| ConfigError::Parse(e.to_string()))
+}
+
+/// Persist config to the XDG `config.toml` (creates parent dir if needed).
+pub fn save_config(cfg: &Config) -> Result<(), ConfigError> {
+    let path = config_path().ok_or_else(|| ConfigError::Write("no config path".into()))?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| ConfigError::Write(e.to_string()))?;
+    }
+    let raw = toml::to_string_pretty(cfg).map_err(|e| ConfigError::Write(e.to_string()))?;
+    std::fs::write(&path, raw).map_err(|e| ConfigError::Write(e.to_string()))?;
+    Ok(())
 }
 
 /// Discover projects under configured roots (v0: flat + git_only).

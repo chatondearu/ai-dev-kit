@@ -85,7 +85,7 @@ pub fn draw_tab_bar(f: &mut Frame, area: ratatui::layout::Rect, active: AppTab) 
 pub fn help_for_tab(tab: AppTab, settings_dirty: bool) -> &'static str {
     match tab {
         AppTab::Fleet => {
-            "↑/k ↓/j · Enter attach/review · Space composer · Tab sidecar · Ctrl+R · n spawn · 1-5 tabs · q quit"
+            "↑/k ↓/j · w waiting · F fold all · g group_by · ? help · n spawn · 1-5 tabs · q quit"
         }
         AppTab::Projects => "↑/k ↓/j scroll · 1-5 tabs · q quit",
         AppTab::Sessions => "↑/k ↓/j · Enter focus in Fleet · 1-5 tabs · q quit",

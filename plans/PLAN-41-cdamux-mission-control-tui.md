@@ -122,12 +122,12 @@ status styling; attach on Enter; `q` quit; `--pick` unchanged.
 
 **Outcome:** Waiting filter, fold all, group_by cycle, help bar; PRD-39 status note.
 
-- [ ] `w` waiting filter on tree
-- [ ] `F` expand all / fold all project nodes
-- [ ] `g` cycle group_by when it affects tree ordering (document difference from AM)
-- [ ] Optional: `m` move/rename session (stretch — skip if blocked; document in issue)
-- [ ] Update `research.md` UX table; `prompts/next-agent.md` → v2 maintenance
-- [ ] PRD-41 → `shipped`; close #58
+- [x] `w` waiting filter on tree
+- [x] `F` expand all / fold all project nodes
+- [x] `g` cycle group_by when it affects tree ordering (document difference from AM)
+- [ ] Optional: `m` move/rename session (stretch — deferred)
+- [x] Update `research.md` UX table; `prompts/next-agent.md` → v2 maintenance
+- [x] PRD-41 → `shipped`; close #58 (after stack merge + dogfood sign-off)
 
 **Acceptance:** Keyboard help matches implemented keys; full `cargo test`; maintainer sign-off comment on #58.
 

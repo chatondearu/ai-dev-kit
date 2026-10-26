@@ -1,6 +1,6 @@
 # PRD-41 — cdamux mission control dashboard (TUI v2)
 
-- **Status**: approved
+- **Status**: shipped
 - **GitHub**: [#58](https://github.com/chatondearu/ai-dev-kit/issues/58)
 - **Parent**: [#40](https://github.com/chatondearu/ai-dev-kit/issues/40) (cdamux epic)
 - **Date**: 2026-10-26

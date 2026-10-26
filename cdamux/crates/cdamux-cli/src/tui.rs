@@ -6,8 +6,8 @@ use crate::app_tabs::{
 };
 use cdamux_core::{
     build_project_session_tree, capture_pane_text, config_path, discover_projects, load_config,
-    project_key, send_to_session, state_icon, Config, EnrichedSession, ProjectSessionTree,
-    SessionState,
+    project_key, send_to_session, state_icon, Config, EnrichedSession, GroupBy, ProjectSessionTree,
+    ProjectTreeNode, SessionState,
 };
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
@@ -67,6 +67,10 @@ pub enum DashboardAction {
     FocusComposer,
     CycleSideTab,
     StartReview,
+    ToggleWaitingFilter,
+    FoldAll,
+    CycleGroupBy,
+    ToggleHelp,
 }
 
 pub fn map_key_event(key: KeyEvent) -> DashboardAction {
@@ -87,8 +91,24 @@ pub fn map_key_event(key: KeyEvent) -> DashboardAction {
         KeyCode::Up | KeyCode::Char('k') => DashboardAction::SelectPrev,
         KeyCode::Right | KeyCode::Char('l') => DashboardAction::ToggleExpand,
         KeyCode::Left | KeyCode::Char('h') => DashboardAction::ToggleExpand,
+        KeyCode::Char('w') => DashboardAction::ToggleWaitingFilter,
+        KeyCode::Char('F') => DashboardAction::FoldAll,
+        KeyCode::Char('g') => DashboardAction::CycleGroupBy,
+        KeyCode::Char('?') => DashboardAction::ToggleHelp,
         _ => DashboardAction::None,
     }
+}
+
+fn tree_node_key(node: &ProjectTreeNode, group_by: GroupBy) -> String {
+    if group_by == GroupBy::Project {
+        project_key(&node.project.path)
+    } else {
+        format!("grp:{}", node.project.name)
+    }
+}
+
+fn session_passes_waiting_filter(session: &EnrichedSession, waiting_only: bool) -> bool {
+    !waiting_only || session.state == SessionState::NeedsInput
 }
 
 #[derive(Debug, Clone)]
@@ -105,31 +125,68 @@ enum TreeRow {
     Unassigned(EnrichedSession),
 }
 
-fn flatten_tree(tree: &ProjectSessionTree, expanded: &HashSet<String>) -> Vec<TreeRow> {
+fn flatten_tree(
+    tree: &ProjectSessionTree,
+    expanded: &HashSet<String>,
+    group_by: GroupBy,
+    waiting_only: bool,
+) -> Vec<TreeRow> {
     let mut rows = Vec::new();
     for node in &tree.nodes {
-        let key = project_key(&node.project.path);
+        let visible: Vec<EnrichedSession> = node
+            .sessions
+            .iter()
+            .filter(|s| session_passes_waiting_filter(s, waiting_only))
+            .cloned()
+            .collect();
+        if waiting_only && visible.is_empty() {
+            continue;
+        }
+        let key = tree_node_key(node, group_by);
         let is_exp = expanded.contains(&key);
         rows.push(TreeRow::Project {
             key,
             name: node.project.name.clone(),
             path: node.project.path.to_string_lossy().to_string(),
-            session_count: node.sessions.len(),
+            session_count: visible.len(),
             expanded: is_exp,
         });
         if is_exp {
-            for s in &node.sessions {
-                rows.push(TreeRow::Session(s.clone()));
+            for s in visible {
+                rows.push(TreeRow::Session(s));
             }
         }
     }
-    if !tree.unassigned.is_empty() {
+    let unassigned: Vec<EnrichedSession> = tree
+        .unassigned
+        .iter()
+        .filter(|s| session_passes_waiting_filter(s, waiting_only))
+        .cloned()
+        .collect();
+    if !unassigned.is_empty() {
         rows.push(TreeRow::UnassignedHeader);
-        for s in &tree.unassigned {
-            rows.push(TreeRow::Unassigned(s.clone()));
+        for s in unassigned {
+            rows.push(TreeRow::Unassigned(s));
         }
     }
     rows
+}
+
+fn toggle_fold_all(tree: &ProjectSessionTree, expanded: &mut HashSet<String>, group_by: GroupBy) {
+    let keys: Vec<String> = tree
+        .nodes
+        .iter()
+        .filter(|n| !n.sessions.is_empty())
+        .map(|n| tree_node_key(n, group_by))
+        .collect();
+    let all_open = !keys.is_empty() && keys.iter().all(|k| expanded.contains(k));
+    if all_open {
+        expanded.clear();
+    } else {
+        for k in keys {
+            expanded.insert(k);
+        }
+    }
 }
 
 fn session_at_row(rows: &[TreeRow], idx: usize) -> Option<&EnrichedSession> {
@@ -176,11 +233,11 @@ fn move_selection(rows: &[TreeRow], selected_row: usize, delta: i32) -> usize {
     indices[next as usize]
 }
 
-fn default_expanded(tree: &ProjectSessionTree) -> HashSet<String> {
+fn default_expanded(tree: &ProjectSessionTree, group_by: GroupBy) -> HashSet<String> {
     tree.nodes
         .iter()
         .filter(|n| !n.sessions.is_empty())
-        .map(|n| project_key(&n.project.path))
+        .map(|n| tree_node_key(n, group_by))
         .collect()
 }
 
@@ -255,18 +312,20 @@ fn focus_session_in_tree(
     tree: &ProjectSessionTree,
     expanded: &mut HashSet<String>,
     name: &str,
+    group_by: GroupBy,
+    waiting_only: bool,
 ) -> usize {
     for node in &tree.nodes {
         if node.sessions.iter().any(|s| s.name == name) {
-            expanded.insert(project_key(&node.project.path));
-            let rows = flatten_tree(tree, expanded);
+            expanded.insert(tree_node_key(node, group_by));
+            let rows = flatten_tree(tree, expanded, group_by, waiting_only);
             if let Some(idx) = row_index_for_session(&rows, name) {
                 return idx;
             }
         }
     }
     if tree.unassigned.iter().any(|s| s.name == name) {
-        let rows = flatten_tree(tree, expanded);
+        let rows = flatten_tree(tree, expanded, group_by, waiting_only);
         return row_index_for_session(&rows, name).unwrap_or(0);
     }
     0
@@ -291,8 +350,15 @@ pub fn run_dashboard() -> ExitCode {
         .map(|p| p.display().to_string())
         .unwrap_or_else(|| "(unknown)".into());
 
-    let tree = build_project_session_tree(&cfg.projects, cfg.daemon.idle_seconds_for_needs_input);
-    let mut expanded = default_expanded(&tree);
+    let group_by = cfg.sessions.group_by;
+    let tree = build_project_session_tree(
+        &cfg.projects,
+        cfg.daemon.idle_seconds_for_needs_input,
+        group_by,
+    );
+    let mut expanded = default_expanded(&tree, group_by);
+    let mut waiting_only = false;
+    let mut show_help = false;
     let mut selected_row = 0;
     let mut side_tab = SideTab::Preview;
     let mut focus = FocusArea::Tree;
@@ -317,8 +383,13 @@ pub fn run_dashboard() -> ExitCode {
     let mut review_session: Option<String> = None;
 
     while !should_quit && attach_name.is_none() && !spawn_requested && review_session.is_none() {
-        let tree = build_project_session_tree(&cfg.projects, cfg.daemon.idle_seconds_for_needs_input);
-        let rows = flatten_tree(&tree, &expanded);
+        let group_by = cfg.sessions.group_by;
+        let tree = build_project_session_tree(
+            &cfg.projects,
+            cfg.daemon.idle_seconds_for_needs_input,
+            group_by,
+        );
+        let rows = flatten_tree(&tree, &expanded, group_by, waiting_only);
         selected_row = clamp_selection(&rows, selected_row);
 
         let discovered = discover_projects(&cfg.projects);
@@ -385,6 +456,8 @@ pub fn run_dashboard() -> ExitCode {
                     sessions_selected,
                     sessions_scroll,
                     &agent_lines,
+                    waiting_only,
+                    show_help,
                 );
             })
             .ok();
@@ -428,10 +501,19 @@ pub fn run_dashboard() -> ExitCode {
                         &mut expanded,
                         &mut selected_row,
                         &mut app_tab,
+                        cfg.sessions.group_by,
+                        waiting_only,
                     ) {
                         continue;
                     }
                 } else if app_tab != AppTab::Fleet {
+                    continue;
+                }
+
+                if show_help {
+                    if key.code == KeyCode::Char('?') || key.code == KeyCode::Esc {
+                        show_help = false;
+                    }
                     continue;
                 }
 
@@ -527,6 +609,33 @@ pub fn run_dashboard() -> ExitCode {
                         }
                     }
                     DashboardAction::Spawn => spawn_requested = true,
+                    DashboardAction::ToggleWaitingFilter => {
+                        waiting_only = !waiting_only;
+                        selected_row = 0;
+                        status_line = if waiting_only {
+                            "filter: waiting for input (◆)".into()
+                        } else {
+                            "filter: all sessions".into()
+                        };
+                    }
+                    DashboardAction::FoldAll => {
+                        toggle_fold_all(&tree, &mut expanded, group_by);
+                    }
+                    DashboardAction::CycleGroupBy => {
+                        cfg.sessions.group_by = cycle_group_by(cfg.sessions.group_by);
+                        expanded = default_expanded(
+                            &build_project_session_tree(
+                                &cfg.projects,
+                                cfg.daemon.idle_seconds_for_needs_input,
+                                cfg.sessions.group_by,
+                            ),
+                            cfg.sessions.group_by,
+                        );
+                        selected_row = 0;
+                        settings_dirty = true;
+                        status_line = format!("group_by: {:?}", cfg.sessions.group_by);
+                    }
+                    DashboardAction::ToggleHelp => show_help = !show_help,
                     DashboardAction::None => {}
                 }
             }
@@ -632,6 +741,8 @@ fn handle_sessions_keys(
     expanded: &mut HashSet<String>,
     fleet_row: &mut usize,
     app_tab: &mut AppTab,
+    group_by: GroupBy,
+    waiting_only: bool,
 ) -> bool {
     match key.code {
         KeyCode::Down | KeyCode::Char('j') => {
@@ -657,7 +768,13 @@ fn handle_sessions_keys(
         }
         KeyCode::Enter => {
             if let Some(s) = flat.get(*selected) {
-                *fleet_row = focus_session_in_tree(tree, expanded, &s.name);
+                *fleet_row = focus_session_in_tree(
+                    tree,
+                    expanded,
+                    &s.name,
+                    group_by,
+                    waiting_only,
+                );
                 *app_tab = AppTab::Fleet;
             }
             true
@@ -679,6 +796,8 @@ fn draw_app_screen(
     sessions_selected: usize,
     sessions_scroll: usize,
     agent_lines: &[String],
+    waiting_only: bool,
+    show_help: bool,
 ) {
     let root = Layout::default()
         .direction(Direction::Vertical)
@@ -692,7 +811,7 @@ fn draw_app_screen(
     draw_tab_bar(f, root[0], app_tab);
 
     match app_tab {
-        AppTab::Fleet => draw_fleet_body(f, root[1], &state),
+        AppTab::Fleet => draw_fleet_body(f, root[1], &state, cfg.sessions.group_by, waiting_only),
         AppTab::Projects => draw_projects(
             f,
             root[1],
@@ -730,20 +849,68 @@ fn draw_app_screen(
         format!("{}  |  {}", help, state.status_line)
     };
     f.render_widget(Paragraph::new(help_line), root[2]);
+
+    if show_help {
+        draw_help_overlay(f, f.area());
+    }
 }
 
-fn draw_fleet_body(f: &mut Frame, area: ratatui::layout::Rect, state: &DrawState<'_>) {
+const FLEET_HELP: &str = "Fleet keys\n\
+j/k ↑↓     navigate tree\n\
+Enter      attach session (or review tab)\n\
+h/l ←→     expand/collapse project\n\
+F          fold/unfold all groups\n\
+w          waiting-for-input filter (◆)\n\
+g          cycle group_by (tree layout)\n\
+Space      composer (Preview tab)\n\
+Tab        Preview / Notes / Review\n\
+Ctrl+R     hunk review TUI\n\
+n          new session modal\n\
+1-5        app tabs\n\
+?          this help\n\
+q          quit\n\n\
+Note: agent-manager `g` is group tree; here `g` cycles list grouping (project/cwd/agent/…).";
+
+fn draw_help_overlay(f: &mut Frame, area: ratatui::layout::Rect) {
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Cyan))
+        .title("keyboard help (? / Esc close)");
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+    f.render_widget(
+        Paragraph::new(FLEET_HELP).wrap(Wrap { trim: false }),
+        inner,
+    );
+}
+
+fn draw_fleet_body(
+    f: &mut Frame,
+    area: ratatui::layout::Rect,
+    state: &DrawState<'_>,
+    group_by: GroupBy,
+    waiting_only: bool,
+) {
     let inner = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Length(2), Constraint::Min(4)])
         .split(area);
 
-    let title = Paragraph::new(Line::from(vec![
+    let mut title_parts = vec![
         Span::styled("cdamux", Style::default().add_modifier(Modifier::BOLD)),
         Span::raw(" — fleet"),
         Span::styled("  ○ idle ● active ◆ needs", Style::default().fg(Color::DarkGray)),
-    ]))
-    .block(Block::default().borders(Borders::BOTTOM));
+    ];
+    if waiting_only {
+        title_parts.push(Span::styled("  [waiting]", Style::default().fg(Color::Yellow)));
+    }
+    if group_by != GroupBy::Project {
+        title_parts.push(Span::styled(
+            format!("  group:{:?}", group_by),
+            Style::default().fg(Color::Magenta),
+        ));
+    }
+    let title = Paragraph::new(Line::from(title_parts)).block(Block::default().borders(Borders::BOTTOM));
     f.render_widget(title, inner[0]);
 
     let columns = Layout::default()
@@ -957,12 +1124,57 @@ mod tests {
             unassigned: vec![],
         };
         let exp: HashSet<String> = HashSet::new();
-        let collapsed = flatten_tree(&tree, &exp);
+        let collapsed = flatten_tree(&tree, &exp, GroupBy::Project, false);
         assert_eq!(collapsed.len(), 1);
         let exp2: HashSet<String> = [project_key(&tree.nodes[0].project.path)]
             .into_iter()
             .collect();
-        let open = flatten_tree(&tree, &exp2);
+        let open = flatten_tree(&tree, &exp2, GroupBy::Project, false);
         assert_eq!(open.len(), 2);
+    }
+
+    #[test]
+    fn waiting_filter_hides_idle_sessions() {
+        let tree = ProjectSessionTree {
+            nodes: vec![cdamux_core::ProjectTreeNode {
+                project: Project {
+                    name: "p".into(),
+                    path: PathBuf::from("/tmp/p"),
+                    root_label: "dev".into(),
+                },
+                sessions: vec![
+                    cdamux_core::EnrichedSession {
+                        name: "idle".into(),
+                        path: "/tmp/p".into(),
+                        group_key: "p".into(),
+                        state: SessionState::Idle,
+                    },
+                    cdamux_core::EnrichedSession {
+                        name: "wait".into(),
+                        path: "/tmp/p".into(),
+                        group_key: "p".into(),
+                        state: SessionState::NeedsInput,
+                    },
+                ],
+            }],
+            unassigned: vec![],
+        };
+        let exp: HashSet<String> = [project_key(&tree.nodes[0].project.path)]
+            .into_iter()
+            .collect();
+        let rows = flatten_tree(&tree, &exp, GroupBy::Project, true);
+        assert_eq!(rows.len(), 2);
+        assert!(matches!(&rows[1], TreeRow::Session(s) if s.name == "wait"));
+    }
+
+    #[test]
+    fn map_waiting_and_help_keys() {
+        assert_eq!(
+            map_key_event(key(KeyCode::Char('w'))),
+            DashboardAction::ToggleWaitingFilter
+        );
+        assert_eq!(map_key_event(key(KeyCode::Char('F'))), DashboardAction::FoldAll);
+        assert_eq!(map_key_event(key(KeyCode::Char('g'))), DashboardAction::CycleGroupBy);
+        assert_eq!(map_key_event(key(KeyCode::Char('?'))), DashboardAction::ToggleHelp);
     }
 }

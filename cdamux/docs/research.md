@@ -125,6 +125,9 @@ Sidecar **viewer** (files, diff, markdown/mermaid) — complement, not mux. Phas
 | v0.2 | Tailnet HTTP + static web | skzv ccmuxd API + Agent Deck |
 | v1 | Hunk review → agent | agent-manager |
 | v1 | Notes markdown per project | skzv Notes + Teep render |
+| v2 | Fleet tree + preview composer + spawn modal | PRD-41 / prototype C+ |
+| v2 | `w` waiting filter, `F` fold all, `g` group_by cycle | agent-manager parity (see `?` help: AM `g` ≠ cdamux `g`) |
+| v2 | App tabs (Projects, Sessions, Agents, Settings) | mockup top nav |
 
 ## tmux integration (kit)
 

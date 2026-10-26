@@ -108,12 +108,19 @@ Diff source: `git diff` plus `git diff --cached` in the resolved repo directory.
 - [ ] Review tab: `Ctrl+R` or Enter opens hunk review TUI for selected session
 - [ ] Composer (`Space`) sends to session without attach
 - [ ] `n` spawn modal: running / discovered / custom path; optional shell-only and pane split
+- [ ] App tabs `1`–`5`: Fleet, Projects, Sessions, Agents, Settings (`S` saves config)
+- [ ] `w` waiting filter; `F` fold/unfold all; `g` cycle `group_by` (tree layout); `?` help overlay
 
 | Key | Action |
 | --- | --- |
 | `Tab` | Cycle Preview / Notes / Review |
 | `Ctrl+R` | Open review TUI |
 | `n` | Spawn modal |
+| `w` | Toggle waiting-for-input (◆) filter on Fleet tree |
+| `F` | Expand or collapse all Fleet groups |
+| `g` | Cycle `sessions.group_by` (differs from agent-manager group tree) |
+| `?` | Keyboard help (Esc to close) |
+| `1`–`5` | Fleet / Projects / Sessions / Agents / Settings |
 
 ## Regression vs skzv/ccmux
 

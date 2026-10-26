@@ -257,16 +257,23 @@ fn default_expanded(tree: &ProjectSessionTree, group_by: GroupBy) -> HashSet<Str
         .collect()
 }
 
-/// `scroll_from_bottom`: 0 = newest lines; higher = scroll up into history.
-fn preview_display_lines(raw: &str, scroll_from_bottom: usize) -> Vec<Line<'_>> {
+/// `scroll_from_bottom`: 0 = tail of capture; higher = scroll up into older lines.
+/// `viewport_lines`: visible rows in the sidecar (show the newest lines that fit).
+fn preview_display_lines(
+    raw: &str,
+    scroll_from_bottom: usize,
+    viewport_lines: u16,
+) -> Vec<Line<'_>> {
     let text: Text = raw
         .into_text()
         .unwrap_or_else(|_| Text::raw(raw));
+    let window = viewport_lines.max(1) as usize;
     let end = text.lines.len().saturating_sub(scroll_from_bottom);
-    if end == 0 {
+    let start = end.saturating_sub(window);
+    if start >= end {
         return Vec::new();
     }
-    text.lines[..end].to_vec()
+    text.lines[start..end].to_vec()
 }
 
 fn fetch_preview(session_name: &str, max_lines: u32) -> String {
@@ -1235,8 +1242,13 @@ fn draw_sidecar(
 
     *preview_rect = Some(vertical[1]);
     let body_block = Block::default().borders(Borders::NONE).title(" ");
+    let view_rows = vertical[1].height;
     let body = if state.side_tab == SideTab::Preview {
-        Paragraph::new(preview_display_lines(state.preview_text, state.preview_scroll))
+        Paragraph::new(preview_display_lines(
+            state.preview_text,
+            state.preview_scroll,
+            view_rows,
+        ))
             .wrap(Wrap { trim: false })
             .block(body_block)
     } else {
@@ -1383,9 +1395,21 @@ mod tests {
     #[test]
     fn preview_renders_ansi_color() {
         let raw = "\x1b[32mgreen\x1b[0m";
-        let lines = preview_display_lines(raw, 0);
+        let lines = preview_display_lines(raw, 0, 10);
         assert_eq!(lines.len(), 1);
         assert!(!lines[0].spans.is_empty());
+    }
+
+    #[test]
+    fn preview_window_anchors_to_tail() {
+        let raw = (0..10)
+            .map(|i| format!("line{i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let lines = preview_display_lines(&raw, 0, 3);
+        assert_eq!(lines.len(), 3);
+        assert!(lines[2].to_string().contains("line9"));
+        assert!(lines[0].to_string().contains("line7"));
     }
 
     #[test]

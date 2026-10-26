@@ -2,10 +2,10 @@
 
 use cdamux_core::{
     configured_agent_ids, default_agent_name, default_shell_command, discover_projects,
-    list_tmux_sessions, resolve_agent_command, session_name_for_path,
-    spawn_tmux_session_with_layout, Config, PaneLayout, SpawnOutcome,
+    list_tmux_sessions, preferred_spawn_agent_index, resolve_agent_command,
+    session_name_for_path, spawn_tmux_session_with_layout, Config, PaneLayout, SpawnOutcome,
 };
-use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
     layout::{Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
@@ -68,6 +68,7 @@ impl ModalState {
             .map(|p| p.path)
             .collect();
         let agents = configured_agent_ids(&cfg.agents);
+        let agent_index = preferred_spawn_agent_index(&cfg.agents, &agents);
         Self {
             path_mode: if running.is_empty() {
                 PathMode::Discovered
@@ -79,7 +80,7 @@ impl ModalState {
             pick_index: 0,
             custom_path: String::new(),
             shell_only: false,
-            agent_index: 0,
+            agent_index,
             agents,
             layout: PaneLayout::Single,
             editing_custom: false,

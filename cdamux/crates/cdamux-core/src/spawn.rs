@@ -1,5 +1,6 @@
 //! Spawn tmux sessions with configured agent commands.
 
+use crate::send::tmux_has_session;
 use crate::{AgentEntry, AgentsConfig, AttachMode};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -106,7 +107,7 @@ pub fn spawn_tmux_session_with_layout(
         return Err(SpawnError::NotDirectory(path.to_path_buf()));
     }
 
-    if tmux_has_session(session_name) {
+    if tmux_has_session(session_name).unwrap_or(false) {
         if switch_to_session && std::env::var_os("TMUX").is_some() {
             let _ = Command::new("tmux")
                 .args(["switch-client", "-t", session_name])
@@ -180,14 +181,6 @@ fn apply_pane_split(session_name: &str, layout: PaneLayout) -> Result<(), SpawnE
         return Err(SpawnError::TmuxFailed);
     }
     Ok(())
-}
-
-fn tmux_has_session(name: &str) -> bool {
-    Command::new("tmux")
-        .args(["has-session", "-t", name])
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
 }
 
 /// Agents with a configured command (for interactive picker).

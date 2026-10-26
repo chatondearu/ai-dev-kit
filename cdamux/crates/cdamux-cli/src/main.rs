@@ -6,7 +6,8 @@ mod spawn_modal;
 mod tui;
 
 use cdamux_core::{
-    config_path, configured_agent_ids, default_agent_name, discover_projects, ensure_note_file,
+    command_on_path, config_path, configured_agent_ids, default_agent_name, discover_projects,
+    ensure_note_file,
     grouped_for_list, git_diff_unified, list_tmux_sessions, load_config, note_refs_for_projects,
     parse_unified_diff, resolve_agent_command, resolve_note_path, send_to_session,
     session_name_for_path, spawn_tmux_session, AttachMode, DiffError, GroupBy, SendError,
@@ -175,6 +176,16 @@ fn main() -> ExitCode {
     }
 }
 
+fn shell_escape(s: &str) -> String {
+    if s.chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.' || c == '/')
+    {
+        s.to_string()
+    } else {
+        format!("'{}'", s.replace('\'', "'\\''"))
+    }
+}
+
 fn cmd_doctor() -> ExitCode {
     let tmux = Command::new("tmux").arg("-V").output();
     match tmux {
@@ -280,24 +291,6 @@ fn agent_executable_name(agents: &cdamux_core::AgentsConfig, id: &str) -> String
         .unwrap_or_else(|_| id.to_string())
 }
 
-fn command_on_path(name: &str) -> bool {
-    let bin = name.split_whitespace().next().unwrap_or(name);
-    Command::new("sh")
-        .args(["-c", &format!("command -v -- {}", shell_escape(bin))])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
-}
-
-fn shell_escape(s: &str) -> String {
-    if s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.' || c == '/') {
-        s.to_string()
-    } else {
-        format!("'{}'", s.replace('\'', "'\\''"))
-    }
-}
 
 fn cmd_list(json: bool, group_by: GroupBy) -> ExitCode {
     let cfg = match load_config() {
@@ -532,11 +525,16 @@ pub(crate) fn tmux_attach_session_with_mode(
             .unwrap_or(AttachMode::Mirror)
     });
     let nested = std::env::var_os("TMUX").is_some();
-    let status = if nested {
-        Command::new("tmux")
-            .args(["switch-client", "-t", session])
-            .status()
-    } else {
+    if nested {
+        return match cdamux_core::switch_client_to_session(session) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("attach: {e}");
+                ExitCode::from(1)
+            }
+        };
+    }
+    let status = {
         let mut cmd = Command::new("tmux");
         cmd.arg("attach-session");
         if attach_mode == AttachMode::Exclusive {

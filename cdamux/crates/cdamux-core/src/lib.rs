@@ -1,11 +1,13 @@
 //! Shared configuration and domain types for cdamux.
 
+mod agents_util;
 mod daemon;
 mod diff;
 mod notes;
 mod project_tree;
 mod send;
 mod session;
+mod session_manage;
 mod spawn;
 mod tailnet_api;
 mod tmux;
@@ -34,7 +36,14 @@ pub use tailnet_api::{
     TailnetApiBackend, TailnetResponse,
 };
 pub use notes::{ensure_note_file, note_refs_for_projects, resolve_note_path, NoteRef};
+pub use agents_util::{
+    command_on_path, preferred_spawn_agent, preferred_spawn_agent_index,
+};
 pub use send::{build_send_keys_argv, send_to_session, SendError, tmux_has_session};
+pub use session_manage::{
+    kill_tmux_session, mark_session_cdamux_return, rename_tmux_session, switch_client_to_session,
+    unique_session_name,
+};
 pub use spawn::{
     configured_agent_ids, default_agent_name, default_shell_command, resolve_agent_command,
     session_name_for_path, spawn_tmux_session, spawn_tmux_session_with_layout, PaneLayout,

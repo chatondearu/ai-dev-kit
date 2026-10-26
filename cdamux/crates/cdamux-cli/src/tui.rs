@@ -7,10 +7,13 @@ use crate::app_tabs::{
     help_for_tab, try_save, AppTab, bump_preview_lines, cycle_attach_mode, cycle_group_by,
 };
 use cdamux_core::{
-    build_project_session_tree, capture_pane_text, config_path, discover_projects, load_config,
-    project_key, send_to_session, state_icon, Config, EnrichedSession, GroupBy, ProjectSessionTree,
-    ProjectTreeNode, SessionState,
+    build_project_session_tree, capture_pane_text, config_path, discover_projects, kill_tmux_session,
+    load_config, preferred_spawn_agent, project_key, rename_tmux_session, resolve_agent_command,
+    send_to_session, session_name_for_path, spawn_tmux_session_with_layout, state_icon,
+    switch_client_to_session, unique_session_name, Config, EnrichedSession, GroupBy,
+    PaneLayout, ProjectSessionTree, ProjectTreeNode, SessionState, SpawnOutcome,
 };
+use std::path::PathBuf;
 use crossterm::event::{
     self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers,
     MouseButton, MouseEventKind,
@@ -88,6 +91,9 @@ pub enum DashboardAction {
     FoldAll,
     CycleGroupBy,
     ToggleHelp,
+    KillSession,
+    ForkSession,
+    RenameSession,
 }
 
 pub fn map_key_event(key: KeyEvent) -> DashboardAction {
@@ -112,8 +118,98 @@ pub fn map_key_event(key: KeyEvent) -> DashboardAction {
         KeyCode::Char('F') => DashboardAction::FoldAll,
         KeyCode::Char('g') => DashboardAction::CycleGroupBy,
         KeyCode::Char('?') => DashboardAction::ToggleHelp,
+        KeyCode::Char('x') => DashboardAction::KillSession,
+        KeyCode::Char('f') => DashboardAction::ForkSession,
+        KeyCode::Char('m') => DashboardAction::RenameSession,
         _ => DashboardAction::None,
     }
+}
+
+struct RenameState {
+    old_name: String,
+    input: String,
+}
+
+enum RenameAction {
+    Continue,
+    Cancel,
+    Confirm,
+}
+
+fn draw_rename_modal(f: &mut Frame, state: &RenameState) {
+    let area = centered_rect(60, 25, f.area());
+    let block = Block::default()
+        .title(" Rename session ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Cyan));
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+    let body = format!(
+        "from: {}\nnew name: {}█\nEnter save · Esc cancel",
+        state.old_name,
+        state.input
+    );
+    f.render_widget(Paragraph::new(body), inner);
+}
+
+fn rename_on_key(state: &mut RenameState, key: KeyEvent) -> RenameAction {
+    match key.code {
+        KeyCode::Esc => RenameAction::Cancel,
+        KeyCode::Enter => RenameAction::Confirm,
+        KeyCode::Backspace => {
+            state.input.pop();
+            RenameAction::Continue
+        }
+        KeyCode::Char(c) if key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT => {
+            if c.is_ascii() && !c.is_control() {
+                state.input.push(c);
+            }
+            RenameAction::Continue
+        }
+        _ => RenameAction::Continue,
+    }
+}
+
+fn fork_selected_session(cfg: &Config, s: &EnrichedSession) -> Result<String, String> {
+    let path = PathBuf::from(&s.path);
+    if s.path.is_empty() || !path.is_dir() {
+        return Err("session has no project directory to fork".into());
+    }
+    let base = unique_session_name(&session_name_for_path(&path));
+    let agent = preferred_spawn_agent(&cfg.agents);
+    let cmd = resolve_agent_command(&cfg.agents, &agent).map_err(|e| e.to_string())?;
+    match spawn_tmux_session_with_layout(
+        &base,
+        &path,
+        &cmd,
+        PaneLayout::Single,
+        cfg.sessions.attach_mode,
+        false,
+    ) {
+        Ok(SpawnOutcome::Created) => Ok(format!("forked '{}' with {}", base, agent)),
+        Ok(SpawnOutcome::ReusedExisting) => Ok(format!("reusing '{}'", base)),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+fn centered_rect(percent_x: u16, percent_y: u16, r: ratatui::layout::Rect) -> ratatui::layout::Rect {
+    let popup_layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage((100 - percent_y) / 2),
+            Constraint::Percentage(percent_y),
+            Constraint::Percentage((100 - percent_y) / 2),
+        ])
+        .split(r);
+
+    Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage((100 - percent_x) / 2),
+            Constraint::Percentage(percent_x),
+            Constraint::Percentage((100 - percent_x) / 2),
+        ])
+        .split(popup_layout[1])[1]
 }
 
 fn tree_node_key(node: &ProjectTreeNode, group_by: GroupBy) -> String {
@@ -425,6 +521,7 @@ pub fn run_dashboard() -> ExitCode {
     let mut should_quit = false;
     let mut attach_name: Option<String> = None;
     let mut spawn_overlay: Option<ModalState> = None;
+    let mut rename_overlay: Option<RenameState> = None;
     let mut review_session: Option<String> = None;
     let mut fleet_tree_rect: Option<ratatui::layout::Rect> = None;
     let mut sidecar_preview_rect: Option<ratatui::layout::Rect> = None;
@@ -545,6 +642,9 @@ pub fn run_dashboard() -> ExitCode {
                 if let Some(overlay) = &spawn_overlay {
                     draw_modal(f, overlay);
                 }
+                if let Some(overlay) = &rename_overlay {
+                    draw_rename_modal(f, overlay);
+                }
             })
             .ok();
 
@@ -603,7 +703,36 @@ pub fn run_dashboard() -> ExitCode {
                         }
                     }
                 }
+                if let Some(ref mut overlay) = rename_overlay {
+                    match rename_on_key(overlay, key) {
+                        RenameAction::Continue => continue,
+                        RenameAction::Cancel => {
+                            rename_overlay = None;
+                            continue;
+                        }
+                        RenameAction::Confirm => {
+                            let old = overlay.old_name.clone();
+                            let new = overlay.input.trim().to_string();
+                            rename_overlay = None;
+                            if new.is_empty() {
+                                status_line = "rename: empty name".into();
+                            } else if new == old {
+                                status_line = "rename: unchanged".into();
+                            } else {
+                                match rename_tmux_session(&old, &new) {
+                                    Ok(()) => {
+                                        tree_dirty = true;
+                                        status_line = format!("renamed {} → {}", old, new);
+                                    }
+                                    Err(e) => status_line = format!("rename: {e}"),
+                                }
+                            }
+                            continue;
+                        }
+                    }
+                }
                 if spawn_overlay.is_none()
+                    && rename_overlay.is_none()
                     && !show_help
                     && key.modifiers.is_empty()
                     && key.code == KeyCode::Char('n')
@@ -780,7 +909,20 @@ pub fn run_dashboard() -> ExitCode {
                         }
                         match rows.get(selected_row) {
                         Some(TreeRow::Session(s) | TreeRow::Unassigned(s)) => {
-                            attach_name = Some(s.name.clone());
+                            if std::env::var_os("TMUX").is_some() {
+                                match switch_client_to_session(&s.name) {
+                                    Ok(()) => {
+                                        status_line = format!(
+                                            "attached {} — M-u or agent exit reopens cdamux",
+                                            s.name
+                                        );
+                                        tree_dirty = true;
+                                    }
+                                    Err(e) => status_line = format!("attach: {e}"),
+                                }
+                            } else {
+                                attach_name = Some(s.name.clone());
+                            }
                         }
                         Some(TreeRow::Project { key, expanded: is_exp, .. }) => {
                             if *is_exp {
@@ -794,6 +936,43 @@ pub fn run_dashboard() -> ExitCode {
                     }
                     DashboardAction::Spawn => {
                         spawn_overlay = Some(ModalState::new(&cfg));
+                    }
+                    DashboardAction::KillSession => {
+                        if let Some(s) = session_at_row(&rows, selected_row) {
+                            match kill_tmux_session(&s.name) {
+                                Ok(()) => {
+                                    tree_dirty = true;
+                                    status_line = format!("killed {}", s.name);
+                                    selected_row = selected_row.saturating_sub(1);
+                                }
+                                Err(e) => status_line = format!("kill: {e}"),
+                            }
+                        } else {
+                            status_line = "select a session to kill (x)".into();
+                        }
+                    }
+                    DashboardAction::ForkSession => {
+                        if let Some(s) = session_at_row(&rows, selected_row) {
+                            match fork_selected_session(&cfg, s) {
+                                Ok(msg) => {
+                                    tree_dirty = true;
+                                    status_line = msg;
+                                }
+                                Err(e) => status_line = e,
+                            }
+                        } else {
+                            status_line = "select a session to fork (f)".into();
+                        }
+                    }
+                    DashboardAction::RenameSession => {
+                        if let Some(s) = session_at_row(&rows, selected_row) {
+                            rename_overlay = Some(RenameState {
+                                old_name: s.name.clone(),
+                                input: s.name.clone(),
+                            });
+                        } else {
+                            status_line = "select a session to rename (m)".into();
+                        }
                     }
                     DashboardAction::ToggleWaitingFilter => {
                         waiting_only = !waiting_only;
@@ -1093,6 +1272,9 @@ Space      composer (Preview tab)\n\
 Tab        Preview / Notes / Review\n\
 Ctrl+R     hunk review TUI\n\
 n          new session modal\n\
+f          fork session (same cwd, new name)\n\
+m          rename session\n\
+x          kill session\n\
 1-5        app tabs\n\
 ?          this help\n\
 q          quit\n\n\

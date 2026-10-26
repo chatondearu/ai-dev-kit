@@ -27,6 +27,7 @@
         default = nix-maid pkgs (import ./nix/maid.nix {});
         activate = default;
         moshi-hook = pkgs.callPackage ./aitools/nix/moshi-hook-package.nix {};
+        cdamux = pkgs.callPackage ./cdamux/nix/package.nix {};
       });
 
       nixosModules.default = {config, lib, ...}: let

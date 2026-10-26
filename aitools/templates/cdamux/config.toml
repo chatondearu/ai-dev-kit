@@ -1,0 +1,43 @@
+# cda.aitools template — @PROJECTS_ROOT@ substituted by Nix (cda.aitools.cdamux.projectsRoot).
+
+schema_version = 1
+
+[projects]
+discover = "git_only"
+max_depth = 6
+
+[[projects.roots]]
+path = "@PROJECTS_ROOT@"
+label = "main"
+
+[sessions]
+attach_mode = "mirror"
+group_by = "project"
+
+[daemon]
+poll_interval_seconds = 2
+idle_seconds_for_needs_input = 3
+listen_tailnet = true
+tailnet_port = 7480
+
+[agents]
+default = "cursor"
+
+[agents.cursor]
+command = "cursor-agent"
+
+[agents.opencode]
+command = "opencode"
+
+[agents.claude]
+command = "claude"
+
+[agents.pi]
+command = "pi"
+
+[ui]
+default_mode = "dashboard"
+preview_max_lines = 80
+
+[notes]
+relative_path = ".cdamux/notes.md"

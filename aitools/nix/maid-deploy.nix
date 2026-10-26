@@ -9,9 +9,9 @@
 }:
 let
   configToml =
-    pkgs.writeText "ccmux-config.toml" (
+    pkgs.writeText "cdamux-config.toml" (
       builtins.replaceStrings ["@PROJECTS_ROOT@"] [projectsRoot] (
-        builtins.readFile "${templates}/ccmux/config.toml"
+        builtins.readFile "${templates}/cdamux/config.toml"
       )
     );
 
@@ -55,7 +55,5 @@ in {
   '';
 
   file.xdg_config."cda-aitools/tmux.conf".source = tmuxConfSource;
-  file.xdg_config."cda-aitools/ccmux/ccmux.json".source = "${templates}/ccmux/ccmux.json";
-  file.xdg_config."ccmux/ccmux.json".source = "${templates}/ccmux/ccmux.json";
-  file.xdg_config."ccmux/config.toml".source = configToml;
+  file.xdg_config."cdamux/config.toml".source = configToml;
 }

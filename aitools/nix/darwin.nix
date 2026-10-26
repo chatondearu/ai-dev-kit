@@ -8,16 +8,19 @@
 let
   templates = ./../templates;
   isDarwin = true;
-  ccmuxPkg = pkgs.ccmux or null;
+  cdamuxPkg = pkgs.callPackage ../../cdamux/nix/package.nix {};
   moshiHookFor = version:
     pkgs.callPackage ./moshi-hook-package.nix {inherit version;};
 in {
   _module.args = {
-    inherit templates ccmuxPkg moshiHookFor isDarwin;
+    inherit templates cdamuxPkg moshiHookFor isDarwin;
   };
 
   imports = [
     ./module-core.nix
     ./darwin-services.nix
+    (lib.mkRenamedOptionModule ["cda" "aitools" "ccmux" "projectsRoot"] ["cda" "aitools" "cdamux" "projectsRoot"])
+    (lib.mkRenamedOptionModule ["cda" "aitools" "ccmuxd" "enable"] ["cda" "aitools" "cdamuxd" "enable"])
+    (lib.mkRenamedOptionModule ["cda" "aitools" "darwin" "ccmuxdPath"] ["cda" "aitools" "darwin" "cdamuxdPath"])
   ];
 }

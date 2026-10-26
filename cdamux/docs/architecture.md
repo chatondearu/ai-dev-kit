@@ -90,7 +90,7 @@ Operator curl examples: [tailnet-api.md](tailnet-api.md).
 ## Relationship to ai-dev-kit
 
 - Lives at `cdamux/` until extract (ADR-004).
-- `aitools/` continues skzv/ccmux; optional future Nix package `cdamux`.
+- `aitools/` ships **cdamux** via `nix build .#cdamux` and `cda.aitools` modules.
 - Orch worktrees stay `.orch/worktrees/` (no auto-bridge, ADR-003).
 
 ## Open design choices

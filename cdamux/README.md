@@ -37,4 +37,4 @@ MIT OR Apache-2.0 (to be added at extract); see ai-dev-kit policy until then.
 
 ## Related kit pieces
 
-- **skzv/ccmux** remains the default in [`aitools/`](../aitools/README.md) until cdamux v0 dogfood.
+- **cdamux** is the default in [`aitools/`](../aitools/README.md) (`nix build .#cdamux`).

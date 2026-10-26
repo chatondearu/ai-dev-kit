@@ -18,7 +18,7 @@ Parent kit rules: [`../AGENTS.md`](../AGENTS.md) (foam, kanban, verify scripts f
 **cdamux** orchestrates AI agent sessions on **tmux**: spawn with chosen agent and path,
 multi-root project discovery, dynamic `group_by` on sessions (epilande-style), and a
 **`--pick`** mode that exits after `switch-client` for tmux popups. Daemon + optional
-tailnet web later. Rust. Not replacing skzv/ccmux in `aitools/` until dogfood passes.
+tailnet web later. Rust. Default session tool in `aitools/` (replaces ccmux).
 
 ## Repo layout
 

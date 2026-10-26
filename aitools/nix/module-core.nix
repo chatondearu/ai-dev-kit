@@ -4,7 +4,7 @@
   lib,
   pkgs,
   templates,
-  ccmuxPkg,
+  cdamuxPkg,
   moshiHookFor,
   isDarwin,
   ...
@@ -27,17 +27,17 @@ in {
         {
           assertion =
             !config.cda.aitools.enable
-            || !(config.cda.aitools.ccmuxd.enable || config.cda.aitools.moshiHook.enable)
+            || !(config.cda.aitools.cdamuxd.enable || config.cda.aitools.moshiHook.enable)
             || config.cda.aitools.user != null;
-          message = "cda.aitools.user must be set when ccmuxd.enable or moshiHook.enable.";
+          message = "cda.aitools.user must be set when cdamuxd.enable or moshiHook.enable.";
         }
         {
           assertion =
             !config.cda.aitools.enable
-            || !config.cda.aitools.ccmuxd.enable
-            || ccmuxPkg != null
-            || (isDarwin && config.cda.aitools.darwin.ccmuxdPath != "");
-          message = "ccmuxd: need pkgs.ccmux (NixOS) or cda.aitools.darwin.ccmuxdPath (darwin + brew).";
+            || !config.cda.aitools.cdamuxd.enable
+            || cdamuxPkg != null
+            || (isDarwin && config.cda.aitools.darwin.cdamuxdPath != "");
+          message = "cdamuxd: need in-tree cdamux package or cda.aitools.darwin.cdamuxdPath.";
         }
         {
           assertion =
@@ -50,8 +50,8 @@ in {
           assertion =
             !config.cda.aitools.enable
             || !config.cda.aitools.deploy.enable
-            || config.cda.aitools.ccmux.projectsRoot != "";
-          message = "cda.aitools.ccmux.projectsRoot required when deploy.enable.";
+            || config.cda.aitools.cdamux.projectsRoot != "";
+          message = "cda.aitools.cdamux.projectsRoot required when deploy.enable.";
         }
         {
           assertion =
@@ -70,9 +70,9 @@ in {
         lib.optionals (a.enablePackages && a.installMethod != "none") [pkgs.tmux]
         ++ lib.optionals (
           a.enablePackages
-          && (a.installMethod == "nix" || (a.installMethod == "auto" && ccmuxPkg != null))
-          && ccmuxPkg != null
-        ) [ccmuxPkg]
+          && (a.installMethod == "nix" || a.installMethod == "auto")
+          && cdamuxPkg != null
+        ) [cdamuxPkg]
         ++ lib.optionals a.moshiHook.enable [
           (moshiHookFor a.moshiHook.version)
           pkgs.jq
@@ -85,14 +85,12 @@ in {
       environment.etc = lib.mkIf (
         config.cda.aitools.enablePackages
         && isDarwin
-        && (config.cda.aitools.installMethod == "brew"
-          || (config.cda.aitools.installMethod == "auto" && ccmuxPkg == null))
+        && config.cda.aitools.installMethod == "brew"
       ) {
-        "cda-aitools/BREW_CCMUX.txt".text = ''
-          cda.aitools: install ccmux with Homebrew:
-            brew install skzv/tap/ccmux
-          Or run: aitools/scripts/ccmux-align-mac.sh
-          Configs deploy from ai-dev-kit aitools/templates when deploy.enable.
+        "cda-aitools/CDAMUX_BREW.txt".text = ''
+          cda.aitools: installMethod=brew — build cdamux from ai-dev-kit:
+            cd ai-dev-kit/cdamux && cargo install --path crates/cdamux-cli --path crates/cdamuxd
+          Or use installMethod = "nix" / "auto" (default) for the in-tree package.
         '';
       };
     })
@@ -104,7 +102,7 @@ in {
       users.users.${config.cda.aitools.user}.maid =
         import ./maid-deploy.nix {
           inherit lib pkgs templates;
-          projectsRoot = config.cda.aitools.ccmux.projectsRoot;
+          projectsRoot = config.cda.aitools.cdamux.projectsRoot;
           tmuxClipboard = config.cda.aitools.tmux.clipboard;
           tmuxPersist = config.cda.aitools.tmux.persist;
         };

@@ -1,14 +1,14 @@
 # Shared option schema for cda.aitools (imported by module-core.nix).
 {lib}:
 {
-  enable = lib.mkEnableOption "cda.aitools companion (experimental tmux/ccmux/Moshi wiring)";
+  enable = lib.mkEnableOption "cda.aitools companion (experimental tmux/cdamux/Moshi wiring)";
 
   user = lib.mkOption {
     type = lib.types.nullOr lib.types.str;
     default = null;
     description = ''
       Login user for maid deploy and platform services.
-      Required when ccmuxd.enable, moshiHook.enable, or deploy.enable.
+      Required when cdamuxd.enable, moshiHook.enable, or deploy.enable.
     '';
   };
 
@@ -32,26 +32,26 @@
     default = "auto";
     description = ''
       How to obtain session tools (tmux always via Nix when enablePackages;
-      ccmux: auto prefers Nix then Darwin brew fallback; nix = Nix only;
-      brew = Homebrew on Darwin; none = configs only).
+      cdamux: auto/nix use the in-tree Nix package; brew = legacy manual install;
+      none = configs only).
     '';
   };
 
   enablePackages = lib.mkOption {
     type = lib.types.bool;
     default = true;
-    description = "When true, add tmux (and ccmux if installMethod allows) to system packages.";
+    description = "When true, add tmux and cdamux (when installMethod allows) to system packages.";
   };
 
   deploy = {
-    enable = lib.mkEnableOption "deploy tmux/ccmux configs via nix-maid into the user home";
+    enable = lib.mkEnableOption "deploy tmux/cdamux configs via nix-maid into the user home";
   };
 
-  ccmux = {
+  cdamux = {
     projectsRoot = lib.mkOption {
       type = lib.types.str;
       default = "";
-      description = "Host-specific [projects].root for config.toml (required when deploy.enable).";
+      description = "Host-specific primary [[projects.roots]] path in config.toml (required when deploy.enable).";
       example = "/hdd/dev";
     };
   };
@@ -75,10 +75,10 @@
   };
 
   darwin = {
-    ccmuxdPath = lib.mkOption {
+    cdamuxdPath = lib.mkOption {
       type = lib.types.str;
-      default = "/opt/homebrew/bin/ccmuxd";
-      description = "ccmuxd binary when not from nixpkgs (Homebrew skzv/tap/ccmux).";
+      default = "/opt/homebrew/bin/cdamuxd";
+      description = "cdamuxd binary when not installed from the Nix cdamux package.";
     };
   };
 
@@ -86,8 +86,8 @@
     enable = lib.mkEnableOption "mosh client and mosh-server (mobile shell, not Moshi iOS)";
   };
 
-  ccmuxd = {
-    enable = lib.mkEnableOption "ccmuxd user daemon (systemd on NixOS, launchd on darwin)";
+  cdamuxd = {
+    enable = lib.mkEnableOption "cdamuxd user daemon (systemd on NixOS, launchd on darwin)";
   };
 
   moshiHook = {
@@ -120,7 +120,7 @@
     enable = lib.mkOption {
       type = lib.types.bool;
       default = true;
-      description = "When true, declare systemd user units for ccmuxd/moshi-hook on NixOS.";
+      description = "When true, declare systemd user units for cdamuxd/moshi-hook on NixOS.";
     };
 
     conditionUser = lib.mkOption {

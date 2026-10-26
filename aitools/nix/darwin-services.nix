@@ -3,23 +3,23 @@
   config,
   lib,
   pkgs,
-  ccmuxPkg,
+  cdamuxPkg,
   moshiHookFor,
   ...
 }:
 {
   config = lib.mkMerge [
-    (lib.mkIf (config.cda.aitools.enable && config.cda.aitools.ccmuxd.enable) (
+    (lib.mkIf (config.cda.aitools.enable && config.cda.aitools.cdamuxd.enable) (
       let
         a = config.cda.aitools;
-        ccmuxBin =
-          if ccmuxPkg != null
-          then "${ccmuxPkg}/bin/ccmuxd"
-          else a.darwin.ccmuxdPath;
+        cdamuxdBin =
+          if cdamuxPkg != null
+          then "${cdamuxPkg}/bin/cdamuxd"
+          else a.darwin.cdamuxdPath;
       in {
-        launchd.user.agents.ccmuxd = {
+        launchd.user.agents.cdamuxd = {
           serviceConfig = {
-            ProgramArguments = [ccmuxBin];
+            ProgramArguments = [cdamuxdBin];
             RunAtLoad = true;
             KeepAlive = true;
             EnvironmentVariables = {

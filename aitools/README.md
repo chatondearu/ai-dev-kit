@@ -1,6 +1,6 @@
 # cda.aitools — experimental companion
 
-**Status: experimental.** Shared tmux / ccmux / Moshi wiring for all machines. See
+**Status: experimental.** Shared tmux / **cdamux** / Moshi wiring for all machines. See
 [ADR-003](../foam/decisions/ADR-003-cda-aitools.md).
 
 Portable kit (`./install.sh`) stays **skills-only** ([ADR-001](../foam/decisions/ADR-001-host-tools-vs-kit.md)).
@@ -10,13 +10,14 @@ Session tools and configs are opt-in via **Nix** (`cda.aitools`).
 
 | Path | Purpose |
 | ---- | ------- |
-| `templates/tmux.conf` | Shared tmux + ccmux picker |
+| `templates/tmux.conf` | Shared tmux + `cdamux --pick` popup |
 | `templates/tmux-persist.conf` | Optional resurrect/continuum fragment (`tmux.persist.enable`) |
-| `templates/ccmux/config.toml` | ccmux daemon/agents (`@PROJECTS_ROOT@` substituted by Nix) |
-| `templates/ccmux/ccmux.json` | Claude dirs sidecar |
+| `templates/cdamux/config.toml` | cdamux config (`@PROJECTS_ROOT@` substituted by Nix) |
 | `scripts/moshi-hook-bootstrap.sh` | Pair Moshi + install hooks (e.g. `--target cursor`) |
-| `scripts/ccmux-align-mac.sh` | macOS: brew skzv/ccmux + template sync |
+| `scripts/cdamux-align-mac.sh` | macOS: `cargo install` from in-tree `cdamux/` + config |
 | `nix/` | `nixosModules.cdaAitools` + `darwinModules.cdaAitools` |
+
+Build cdamux from the kit: `nix build .#cdamux` (flake at repo root).
 
 ## Host Nix (thin overlay)
 
@@ -28,27 +29,29 @@ cda.aitools = {
   enable = true;
   user = "chaton";
   deploy.enable = true;
-  ccmux.projectsRoot = "/hdd/dev";
+  cdamux.projectsRoot = "/hdd/dev";
   tmux = {
     clipboard = "wayland";
     persist.enable = true;
   };
   mosh.enable = true;
-  ccmuxd.enable = true;
+  cdamuxd.enable = true;
   moshiHook = { enable = true; hookTargets = [ "cursor" ]; };
 };
 ```
 
+Legacy option names `ccmux.*` / `ccmuxd.*` are renamed automatically (see `mkRenamedOptionModule`).
+
 **nix-darwin** — `darwinModules.cdaAitools`; `tmux.clipboard = "darwin"`,
-`installMethod = "brew"` or `auto`, optional `darwin.ccmuxdPath` for Homebrew `ccmuxd`.
+`installMethod = "nix"` or `auto` (in-tree package). Optional `darwin.cdamuxdPath` if not using Nix.
 
 ## Parity
 
 | Feature | NixOS | nix-darwin | Manual |
 | ------- | ----- | ---------- | ------ |
-| Packages (tmux, ccmux, moshi-hook) | yes | yes | brew / scripts |
-| Deploy configs (maid) | `deploy.enable` | `deploy.enable` | `ccmux-align-mac.sh` |
-| ccmuxd | systemd | launchd | `ccmux daemon install` |
+| Packages (tmux, cdamux, moshi-hook) | yes | yes | `cdamux-align-mac.sh` |
+| Deploy configs (maid) | `deploy.enable` | `deploy.enable` | copy `templates/cdamux` |
+| cdamuxd | systemd | launchd | `cdamuxd` in background |
 | mosh server | `mosh.enable` | — | brew / apt |
 | moshi-hook | systemd + hook oneshots | launchd | `moshi-hook service install` |
 

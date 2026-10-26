@@ -3,7 +3,7 @@
   config,
   lib,
   pkgs,
-  ccmuxPkg,
+  cdamuxPkg,
   moshiHookFor,
   ...
 }:
@@ -15,8 +15,8 @@
     (lib.mkIf (
       config.cda.aitools.enable
       && config.cda.aitools.systemdUser.enable
-      && config.cda.aitools.ccmuxd.enable
-      && ccmuxPkg != null
+      && config.cda.aitools.cdamuxd.enable
+      && cdamuxPkg != null
     ) (
       let
         cond =
@@ -24,12 +24,12 @@
             unitConfig.ConditionUser = config.cda.aitools.systemdUser.conditionUser;
           };
       in {
-        systemd.user.services.ccmuxd = {
-          description = "ccmux daemon (AI agent session supervisor)";
+        systemd.user.services.cdamuxd = {
+          description = "cdamux daemon (tmux session cache + tailnet API)";
           after = ["default.target"];
           wantedBy = ["default.target"];
           serviceConfig = {
-            ExecStart = "${ccmuxPkg}/bin/ccmuxd";
+            ExecStart = "${cdamuxPkg}/bin/cdamuxd";
             Restart = "on-failure";
             RestartSec = 3;
             Environment = [

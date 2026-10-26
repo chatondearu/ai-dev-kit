@@ -2,8 +2,8 @@
 
 use cdamux_core::{
     config_path, configured_agent_ids, default_agent_name, discover_projects, grouped_for_list,
-    list_tmux_sessions, load_config, resolve_agent_command, session_name_for_path,
-    spawn_tmux_session, AttachMode, GroupBy, SpawnError, SpawnOutcome,
+    list_tmux_sessions, load_config, resolve_agent_command, send_to_session, session_name_for_path,
+    spawn_tmux_session, AttachMode, GroupBy, SendError, SpawnError, SpawnOutcome,
 };
 use clap::{Parser, Subcommand};
 use skim::prelude::*;
@@ -50,6 +50,17 @@ enum Commands {
         /// Pick project path and agent interactively (skim).
         #[arg(long, short)]
         interactive: bool,
+    },
+    /// Send text to a session pane without attaching (tmux send-keys).
+    Send {
+        /// tmux session name (targets active window + active pane).
+        session: String,
+        /// Literal text to send (`-l`); words are joined with spaces.
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        message: Vec<String>,
+        /// Append Enter after the message.
+        #[arg(long)]
+        enter: bool,
     },
 }
 
@@ -99,6 +110,11 @@ fn main() -> ExitCode {
             path,
             interactive,
         }) => cmd_spawn(agent, path, interactive),
+        Some(Commands::Send {
+            session,
+            message,
+            enter,
+        }) => cmd_send(&session, &message, enter),
     }
 }
 
@@ -321,6 +337,25 @@ fn cmd_projects() -> ExitCode {
         println!("{}\t{}\t{}", p.root_label, p.name, p.path.display());
     }
     ExitCode::SUCCESS
+}
+
+fn cmd_send(session: &str, message: &[String], enter: bool) -> ExitCode {
+    let text = message.join(" ");
+    if text.is_empty() && !enter {
+        eprintln!("send: provide a message and/or --enter");
+        return ExitCode::from(2);
+    }
+    match send_to_session(session, &text, enter) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(SendError::SessionNotFound(name)) => {
+            eprintln!("send: no tmux session named '{name}'");
+            ExitCode::from(1)
+        }
+        Err(e) => {
+            eprintln!("send: {e}");
+            ExitCode::from(1)
+        }
+    }
 }
 
 fn cmd_attach(session: &str) -> ExitCode {

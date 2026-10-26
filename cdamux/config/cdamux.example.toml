@@ -1,0 +1,52 @@
+# cdamux example — copy to ~/.config/cdamux/config.toml
+
+schema_version = 1
+
+[projects]
+# How to find bookmarkable directories under each root:
+# flat      = immediate children only (skzv/ccmux parity)
+# git_only  = any directory containing .git (within max_depth)
+# depth     = use max_depth with flat semantics per level
+discover = "git_only"
+max_depth = 6
+
+[[projects.roots]]
+path = "/hdd/dev"
+label = "dev"
+
+[[projects.roots]]
+path = "/home/chaton/etc/nixos"
+label = "nixos"
+
+[sessions]
+# mirror    = tmux attach without -d (other clients stay)
+# exclusive = attach with -d
+attach_mode = "mirror"
+# project | cwd | agent | group_path | none
+group_by = "project"
+
+[daemon]
+poll_interval_seconds = 2
+idle_seconds_for_needs_input = 3
+listen_tailnet = false
+tailnet_port = 7480
+
+[agents]
+default = "cursor"
+
+[agents.cursor]
+command = "cursor-agent"
+
+[agents.opencode]
+command = "opencode"
+
+[agents.claude]
+command = "claude"
+
+[agents.pi]
+command = "pi"
+
+[ui]
+# dashboard = full TUI (future)
+# pick      = minimal picker, exit after switch-client
+default_mode = "dashboard"

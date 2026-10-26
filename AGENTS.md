@@ -77,6 +77,9 @@ This repo **is** the ai-dev-kit: skills under `skills/<category>/<name>/`, linke
 agents by `install.sh`. Index: `skills/README.md`. Ideology: `PHILOSOPHY.md`.
 Operator docs: `doc/README.md` (orchestration, architecture, configuration).
 
+**cdamux** (Rust agent/tmux orchestrator, ADR-004): in-tree at `cdamux/` until v0;
+see `cdamux/AGENTS.md` and `cdamux/docs/research.md`. Not packaged in `aitools` yet.
+
 Experimental opt-in companion: `aitools/` (`cda.aitools` Nix modules, ADR-003).
 Never enabled by `install.sh`. Relocatable root: `CDA_AITOOLS_HOME`.
 
@@ -86,6 +89,7 @@ Never enabled by `install.sh`. Relocatable root: `CDA_AITOOLS_HOME`.
 for t in skills/core/cda-dev/scripts/tests/test_*.sh skills/core/cda-dev/scripts/tests/smoke_orch_dry.sh scripts/tests/test_doctor.sh; do bash "$t"; done
 bash skills/quality/cda-kiss/hooks/test.sh
 bash skills/design/cda-design-loop/scripts/tests/test_seed_design.sh
+(cd cdamux && cargo test)
 ```
 
 **Gotchas**

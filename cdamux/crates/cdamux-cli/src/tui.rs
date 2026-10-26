@@ -380,7 +380,7 @@ pub fn run_dashboard() -> ExitCode {
         return crate::tmux_attach_session(&name);
     }
     if spawn_requested {
-        return crate::cmd_spawn_interactive(&cfg);
+        return crate::spawn_modal::run(&cfg);
     }
     ExitCode::SUCCESS
 }

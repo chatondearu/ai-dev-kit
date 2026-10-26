@@ -1,6 +1,7 @@
 //! cdamux — CLI for agent session orchestration on tmux.
 
 mod review_tui;
+mod spawn_modal;
 mod tui;
 
 use cdamux_core::{

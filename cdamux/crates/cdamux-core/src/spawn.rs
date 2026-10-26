@@ -61,11 +61,40 @@ pub enum SpawnOutcome {
     ReusedExisting,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PaneLayout {
+    #[default]
+    Single,
+    Horizontal,
+    Vertical,
+}
+
+pub fn default_shell_command() -> String {
+    std::env::var("SHELL").unwrap_or_else(|_| "bash".to_string())
+}
+
 /// Create detached tmux session in `path` running `agent_command`.
 pub fn spawn_tmux_session(
     session_name: &str,
     path: &Path,
     agent_command: &str,
+    attach_mode: AttachMode,
+) -> Result<SpawnOutcome, SpawnError> {
+    spawn_tmux_session_with_layout(
+        session_name,
+        path,
+        agent_command,
+        PaneLayout::Single,
+        attach_mode,
+    )
+}
+
+/// Primary pane runs `primary_command`; optional split adds a second pane with a shell.
+pub fn spawn_tmux_session_with_layout(
+    session_name: &str,
+    path: &Path,
+    primary_command: &str,
+    layout: PaneLayout,
     _attach_mode: AttachMode,
 ) -> Result<SpawnOutcome, SpawnError> {
     if !path.exists() {
@@ -92,13 +121,17 @@ pub fn spawn_tmux_session(
             session_name,
             "-c",
             &path.to_string_lossy(),
-            agent_command,
+            primary_command,
         ])
         .status()
         .map_err(|e| SpawnError::Tmux(e.to_string()))?;
 
     if !status.success() {
         return Err(SpawnError::TmuxFailed);
+    }
+
+    if layout != PaneLayout::Single {
+        apply_pane_split(session_name, layout)?;
     }
 
     if std::env::var_os("TMUX").is_some() {
@@ -108,6 +141,32 @@ pub fn spawn_tmux_session(
     }
 
     Ok(SpawnOutcome::Created)
+}
+
+fn apply_pane_split(session_name: &str, layout: PaneLayout) -> Result<(), SpawnError> {
+    let flag = match layout {
+        PaneLayout::Single => return Ok(()),
+        PaneLayout::Horizontal => "-h",
+        PaneLayout::Vertical => "-v",
+    };
+    let target = format!("{}:0", session_name);
+    let status = Command::new("tmux")
+        .args(["split-window", flag, "-t", &target])
+        .status()
+        .map_err(|e| SpawnError::Tmux(e.to_string()))?;
+    if !status.success() {
+        return Err(SpawnError::TmuxFailed);
+    }
+    let shell = default_shell_command();
+    let pane1 = format!("{}:0.1", session_name);
+    let send = Command::new("tmux")
+        .args(["send-keys", "-t", &pane1, &shell, "Enter"])
+        .status()
+        .map_err(|e| SpawnError::Tmux(e.to_string()))?;
+    if !send.success() {
+        return Err(SpawnError::TmuxFailed);
+    }
+    Ok(())
 }
 
 fn tmux_has_session(name: &str) -> bool {
@@ -143,6 +202,11 @@ pub fn configured_agent_ids(agents: &AgentsConfig) -> Vec<String> {
 mod tests {
     use super::*;
     use crate::AgentsConfig;
+
+    #[test]
+    fn pane_layout_cycles_default() {
+        assert_eq!(PaneLayout::default(), PaneLayout::Single);
+    }
 
     #[test]
     fn empty_command_uses_agent_id() {

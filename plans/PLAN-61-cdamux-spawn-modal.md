@@ -1,6 +1,6 @@
 # PLAN-61 — spawn modal + pane splits (v2 phase 3)
 
-- **Status**: backlog
+- **Status**: in-progress
 - **PRD**: [[../prd/PRD-41-cdamux-mission-control-tui|PRD-41]]
 - **GitHub**: [#61](https://github.com/chatondearu/ai-dev-kit/issues/61)
 - **Parent**: [#58](https://github.com/chatondearu/ai-dev-kit/issues/58)

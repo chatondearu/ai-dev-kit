@@ -36,8 +36,9 @@ pub use tailnet_api::{
 pub use notes::{ensure_note_file, note_refs_for_projects, resolve_note_path, NoteRef};
 pub use send::{build_send_keys_argv, send_to_session, SendError, tmux_has_session};
 pub use spawn::{
-    configured_agent_ids, default_agent_name, resolve_agent_command, session_name_for_path,
-    spawn_tmux_session, SpawnError, SpawnOutcome,
+    configured_agent_ids, default_agent_name, default_shell_command, resolve_agent_command,
+    session_name_for_path, spawn_tmux_session, spawn_tmux_session_with_layout, PaneLayout,
+    SpawnError, SpawnOutcome,
 };
 pub use tmux::{
     capture_pane_text, classify_pane_heuristics, list_tmux_sessions, parse_list_sessions,

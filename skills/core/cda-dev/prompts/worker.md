@@ -58,7 +58,9 @@ acceptance criteria. No scope expansion.
 7. **CI**
    - Ensure PR exists; wait for checks green (harness `orch_pr_checks_watch` or `gh pr checks`)
    - Do **not** merge
-8. **Report to master** (exact shape):
+8. **Graph artifact** — write `.orch/worker-result.json` in the worktree (same fields as below). The harness and cdamux read this for live orchestration graphs.
+
+9. **Report to master** (exact shape):
 
 ```json
 {
@@ -66,7 +68,9 @@ acceptance criteria. No scope expansion.
   "pr_url": "<url or null>",
   "status": "done",
   "checks": "green",
-  "reason": null
+  "reason": null,
+  "files_touched": ["relative/paths"],
+  "grounding": ["ADR-002", "plans/PLAN-{{ISSUE}}-*.md"]
 }
 ```
 

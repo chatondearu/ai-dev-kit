@@ -4,6 +4,7 @@ mod agents_util;
 mod daemon;
 mod diff;
 mod notes;
+mod orch_graph;
 mod project_tree;
 mod send;
 mod session;
@@ -39,6 +40,10 @@ pub use tailnet_api::{
     TailnetApiBackend, TailnetResponse,
 };
 pub use notes::{ensure_note_file, note_refs_for_projects, resolve_note_path, NoteRef};
+pub use orch_graph::{
+    find_orch_graph_from_cwd, format_orch_graph_panel, load_orch_graph, orch_graph_path,
+    OrchGraphFile, OrchGraphNode,
+};
 pub use agents_util::{
     command_on_path, preferred_spawn_agent, preferred_spawn_agent_index,
 };

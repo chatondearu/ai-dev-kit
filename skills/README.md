@@ -8,7 +8,7 @@ Kit-owned workflow skills use the **`cda-`** prefix so they are easy to spot.
 
 | Category | Path | Skills |
 | -------- | ---- | ------ |
-| **core** | `core/` | `cda-explore`, `cda-triage`, `cda-foam`, `cda-prd`, `cda-plan`, `cda-dev`, `cda-kanban`, `cda-agents` |
+| **core** | `core/` | `cda-explore`, `cda-triage`, `cda-foam`, `cda-prd`, `cda-plan`, `cda-dev`, `cda-graph`, `cda-kanban`, `cda-agents` |
 | **dev** | `dev/` | Nix shell, direnv |
 | **quality** | `quality/` | `cda-review`, `cda-commit`, `cda-docs`, `cda-tdd`, `cda-diagnose`, `cda-standards`, `cda-grill`, `cda-codebase`, `cda-architecture`, `cda-writing`, `cda-retro`, `cda-prototype`, `cda-wizard`, `cda-kiss` (always-on via hooks), `cda-kiss-audit` |
 | **productivity** | `productivity/` | `cda-standing`, `cda-goal`, `cda-where`, `cda-overwhelm`, `cda-hyperfocus`, `cda-body-double`, `cda-unstuck`, `cda-reflect`, `cda-nopanic` (ADHD-friendly, see below) |

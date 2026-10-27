@@ -24,7 +24,7 @@ must follow this sequence:
    refresh this file when stack or skills change.
 
 Skills: **cda-foam**, **cda-prd**, **cda-plan**,
-**cda-dev**, **cda-kanban**,
+**cda-dev**, **cda-graph**, **cda-kanban**,
 **cda-agents**, **cda-commit**, **cda-review**.
 
 ## Project memory (foam)
@@ -50,6 +50,7 @@ Cursor rule (if present): `.cursor/rules/product-memory.mdc`.
 | PRD from Kanban issue | `cda-prd` |
 | Implementation plan from PRD | `cda-plan` |
 | Multi-task chat batch → epic + parallel PRs | `cda-dev` |
+| Graph orchestration (parallel workers, graph-plan) | `cda-graph` |
 | Issues, board, PRs, milestones | `cda-kanban` |
 | Commits | `cda-commit` |
 | Code review | `cda-review` |

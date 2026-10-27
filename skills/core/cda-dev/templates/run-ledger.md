@@ -10,6 +10,7 @@
 | Max parallel | 3 |
 | Max iter | 10 |
 | Started | |
+| Graph file | `.orch/graph/current.json` (if `ORCH_GRAPH=1`) |
 
 ## Workers
 

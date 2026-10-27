@@ -13,6 +13,7 @@ ROOT="$(cd "$_dir" && pwd)"
 source "$ROOT/lib/agents.sh"
 source "$ROOT/lib/verify.sh"
 source "$ROOT/lib/loop.sh"
+source "$ROOT/lib/graph.sh"
 source "$ROOT/lib/sandbox.sh"
 
 REPO="$(pwd)"

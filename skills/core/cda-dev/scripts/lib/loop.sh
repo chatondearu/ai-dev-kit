@@ -23,6 +23,10 @@ orch_render_prompt() {
 
 orch_loop_worker() {
   local wt="$1" prompt="$2"
+  if orch_graph_enabled 2>/dev/null && type orch_graph_worker >/dev/null 2>&1; then
+    orch_graph_worker "$wt" "$prompt"
+    return $?
+  fi
   local max="${ORCH_MAX_ITER:-10}" i=1
   local agent_rc vcmd wid="${ORCH_WORKER_ID:-}"
   while [ "$i" -le "$max" ]; do

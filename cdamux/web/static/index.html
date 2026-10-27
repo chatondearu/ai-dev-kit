@@ -20,8 +20,18 @@
         <ul id="session-list" class="session-list"></ul>
       </section>
       <section class="panel grow" aria-labelledby="pane-heading">
-        <h2 id="pane-heading">Pane preview</h2>
-        <pre id="pane" class="pane" aria-live="polite">Select a session.</pre>
+        <div class="panel-head">
+          <h2 id="pane-heading">Detail</h2>
+          <div class="view-tabs" role="tablist">
+            <button type="button" class="view-tab active" data-view="pane" role="tab" aria-selected="true">Pane</button>
+            <button type="button" class="view-tab" data-view="graph" role="tab" aria-selected="false">Orch graph</button>
+          </div>
+        </div>
+        <pre id="pane" class="pane detail-view" data-view="pane" aria-live="polite">Select a session.</pre>
+        <div id="graph-wrap" class="detail-view graph-wrap" data-view="graph" hidden>
+          <canvas id="orch-canvas" width="640" height="360" aria-label="Orchestration graph"></canvas>
+          <p id="graph-status" class="muted" role="status"></p>
+        </div>
         <form id="send-form" class="send-form" hidden>
           <label for="line">Send to <span id="send-target"></span></label>
           <div class="send-row">

@@ -12,6 +12,11 @@ Host readiness (checks only, never installs):
 ./scripts/doctor.sh
 ```
 
+## Graph orchestration (`cda-graph`)
+
+See **[graph-orchestration.md](graph-orchestration.md)** (cookbook, env vars, graph-plan, cdamux).
+Skill: `cda-graph`. ADR: [ADR-005](../foam/decisions/ADR-005-cda-graph-orchestration.md).
+
 ## Manual ready-pickup
 
 ```bash

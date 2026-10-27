@@ -31,6 +31,8 @@ Index: [[decisions/index|All ADRs]]
 - [[decisions/ADR-001-host-tools-vs-kit|ADR-001 — Host tools stay outside the kit]]
 - [[decisions/ADR-002-orch-auto-and-fast-lane|ADR-002 — Orch auto poller and fast-lane]]
 - [[decisions/ADR-003-cda-aitools|ADR-003 — cda.aitools companion (experimental)]]
+- [[decisions/ADR-005-cda-graph-orchestration|ADR-005 — CDA graph orchestration]]
+- [[graph/README|Foam machine graph + orch overlay]]
 
 ## PRDs & plans
 

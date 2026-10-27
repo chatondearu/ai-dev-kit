@@ -62,14 +62,18 @@ Resolve context (repo, foam, board, agent CLI)
   → Ownership check (non-overlapping paths when parallel)
   → Provision worktrees under .orch/worktrees/
   → Dispatch workers (job pool, cap ORCH_MAX_PARALLEL=3, queue overflow)
-  → Per worker: implement → local verify → systematic review → open/update PR
+  → Live graph in `.orch/graph/current.json` (skill `cda-graph`; cdamux Orch graph tab)
+  → Per worker: graph nodes implement → verify → (optional) fix → grounding verifier
+  → Integrator synthesize when 2+ issues (OpenClaw-style fan-in)
+  → Per worker: systematic review → open/update PR
   → CI loop (gh pr checks) until green or BLOCKED
   → Aggregate ledger → human report (mergeable PRs; do not merge)
 ```
 
 Verify oracle (order): project commands from `AGENTS.md` / `nix develop` →
 systematic review (critical/important fixed or BLOCKED) → remote CI green.
-Loop budget: `ORCH_MAX_ITER=10` per worker; fresh agent context per iteration.
+Graph motion budget: `ORCH_MAX_ITER=10` per worker (separate implement/verify nodes, not one fat loop).
+`ORCH_GRAPH=0` disables graph file; `ORCH_GRAPH_VERIFY=1` enables foam-grounded verifier agent.
 
 ### Optional design loop (`CDA_DESIGN_LOOP`)
 
@@ -92,7 +96,13 @@ SKILL=~/.cursor/skills/cda-dev   # or claude/opencode install path
 bash "$SKILL/scripts/orch.sh" --mode ready-pickup --issue 12 --issue 15
 bash "$SKILL/scripts/orch.sh" --mode pr-fix --pr 88 --sandbox
 bash "$SKILL/scripts/orch.sh" --mode ready-pickup --issue 12 --dry-run
+bash "$SKILL/scripts/orch.sh" --mode ready-pickup --issue 42 \
+  --graph-plan plans/graph/issue-42.json
+bash ~/.cursor/skills/cda-graph/scripts/graph-plan-validate.sh plans/graph/issue-42.json
+ORCH_GRAPH_VERIFY=1 bash "$SKILL/scripts/orch.sh" --mode ready-pickup --issue 12
 ```
+
+Graph cookbook: [doc/graph-orchestration.md](../../../doc/graph-orchestration.md) and skill `cda-graph`.
 
 ### AFK auto (Ready poller)
 
@@ -152,6 +162,7 @@ collision, max iterations, CI red needing product/decision input.
 | `cda-kanban` | Issues, board, claim protocol |
 | `cda-commit` | Conventional Commits on worker branches |
 | `cda-review` | Systematic review before / with PR |
+| `cda-graph` | Graph orchestration model, foam export, OpenClaw mapping |
 | Host plugins | Compose `loop-on-ci`, Bugbot, security review — do not replace |
 
 ## Out of scope (v1)

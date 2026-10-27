@@ -30,6 +30,13 @@ these (`./scripts/doctor.sh` only checks `PATH`).
 | `ORCH_GH_BOARD` | discovered | Path to `gh-board.sh` for orch-auto |
 | `ORCH_AUTO_ONCE` | off | Force one orch-auto cycle |
 | `CDA_DESIGN_LOOP` | off | Opt-in design loop for UI diffs |
+| `ORCH_GRAPH` | `1` | Live `.orch/graph/current.json` (`0` / `--no-graph` off) |
+| `ORCH_GRAPH_VERIFY` | `0` | `1` → foam/plan verifier agent after local verify |
+| `ORCH_GRAPH_INTEGRATOR` | `auto` | Integrator after workers (`1` always, `0` never) |
+| `ORCH_GRAPH_PLAN_PARALLEL` | `auto` | Graph-plan tasks: `auto` / `parallel` / `sequential` |
+| `ORCH_GRAPH_PLAN_MAX_PARALLEL` | `$ORCH_MAX_PARALLEL` | Parallel cap for `--graph-plan` tasks |
+
+See [graph-orchestration.md](graph-orchestration.md).
 
 ## On-disk state (under the target repo)
 
@@ -37,6 +44,8 @@ these (`./scripts/doctor.sh` only checks `PATH`).
 | ---- | ------- |
 | `.orch/worktrees/` | Per-issue worktrees |
 | `.orch/run/` | Worker exit codes / progress |
+| `.orch/graph/current.json` | Live orchestration graph (cdamux / foam export) |
+| `.orch/integrator-report.md` | Post-run synthesis (multi-worker) |
 | `.orch/headless/` | Headless prompt copy |
 | `.orch/auto.lock` | orch-auto mutex |
 | `.orch/orch.lock` | orch ready-pickup / pr-fix mutex |

@@ -30,7 +30,7 @@ epilande/ccmux docs, pickers). Update this file when evaluating new tools.
 | **Picker quits on select** | No (TUI returns) | Yes (`persistent`) | Manager stays | Varies | **Yes** | **Yes** | **Yes** | N/A |
 | **Reply without attach** | `send` | send/preview | **space** | send | No | No | No | N/A |
 | **Diff review → agent** | hunk review | hunk | **ctrl+r** | Yes | No | No | No | Diff view |
-| **Worktrees** | Yes | Yes | Rich | Yes | Switch | No | **ta switch worktree** | No |
+| **Worktrees** | Yes (spawn + list) | Yes | Rich | Yes | Switch | No | **ta switch worktree** | No |
 | **Tailnet / remote** | ccmuxd HTTP | Daemon | SSH `C` | Conductor | No | SSH panes | No | No |
 | **Mobile** | Moshi + API | Moshi | SSH attach | Web conductor | Mosh popup | Mosh | Mosh | No |
 | **Notes / MD** | Glamour in TUI | Yes | No | No | No | No | No | **Best-in-class** |

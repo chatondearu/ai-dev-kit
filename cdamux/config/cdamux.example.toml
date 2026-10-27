@@ -52,6 +52,10 @@ command = "pi"
 default_mode = "dashboard"
 preview_max_lines = 80
 
+# Optional parent for Fleet spawn modal (`w` worktree mode). Not wired to orch-auto (ADR-003).
+# [worktrees]
+# root = "/home/you/.local/share/cdamux/worktrees"
+
 [notes]
 # Default: <project>/.cdamux/notes.md
 # Optional central store (slug per project path):

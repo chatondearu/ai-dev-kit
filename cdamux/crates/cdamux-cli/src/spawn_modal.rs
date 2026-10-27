@@ -1,9 +1,11 @@
 //! In-dashboard new session form (PRD-41 phase 3).
 
 use cdamux_core::{
-    configured_agent_ids, default_agent_name, default_shell_command, discover_projects,
-    list_tmux_sessions, preferred_spawn_agent_index, resolve_agent_command,
-    session_name_for_path, spawn_tmux_session_with_layout, Config, PaneLayout, SpawnOutcome,
+    configured_agent_ids, current_branch, default_agent_name, default_shell_command,
+    discover_projects, git_toplevel, list_local_branches, list_tmux_sessions,
+    preferred_spawn_agent_index, resolve_agent_command, resolve_worktree_dest,
+    session_name_for_path, spawn_tmux_session_with_layout, worktree_add_new_branch, Config,
+    PaneLayout, SpawnOutcome,
 };
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
@@ -52,6 +54,11 @@ pub(crate) struct ModalState {
     agents: Vec<String>,
     layout: PaneLayout,
     editing_custom: bool,
+    editing_new_branch: bool,
+    branches: Vec<String>,
+    branch_index: usize,
+    worktree_mode: bool,
+    new_branch: String,
     message: String,
 }
 
@@ -69,7 +76,7 @@ impl ModalState {
             .collect();
         let agents = configured_agent_ids(&cfg.agents);
         let agent_index = preferred_spawn_agent_index(&cfg.agents, &agents);
-        Self {
+        let mut state = Self {
             path_mode: if running.is_empty() {
                 PathMode::Discovered
             } else {
@@ -84,7 +91,36 @@ impl ModalState {
             agents,
             layout: PaneLayout::Single,
             editing_custom: false,
+            editing_new_branch: false,
+            branches: Vec::new(),
+            branch_index: 0,
+            worktree_mode: false,
+            new_branch: String::new(),
             message: String::new(),
+        };
+        state.sync_git_fields();
+        state
+    }
+
+    pub(crate) fn sync_git_fields(&mut self) {
+        self.branches.clear();
+        self.branch_index = 0;
+        if let Some(path) = self.resolved_path() {
+            let repo = git_toplevel(&path).unwrap_or(path);
+            self.branches = list_local_branches(&repo);
+            if let Some(head) = current_branch(&repo) {
+                if let Some(i) = self.branches.iter().position(|b| b == &head) {
+                    self.branch_index = i;
+                }
+            }
+            if self.new_branch.is_empty() && !self.branches.is_empty() {
+                let base = self
+                    .branches
+                    .get(self.branch_index)
+                    .map(|s| s.as_str())
+                    .unwrap_or("branch");
+                self.new_branch = format!("{base}-wt");
+            }
         }
     }
 
@@ -138,6 +174,27 @@ pub(crate) enum SpawnModalAction {
 }
 
 pub(crate) fn on_key(cfg: &Config, state: &mut ModalState, key: KeyEvent) -> SpawnModalAction {
+    if state.editing_new_branch {
+        if key.code == KeyCode::Esc {
+            state.editing_new_branch = false;
+            return SpawnModalAction::Continue;
+        }
+        if key.code == KeyCode::Enter {
+            state.editing_new_branch = false;
+            return SpawnModalAction::Continue;
+        }
+        if key.code == KeyCode::Backspace {
+            state.new_branch.pop();
+            return SpawnModalAction::Continue;
+        }
+        if let KeyCode::Char(c) = key.code {
+            if key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT {
+                state.new_branch.push(c);
+            }
+        }
+        return SpawnModalAction::Continue;
+    }
+
     if state.editing_custom {
         if key.code == KeyCode::Esc {
             state.editing_custom = false;
@@ -164,6 +221,19 @@ pub(crate) fn on_key(cfg: &Config, state: &mut ModalState, key: KeyEvent) -> Spa
         KeyCode::Tab => {
             state.path_mode = state.path_mode.next();
             state.pick_index = 0;
+            state.sync_git_fields();
+            SpawnModalAction::Continue
+        }
+        KeyCode::Char('b') if key.modifiers.is_empty() && !state.branches.is_empty() => {
+            state.branch_index = (state.branch_index + 1) % state.branches.len();
+            SpawnModalAction::Continue
+        }
+        KeyCode::Char('w') if key.modifiers.is_empty() => {
+            state.worktree_mode = !state.worktree_mode;
+            SpawnModalAction::Continue
+        }
+        KeyCode::Char('g') if key.modifiers.is_empty() && state.worktree_mode => {
+            state.editing_new_branch = true;
             SpawnModalAction::Continue
         }
         KeyCode::Char('s') if key.modifiers.is_empty() => {
@@ -187,12 +257,14 @@ pub(crate) fn on_key(cfg: &Config, state: &mut ModalState, key: KeyEvent) -> Spa
         KeyCode::Down | KeyCode::Char('j') => {
             if state.list_len() > 0 {
                 state.pick_index = (state.pick_index + 1) % state.list_len();
+                state.sync_git_fields();
             }
             SpawnModalAction::Continue
         }
         KeyCode::Up | KeyCode::Char('k') => {
             if state.list_len() > 0 {
                 state.pick_index = (state.pick_index + state.list_len() - 1) % state.list_len();
+                state.sync_git_fields();
             }
             SpawnModalAction::Continue
         }
@@ -271,6 +343,31 @@ fn execute_spawn(
     path: PathBuf,
     switch_to_session: bool,
 ) -> Result<String, String> {
+    let spawn_path = if state.worktree_mode {
+        let root = cfg
+            .worktrees
+            .root
+            .as_ref()
+            .ok_or_else(|| "worktree mode requires [worktrees].root in config".to_string())?;
+        let repo = git_toplevel(&path)
+            .ok_or_else(|| "selected path is not inside a git repository".to_string())?;
+        let base = state
+            .branches
+            .get(state.branch_index)
+            .map(|s| s.as_str())
+            .ok_or_else(|| "pick a base branch (b)".to_string())?;
+        let new_branch = state.new_branch.trim();
+        if new_branch.is_empty() {
+            return Err("set new branch name (g)".into());
+        }
+        let dest = resolve_worktree_dest(root, new_branch);
+        worktree_add_new_branch(&repo, &dest, new_branch, base)
+            .map_err(|e| e.to_string())?;
+        dest
+    } else {
+        path
+    };
+
     let command = if state.shell_only {
         default_shell_command()
     } else {
@@ -283,7 +380,7 @@ fn execute_spawn(
             .map_err(|e| e.to_string())?
     };
 
-    let session_name = session_name_for_path(&path);
+    let session_name = session_name_for_path(&spawn_path);
     let agent_label: Option<&str> = if state.shell_only {
         Some("shell")
     } else {
@@ -292,7 +389,7 @@ fn execute_spawn(
 
     match spawn_tmux_session_with_layout(
         &session_name,
-        &path,
+        &spawn_path,
         &command,
         state.layout,
         cfg.sessions.attach_mode,
@@ -303,7 +400,7 @@ fn execute_spawn(
         Ok(SpawnOutcome::Created) => Ok(format!(
             "spawned '{}' in {} ({})",
             session_name,
-            path.display(),
+            spawn_path.display(),
             state.layout_label()
         )),
         Err(e) => Err(e.to_string()),
@@ -339,6 +436,7 @@ pub(crate) fn draw_modal(f: &mut Frame, state: &ModalState) {
         .constraints([
             Constraint::Length(2),
             Constraint::Min(6),
+            Constraint::Length(3),
             Constraint::Length(5),
             Constraint::Length(2),
         ])
@@ -412,6 +510,41 @@ pub(crate) fn draw_modal(f: &mut Frame, state: &ModalState) {
         chunks[1],
     );
 
+    let git_line = if state.branches.is_empty() {
+        "git: (no repo at path)".to_string()
+    } else {
+        let base = state
+            .branches
+            .get(state.branch_index)
+            .map(|s| s.as_str())
+            .unwrap_or("?");
+        if state.worktree_mode {
+            if state.editing_new_branch {
+                format!(
+                    "worktree: yes  base: {}  new branch: {}█  (g edit, w off)",
+                    base,
+                    state.new_branch
+                )
+            } else {
+                format!(
+                    "worktree: yes  base: {} (b)  new: {}  (g edit, w off)",
+                    base,
+                    if state.new_branch.is_empty() {
+                        "<empty>"
+                    } else {
+                        state.new_branch.as_str()
+                    }
+                )
+            }
+        } else {
+            format!("branch: {} (b)  worktree: no (w)", base)
+        }
+    };
+    f.render_widget(
+        Paragraph::new(git_line).style(Style::default().bg(MODAL_BG).fg(MODAL_FG)),
+        chunks[2],
+    );
+
     let opts = if state.shell_only {
         format!(
             "shell only: yes (bash in primary pane)\nlayout: {}  (p cycle)\nsecondary pane: shell when split",
@@ -431,17 +564,17 @@ pub(crate) fn draw_modal(f: &mut Frame, state: &ModalState) {
     };
     f.render_widget(
         Paragraph::new(opts).style(Style::default().bg(MODAL_BG).fg(MODAL_FG)),
-        chunks[2],
+        chunks[3],
     );
 
     let help = if state.message.is_empty() {
-        "Enter create · Esc cancel · j/k pick · Tab mode · s shell · a agent · p layout"
+        "Enter create · Esc cancel · j/k pick · Tab mode · b branch · w worktree · s shell · a agent · p layout"
     } else {
         state.message.as_str()
     };
     f.render_widget(
         Paragraph::new(help).style(Style::default().bg(MODAL_BG).fg(MODAL_FG)),
-        chunks[3],
+        chunks[4],
     );
 }
 

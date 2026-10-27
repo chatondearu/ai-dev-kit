@@ -277,7 +277,8 @@ orch_ready_pickup_one() {
 
 export -f orch_ready_pickup_one orch_wait_for_slot orch_fetch_agent_brief
 export -f orch_loop_worker orch_graph_worker orch_graph_integrator_run
-export -f orch_graph_init orch_graph_upsert_node orch_graph_add_edge orch_graph_plan_run
+export -f orch_graph_init orch_graph_upsert_node orch_graph_add_edge
+export -f orch_graph_plan_run orch_graph_plan_run_task orch_graph_plan_validate_disjoint
 export -f orch_agent_run orch_run_verify orch_resolve_verify
 export -f _orch_extract_agents_verify orch_detect_agent orch_render_prompt
 export -f orch_pr_mergeable orch_pr_checks_watch _orch_pr_checks_classify

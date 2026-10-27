@@ -7,6 +7,7 @@ English operator docs for this kit. Skills and agent prompts live under
 | ---- | -------- |
 | [Architecture](architecture.md) | Headless vs orch vs orch-auto; fast-lane; data flow |
 | [Orchestration](orchestration.md) | Commands: `orch.sh`, `orch-auto.sh`, `headless.sh`, systemd |
+| [Graph orchestration](graph-orchestration.md) | `cda-graph`, `current.json`, graph-plan, cdamux view |
 | [Configuration](configuration.md) | Env vars, locks, logs, host CLIs |
 
 Related (not duplicated here):

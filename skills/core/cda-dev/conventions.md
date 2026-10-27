@@ -135,6 +135,11 @@ bash scripts/orch-cleanup.sh --repo DIR --apply
 | `ORCH_COPY_ENV` | `0` | If `1`, copy repo `.env` into each worktree |
 | `ORCH_VERIFY` | _(unset)_ | Override verify command (must be allowlisted when `ORCH_VERIFY_TRUST=untrusted`) |
 | `ORCH_VERIFY_TRUST` | `trusted` | `untrusted` in pr-fix: refuse non-allowlisted verify from the PR tree |
+| `ORCH_GRAPH` | `1` | Write `.orch/graph/current.json` (see `cda-graph`) |
+| `ORCH_GRAPH_VERIFY` | `0` | Grounding verifier agent when `1` |
+| `ORCH_GRAPH_PLAN_PARALLEL` | `auto` | `--graph-plan` task parallelism |
+
+Graph orchestration cookbook: [doc/graph-orchestration.md](../../../doc/graph-orchestration.md).
 
 ## Parallelism
 
@@ -142,6 +147,8 @@ bash scripts/orch-cleanup.sh --repo DIR --apply
 - When `ORCH_MAX_PARALLEL` **> 1**, `orch.sh` runs a **job pool** (up to N
   concurrent workers, overflow queued) and **git worktrees are required**.
 - With `ORCH_MAX_PARALLEL=1`, workers run strictly sequentially.
+- **`--graph-plan`**: tasks share one worktree; parallel only when every task
+  `paths` prefix is disjoint (`graph-plan-validate.sh`). Default `ORCH_GRAPH_PLAN_PARALLEL=auto`.
 
 ## Blocking edges and the frontier
 

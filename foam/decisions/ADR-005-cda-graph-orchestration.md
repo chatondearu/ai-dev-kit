@@ -37,7 +37,9 @@ runtime graph or integrator/verifier nodes.
 
 - **Positive**: Inspectable runs; cdamux visibility; aligns with Swarm mental model.
 - **Negative**: More agent calls when `ORCH_GRAPH_VERIFY=1`; jq required for graph JSON updates.
-- **Shipped follow-up**: `--graph-plan` intra-issue fan-out; cdamuxd `/v1/sessions/{id}/orch-graph` + web canvas.
+- **Shipped follow-up**: `--graph-plan` with parallel tasks when paths disjoint
+  (`ORCH_GRAPH_PLAN_PARALLEL=auto`); `graph-plan-validate.sh`; cdamuxd web canvas;
+  [doc/graph-orchestration.md](../../doc/graph-orchestration.md).
 
 ## References
 

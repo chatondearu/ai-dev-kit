@@ -96,7 +96,13 @@ SKILL=~/.cursor/skills/cda-dev   # or claude/opencode install path
 bash "$SKILL/scripts/orch.sh" --mode ready-pickup --issue 12 --issue 15
 bash "$SKILL/scripts/orch.sh" --mode pr-fix --pr 88 --sandbox
 bash "$SKILL/scripts/orch.sh" --mode ready-pickup --issue 12 --dry-run
+bash "$SKILL/scripts/orch.sh" --mode ready-pickup --issue 42 \
+  --graph-plan plans/graph/issue-42.json
+bash ~/.cursor/skills/cda-graph/scripts/graph-plan-validate.sh plans/graph/issue-42.json
+ORCH_GRAPH_VERIFY=1 bash "$SKILL/scripts/orch.sh" --mode ready-pickup --issue 12
 ```
+
+Graph cookbook: [doc/graph-orchestration.md](../../../doc/graph-orchestration.md) and skill `cda-graph`.
 
 ### AFK auto (Ready poller)
 

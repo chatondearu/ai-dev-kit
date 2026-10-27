@@ -14,26 +14,8 @@ Host readiness (checks only, never installs):
 
 ## Graph orchestration (`cda-graph`)
 
-By default `orch.sh` writes a live run graph to `<repo>/.orch/graph/current.json`
-(workers, verify nodes, integrator). **cdamux** Fleet → sidecar tab **Orch graph**
-polls this file when the selected session’s cwd is under that repo.
-
-```bash
-ORCH_GRAPH_VERIFY=1 bash "$SKILL/scripts/orch.sh" --mode ready-pickup --issue 12
-bash ~/.cursor/skills/cda-graph/scripts/foam-graph-export.sh --repo . --merge-orch
-```
-
-Intra-issue fan-out:
-
-```bash
-bash "$SKILL/scripts/orch.sh" --mode ready-pickup --issue 42 \
-  --graph-plan ./skills/core/cda-graph/templates/graph-plan.example.json
-```
-
-**cdamuxd** tailnet dashboard: select a session → **Orch graph** tab (polls
-`GET /v1/sessions/{name}/orch-graph`). TUI Fleet uses the same JSON file.
-
-See skill `cda-graph` and [[ADR-005](../foam/decisions/ADR-005-cda-graph-orchestration.md)].
+See **[graph-orchestration.md](graph-orchestration.md)** (cookbook, env vars, graph-plan, cdamux).
+Skill: `cda-graph`. ADR: [ADR-005](../foam/decisions/ADR-005-cda-graph-orchestration.md).
 
 ## Manual ready-pickup
 

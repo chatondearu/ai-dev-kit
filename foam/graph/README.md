@@ -16,6 +16,14 @@ bash ~/.cursor/skills/cda-graph/scripts/foam-graph-export.sh --repo /path/to/pro
 bash ~/.cursor/skills/cda-graph/scripts/foam-graph-export.sh --repo . --merge-orch
 ```
 
+Validate an intra-issue graph plan before `orch.sh --graph-plan`:
+
+```bash
+bash ~/.cursor/skills/cda-graph/scripts/graph-plan-validate.sh plans/graph/issue-42.json
+```
+
+Operator guide: [doc/graph-orchestration.md](../../doc/graph-orchestration.md).
+
 `--merge-orch` attaches the live run graph from `.orch/graph/current.json` (workers, integrator, verifier nodes).
 
 ## Runtime orchestration graph

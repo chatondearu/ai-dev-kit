@@ -281,11 +281,101 @@ $(cat "$ORCH_REPO/.orch/run/${id}.status")
   return 1
 }
 
+# Normalize path prefix for overlap checks (trailing slash, no leading ./).
+orch_graph_norm_path() {
+  local p="${1%/}"
+  p="${p#./}"
+  printf '%s/\n' "$p"
+}
+
+# Return 0 when two normalized path prefixes overlap.
+orch_graph_paths_overlap() {
+  local a b
+  a="$(orch_graph_norm_path "$1")"
+  b="$(orch_graph_norm_path "$2")"
+  case "$a" in "$b"*) return 0;; esac
+  case "$b" in "$a"*) return 0;; esac
+  return 1
+}
+
+# Exit 1 if any task path overlaps another (cross-task).
+orch_graph_plan_validate_disjoint() {
+  local plan_file="$1"
+  local n i j pi pj paths_i paths_j
+  n="$(jq '.tasks | length' "$plan_file")"
+  i=0
+  while [ "$i" -lt "$n" ]; do
+    j=$((i + 1))
+    while [ "$j" -lt "$n" ]; do
+      while IFS= read -r pi; do
+        [ -n "$pi" ] || continue
+        while IFS= read -r pj; do
+          [ -n "$pj" ] || continue
+          if orch_graph_paths_overlap "$pi" "$pj"; then
+            printf 'graph-plan: path overlap task %s vs %s: %s / %s\n' \
+              "$(jq -r ".tasks[$i].id" "$plan_file")" \
+              "$(jq -r ".tasks[$j].id" "$plan_file")" "$pi" "$pj" >&2
+            return 1
+          fi
+        done < <(jq -r ".tasks[$j].paths[]?" "$plan_file")
+      done < <(jq -r ".tasks[$i].paths[]?" "$plan_file")
+      j=$((j + 1))
+    done
+    i=$((i + 1))
+  done
+  return 0
+}
+
+# 1 = run tasks in parallel when paths are disjoint; 0 = always sequential.
+orch_graph_plan_wants_parallel() {
+  case "${ORCH_GRAPH_PLAN_PARALLEL:-auto}" in
+    0|off|false|no|sequential) return 1;;
+    1|on|true|yes|parallel) return 0;;
+    auto)
+      orch_graph_plan_validate_disjoint "$1"
+      ;;
+    *) return 1;;
+  esac
+}
+
+orch_graph_plan_run_task() {
+  local plan_file="$1" path="$2" issue="$3" i="$4"
+  local tid body paths prompt_file rc_task
+  tid="$(jq -r ".tasks[$i].id" "$plan_file")"
+  body="$(jq -r ".tasks[$i].prompt" "$plan_file")"
+  paths="$(jq -r ".tasks[$i].paths | join(\", \")" "$plan_file")"
+  [ -n "$tid" ] && [ "$tid" != "null" ] || tid="task-$i"
+
+  orch_graph_upsert_node "task-${tid}" worker task pending "queued" ""
+  orch_graph_add_edge integrator "task-${tid}" aggregates
+
+  prompt_file="$path/.orch/task-${tid}-prompt.md"
+  {
+    printf '# Graph plan task %s (issue #%s)\n\n' "$tid" "$issue"
+    printf 'Worktree: %s\nOnly modify files under: %s\n\n' "$path" "$paths"
+    printf '%s\n\n' "$body"
+    printf 'Write `.orch/task-%s-result.json` when done.\n' "$tid"
+  } >"$prompt_file"
+
+  rc_task="$path/.orch/task-${tid}.rc"
+  export ORCH_WT="$path"
+  export ORCH_WORKER_ID="task-${tid}"
+  orch_progress_set "$issue" agent "task ${tid}"
+  if ! orch_sandbox_wrap bash -c "ORCH_WT=\"$path\" ORCH_WORKER_ID=\"task-${tid}\" ORCH_REPO=\"$ORCH_REPO\" orch_graph_worker \"$path\" \"$prompt_file\""; then
+    orch_graph_upsert_node "task-${tid}" worker task failed "agent failed" ""
+    printf '1' >"$rc_task"
+    return 1
+  fi
+  orch_graph_upsert_node "task-${tid}" worker task done "complete" ""
+  printf '0' >"$rc_task"
+  return 0
+}
+
 # Intra-issue fan-out from JSON plan (opt-in --graph-plan).
 orch_graph_plan_run() {
   local plan_file="$1" issue="$2"
   local slug="issue-$issue" branch="feat/${issue}-${slug}"
-  local path n i tid prompt_file paths body rc_dir rc_file
+  local path n i rc_dir rc_file parallel=0 max_p pids pid still
 
   command -v jq >/dev/null 2>&1 || {
     printf 'graph-plan: jq required\n' >&2
@@ -309,6 +399,17 @@ orch_graph_plan_run() {
     return 1
   fi
 
+  if orch_graph_plan_wants_parallel "$plan_file"; then
+    parallel=1
+    if ! orch_graph_plan_validate_disjoint "$plan_file"; then
+      printf 'graph-plan: ORCH_GRAPH_PLAN_PARALLEL=parallel but paths overlap\n' >&2
+      return 1
+    fi
+    printf 'graph-plan: parallel dispatch (%s tasks, disjoint paths)\n' "$n" >&2
+  else
+    printf 'graph-plan: sequential dispatch (%s tasks)\n' "$n" >&2
+  fi
+
   orch_graph_init "graph-plan-${issue}-$(date -u +%Y%m%dT%H%M%SZ)"
   orch_graph_upsert_node integrator integrator pending queued "graph plan tasks" ""
 
@@ -327,35 +428,68 @@ orch_graph_plan_run() {
   orch_worktree_bootstrap "$ORCH_REPO" "$path"
   mkdir -p "$path/.orch"
 
-  i=0
-  while [ "$i" -lt "$n" ]; do
-    tid="$(jq -r ".tasks[$i].id" "$plan_file")"
-    body="$(jq -r ".tasks[$i].prompt" "$plan_file")"
-    paths="$(jq -r ".tasks[$i].paths | join(\", \")" "$plan_file")"
-    [ -n "$tid" ] && [ "$tid" != "null" ] || tid="task-$i"
-
-    orch_graph_upsert_node "task-${tid}" worker task pending "queued" ""
-    orch_graph_add_edge integrator "task-${tid}" aggregates
-
-    prompt_file="$path/.orch/task-${tid}-prompt.md"
-    {
-      printf '# Graph plan task %s (issue #%s)\n\n' "$tid" "$issue"
-      printf 'Worktree: %s\nOnly modify files under: %s\n\n' "$path" "$paths"
-      printf '%s\n\n' "$body"
-      printf 'Write `.orch/task-%s-result.json` when done.\n' "$tid"
-    } >"$prompt_file"
-
-    export ORCH_WT="$path"
-    export ORCH_WORKER_ID="task-${tid}"
-    orch_progress_set "$issue" agent "task ${tid}"
-    if ! orch_sandbox_wrap bash -c "ORCH_WT=\"$path\" ORCH_WORKER_ID=\"task-${tid}\" ORCH_REPO=\"$ORCH_REPO\" orch_graph_worker \"$path\" \"$prompt_file\""; then
-      orch_progress_set "$issue" blocked "task ${tid} failed"
-      echo 1 >"$rc_file"
-      return 1
-    fi
-    orch_graph_upsert_node "task-${tid}" worker task done "complete" ""
-    i=$((i + 1))
-  done
+  if [ "$parallel" = 0 ]; then
+    i=0
+    while [ "$i" -lt "$n" ]; do
+      if ! orch_graph_plan_run_task "$plan_file" "$path" "$issue" "$i"; then
+        orch_progress_set "$issue" blocked "graph-plan task failed"
+        echo 1 >"$rc_file"
+        return 1
+      fi
+      i=$((i + 1))
+    done
+  else
+    max_p="${ORCH_GRAPH_PLAN_MAX_PARALLEL:-$ORCH_MAX_PARALLEL:-3}"
+    max_p="${max_p:-3}"
+    set -m
+    pids=()
+    i=0
+    while [ "$i" -lt "$n" ]; do
+      while [ "${#pids[@]}" -ge "$max_p" ]; do
+        if wait -n 2>/dev/null; then
+          :
+        else
+          still=()
+          for pid in "${pids[@]}"; do
+            if kill -0 "$pid" 2>/dev/null; then
+              still+=("$pid")
+            else
+              wait "$pid" || true
+            fi
+          done
+          pids=("${still[@]}")
+          [ "${#pids[@]}" -ge "$max_p" ] && sleep 0.05
+        fi
+        still=()
+        for pid in "${pids[@]}"; do
+          kill -0 "$pid" 2>/dev/null && still+=("$pid")
+        done
+        pids=("${still[@]}")
+      done
+      (
+        set +e
+        orch_graph_plan_run_task "$plan_file" "$path" "$issue" "$i"
+        exit $?
+      ) &
+      pids+=($!)
+      i=$((i + 1))
+    done
+    for pid in "${pids[@]}"; do
+      wait "$pid" || true
+    done
+    set +m
+    i=0
+    while [ "$i" -lt "$n" ]; do
+      tid="$(jq -r ".tasks[$i].id" "$plan_file")"
+      [ -n "$tid" ] && [ "$tid" != "null" ] || tid="task-$i"
+      if [ -f "$path/.orch/task-${tid}.rc" ] && [ "$(cat "$path/.orch/task-${tid}.rc")" != "0" ]; then
+        orch_progress_set "$issue" blocked "graph-plan parallel task ${tid} failed"
+        echo 1 >"$rc_file"
+        return 1
+      fi
+      i=$((i + 1))
+    done
+  fi
 
   export ORCH_GRAPH_INTEGRATOR=1
   orch_graph_integrator_plan_run "$path" "$plan_file" || true

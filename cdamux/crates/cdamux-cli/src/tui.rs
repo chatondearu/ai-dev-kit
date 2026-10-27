@@ -595,6 +595,7 @@ pub fn run_dashboard() -> ExitCode {
                 && last_preview_refresh.elapsed() >= PREVIEW_REFRESH
             {
                 preview_text = fetch_preview(&s.name, preview_max);
+                session_chrome.refresh_volatile(&s.name);
                 last_preview_refresh = Instant::now();
             }
             if notes_for_session.as_deref() != Some(s.name.as_str()) {

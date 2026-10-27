@@ -15,17 +15,17 @@ choice without orch auto-bridge.
 
 - [x] Bordered header above Preview pane: repo, worktree label, branch, agent, uptime
 - [x] Set `@cdamux_agent` on spawn for agent id (shell → `shell`)
-- [ ] Chrome cache / refresh policy (avoid git subprocess every 800ms)
-- [ ] `context` / `tasks` placeholder documented in PRD until phase C
+- [x] Chrome cache / refresh policy (avoid git subprocess every 800ms)
+- [x] `context` / `tasks` placeholder documented in PRD until phase C
 - [ ] Dogfood sign-off on issue #72
 
 ## Phase B — Spawn: branch + worktree
 
-- [ ] Config: `worktrees.root` (optional) in `config.toml`
-- [ ] Spawn modal: branch picker + worktree toggle
-- [ ] `git worktree add` integration with error surfacing in modal
-- [ ] `cdamux worktree list` or extend `projects` output
-- [ ] Docs: explicit opt-in vs orch worktrees
+- [x] Config: `worktrees.root` (optional) in `config.toml`
+- [x] Spawn modal: branch picker + worktree toggle
+- [x] `git worktree add` integration with error surfacing in modal
+- [x] `cdamux worktree list` or extend `projects` output
+- [x] Docs: explicit opt-in vs orch worktrees
 
 ## Phase C — Rich agent telemetry
 

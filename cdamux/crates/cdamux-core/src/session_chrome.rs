@@ -1,8 +1,12 @@
 //! Session metadata for Fleet preview header (git + tmux).
 
-use std::path::Path;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::sync::{LazyLock, Mutex};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+const GIT_CACHE_TTL: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionChrome {
@@ -25,7 +29,7 @@ impl SessionChrome {
                 "—".into(),
             )
         } else {
-            git_context(Path::new(path))
+            git_context_cached(Path::new(path))
         };
         Self {
             repo,
@@ -36,6 +40,12 @@ impl SessionChrome {
             context: "n/a".into(),
             tasks: "n/a".into(),
         }
+    }
+
+    /// Refresh tmux-derived fields without re-running git (preview poll interval).
+    pub fn refresh_volatile(&mut self, session_name: &str) {
+        self.agent = tmux_agent_label(session_name);
+        self.uptime = tmux_session_uptime(session_name);
     }
 
     pub fn lines(&self) -> Vec<String> {
@@ -55,6 +65,23 @@ impl SessionChrome {
             ),
         ]
     }
+}
+
+fn git_context_cached(path: &Path) -> (String, String, String) {
+    static CACHE: LazyLock<Mutex<HashMap<PathBuf, (Instant, String, String, String)>>> =
+        LazyLock::new(|| Mutex::new(HashMap::new()));
+    let key = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    if let Ok(mut cache) = CACHE.lock() {
+        if let Some((at, repo, wt, br)) = cache.get(&key) {
+            if at.elapsed() < GIT_CACHE_TTL {
+                return (repo.clone(), wt.clone(), br.clone());
+            }
+        }
+        let triple = git_context(path);
+        cache.insert(key, (Instant::now(), triple.0.clone(), triple.1.clone(), triple.2.clone()));
+        return triple;
+    }
+    git_context(path)
 }
 
 fn git_context(path: &Path) -> (String, String, String) {

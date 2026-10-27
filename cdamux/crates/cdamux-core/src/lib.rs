@@ -10,6 +10,7 @@ mod session;
 mod session_chrome;
 mod session_manage;
 mod spawn;
+mod worktree;
 mod tailnet_api;
 mod tmux;
 
@@ -51,6 +52,10 @@ pub use spawn::{
     session_name_for_path, spawn_tmux_session, spawn_tmux_session_with_layout, PaneLayout,
     SpawnError, SpawnOutcome,
 };
+pub use worktree::{
+    current_branch, git_toplevel, list_local_branches, list_worktrees, resolve_worktree_dest,
+    worktree_add_new_branch, WorktreeEntry, WorktreeError,
+};
 pub use tmux::{
     capture_pane_text, classify_pane_heuristics, list_tmux_sessions, parse_list_sessions,
     pane_signals_for_session, send_line_to_session, PaneSignals, TmuxError, TmuxSession,
@@ -81,6 +86,8 @@ pub struct Config {
     pub ui: UiConfig,
     #[serde(default)]
     pub notes: NotesConfig,
+    #[serde(default)]
+    pub worktrees: WorktreesConfig,
 }
 
 impl Default for Config {
@@ -93,7 +100,21 @@ impl Default for Config {
             agents: AgentsConfig::default(),
             ui: UiConfig::default(),
             notes: NotesConfig::default(),
+            worktrees: WorktreesConfig::default(),
         }
+    }
+}
+
+/// Optional parent directory for spawn-time `git worktree add` (ADR-003: not orch-auto).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorktreesConfig {
+    #[serde(default)]
+    pub root: Option<PathBuf>,
+}
+
+impl Default for WorktreesConfig {
+    fn default() -> Self {
+        Self { root: None }
     }
 }
 

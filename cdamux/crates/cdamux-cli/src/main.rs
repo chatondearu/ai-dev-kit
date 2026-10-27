@@ -8,7 +8,8 @@ mod tui;
 use cdamux_core::{
     command_on_path, config_path, configured_agent_ids, default_agent_name, discover_projects,
     ensure_note_file,
-    grouped_for_list, git_diff_unified, list_tmux_sessions, load_config, note_refs_for_projects,
+    grouped_for_list, git_diff_unified, git_toplevel, list_tmux_sessions, list_worktrees,
+    load_config, note_refs_for_projects,
     parse_unified_diff, resolve_agent_command, resolve_note_path, send_to_session,
     session_name_for_path, spawn_tmux_session, AttachMode, DiffError, GroupBy, SendError,
     SpawnError, SpawnOutcome,
@@ -85,6 +86,21 @@ enum Commands {
     Notes {
         #[command(subcommand)]
         command: NotesCommands,
+    },
+    /// Git worktrees for a repository (explicit opt-in; not orch `.orch/worktrees/`).
+    Worktree {
+        #[command(subcommand)]
+        command: WorktreeCommands,
+    },
+}
+
+#[derive(Subcommand)]
+enum WorktreeCommands {
+    /// List linked worktrees (`git worktree list`).
+    List {
+        /// Repository path (default: current directory).
+        #[arg(long)]
+        path: Option<String>,
     },
 }
 
@@ -173,6 +189,33 @@ fn main() -> ExitCode {
             } => cmd_notes_show(path, session, render),
             NotesCommands::Edit { path, session } => cmd_notes_edit(path, session),
         },
+        Some(Commands::Worktree { command }) => match command {
+            WorktreeCommands::List { path } => cmd_worktree_list(path),
+        },
+    }
+}
+
+fn cmd_worktree_list(path: Option<String>) -> ExitCode {
+    let cwd = path
+        .map(PathBuf::from)
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+    let repo = git_toplevel(&cwd).unwrap_or(cwd);
+    match list_worktrees(&repo) {
+        Ok(entries) => {
+            for e in entries {
+                let br = if e.branch.is_empty() {
+                    "(detached)"
+                } else {
+                    e.branch.as_str()
+                };
+                println!("{}\t{}", e.path.display(), br);
+            }
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("worktree list: {e}");
+            ExitCode::from(1)
+        }
     }
 }
 

@@ -91,7 +91,9 @@ Operator curl examples: [tailnet-api.md](tailnet-api.md).
 
 - Lives at `cdamux/` until extract (ADR-004).
 - `aitools/` ships **cdamux** via `nix build .#cdamux` and `cda.aitools` modules.
-- Orch worktrees stay `.orch/worktrees/` (no auto-bridge, ADR-003).
+- Orch worktrees stay `.orch/worktrees/` (no auto-bridge, ADR-003). cdamux spawn may
+  create worktrees under `[worktrees].root` in `config.toml` only when the operator
+  toggles worktree mode in the Fleet modal (`cdamux worktree list` inspects links).
 
 ## Open design choices
 

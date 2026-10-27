@@ -309,7 +309,13 @@ case "$MODE" in
     # is reset further down). Skipped in --dry-run, when ORCH_FRONTIER=0, or when
     # gh is unavailable.
     if [ "$DRY" != 1 ] && [ "${ORCH_FRONTIER:-auto}" != 0 ] && command -v gh >/dev/null 2>&1; then
-      orch_frontier_partition "$REPO" "${ISSUES[@]}"
+      GH_SLUG="$(orch_gh_repo_slug "$REPO" || true)"
+      if [ -z "$GH_SLUG" ]; then
+        printf 'orch: cannot resolve GitHub repo slug for %s (gh auth?)\n' "$REPO" >&2
+        exit 1
+      fi
+      export ORCH_GH_REPO="$GH_SLUG"
+      orch_frontier_partition "$GH_SLUG" "${ISSUES[@]}"
       if [ "${#HELD_IDS[@]}" -gt 0 ]; then
         for i in "${!HELD_IDS[@]}"; do
           printf 'orch: holding #%s (blocked by open #%s)\n' "${HELD_IDS[$i]}" "${HELD_REASON[$i]}" >&2

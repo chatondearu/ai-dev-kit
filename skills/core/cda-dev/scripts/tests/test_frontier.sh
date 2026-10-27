@@ -14,6 +14,12 @@ more')" "3 4" "line within a body"
 assert_eq "$(orch_parse_blockers 'no dependency here')" "" "no blockers → empty"
 assert_eq "$(orch_parse_blockers 'Blocked by: #5, #5')" "5" "dedup repeats"
 
+assert_eq "$(orch_gh_repo_slug 'owner/repo')" "owner/repo" "slug passthrough"
+if orch_gh_repo_slug '/tmp/not-a-repo-orch-frontier-test' 2>/dev/null; then
+  echo "FAIL: orch_gh_repo_slug should not resolve nonsense path" >&2
+  exit 1
+fi
+
 # --- partition with a stubbed gh -------------------------------------------
 # Layout: #20 blocked by closed #12 → frontier; #21 blocked by open #15 → held;
 #         #22 no blockers → frontier; #23 body fetch fails → held.

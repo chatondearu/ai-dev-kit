@@ -11,6 +11,22 @@
 # This is the same dependency language cda-explore uses, so a decision that
 # graduates into implementation keeps one blocking convention end to end.
 
+# Resolve GitHub owner/repo for `gh --repo` (not a filesystem path).
+orch_gh_repo_slug() {
+  local repo="$1"
+  if [[ "$repo" == */* && "$repo" != /* ]]; then
+    printf '%s\n' "$repo"
+    return 0
+  fi
+  local slug
+  slug="$(cd "$repo" && gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || true)"
+  if [ -n "$slug" ]; then
+    printf '%s\n' "$slug"
+    return 0
+  fi
+  return 1
+}
+
 # Pure parser: echo the space-separated blocker issue numbers found on the
 # first `Blocked by:` line of an issue body. Case-insensitive; tolerates
 # `#12`, `12`, commas and/or spaces. No network. Echoes nothing when absent.

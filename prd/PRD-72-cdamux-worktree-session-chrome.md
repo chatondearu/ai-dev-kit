@@ -1,6 +1,6 @@
 # PRD-72 — cdamux worktrees, spawn branch, session preview chrome
 
-- **Status**: draft
+- **Status**: approved
 - **GitHub**: [#72](https://github.com/chatondearu/ai-dev-kit/issues/72)
 - **Parent epic**: [#40](https://github.com/chatondearu/ai-dev-kit/issues/40)
 - **Date**: 2026-10-27

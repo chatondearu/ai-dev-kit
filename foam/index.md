@@ -46,4 +46,4 @@ Index: [[decisions/index|All ADRs]]
 ## Tags
 
 `#product` `#architecture` `#deployment` `#data` `#auth`
-| [[../prd/PRD-72-cdamux-worktree-session-chrome|PRD-72-cdamux-worktree-session-chrome]] | draft |
+| [[../prd/PRD-72-cdamux-worktree-session-chrome|PRD-72-cdamux-worktree-session-chrome]] | approved |

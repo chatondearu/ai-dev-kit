@@ -1,10 +1,10 @@
 //! Live CDA orchestration graph (`.orch/graph/current.json`).
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OrchGraphFile {
     pub run_id: String,
     pub repo: String,
@@ -13,7 +13,7 @@ pub struct OrchGraphFile {
     pub edges: Vec<OrchGraphEdge>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OrchGraphNode {
     pub id: String,
     pub kind: String,
@@ -23,7 +23,7 @@ pub struct OrchGraphNode {
     pub parent: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OrchGraphEdge {
     pub from: String,
     pub to: String,

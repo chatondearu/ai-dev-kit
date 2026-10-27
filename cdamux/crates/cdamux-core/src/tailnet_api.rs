@@ -284,8 +284,15 @@ pub fn dispatch_tailnet_request(
                     };
                     return json_error(status, e);
                 }
-                let cwd = session_cwd_from_grouped(&backend.sessions_grouped(), &session_id)
-                    .ok_or_else(|| TailnetApiError::NotFound(format!("session not found: {session_id}")))?;
+                let cwd = match session_cwd_from_grouped(&backend.sessions_grouped(), &session_id) {
+                    Some(p) => p,
+                    None => {
+                        return json_error(
+                            404,
+                            TailnetApiError::NotFound(format!("session not found: {session_id}")),
+                        );
+                    }
+                };
                 match find_orch_graph_from_cwd(&cwd) {
                     Some(graph) => return json_ok(200, &graph),
                     None => {

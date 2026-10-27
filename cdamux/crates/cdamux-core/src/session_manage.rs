@@ -53,15 +53,35 @@ pub fn rename_tmux_session(old: &str, new: &str) -> Result<(), SendError> {
 
 /// `base`, `base-2`, `base-3`, … first name without an existing session.
 pub fn unique_session_name(base: &str) -> String {
-    if tmux_has_session(base).unwrap_or(false) {
+    unique_session_name_with(base, |name| tmux_has_session(name).unwrap_or(false))
+}
+
+/// Same numbering as [`unique_session_name`], for unit tests without tmux.
+pub(crate) fn unique_session_name_with(base: &str, exists: impl Fn(&str) -> bool) -> String {
+    if exists(base) {
         for n in 2..1000 {
             let candidate = format!("{base}-{n}");
-            if !tmux_has_session(&candidate).unwrap_or(false) {
+            if !exists(&candidate) {
                 return candidate;
             }
         }
     }
     base.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unique_name_skips_occupied_base_and_suffixes() {
+        let occupied = |name: &str| matches!(name, "c-proj" | "c-proj-2");
+        assert_eq!(
+            unique_session_name_with("c-proj", occupied),
+            "c-proj-3"
+        );
+        assert_eq!(unique_session_name_with("c-other", occupied), "c-other");
+    }
 }
 
 /// When the agent pane exits, tmux pane-died hook can reopen cdamux (see aitools tmux template).

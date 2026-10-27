@@ -4,7 +4,8 @@ use cdamux_core::{
     configured_agent_ids, current_branch, default_agent_name, default_shell_command,
     discover_projects, git_toplevel, list_local_branches, list_tmux_sessions,
     preferred_spawn_agent_index, resolve_agent_command, resolve_worktree_dest,
-    session_name_for_path, spawn_tmux_session_with_layout, worktree_add_new_branch, Config,
+    session_name_for_path, spawn_tmux_session_with_layout, unique_session_name,
+    worktree_add_new_branch, Config,
     PaneLayout, SpawnOutcome,
 };
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -380,7 +381,7 @@ fn execute_spawn(
             .map_err(|e| e.to_string())?
     };
 
-    let session_name = session_name_for_path(&spawn_path);
+    let session_name = unique_session_name(&session_name_for_path(&spawn_path));
     let agent_label: Option<&str> = if state.shell_only {
         Some("shell")
     } else {

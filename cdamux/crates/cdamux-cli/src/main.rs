@@ -11,7 +11,8 @@ use cdamux_core::{
     grouped_for_list, git_diff_unified, git_toplevel, list_tmux_sessions, list_worktrees,
     load_config, note_refs_for_projects,
     parse_unified_diff, resolve_agent_command, resolve_note_path, send_to_session,
-    session_name_for_path, spawn_tmux_session, AttachMode, DiffError, GroupBy, SendError,
+    session_name_for_path, spawn_tmux_session, unique_session_name, AttachMode, DiffError,
+    GroupBy, SendError,
     SpawnError, SpawnOutcome,
 };
 use clap::{Parser, Subcommand};
@@ -659,7 +660,7 @@ fn spawn_with_path_and_agent(
         }
     };
 
-    let session_name = session_name_for_path(&path_buf);
+    let session_name = unique_session_name(&session_name_for_path(&path_buf));
     match spawn_tmux_session(
         &session_name,
         &path_buf,

@@ -9,8 +9,9 @@ use crate::app_tabs::{
     help_for_tab, try_save, AppTab, bump_preview_lines, cycle_attach_mode, cycle_group_by,
 };
 use cdamux_core::{
-    build_project_session_tree, capture_pane_text, config_path, discover_projects, kill_tmux_session,
-    load_config, preferred_spawn_agent, project_key, rename_tmux_session, resolve_agent_command,
+    build_project_session_tree, capture_pane_text, config_path, discover_projects,
+    format_orch_graph_panel, kill_tmux_session, load_config,
+    preferred_spawn_agent, project_key, rename_tmux_session, resolve_agent_command,
     send_to_session, session_name_for_path, spawn_tmux_session_with_layout, state_icon,
     switch_client_to_session, unique_session_name, Config, EnrichedSession, GroupBy, SessionChrome,
     PaneLayout, ProjectSessionTree, ProjectTreeNode, SessionState, SpawnOutcome,
@@ -57,6 +58,7 @@ enum SideTab {
     Preview,
     Notes,
     Review,
+    OrchGraph,
 }
 
 impl SideTab {
@@ -64,7 +66,8 @@ impl SideTab {
         match self {
             SideTab::Preview => SideTab::Notes,
             SideTab::Notes => SideTab::Review,
-            SideTab::Review => SideTab::Preview,
+            SideTab::Review => SideTab::OrchGraph,
+            SideTab::OrchGraph => SideTab::Preview,
         }
     }
 
@@ -73,6 +76,7 @@ impl SideTab {
             SideTab::Preview => "Preview",
             SideTab::Notes => "Notes",
             SideTab::Review => "Review",
+            SideTab::OrchGraph => "Orch graph",
         }
     }
 }
@@ -392,11 +396,22 @@ fn fetch_preview(session_name: &str, max_lines: u32) -> String {
     }
 }
 
-fn sidecar_plain_body(tab: SideTab, notes: &str, review: &str) -> String {
+fn sidecar_plain_body(tab: SideTab, notes: &str, review: &str, orch_graph: &str) -> String {
     match tab {
         SideTab::Preview => String::new(),
         SideTab::Notes => notes.to_string(),
         SideTab::Review => review.to_string(),
+        SideTab::OrchGraph => orch_graph.to_string(),
+    }
+}
+
+fn orch_graph_text_for_cwd(cwd: &str, width: usize) -> String {
+    if cwd.is_empty() {
+        return "Select a session tied to a repo running orch.sh.".to_string();
+    }
+    match cdamux_core::find_orch_graph_from_cwd(cwd) {
+        Some(g) => format_orch_graph_panel(&g, width),
+        None => "(no live graph — start orch.sh in this repo; tab cycles with sidecar)".to_string(),
     }
 }
 
@@ -447,6 +462,7 @@ struct DrawState<'a> {
     preview_scroll: usize,
     notes_text: &'a str,
     review_text: &'a str,
+    orch_graph_text: &'a str,
     composer_line: &'a str,
     composer_session: Option<&'a str>,
     session_chrome: Option<&'a SessionChrome>,
@@ -521,6 +537,8 @@ pub fn run_dashboard() -> ExitCode {
     let mut chrome_for_session: Option<String> = None;
     let mut notes_text = String::new();
     let mut notes_for_session: Option<String> = None;
+    let mut orch_graph_text = String::new();
+    let mut orch_graph_for_session: Option<String> = None;
     let mut status_line = String::new();
 
     let (mut terminal, _guard) = match TerminalGuard::enter() {
@@ -602,6 +620,14 @@ pub fn run_dashboard() -> ExitCode {
                 notes_text = crate::note_text_for_session_cwd(&cfg, &s.path);
                 notes_for_session = Some(s.name.clone());
             }
+            let graph_key = format!("{}:{}", s.name, s.path);
+            if orch_graph_for_session.as_deref() != Some(graph_key.as_str())
+                || (side_tab == SideTab::OrchGraph
+                    && last_preview_refresh.elapsed() >= PREVIEW_REFRESH)
+            {
+                orch_graph_text = orch_graph_text_for_cwd(&s.path, 72);
+                orch_graph_for_session = Some(graph_key);
+            }
         } else {
             preview_for_session = None;
             chrome_for_session = None;
@@ -610,6 +636,8 @@ pub fn run_dashboard() -> ExitCode {
             session_chrome = SessionChrome::gather("", "");
             notes_for_session = None;
             notes_text = "Select a session to view project notes.".to_string();
+            orch_graph_for_session = None;
+            orch_graph_text = orch_graph_text_for_cwd("", 72);
         }
         let review_text = review_sidecar_hint(session);
 
@@ -649,6 +677,7 @@ pub fn run_dashboard() -> ExitCode {
                             preview_scroll,
                             notes_text: &notes_text,
                             review_text: &review_text,
+                            orch_graph_text: &orch_graph_text,
                             composer_line: &composer_line,
                             composer_session,
                             session_chrome: if chrome_for_session.is_some() {
@@ -1467,7 +1496,12 @@ fn draw_sidecar(
     };
 
     let tabs = Line::from(
-        [SideTab::Preview, SideTab::Notes, SideTab::Review]
+        [
+            SideTab::Preview,
+            SideTab::Notes,
+            SideTab::Review,
+            SideTab::OrchGraph,
+        ]
             .iter()
             .map(|t| {
                 let style = if *t == state.side_tab {
@@ -1523,6 +1557,7 @@ fn draw_sidecar(
             state.side_tab,
             state.notes_text,
             state.review_text,
+            state.orch_graph_text,
         ))
             .wrap(Wrap { trim: false })
             .block(body_block)
@@ -1595,7 +1630,8 @@ mod tests {
     #[test]
     fn side_tab_cycles() {
         assert_eq!(SideTab::Preview.next(), SideTab::Notes);
-        assert_eq!(SideTab::Review.next(), SideTab::Preview);
+        assert_eq!(SideTab::Review.next(), SideTab::OrchGraph);
+        assert_eq!(SideTab::OrchGraph.next(), SideTab::Preview);
     }
 
     #[test]

@@ -20,6 +20,7 @@ humans share the same memory:
 | Layer | Path | Role |
 | ----- | ---- | ---- |
 | **Foam graph** | `foam/` | MOC, ADRs, product notes, feature catalog |
+| **Machine export** | `foam/graph/export.json` | CLI/agents/cdamux — `cda-graph` `foam-graph-export.sh` |
 | **PRD** | `prd/` | What / why per feature |
 | **Plan** | `plans/` | How / when (checklist derived from PRD) |
 | **Kanban** | GitHub Projects | Execution status (use `cda-kanban`) |

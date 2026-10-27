@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CDA worker result",
+  "type": "object",
+  "required": ["issue", "status", "checks"],
+  "properties": {
+    "issue": { "type": "integer" },
+    "pr_url": { "type": ["string", "null"] },
+    "status": { "enum": ["done", "blocked"] },
+    "checks": { "enum": ["green", "red", "none"] },
+    "reason": { "type": ["string", "null"] },
+    "files_touched": { "type": "array", "items": { "type": "string" } },
+    "grounding": { "type": "array", "items": { "type": "string" } }
+  }
+}

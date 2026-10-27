@@ -1,0 +1,15 @@
+{
+  "issue": 42,
+  "tasks": [
+    {
+      "id": "api",
+      "paths": ["src/api/"],
+      "prompt": "Implement the API changes from PLAN-42. Run project verify."
+    },
+    {
+      "id": "ui",
+      "paths": ["src/components/"],
+      "prompt": "Implement the UI from PLAN-42. Run project verify."
+    }
+  ]
+}

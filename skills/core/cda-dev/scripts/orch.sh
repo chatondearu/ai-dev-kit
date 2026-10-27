@@ -10,6 +10,8 @@
 #   --fail-fast          (abort on first worker failure instead of continuing)
 #   --dry-run            (print plan: worktrees/branches; no agent invoke)
 #   --force-clean        (remove worktrees after — only with explicit flag)
+#   --graph-plan FILE    (intra-issue fan-out from JSON plan; opt-in)
+#   --no-graph           (disable .orch/graph/current.json updates)
 #   -h|--help
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
@@ -23,12 +25,13 @@ source "$ROOT/lib/verify.sh"
 source "$ROOT/lib/ci.sh"
 source "$ROOT/lib/sandbox.sh"
 source "$ROOT/lib/loop.sh"
+source "$ROOT/lib/graph.sh"
 source "$ROOT/lib/progress.sh"
 source "$ROOT/lib/frontier.sh"
 
 MODE=""; REPO="$(pwd)"; DRY=0; SANDBOX=0; FAIL_FAST=0
 MAX_P="${ORCH_MAX_PARALLEL:-3}"; MAX_I="${ORCH_MAX_ITER:-10}"
-ISSUES=(); PR=""; FORCE_CLEAN=0; NO_PROGRESS=0
+ISSUES=(); PR=""; FORCE_CLEAN=0; NO_PROGRESS=0; GRAPH_PLAN=""
 
 usage() {
   cat <<'EOF'
@@ -44,6 +47,8 @@ orch.sh --mode ready-pickup|pr-fix|intake [options]
   --dry-run            (print plan: worktrees/branches; no agent invoke)
   --force-clean        (remove worktrees after — only with explicit flag)
   --no-progress        (disable TTY progress dashboard; ORCH_PROGRESS=0)
+  --no-graph           (disable .orch/graph/current.json updates)
+  --graph-plan FILE    (intra-issue task fan-out JSON; opt-in)
   -h|--help
 EOF
 }
@@ -62,6 +67,8 @@ while [ $# -gt 0 ]; do
     --dry-run) DRY=1;;
     --force-clean) FORCE_CLEAN=1;;
     --no-progress) NO_PROGRESS=1;;
+    --no-graph) export ORCH_GRAPH=0;;
+    --graph-plan) GRAPH_PLAN="$2"; shift;;
     -h|--help) usage; exit 0;;
     *) echo "unknown: $1" >&2; exit 2;;
   esac
@@ -202,6 +209,13 @@ orch_ready_pickup_one() {
   export ORCH_WT="$path"
   orch_detect_agent >/dev/null
   orch_progress_set "$id" agent "starting"
+  if [ -f "$path/.orch/graph-plan-complete" ]; then
+    {
+      cat "$worker_prompt"
+      printf '\n\n## Graph plan\nImplementation tasks already ran via --graph-plan. Complete review, PR, and CI only.\n'
+    } >"$path/.orch/worker-prompt-handoff.md"
+    worker_prompt="$path/.orch/worker-prompt-handoff.md"
+  fi
   orch_sandbox_wrap bash -c "ORCH_WT=\"$path\" ORCH_WORKER_ID=\"$id\" ORCH_REPO=\"$ORCH_REPO\" ORCH_PROGRESS=\"${ORCH_PROGRESS:-auto}\" orch_loop_worker \"$path\" \"$worker_prompt\"" || loop_rc=$?
   if [ "$loop_rc" -ne 0 ]; then
     orch_progress_set "$id" blocked "worker loop failed"
@@ -262,7 +276,9 @@ orch_ready_pickup_one() {
 }
 
 export -f orch_ready_pickup_one orch_wait_for_slot orch_fetch_agent_brief
-export -f orch_loop_worker orch_agent_run orch_run_verify orch_resolve_verify
+export -f orch_loop_worker orch_graph_worker orch_graph_integrator_run
+export -f orch_graph_init orch_graph_upsert_node orch_graph_add_edge orch_graph_plan_run
+export -f orch_agent_run orch_run_verify orch_resolve_verify
 export -f _orch_extract_agents_verify orch_detect_agent orch_render_prompt
 export -f orch_pr_mergeable orch_pr_checks_watch _orch_pr_checks_classify
 export -f orch_worktree_path orch_worktree_add orch_worktree_bootstrap orch_worktree_remove
@@ -329,6 +345,25 @@ case "$MODE" in
       ISSUES=("${FRONTIER_IDS[@]}")
     fi
 
+    if [ -n "$GRAPH_PLAN" ]; then
+      if [ "${#ISSUES[@]}" -ne 1 ]; then
+        echo "graph-plan requires exactly one --issue" >&2
+        exit 2
+      fi
+      if [ "$DRY" = 1 ]; then
+        echo "graph-plan issue=${ISSUES[0]} file=$GRAPH_PLAN"
+        jq . "$GRAPH_PLAN" 2>/dev/null || cat "$GRAPH_PLAN"
+        exit 0
+      fi
+      if ! orch_graph_plan_run "$GRAPH_PLAN" "${ISSUES[0]}"; then
+        exit 1
+      fi
+      if ! orch_ready_pickup_one "${ISSUES[0]}" 0; then
+        exit 1
+      fi
+      exit 0
+    fi
+
     if [ "$DRY" = 1 ]; then
       for id in "${ISSUES[@]}"; do
         slug="issue-$id"
@@ -342,6 +377,10 @@ case "$MODE" in
 
     mkdir -p "$REPO/.orch/run"
     rm -f "$REPO/.orch/run"/*.rc "$REPO/.orch/run"/*.status "$REPO/.orch/run"/.dashboard-stop 2>/dev/null || true
+    if [ "$DRY" != 1 ]; then
+      orch_graph_init "ready-pickup-$(date -u +%Y%m%dT%H%M%SZ)"
+      orch_graph_upsert_node integrator integrator pending queued "awaiting workers" ""
+    fi
 
     if [ "${#HELD_IDS[@]}" -gt 0 ]; then
       export ORCH_PROGRESS_IDS="${ISSUES[*]} ${HELD_IDS[*]}"
@@ -426,6 +465,10 @@ case "$MODE" in
     fi
 
     orch_progress_dashboard_stop
+
+    if [ "$DRY" != 1 ]; then
+      orch_graph_integrator_run "${ISSUES[@]}" || true
+    fi
 
     for rc_file in "$REPO/.orch/run"/*.rc; do
       [ -f "$rc_file" ] || continue

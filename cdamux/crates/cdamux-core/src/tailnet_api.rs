@@ -1,5 +1,6 @@
 //! Tailnet HTTP API dispatch (testable without binding a socket).
 
+use crate::orch_graph::find_orch_graph_from_cwd;
 use crate::tmux::{capture_pane_text, list_tmux_sessions, send_line_to_session};
 use crate::{grouped_for_list, GroupedSessions, ProjectsConfig, SessionsConfig};
 use serde::{Deserialize, Serialize};
@@ -182,6 +183,17 @@ impl TailnetApiBackend for LiveTailnetBackend {
     }
 }
 
+fn session_cwd_from_grouped(grouped: &GroupedSessions, session_id: &str) -> Option<String> {
+    for group in &grouped.groups {
+        for s in &group.sessions {
+            if s.name == session_id {
+                return Some(s.path.clone());
+            }
+        }
+    }
+    None
+}
+
 fn session_must_exist(session_id: &str) -> Result<(), TailnetApiError> {
     let sessions = list_tmux_sessions().unwrap_or_default();
     if sessions.iter().any(|s| s.name == session_id) {
@@ -261,6 +273,28 @@ pub fn dispatch_tailnet_request(
                             _ => 502,
                         };
                         return json_error(status, e);
+                    }
+                }
+            }
+            if action == "orch-graph" && method == "GET" {
+                if let Err(e) = session_must_exist(&session_id) {
+                    let status = match e {
+                        TailnetApiError::NotFound(_) => 404,
+                        _ => 502,
+                    };
+                    return json_error(status, e);
+                }
+                let cwd = session_cwd_from_grouped(&backend.sessions_grouped(), &session_id)
+                    .ok_or_else(|| TailnetApiError::NotFound(format!("session not found: {session_id}")))?;
+                match find_orch_graph_from_cwd(&cwd) {
+                    Some(graph) => return json_ok(200, &graph),
+                    None => {
+                        return json_error(
+                            404,
+                            TailnetApiError::NotFound(
+                                "no .orch/graph/current.json for this session cwd".into(),
+                            ),
+                        );
                     }
                 }
             }
@@ -394,6 +428,24 @@ mod tests {
         let resp = dispatch_tailnet_request("GET", "/v1/sessions/c-missing/pane", "", &backend);
         assert_eq!(resp.status, 404);
         assert!(resp.body.contains("\"code\":\"not_found\""));
+    }
+
+    #[test]
+    fn orch_graph_missing_file_is_404() {
+        let backend = MockBackend {
+            version: "0".into(),
+            tmux_ok: true,
+            grouped: mock_grouped(),
+            pane: None,
+            send_ok: true,
+        };
+        let resp = dispatch_tailnet_request(
+            "GET",
+            "/v1/sessions/c-foo/orch-graph",
+            "",
+            &backend,
+        );
+        assert_eq!(resp.status, 404);
     }
 
     #[test]

@@ -22,7 +22,7 @@ must follow this sequence:
    refresh this file when stack or skills change.
 
 Skills: **cda-foam**, **cda-prd**, **cda-plan**,
-**cda-dev**, **cda-kanban**,
+**cda-dev**, **cda-graph**, **cda-kanban**,
 **cda-agents**, **cda-commit**, **cda-review**.
 
 ## Project memory (foam)

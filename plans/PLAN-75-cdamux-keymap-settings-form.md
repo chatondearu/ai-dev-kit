@@ -1,6 +1,6 @@
 # PLAN-75 — cdamux keymap + Settings form (roots)
 
-- **Status**: in-progress
+- **Status**: done
 - **PRD**: [[../prd/PRD-75-cdamux-keymap-settings-form|PRD-75]]
 - **GitHub**: [#75](https://github.com/chatondearu/ai-dev-kit/issues/75)
 - **Parent epic**: [#40](https://github.com/chatondearu/ai-dev-kit/issues/40)
@@ -92,8 +92,8 @@ Tracer bullets in `cdamux-cli` (ratatui only):
 
 - [x] **D1** Update `cdamux/docs/dogfood.md` mission-control key table (`m`/`f`/`x`)
   and Settings edit checklist.
-- [ ] **D2** After implementation PR merges: open follow-up issue for `widgets/`
-  extract citing `settings_form` seams (Toggle/Select/TextInput/FieldList).
+- [x] **D2** After implementation PR merges: open follow-up issue for `widgets/`
+  extract citing `settings_form` seams — [#79](https://github.com/chatondearu/ai-dev-kit/issues/79).
 
 ## Risks & mitigations
 
@@ -121,6 +121,6 @@ Manual dogfood: Fleet footer shows `m`; Settings add a root → `S` → restart 
 ## Verification
 
 - [x] Lint / test / build as above
-- [ ] Plan tasks ticked; PRD → `shipped` on merge
-- [ ] Follow-up widgets issue filed (D2)
-- [ ] Foam / import-kanban if feature lists need refresh
+- [x] Plan tasks ticked; PRD → `shipped` on merge
+- [x] Follow-up widgets issue filed (D2 → #79)
+- [x] Foam MoC PRD-75 → shipped

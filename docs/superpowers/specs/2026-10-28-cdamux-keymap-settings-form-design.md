@@ -1,7 +1,7 @@
 # Design — cdamux keymap + Settings form
 
 - **Date**: 2026-10-28
-- **Status**: approved
+- **Status**: shipped (PR #78); widgets follow-up #79
 - **Canonical PRD**: [`prd/PRD-75-cdamux-keymap-settings-form.md`](../../../prd/PRD-75-cdamux-keymap-settings-form.md)
 - **GitHub**: [#75](https://github.com/chatondearu/ai-dev-kit/issues/75)
 

@@ -131,7 +131,7 @@ bash scripts/orch-cleanup.sh --repo DIR --apply
 | `ORCH_MAX_ITER` | `10` | Max verify/fix iterations per worker |
 | `ORCH_PROGRESS` | `auto` | TTY live board when stderr is a TTY; `0` / `--no-progress` = plain logs |
 | `ORCH_FRONTIER` | `auto` | Frontier gating on blocking edges; `0` = dispatch every requested issue regardless of blockers |
-| `ORCH_ALLOW_NO_CHECKS` | `0` | If `1`, empty `gh pr checks` counts as green |
+| `ORCH_ALLOW_NO_CHECKS` | `0` | If `1`, empty `gh pr checks` counts as green. Else empty → fail-fast `none`. Also: `orch: allow-no-checks` in `AGENTS.md`. |
 | `ORCH_COPY_ENV` | `0` | If `1`, copy repo `.env` into each worktree |
 | `ORCH_VERIFY` | _(unset)_ | Override verify command (must be allowlisted when `ORCH_VERIFY_TRUST=untrusted`) |
 | `ORCH_VERIFY_TRUST` | `trusted` | `untrusted` in pr-fix: refuse non-allowlisted verify from the PR tree |

@@ -28,6 +28,20 @@ bash "$SKILL/scripts/orch.sh" --mode pr-fix --pr 88
 Requires `gh`, a detected agent CLI, and (for fast-lane) an agent brief on the
 issue when no `plans/PLAN-<id>-*` exists.
 
+### Watch progress (agents / humans)
+
+While orch runs, poll machine-readable status (updated on every phase change;
+CI heartbeats ~30s):
+
+```bash
+cat .orch/run/status.json          # all workers
+cat .orch/run/<issue>.json         # one worker
+tail -f .orch/orch-<issue>.log     # if you tee'd a log
+```
+
+Empty `gh pr checks` without `ORCH_ALLOW_NO_CHECKS=1` / `orch: allow-no-checks`
+exits immediately with status `none` (does not wait for CI that will never start).
+
 ## AFK poller (`orch-auto`)
 
 Discovers open Issues in board Status **Ready**, skips

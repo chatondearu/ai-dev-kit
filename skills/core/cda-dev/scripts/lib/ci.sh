@@ -9,11 +9,11 @@ _orch_pr_checks_classify() {
     return 0
   fi
   if [ "$json" = "[]" ]; then
-    # No checks configured: not CI-green unless operator opts in.
+    # No checks configured: green only with opt-in; else "none" (fail-fast, not pending).
     if [ "${ORCH_ALLOW_NO_CHECKS:-0}" = "1" ]; then
       printf 'green\n'
     else
-      printf 'pending\n'
+      printf 'none\n'
     fi
     return 0
   fi
@@ -22,8 +22,9 @@ _orch_pr_checks_classify() {
       printf 'pending\n'
       return 0
     fi
-    jq -r '
-      if length == 0 then "green"
+    jq -r --arg allow "${ORCH_ALLOW_NO_CHECKS:-0}" '
+      if length == 0 then
+        (if $allow == "1" then "green" else "none" end)
       elif any(.bucket == "fail" or .state == "FAILURE") then "fail"
       elif any(
         .bucket == "pending"
@@ -52,12 +53,24 @@ _orch_pr_checks_classify() {
   printf 'pending\n'
 }
 
+# Optional CI heartbeat into progress/status JSON (agent-pollable).
+_orch_ci_heartbeat() {
+  local pr="$1" status="$2" elapsed="$3"
+  [ -n "${ORCH_WORKER_ID:-}" ] || return 0
+  if declare -F orch_progress_set >/dev/null 2>&1; then
+    orch_progress_set "$ORCH_WORKER_ID" ci "PR #${pr} ${status} (${elapsed}s)"
+  fi
+}
+
 orch_pr_checks_watch() {
   local pr="$1"
   local timeout="${2:-600}"
   local start=$SECONDS
   local json status gh_rc
+  local last_hb=-999
+  local elapsed
   while true; do
+    elapsed=$((SECONDS - start))
     gh_rc=0
     json="$(gh pr checks "$pr" --json name,state,bucket 2>/dev/null)" || gh_rc=$?
     if [ "$gh_rc" -ne 0 ] || [ -z "$json" ]; then
@@ -73,7 +86,17 @@ orch_pr_checks_watch() {
       printf 'red\n'
       return 1
     fi
-    if (( SECONDS - start >= timeout )); then
+    # Empty checks: do not wait for checks that will never appear.
+    if [ "$status" = "none" ]; then
+      printf 'none\n'
+      printf 'orch: PR #%s has no checks; set ORCH_ALLOW_NO_CHECKS=1 or add CI (see doc/configuration.md)\n' "$pr" >&2
+      return 1
+    fi
+    if (( elapsed - last_hb >= 30 )); then
+      _orch_ci_heartbeat "$pr" "$status" "$elapsed"
+      last_hb=$elapsed
+    fi
+    if (( elapsed >= timeout )); then
       printf 'pending\n'
       return 1
     fi

@@ -21,7 +21,7 @@ these (`./scripts/doctor.sh` only checks `PATH`).
 | `ORCH_MAX_ITER` | `10` | Verify-loop retries per worker |
 | `ORCH_PROGRESS` | `auto` | Set `0` to disable TTY dashboard |
 | `ORCH_SANDBOX` | off | `1` / `--sandbox` → bubblewrap required |
-| `ORCH_ALLOW_NO_CHECKS` | `0` | `1` → empty PR checks count as green |
+| `ORCH_ALLOW_NO_CHECKS` | `0` | `1` → empty PR checks count as green. Without it, empty checks fail-fast as `none` (no 600s wait). Also enabled by `orch: allow-no-checks` in `AGENTS.md`. |
 | `ORCH_COPY_ENV` | `0` | `1` → copy `.env` into worktrees |
 | `ORCH_VERIFY` | unset | Override verify command (allowlisted under pr-fix) |
 | `ORCH_FRONTIER` | `auto` | `0` disables Blocked-by gating |

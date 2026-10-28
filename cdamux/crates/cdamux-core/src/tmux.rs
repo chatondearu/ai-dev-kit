@@ -68,16 +68,21 @@ pub fn list_tmux_sessions() -> Result<Vec<TmuxSession>, TmuxError> {
 /// Signals from the session's active pane (tmux subprocess; absent when tmux is down).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PaneSignals {
-    pub idle_seconds: u32,
+    /// `None` when `pane_idle_time` is empty/unsupported (do not treat as 0 → Active).
+    pub idle_seconds: Option<u32>,
     pub tail: String,
 }
 
 /// v0 pane heuristics (hooks deferred per architecture.md).
 pub fn classify_pane_heuristics(
-    idle_seconds: u32,
+    idle_seconds: Option<u32>,
     pane_tail: &str,
     idle_seconds_for_needs_input: u32,
 ) -> SessionState {
+    // shortcut: empty pane_idle_time → Idle (fail closed); upgrade to pane_last_activity if needed
+    let Some(idle_seconds) = idle_seconds else {
+        return SessionState::Idle;
+    };
     let threshold = idle_seconds_for_needs_input.max(1);
     if pane_tail_looks_like_input(pane_tail) && idle_seconds >= threshold {
         return SessionState::NeedsInput;
@@ -151,21 +156,25 @@ pub fn pane_signals_for_session(session_name: &str) -> Option<PaneSignals> {
     })
 }
 
+/// Args for `tmux capture-pane` preview (no `-E -1`: empty history_size panes otherwise blank).
+fn capture_pane_args(session_name: &str, max_lines: i32) -> Vec<String> {
+    let start = format!("-{}", max_lines.max(1));
+    vec![
+        "capture-pane".into(),
+        "-p".into(),
+        "-e".into(),
+        "-t".into(),
+        session_name.into(),
+        "-S".into(),
+        start,
+    ]
+}
+
 /// Capture active pane text for a session (negative start = lines from bottom).
 pub fn capture_pane_text(session_name: &str, max_lines: i32) -> Result<String, TmuxError> {
-    let start = format!("-{}", max_lines.max(1));
+    let args = capture_pane_args(session_name, max_lines);
     let capture = Command::new("tmux")
-        .args([
-            "capture-pane",
-            "-p",
-            "-e",
-            "-t",
-            session_name,
-            "-S",
-            &start,
-            "-E",
-            "-1",
-        ])
+        .args(&args)
         .output()
         .map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
@@ -207,19 +216,31 @@ pub fn send_line_to_session(session_name: &str, line: &str, enter: bool) -> Resu
     Ok(())
 }
 
-fn parse_active_pane_idle(list_panes_output: &str) -> u32 {
+/// Parse idle seconds from `list-panes -F "#{pane_active} #{pane_idle_time}"`.
+/// Empty/missing second field → `None` (unsupported), not `Some(0)`.
+fn parse_active_pane_idle(list_panes_output: &str) -> Option<u32> {
     for line in list_panes_output.lines() {
-        let parts: Vec<&str> = line.split_whitespace().collect();
-        if parts.len() >= 2 && parts[0] == "1" {
-            return parts[1].parse().unwrap_or(0);
+        let mut parts = line.splitn(2, char::is_whitespace);
+        let Some(active) = parts.next() else {
+            continue;
+        };
+        if active.trim() != "1" {
+            continue;
         }
+        let rest = parts.next().unwrap_or("").trim();
+        if rest.is_empty() {
+            return None;
+        }
+        return rest.parse().ok();
     }
-    list_panes_output
-        .lines()
-        .next()
-        .and_then(|l| l.split_whitespace().nth(1))
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0)
+    let first = list_panes_output.lines().next()?;
+    let mut parts = first.splitn(2, char::is_whitespace);
+    let _ = parts.next()?;
+    let rest = parts.next()?.trim();
+    if rest.is_empty() {
+        return None;
+    }
+    rest.parse().ok()
 }
 
 #[cfg(test)]
@@ -247,7 +268,7 @@ mod tests {
     fn classify_needs_input_on_prompt() {
         let tail = "some output\nDo you want to continue? (y/n) ";
         assert_eq!(
-            classify_pane_heuristics(5, tail, 3),
+            classify_pane_heuristics(Some(5), tail, 3),
             SessionState::NeedsInput
         );
     }
@@ -255,7 +276,7 @@ mod tests {
     #[test]
     fn classify_active_when_recent() {
         assert_eq!(
-            classify_pane_heuristics(0, "working…\n", 3),
+            classify_pane_heuristics(Some(0), "working…\n", 3),
             SessionState::Active
         );
     }
@@ -263,7 +284,7 @@ mod tests {
     #[test]
     fn classify_idle_when_quiet() {
         assert_eq!(
-            classify_pane_heuristics(60, "done.\n", 3),
+            classify_pane_heuristics(Some(60), "done.\n", 3),
             SessionState::Idle
         );
     }
@@ -272,8 +293,39 @@ mod tests {
     fn prompt_at_cursor_without_idle_is_active() {
         let tail = "user> ";
         assert_eq!(
-            classify_pane_heuristics(0, tail, 3),
+            classify_pane_heuristics(Some(0), tail, 3),
             SessionState::Active
         );
+    }
+
+    #[test]
+    fn empty_idle_field_from_list_panes_is_none() {
+        // Active pane with blank pane_idle_time (unsupported builds).
+        assert_eq!(parse_active_pane_idle("1 \n"), None);
+        assert_eq!(parse_active_pane_idle("1\n"), None);
+        assert_eq!(parse_active_pane_idle("0 12\n1 \n"), None);
+    }
+
+    #[test]
+    fn parse_idle_seconds_when_present() {
+        assert_eq!(parse_active_pane_idle("1 0\n"), Some(0));
+        assert_eq!(parse_active_pane_idle("0 99\n1 42\n"), Some(42));
+    }
+
+    #[test]
+    fn missing_idle_classifies_idle_not_active() {
+        assert_eq!(
+            classify_pane_heuristics(None, "working…\n", 3),
+            SessionState::Idle
+        );
+    }
+
+    #[test]
+    fn capture_pane_args_omit_end_history_line() {
+        let args = capture_pane_args("c-claude", 40);
+        assert!(!args.iter().any(|a| a == "-E"));
+        assert!(!args.windows(2).any(|w| w[0] == "-E" && w[1] == "-1"));
+        assert!(args.contains(&"-S".into()));
+        assert!(args.contains(&"-40".into()));
     }
 }

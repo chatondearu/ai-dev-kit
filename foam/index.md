@@ -44,6 +44,7 @@ Index: [[decisions/index|All ADRs]]
 | [[../prd/PRD-72-cdamux-worktree-session-chrome|PRD-72]] cdamux worktree session chrome | approved |
 | [[../prd/PRD-75-cdamux-keymap-settings-form|PRD-75]] cdamux keymap + Settings form | shipped |
 | [[../prd/PRD-79-cdamux-widgets-extract|PRD-79]] cdamux widgets extract | approved |
+| [[../prd/PRD-83-cdamux-fleet-status-preview-agent|PRD-83]] cdamux Fleet status/preview/agent tag | approved |
 
 - PRD template: `prd/template.md`
 - Plan template: `plans/template.md`

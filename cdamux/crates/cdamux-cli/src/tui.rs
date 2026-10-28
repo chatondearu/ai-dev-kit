@@ -5,9 +5,11 @@ use crate::spawn_modal::{
     draw_modal, draw_overlay_scrim, on_key as spawn_modal_on_key, ModalState, SpawnModalAction,
 };
 use crate::app_tabs::{
-    draw_agents, draw_projects, draw_sessions_list, draw_settings, draw_tab_bar, flat_sessions,
-    help_for_tab, try_save, AppTab, bump_preview_lines, cycle_attach_mode, cycle_group_by,
+    draw_agents, draw_projects, draw_sessions_list, draw_tab_bar, flat_sessions, help_for_tab,
+    AppTab, cycle_group_by,
 };
+use crate::keymap::{fleet_help_text, map_key_event, DashboardAction};
+use crate::settings_form::{draw_settings, SettingsForm};
 use cdamux_core::{
     build_project_session_tree, capture_pane_text, config_path, discover_projects,
     format_orch_graph_panel, kill_tmux_session, load_config,
@@ -78,56 +80,6 @@ impl SideTab {
             SideTab::Review => "Review",
             SideTab::OrchGraph => "Orch graph",
         }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DashboardAction {
-    None,
-    Quit,
-    Attach,
-    Spawn,
-    SelectNext,
-    SelectPrev,
-    ToggleExpand,
-    FocusComposer,
-    CycleSideTab,
-    StartReview,
-    ToggleWaitingFilter,
-    FoldAll,
-    CycleGroupBy,
-    ToggleHelp,
-    KillSession,
-    ForkSession,
-    RenameSession,
-}
-
-pub fn map_key_event(key: KeyEvent) -> DashboardAction {
-    if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
-        return DashboardAction::Quit;
-    }
-    if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('r') {
-        return DashboardAction::StartReview;
-    }
-    match key.code {
-        KeyCode::Char('q') => DashboardAction::Quit,
-        KeyCode::Esc => DashboardAction::None,
-        KeyCode::Char('n') => DashboardAction::Spawn,
-        KeyCode::Char(' ') => DashboardAction::FocusComposer,
-        KeyCode::Tab => DashboardAction::CycleSideTab,
-        KeyCode::Enter => DashboardAction::Attach,
-        KeyCode::Down | KeyCode::Char('j') => DashboardAction::SelectNext,
-        KeyCode::Up | KeyCode::Char('k') => DashboardAction::SelectPrev,
-        KeyCode::Right | KeyCode::Char('l') => DashboardAction::ToggleExpand,
-        KeyCode::Left | KeyCode::Char('h') => DashboardAction::ToggleExpand,
-        KeyCode::Char('w') => DashboardAction::ToggleWaitingFilter,
-        KeyCode::Char('F') => DashboardAction::FoldAll,
-        KeyCode::Char('g') => DashboardAction::CycleGroupBy,
-        KeyCode::Char('?') => DashboardAction::ToggleHelp,
-        KeyCode::Char('x') => DashboardAction::KillSession,
-        KeyCode::Char('f') => DashboardAction::ForkSession,
-        KeyCode::Char('m') => DashboardAction::RenameSession,
-        _ => DashboardAction::None,
     }
 }
 
@@ -512,8 +464,7 @@ pub fn run_dashboard() -> ExitCode {
     let mut projects_scroll = 0usize;
     let mut sessions_selected = 0usize;
     let mut sessions_scroll = 0usize;
-    let mut settings_dirty = false;
-    let mut settings_status = String::new();
+    let mut settings = SettingsForm::new(config_path());
     let config_path_display = config_path()
         .map(|p| p.display().to_string())
         .unwrap_or_else(|| "(unknown)".into());
@@ -644,10 +595,10 @@ pub fn run_dashboard() -> ExitCode {
         let composer_session = session.map(|s| s.name.as_str());
 
         let help_status = if app_tab == AppTab::Settings {
-            if settings_status.is_empty() {
+            if settings.status.is_empty() {
                 status_line.as_str()
             } else {
-                settings_status.as_str()
+                settings.status.as_str()
             }
         } else {
             status_line.as_str()
@@ -688,7 +639,7 @@ pub fn run_dashboard() -> ExitCode {
                             status_line: help_status,
                         },
                         &cfg,
-                        settings_dirty,
+                        &settings,
                         &config_path_display,
                         &discovered,
                         projects_scroll,
@@ -788,6 +739,13 @@ pub fn run_dashboard() -> ExitCode {
                         }
                     }
                 }
+                // Settings modal is exclusive: digits, `q`, `n` go to its text input.
+                let ctrl_c = key.modifiers.contains(KeyModifiers::CONTROL)
+                    && key.code == KeyCode::Char('c');
+                if app_tab == AppTab::Settings && settings.modal.is_some() && !ctrl_c {
+                    settings.handle_key(&mut cfg, key);
+                    continue;
+                }
                 if spawn_overlay.is_none()
                     && rename_overlay.is_none()
                     && !show_help
@@ -805,7 +763,7 @@ pub fn run_dashboard() -> ExitCode {
                         }
                     }
                 }
-                if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
+                if ctrl_c {
                     should_quit = true;
                     continue;
                 }
@@ -816,10 +774,17 @@ pub fn run_dashboard() -> ExitCode {
                     continue;
                 }
 
-                if app_tab == AppTab::Settings {
-                    if handle_settings_keys(&mut cfg, key, &mut settings_dirty, &mut settings_status) {
-                        continue;
+                if show_help {
+                    if key.code == KeyCode::Char('?') || key.code == KeyCode::Esc {
+                        show_help = false;
                     }
+                    continue;
+                }
+
+                if app_tab == AppTab::Settings {
+                    // Unhandled keys must not fall through to Fleet actions (x kill, …).
+                    settings.handle_key(&mut cfg, key);
+                    continue;
                 } else if app_tab == AppTab::Projects {
                     if handle_projects_keys(key, &discovered, &mut projects_scroll) {
                         continue;
@@ -840,13 +805,6 @@ pub fn run_dashboard() -> ExitCode {
                         continue;
                     }
                 } else if app_tab != AppTab::Fleet {
-                    continue;
-                }
-
-                if show_help {
-                    if key.code == KeyCode::Char('?') || key.code == KeyCode::Esc {
-                        show_help = false;
-                    }
                     continue;
                 }
 
@@ -1054,7 +1012,7 @@ pub fn run_dashboard() -> ExitCode {
                             cfg.sessions.group_by,
                         );
                         selected_row = 0;
-                        settings_dirty = true;
+                        settings.dirty = true;
                         status_line = format!("group_by: {:?}", cfg.sessions.group_by);
                     }
                     DashboardAction::ToggleHelp => show_help = !show_help,
@@ -1114,57 +1072,6 @@ fn row_index_from_mouse(
         Some(rel)
     } else {
         None
-    }
-}
-
-fn handle_settings_keys(
-    cfg: &mut Config,
-    key: KeyEvent,
-    dirty: &mut bool,
-    status: &mut String,
-) -> bool {
-    match key.code {
-        KeyCode::Char('a') if key.modifiers.is_empty() => {
-            cfg.sessions.attach_mode = cycle_attach_mode(cfg.sessions.attach_mode);
-            *dirty = true;
-            status.clear();
-            true
-        }
-        KeyCode::Char('g') if key.modifiers.is_empty() => {
-            cfg.sessions.group_by = cycle_group_by(cfg.sessions.group_by);
-            *dirty = true;
-            status.clear();
-            true
-        }
-        KeyCode::Char('+') | KeyCode::Char('=') if key.modifiers.is_empty() => {
-            cfg.ui.preview_max_lines = bump_preview_lines(cfg.ui.preview_max_lines, 1);
-            *dirty = true;
-            status.clear();
-            true
-        }
-        KeyCode::Char('-') if key.modifiers.is_empty() => {
-            cfg.ui.preview_max_lines = bump_preview_lines(cfg.ui.preview_max_lines, -1);
-            *dirty = true;
-            status.clear();
-            true
-        }
-        KeyCode::Char('t') if key.modifiers.is_empty() => {
-            cfg.daemon.listen_tailnet = !cfg.daemon.listen_tailnet;
-            *dirty = true;
-            status.clear();
-            true
-        }
-        KeyCode::Char('s') | KeyCode::Char('S') if key.modifiers.is_empty() => {
-            match try_save(cfg) {
-                Ok(msg) => {
-                    *status = msg;
-                    *dirty = false;
-                }
-                Err(e) => *status = e,
-            }
-            true
-        }
-        _ => false,
     }
 }
 
@@ -1240,7 +1147,7 @@ fn draw_app_screen(
     app_tab: AppTab,
     state: DrawState<'_>,
     cfg: &Config,
-    settings_dirty: bool,
+    settings: &SettingsForm,
     config_path: &str,
     discovered: &[cdamux_core::Project],
     projects_scroll: usize,
@@ -1290,23 +1197,16 @@ fn draw_app_screen(
             sessions_selected,
         ),
         AppTab::Agents => draw_agents(f, root[1], agent_lines),
-        AppTab::Settings => draw_settings(
-            f,
-            root[1],
-            cfg,
-            settings_dirty,
-            state.status_line,
-            config_path,
-        ),
+        AppTab::Settings => draw_settings(f, root[1], cfg, settings, config_path),
     }
 
     let help = if app_tab == AppTab::Fleet && state.focus == FocusArea::Composer {
-        "composer: type · Enter send+↵ · Esc back"
+        "composer: type · Enter send+↵ · Esc back".to_string()
     } else {
-        help_for_tab(app_tab, settings_dirty)
+        help_for_tab(app_tab, settings.dirty)
     };
     let help_line = if state.status_line.is_empty() {
-        help.to_string()
+        help
     } else {
         format!("{}  |  {}", help, state.status_line)
     };
@@ -1317,26 +1217,6 @@ fn draw_app_screen(
     }
 }
 
-const FLEET_HELP: &str = "Fleet keys\n\
-j/k ↑↓     navigate tree\n\
-click      select row in tree\n\
-Enter      attach session (or review tab)\n\
-h/l ←→     expand/collapse project\n\
-F          fold/unfold all groups\n\
-w          waiting-for-input filter (◆)\n\
-g          cycle group_by (tree layout)\n\
-Space      composer (Preview tab)\n\
-Tab        Preview / Notes / Review\n\
-Ctrl+R     hunk review TUI\n\
-n          new session modal\n\
-f          fork session (same cwd, new name)\n\
-m          rename session\n\
-x          kill session\n\
-1-5        app tabs\n\
-?          this help\n\
-q          quit\n\n\
-Note: agent-manager `g` is group tree; here `g` cycles list grouping (project/cwd/agent/…).";
-
 fn draw_help_overlay(f: &mut Frame, area: ratatui::layout::Rect) {
     let block = Block::default()
         .borders(Borders::ALL)
@@ -1345,7 +1225,7 @@ fn draw_help_overlay(f: &mut Frame, area: ratatui::layout::Rect) {
     let inner = block.inner(area);
     f.render_widget(block, area);
     f.render_widget(
-        Paragraph::new(FLEET_HELP).wrap(Wrap { trim: false }),
+        Paragraph::new(fleet_help_text()).wrap(Wrap { trim: false }),
         inner,
     );
 }

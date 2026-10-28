@@ -110,12 +110,27 @@ Diff source: `git diff` plus `git diff --cached` in the resolved repo directory.
 - [ ] `n` spawn modal: running / discovered / custom path; optional shell-only and pane split
 - [ ] App tabs `1`–`5`: Fleet, Projects, Sessions, Agents, Settings (`S` saves config)
 - [ ] `w` waiting filter; `F` fold/unfold all; `g` cycle `group_by` (tree layout); `?` help overlay
+- [ ] Fleet footer shows `m` rename / `f` fork / `x` kill; `?` lists the same keys grouped
+
+### Settings tab (`5`)
+
+The old letter shortcuts (`a` attach, `g` group_by, `+`/`-` preview, `t` tailnet) are gone: focus a row instead.
+
+- [ ] `j`/`k` moves focus; focused row is highlighted with `›`
+- [ ] Enums (`attach_mode`, `group_by`, `discover`): `←`/`→` or `Enter` cycle
+- [ ] `listen_tailnet`: `Space` / `Enter` toggle
+- [ ] Numbers (`preview_max_lines`, `tailnet_port`, `idle_seconds_for_needs_input`, `max_depth`): `Enter` opens an input; non-numbers rejected
+- [ ] Roots: `a` add (label + absolute path, `Tab` switches field), `Enter` edit, `d` delete (`y` confirm); empty / relative path rejected
+- [ ] Dirty `*` next to config path; `S` validates (`tailnet_port` ≠ 0, `max_depth` ≥ 1) then saves; restart sees the new roots
 
 | Key | Action |
 | --- | --- |
-| `Tab` | Cycle Preview / Notes / Review |
+| `Tab` | Cycle Preview / Notes / Review / Orch graph |
 | `Ctrl+R` | Open review TUI |
 | `n` | Spawn modal |
+| `m` | Rename selected session |
+| `f` | Fork selected session (same cwd, new name) |
+| `x` | Kill selected session |
 | `w` | Toggle waiting-for-input (◆) filter on Fleet tree |
 | `F` | Expand or collapse all Fleet groups |
 | `g` | Cycle `sessions.group_by` (differs from agent-manager group tree) |

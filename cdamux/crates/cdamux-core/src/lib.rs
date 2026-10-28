@@ -350,22 +350,32 @@ pub fn config_path() -> Option<PathBuf> {
 
 pub fn load_config() -> Result<Config, ConfigError> {
     let path = config_path().ok_or_else(|| ConfigError::Read("no config path".into()))?;
+    load_config_from(&path)
+}
+
+/// Load config from an explicit path (missing file → defaults).
+pub fn load_config_from(path: &std::path::Path) -> Result<Config, ConfigError> {
     if !path.exists() {
         return Ok(Config::default());
     }
-    let raw = std::fs::read_to_string(&path).map_err(|e| ConfigError::Read(e.to_string()))?;
+    let raw = std::fs::read_to_string(path).map_err(|e| ConfigError::Read(e.to_string()))?;
     toml::from_str(&raw).map_err(|e| ConfigError::Parse(e.to_string()))
 }
 
 /// Persist config to the XDG `config.toml` (creates parent dir if needed).
 pub fn save_config(cfg: &Config) -> Result<(), ConfigError> {
     let path = config_path().ok_or_else(|| ConfigError::Write("no config path".into()))?;
+    save_config_to(cfg, &path)
+}
+
+/// Persist config to an explicit path (creates parent dir if needed).
+pub fn save_config_to(cfg: &Config, path: &std::path::Path) -> Result<(), ConfigError> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
             .map_err(|e| ConfigError::Write(e.to_string()))?;
     }
     let raw = toml::to_string_pretty(cfg).map_err(|e| ConfigError::Write(e.to_string()))?;
-    std::fs::write(&path, raw).map_err(|e| ConfigError::Write(e.to_string()))?;
+    std::fs::write(path, raw).map_err(|e| ConfigError::Write(e.to_string()))?;
     Ok(())
 }
 

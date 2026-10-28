@@ -42,7 +42,7 @@ Index: [[decisions/index|All ADRs]]
 | [[../prd/PRD-25-kiss-audit-orch-gh-board|PRD-25]] kiss-audit orch+gh-board | shipped |
 | [[../prd/PRD-6-kiss-audit-fixes|PRD-6]] prior kiss-audit batch | shipped |
 | [[../prd/PRD-72-cdamux-worktree-session-chrome|PRD-72]] cdamux worktree session chrome | approved |
-| [[../prd/PRD-75-cdamux-keymap-settings-form|PRD-75]] cdamux keymap + Settings form | approved |
+| [[../prd/PRD-75-cdamux-keymap-settings-form|PRD-75]] cdamux keymap + Settings form | shipped |
 
 - PRD template: `prd/template.md`
 - Plan template: `plans/template.md`

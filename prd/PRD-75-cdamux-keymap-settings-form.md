@@ -1,6 +1,6 @@
 # PRD-75 — cdamux keymap discoverability + editable Settings (roots)
 
-- **Status**: approved
+- **Status**: shipped
 - **GitHub**: [#75](https://github.com/chatondearu/ai-dev-kit/issues/75)
 - **Parent epic**: [#40](https://github.com/chatondearu/ai-dev-kit/issues/40)
 - **Date**: 2026-10-28
@@ -18,13 +18,14 @@ config pain) cannot be added/edited/deleted in the UI.
 
 ## Goals
 
-- [ ] **Keymap registry**: one table drives `map_key_event`, Fleet footer, and `?`
+- [x] **Keymap registry**: one table drives `map_key_event`, Fleet footer, and `?`
   overlay; Fleet footer includes `m` / `f` / `x`.
-- [ ] **Settings form**: focusable typed field list (enum cycle, bool toggle,
+- [x] **Settings form**: focusable typed field list (enum cycle, bool toggle,
   number/string via text modal).
-- [ ] **Roots**: add / edit / delete `projects.roots` from Settings; persist with `S`.
-- [ ] **Modules** shaped for a fast follow-up extracting `widgets/` (approach 2).
-- [ ] Update `cdamux/docs/dogfood.md` key table and Settings checklist.
+- [x] **Roots**: add / edit / delete `projects.roots` from Settings; persist with `S`.
+- [x] **Modules** shaped for a fast follow-up extracting `widgets/` (approach 2)
+  — follow-up [#79](https://github.com/chatondearu/ai-dev-kit/issues/79).
+- [x] Update `cdamux/docs/dogfood.md` key table and Settings checklist.
 
 ## Non-goals
 

@@ -41,6 +41,8 @@ Index: [[decisions/index|All ADRs]]
 | [[../prd/PRD-33-cda-aitools|PRD-33]] cda.aitools companion | shipped |
 | [[../prd/PRD-25-kiss-audit-orch-gh-board|PRD-25]] kiss-audit orch+gh-board | shipped |
 | [[../prd/PRD-6-kiss-audit-fixes|PRD-6]] prior kiss-audit batch | shipped |
+| [[../prd/PRD-72-cdamux-worktree-session-chrome|PRD-72]] cdamux worktree session chrome | approved |
+| [[../prd/PRD-75-cdamux-keymap-settings-form|PRD-75]] cdamux keymap + Settings form | approved |
 
 - PRD template: `prd/template.md`
 - Plan template: `plans/template.md`
@@ -48,4 +50,3 @@ Index: [[decisions/index|All ADRs]]
 ## Tags
 
 `#product` `#architecture` `#deployment` `#data` `#auth`
-| [[../prd/PRD-72-cdamux-worktree-session-chrome|PRD-72-cdamux-worktree-session-chrome]] | approved |

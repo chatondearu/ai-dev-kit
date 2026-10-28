@@ -35,7 +35,7 @@ impl SessionChrome {
             repo,
             worktree,
             branch,
-            agent: tmux_agent_label(session_name),
+            agent: session_agent_label(session_name),
             uptime: tmux_session_uptime(session_name),
             context: "n/a".into(),
             tasks: "n/a".into(),
@@ -44,7 +44,7 @@ impl SessionChrome {
 
     /// Refresh tmux-derived fields without re-running git (preview poll interval).
     pub fn refresh_volatile(&mut self, session_name: &str) {
-        self.agent = tmux_agent_label(session_name);
+        self.agent = session_agent_label(session_name);
         self.uptime = tmux_session_uptime(session_name);
     }
 
@@ -124,15 +124,26 @@ fn git_output(path: &Path, args: &[&str]) -> Option<String> {
     }
 }
 
-fn tmux_agent_label(session_name: &str) -> String {
-    for key in ["@cdamux_agent", "@ccmux_agent"] {
-        if let Some(v) = tmux_display(session_name, key) {
-            if !v.is_empty() {
-                return v;
-            }
+/// Placeholder when neither `@cdamux_agent` nor legacy `@ccmux_agent` is set.
+pub const AGENT_LABEL_MISSING: &str = "—";
+
+/// Prefer first non-empty option value; else [`AGENT_LABEL_MISSING`].
+pub fn resolve_agent_label(primary: Option<&str>, legacy: Option<&str>) -> String {
+    for v in [primary, legacy].into_iter().flatten() {
+        let t = v.trim();
+        if !t.is_empty() {
+            return t.to_string();
         }
     }
-    "—".into()
+    AGENT_LABEL_MISSING.into()
+}
+
+/// Agent id from tmux user options (`@cdamux_agent`, legacy `@ccmux_agent`).
+pub fn session_agent_label(session_name: &str) -> String {
+    resolve_agent_label(
+        tmux_display(session_name, "@cdamux_agent").as_deref(),
+        tmux_display(session_name, "@ccmux_agent").as_deref(),
+    )
 }
 
 fn tmux_session_uptime(session_name: &str) -> String {
@@ -189,5 +200,14 @@ mod tests {
             .as_secs();
         assert!(format_duration_since(now).ends_with('s'));
         assert_eq!(format_duration_since(now - 120), "2m");
+    }
+
+    #[test]
+    fn resolve_agent_label_prefers_primary_then_legacy_then_placeholder() {
+        assert_eq!(resolve_agent_label(Some("claude"), Some("cursor")), "claude");
+        assert_eq!(resolve_agent_label(None, Some("cursor")), "cursor");
+        assert_eq!(resolve_agent_label(Some("  "), Some("pi")), "pi");
+        assert_eq!(resolve_agent_label(None, None), AGENT_LABEL_MISSING);
+        assert_eq!(resolve_agent_label(Some(""), Some("")), AGENT_LABEL_MISSING);
     }
 }

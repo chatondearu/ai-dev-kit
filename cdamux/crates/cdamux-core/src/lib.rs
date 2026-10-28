@@ -30,7 +30,7 @@ pub use project_tree::{
     build_project_session_tree, project_for_path, project_key, state_icon, ProjectSessionTree,
     ProjectTreeNode,
 };
-pub use session_chrome::SessionChrome;
+pub use session_chrome::{session_agent_label, SessionChrome, AGENT_LABEL_MISSING};
 pub use session::{
     classify_session, enrich_sessions, group_sessions, EnrichedSession, GroupedSessions,
     SessionGroup, SessionState,

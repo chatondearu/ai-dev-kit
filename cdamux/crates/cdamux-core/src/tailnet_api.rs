@@ -389,6 +389,7 @@ mod tests {
                     path: "/tmp".into(),
                     group_key: "proj".into(),
                     state: SessionState::Idle,
+                    agent: "—".into(),
                 }],
             }],
         }

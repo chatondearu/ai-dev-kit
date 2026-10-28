@@ -1329,6 +1329,10 @@ fn tree_row_item(row: &TreeRow) -> ListItem<'_> {
                     format!("{}  ", s.name),
                     Style::default().fg(CLR_TEXT).add_modifier(Modifier::BOLD),
                 ),
+                Span::styled(
+                    format!("{}  ", s.agent),
+                    Style::default().fg(CLR_MUTED),
+                ),
                 Span::styled(s.path.clone(), Style::default().fg(CLR_MUTED)),
             ]))
         }
@@ -1523,6 +1527,7 @@ mod tests {
                     path: "/tmp/p".into(),
                     group_key: "p".into(),
                     state: SessionState::Idle,
+                    agent: "—".into(),
                 }],
             }],
             unassigned: vec![],
@@ -1552,12 +1557,14 @@ mod tests {
                         path: "/tmp/p".into(),
                         group_key: "p".into(),
                         state: SessionState::Idle,
+                        agent: "claude".into(),
                     },
                     cdamux_core::EnrichedSession {
                         name: "wait".into(),
                         path: "/tmp/p".into(),
                         group_key: "p".into(),
                         state: SessionState::NeedsInput,
+                        agent: "cursor".into(),
                     },
                 ],
             }],

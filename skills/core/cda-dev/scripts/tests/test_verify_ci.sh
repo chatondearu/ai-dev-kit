@@ -27,18 +27,27 @@ PATH="$FAKE:$_ORIG_PATH"
 out="$(orch_pr_checks_watch 1 5)"
 assert_eq "$out" "green" "ci green"
 
-# empty checks → pending by default (not CI-green)
+# empty checks → none immediately (fail-fast; not CI-green without opt-in)
 cat >"$FAKE/gh" <<EOF
 #!$STUB_BASH
 echo '[]'
 EOF
 chmod +x "$FAKE/gh"
+start_empty=$SECONDS
 set +e
-out_empty="$(orch_pr_checks_watch 99 0)"
+out_empty="$(orch_pr_checks_watch 99 600 2>/dev/null)"
 rc_empty=$?
 set -e
-assert_eq "$out_empty" "pending" "empty checks pending by default"
+elapsed_empty=$((SECONDS - start_empty))
+assert_eq "$out_empty" "none" "empty checks fail-fast none by default"
 assert_eq "$rc_empty" "1" "empty checks watch exits nonzero"
+if [ "$elapsed_empty" -lt 5 ]; then
+  PASSES=$((PASSES + 1))
+  printf 'ok   empty checks fail-fast (%ss)\n' "$elapsed_empty"
+else
+  FAILS=$((FAILS + 1))
+  printf 'FAIL empty checks should not wait (elapsed %ss)\n' "$elapsed_empty" >&2
+fi
 
 # empty checks → green when ORCH_ALLOW_NO_CHECKS=1
 ORCH_ALLOW_NO_CHECKS=1
@@ -192,5 +201,15 @@ set -e
 unset ORCH_VERIFY_TRUST
 assert_eq "$allow_rc" "0" "untrusted allows allowlisted true"
 rm -rf "$TMP_AGENTS"
+
+# progress JSON aggregate (agent poll surface)
+source "$TROOT/../lib/progress.sh"
+ORCH_REPO="$TMP"
+ORCH_PROGRESS=0
+orch_progress_set "42" ci "PR #9 waiting"
+assert_file "$TMP/.orch/run/42.json" "per-worker json written"
+assert_file "$TMP/.orch/run/status.json" "aggregate status.json written"
+phase="$(jq -r '.workers[] | select(.id=="42") | .phase' "$TMP/.orch/run/status.json")"
+assert_eq "$phase" "ci" "status.json lists worker phase"
 
 summary

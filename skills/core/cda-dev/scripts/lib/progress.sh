@@ -17,6 +17,41 @@ orch_progress_enabled() {
   [ -t 2 ]
 }
 
+# Machine-readable status for waiting agents (poll `.orch/run/status.json`).
+orch_progress_write_json() {
+  local id="$1" phase="$2" msg="$3"
+  local dir ts json_file agg
+  dir="$(orch_progress_dir)"
+  mkdir -p "$dir"
+  ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date -u)"
+  json_file="$dir/${id}.json"
+  if command -v jq >/dev/null 2>&1; then
+    jq -n \
+      --arg id "$id" \
+      --arg phase "$phase" \
+      --arg message "$msg" \
+      --arg updated_at "$ts" \
+      '{id:$id, phase:$phase, message:$message, updated_at:$updated_at}' \
+      >"$json_file"
+    # Aggregate all workers into one file agents can poll.
+    agg="$dir/status.json"
+    local files=() f
+    for f in "$dir"/*.json; do
+      [ -e "$f" ] || continue
+      case "$f" in */status.json) continue ;; esac
+      files+=("$f")
+    done
+    if [ "${#files[@]}" -eq 0 ]; then
+      jq -n --arg ts "$ts" '{updated_at:$ts, workers:[]}' >"$agg"
+    else
+      jq -s --arg ts "$ts" '{updated_at:$ts, workers:.}' "${files[@]}" >"$agg"
+    fi
+  else
+    printf '{"id":"%s","phase":"%s","message":"%s","updated_at":"%s"}\n' \
+      "$id" "$phase" "$msg" "$ts" >"$json_file"
+  fi
+}
+
 orch_progress_set() {
   local id="$1" phase="$2"
   shift 2
@@ -26,6 +61,7 @@ orch_progress_set() {
   mkdir -p "$dir"
   status_file="$dir/${id}.status"
   printf '%s|%s\n' "$phase" "$msg" >"$status_file"
+  orch_progress_write_json "$id" "$phase" "$msg"
 
   if ! orch_progress_enabled; then
     printf '[#%s] %s: %s\n' "$id" "$phase" "$msg" >&2

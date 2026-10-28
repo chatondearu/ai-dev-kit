@@ -83,6 +83,16 @@ if [ "$NO_PROGRESS" = 1 ]; then
   export ORCH_PROGRESS=0
 fi
 
+# Project opt-in: AGENTS.md line `orch: allow-no-checks` (repos without Actions).
+orch_apply_agents_orch_flags() {
+  local agents="${ORCH_REPO}/AGENTS.md"
+  [ -f "$agents" ] || return 0
+  if grep -Eiq '^[[:space:]]*orch:[[:space:]]*allow-no-checks\b' "$agents"; then
+    export ORCH_ALLOW_NO_CHECKS=1
+  fi
+}
+orch_apply_agents_orch_flags
+
 # Wait until fewer than MAX_P background jobs are running (bash job pool).
 orch_wait_for_slot() {
   local max="$1"
@@ -247,14 +257,23 @@ orch_ready_pickup_one() {
   fi
 
   orch_progress_set "$id" ci "PR #${pr_num} checks"
-  if ! orch_pr_checks_watch "$pr_num" 600; then
-    orch_progress_set "$id" blocked "CI failed/timeout PR #${pr_num}"
-    if ! orch_progress_enabled; then
-      printf 'blocked: CI checks failed or pending timeout for PR %s (issue %s)\n' "$pr_num" "$id" >&2
+  local ci_status=""
+  ci_status="$(orch_pr_checks_watch "$pr_num" 600)" || {
+    if [ "$ci_status" = "none" ]; then
+      orch_progress_set "$id" blocked "no checks on PR #${pr_num} (set orch: allow-no-checks)"
+      if ! orch_progress_enabled; then
+        printf 'blocked: PR %s has no checks (issue %s); set ORCH_ALLOW_NO_CHECKS=1 or AGENTS.md `orch: allow-no-checks`\n' \
+          "$pr_num" "$id" >&2
+      fi
+    else
+      orch_progress_set "$id" blocked "CI failed/timeout PR #${pr_num}"
+      if ! orch_progress_enabled; then
+        printf 'blocked: CI checks failed or pending timeout for PR %s (issue %s)\n' "$pr_num" "$id" >&2
+      fi
     fi
     echo 1 >"$rc_file"
     return 1
-  fi
+  }
   if ! m="$(orch_pr_mergeable "$pr_num")" || { [ "$m" != "MERGEABLE" ] && [ "$m" != "UNKNOWN" ]; }; then
     orch_progress_set "$id" blocked "not mergeable (${m:-UNKNOWN})"
     if ! orch_progress_enabled; then
@@ -558,10 +577,14 @@ case "$MODE" in
         exit 1
       fi
 
-      if ! orch_pr_checks_watch "$num" 600; then
-        printf 'blocked: CI checks failed or pending timeout for PR %s\n' "$num" >&2
+      ci_status="$(orch_pr_checks_watch "$num" 600)" || {
+        if [ "$ci_status" = "none" ]; then
+          printf 'blocked: PR %s has no checks; set ORCH_ALLOW_NO_CHECKS=1 or AGENTS.md `orch: allow-no-checks`\n' "$num" >&2
+        else
+          printf 'blocked: CI checks failed or pending timeout for PR %s\n' "$num" >&2
+        fi
         exit 1
-      fi
+      }
       m=""
       if ! m="$(orch_pr_mergeable "$num")" || { [ "$m" != "MERGEABLE" ] && [ "$m" != "UNKNOWN" ]; }; then
         printf 'blocked: PR %s is not mergeable (mergeable=%s)\n' "$num" "${m:-UNKNOWN}" >&2

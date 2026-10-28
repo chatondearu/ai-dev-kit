@@ -102,5 +102,8 @@ bash skills/design/cda-design-loop/scripts/tests/test_seed_design.sh
   `skills/core/cda-dev/templates/systemd/` (ADR-002). Do not enable from
   `install.sh`. Stop the timer to free the machine; prefer a dedicated host.
 - `headless.sh` does **not** open PRs from issues (ADR-001); use orch / orch-auto.
+- This repo has **no** GitHub Actions PR checks. Orch treats empty checks as green when:
+  orch: allow-no-checks
+  (or `ORCH_ALLOW_NO_CHECKS=1`). Poll live worker state at `.orch/run/status.json`.
 
 verify: bash -n skills/core/cda-kanban/scripts/gh-board.sh && bash skills/core/cda-kanban/scripts/gh-board.sh reconcile-backlog --help

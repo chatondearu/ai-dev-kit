@@ -1,6 +1,6 @@
 # PLAN-75 — cdamux keymap + Settings form (roots)
 
-- **Status**: draft
+- **Status**: in-progress
 - **PRD**: [[../prd/PRD-75-cdamux-keymap-settings-form|PRD-75]]
 - **GitHub**: [#75](https://github.com/chatondearu/ai-dev-kit/issues/75)
 - **Parent epic**: [#40](https://github.com/chatondearu/ai-dev-kit/issues/40)
@@ -57,40 +57,40 @@ Tracer bullets in `cdamux-cli` (ratatui only):
 
 ### Slice A — Keymap (discoverability)
 
-- [ ] **A1** Keymap table covers all current Fleet dashboard actions with stable
+- [x] **A1** Keymap table covers all current Fleet dashboard actions with stable
   `DashboardAction` (or equivalent) mapping; `m`→rename, `f`→fork, `x`→kill
   unchanged. *Accept:* unit test maps those three keys.
-- [ ] **A2** Fleet footer string is derived from the registry and includes
+- [x] **A2** Fleet footer string is derived from the registry and includes
   `m`/`f`/`x` (and existing nav). *Accept:* assertion on footer content.
-- [ ] **A3** `?` overlay content is derived from the same registry (grouped).
+- [x] **A3** `?` overlay content is derived from the same registry (grouped).
   *Accept:* help text contains rename/fork/kill lines; no second hand-maintained
   full help string.
 
 ### Slice B — Settings field list (no roots yet)
 
-- [ ] **B1** Focusable field rows for: `attach_mode`, `group_by`,
+- [x] **B1** Focusable field rows for: `attach_mode`, `group_by`,
   `preview_max_lines`, `listen_tailnet`, `tailnet_port`,
   `idle_seconds_for_needs_input`, `discover`, `max_depth`. *Accept:* j/k moves
   focus; focused row visually distinct.
-- [ ] **B2** Enum cycle (←→/Enter), bool toggle (Space/Enter), scalar Enter→text
+- [x] **B2** Enum cycle (←→/Enter), bool toggle (Space/Enter), scalar Enter→text
   modal. *Accept:* unit tests flip/cycle/set values on a `Config` without TUI.
-- [ ] **B3** Dirty `*` + `S` save; validation rejects bad port / `max_depth < 1`
+- [x] **B3** Dirty `*` + `S` save; validation rejects bad port / `max_depth < 1`
   with status message and no write. *Accept:* save-to-temp success + validation
   failure cases.
 
 ### Slice C — Roots CRUD
 
-- [ ] **C1** Roots listed under projects section; add (`a` or add-row), edit
+- [x] **C1** Roots listed under projects section; add (`a` or add-row), edit
   (Enter), delete (`d` + confirm). *Accept:* unit tests mutate
   `cfg.projects.roots`.
-- [ ] **C2** Round-trip: edit roots → save → reload TOML equals expected roots.
+- [x] **C2** Round-trip: edit roots → save → reload TOML equals expected roots.
   *Accept:* temp-dir integration test via `save_config` / load.
-- [ ] **C3** Empty path rejected on confirm/save. *Accept:* status error, no
+- [x] **C3** Empty path rejected on confirm/save. *Accept:* status error, no
   empty root persisted.
 
 ### Slice D — Docs + follow-up hook
 
-- [ ] **D1** Update `cdamux/docs/dogfood.md` mission-control key table (`m`/`f`/`x`)
+- [x] **D1** Update `cdamux/docs/dogfood.md` mission-control key table (`m`/`f`/`x`)
   and Settings edit checklist.
 - [ ] **D2** After implementation PR merges: open follow-up issue for `widgets/`
   extract citing `settings_form` seams (Toggle/Select/TextInput/FieldList).
@@ -120,7 +120,7 @@ Manual dogfood: Fleet footer shows `m`; Settings add a root → `S` → restart 
 
 ## Verification
 
-- [ ] Lint / test / build as above
+- [x] Lint / test / build as above
 - [ ] Plan tasks ticked; PRD → `shipped` on merge
 - [ ] Follow-up widgets issue filed (D2)
 - [ ] Foam / import-kanban if feature lists need refresh

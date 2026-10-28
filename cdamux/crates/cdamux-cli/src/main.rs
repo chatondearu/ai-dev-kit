@@ -1,7 +1,9 @@
 //! cdamux — CLI for agent session orchestration on tmux.
 
 mod app_tabs;
+mod keymap;
 mod review_tui;
+mod settings_form;
 mod spawn_modal;
 mod tui;
 

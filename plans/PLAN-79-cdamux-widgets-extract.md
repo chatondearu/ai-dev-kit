@@ -1,6 +1,6 @@
 # PLAN-79 — extract ratatui widgets from settings_form
 
-- **Status**: draft
+- **Status**: in-progress
 - **PRD**: [[../prd/PRD-79-cdamux-widgets-extract|PRD-79]]
 - **GitHub**: [#79](https://github.com/chatondearu/ai-dev-kit/issues/79)
 - **Parent**: [#75](https://github.com/chatondearu/ai-dev-kit/issues/75) / [[../prd/PRD-75-cdamux-keymap-settings-form|PRD-75]]
@@ -39,10 +39,10 @@ share TextInput with rename. Ratatui only; no new crate.
 
 ## Tasks
 
-- [ ] **W1** Widgets module compiles; Select/Toggle/TextInput/FieldList cover Settings needs. *Accept:* unit tests on widget helpers without full TUI.
-- [ ] **W2** Settings form is a thin consumer; all #75 behaviors preserved (focus, cycle, roots, validate+save). *Accept:* existing settings_form tests still pass (moved or adapted).
-- [ ] **W3** Rename modal uses shared TextInput **or** deferred with comment `shortcut: rename still local, adopt when FieldList lands`. *Accept:* rename still works in tests / no regress.
-- [ ] **W4** Dogfood note if operator-visible; `cargo test -p cdamux-cli` green.
+- [x] **W1** Widgets module compiles; Select/Toggle/TextInput/FieldList cover Settings needs. *Accept:* unit tests on widget helpers without full TUI.
+- [x] **W2** Settings form is a thin consumer; all #75 behaviors preserved (focus, cycle, roots, validate+save). *Accept:* existing settings_form tests still pass (moved or adapted).
+- [x] **W3** Rename modal uses shared TextInput **or** deferred with comment `shortcut: rename still local, adopt when FieldList lands`. *Accept:* rename still works in tests / no regress.
+- [x] **W4** Dogfood note if operator-visible; `cargo test -p cdamux-cli` green.
 
 ## Test plan
 

@@ -1,10 +1,11 @@
 //! Settings tab: focusable typed field list editing `Config` in place.
 //!
-//! Seams kept small for a later `widgets/` extract: field kinds (enum / bool /
-//! scalar / root), a text modal, and the field list renderer.
+//! Thin consumer of `widgets`: maps `Config` fields to Select / Toggle /
+//! TextInput / FieldList.
 
-use crate::app_tabs::{
-    screen_block, CLR_ACCENT, CLR_MUTED, CLR_OK, CLR_PROJECT, CLR_SEL_BG, CLR_TEXT, CLR_WARN,
+use crate::app_tabs::{CLR_MUTED, CLR_OK, CLR_PROJECT, CLR_TEXT};
+use crate::widgets::{
+    cycle, draw_field_list, draw_text_modal, edit_text, move_focus, toggle_text, FieldRow,
 };
 use cdamux_core::{
     save_config_to, AttachMode, Config, DiscoverMode, GroupBy, ProjectRoot,
@@ -12,14 +13,12 @@ use cdamux_core::{
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
     layout::Rect,
-    style::{Color, Modifier, Style},
+    style::Style,
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
+    widgets::ListItem,
     Frame,
 };
 use std::path::{Path, PathBuf};
-
-const MODAL_BG: Color = Color::Rgb(22, 26, 34);
 
 const ATTACH_MODES: [AttachMode; 2] = [AttachMode::Mirror, AttachMode::Exclusive];
 const GROUP_BYS: [GroupBy; 5] = [
@@ -117,7 +116,7 @@ fn value_of(cfg: &Config, field: Field) -> String {
         Field::AttachMode => format!("{:?}", cfg.sessions.attach_mode).to_lowercase(),
         Field::GroupBy => format!("{:?}", cfg.sessions.group_by),
         Field::PreviewMaxLines => cfg.ui.preview_max_lines.to_string(),
-        Field::ListenTailnet => if cfg.daemon.listen_tailnet { "on" } else { "off" }.into(),
+        Field::ListenTailnet => toggle_text(cfg.daemon.listen_tailnet).into(),
         Field::TailnetPort => cfg.daemon.tailnet_port.to_string(),
         Field::IdleSeconds => cfg.daemon.idle_seconds_for_needs_input.to_string(),
         Field::Discover => format!("{:?}", cfg.projects.discover),
@@ -136,11 +135,6 @@ fn value_of(cfg: &Config, field: Field) -> String {
             .unwrap_or_default(),
         Field::AddRoot => String::new(),
     }
-}
-
-fn cycle<T: Copy + PartialEq>(all: &[T], cur: T, delta: i32) -> T {
-    let pos = all.iter().position(|v| *v == cur).unwrap_or(0) as i32;
-    all[(pos + delta).rem_euclid(all.len() as i32) as usize]
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -202,9 +196,11 @@ impl SettingsForm {
         let field = self.focused(cfg);
         match key.code {
             KeyCode::Down | KeyCode::Char('j') => {
-                self.focus = (self.focus + 1).min(fields(cfg).len() - 1);
+                self.focus = move_focus(self.focus, fields(cfg).len(), 1);
             }
-            KeyCode::Up | KeyCode::Char('k') => self.focus = self.focus.saturating_sub(1),
+            KeyCode::Up | KeyCode::Char('k') => {
+                self.focus = move_focus(self.focus, fields(cfg).len(), -1);
+            }
             KeyCode::Left | KeyCode::Char('h') => self.step(cfg, field, -1),
             KeyCode::Right | KeyCode::Char('l') => self.step(cfg, field, 1),
             KeyCode::Char(' ') if field.kind() == Kind::Bool => self.step(cfg, field, 1),
@@ -284,7 +280,7 @@ impl SettingsForm {
                         Err(e) => self.status = e,
                     }
                 } else {
-                    edit_text(input, key);
+                    edit_text(input, key, |_| true);
                 }
             }
             Modal::Root { index, label, path, on_path } => match key.code {
@@ -311,7 +307,7 @@ impl SettingsForm {
                     self.modal = None;
                     self.changed();
                 }
-                _ => edit_text(if *on_path { path } else { label }, key),
+                _ => edit_text(if *on_path { path } else { label }, key, |_| true),
             },
         }
     }
@@ -347,71 +343,39 @@ fn set_scalar(cfg: &mut Config, field: Field, input: &str) -> Result<(), String>
     Ok(())
 }
 
-fn edit_text(buf: &mut String, key: KeyEvent) {
-    match key.code {
-        KeyCode::Backspace => {
-            buf.pop();
-        }
-        KeyCode::Char(c)
-            if (key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT)
-                && !c.is_control() =>
-        {
-            buf.push(c);
-        }
-        _ => {}
-    }
-}
-
 pub fn draw_settings(f: &mut Frame, area: Rect, cfg: &Config, form: &SettingsForm, config_path: &str) {
     let dirty_tag = if form.dirty { " *" } else { "" };
-    let focused = form.focused(cfg);
-    let mut items = vec![ListItem::new(Line::from(vec![
+    let header = ListItem::new(Line::from(vec![
         Span::styled("config: ", Style::default().fg(CLR_MUTED)),
         Span::styled(format!("{config_path}{dirty_tag}"), Style::default().fg(CLR_TEXT)),
-    ]))];
-    let mut selected = 0;
-    let mut section = "";
-    for field in fields(cfg) {
-        if field.section() != section {
-            section = field.section();
-            items.push(ListItem::new(""));
-            items.push(ListItem::new(Span::styled(section, Style::default().fg(CLR_ACCENT))));
-        }
-        let is_focus = field == focused;
-        if is_focus {
-            selected = items.len();
-        }
-        let value_color = match field {
-            Field::ListenTailnet if cfg.daemon.listen_tailnet => CLR_OK,
-            Field::ListenTailnet | Field::AddRoot => CLR_MUTED,
-            _ => CLR_PROJECT,
-        };
-        let line = Line::from(vec![
-            Span::raw(format!("{} {}", if is_focus { "›" } else { " " }, field.label())),
-            Span::raw(if field.kind() == Kind::Action { "" } else { " = " }),
-            Span::styled(value_of(cfg, field), Style::default().fg(value_color)),
-        ]);
-        let style = if is_focus {
-            Style::default().bg(CLR_SEL_BG).fg(CLR_TEXT).add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(CLR_TEXT)
-        };
-        items.push(ListItem::new(line).style(style));
-    }
+    ]));
+    let all = fields(cfg);
+    let focus = form.focus.min(all.len() - 1);
+    let rows = all
+        .into_iter()
+        .map(|field| FieldRow {
+            section: field.section(),
+            label: field.label(),
+            value: value_of(cfg, field),
+            value_color: match field {
+                Field::ListenTailnet if cfg.daemon.listen_tailnet => CLR_OK,
+                Field::ListenTailnet | Field::AddRoot => CLR_MUTED,
+                _ => CLR_PROJECT,
+            },
+            action: field.kind() == Kind::Action,
+        })
+        .collect();
     let status = if form.status.is_empty() { "S: save to disk" } else { form.status.as_str() };
-    items.push(ListItem::new(""));
-    items.push(ListItem::new(Span::styled(status.to_string(), Style::default().fg(CLR_WARN))));
-
-    let mut state = ListState::default().with_selected(Some(selected));
-    f.render_stateful_widget(List::new(items).block(screen_block("settings")), area, &mut state);
+    draw_field_list(f, area, "settings", header, rows, focus, status);
 
     if let Some(modal) = &form.modal {
-        draw_modal(f, area, modal, cfg);
+        let (title, body) = modal_text(modal, cfg);
+        draw_text_modal(f, area, title, body);
     }
 }
 
-fn draw_modal(f: &mut Frame, area: Rect, modal: &Modal, cfg: &Config) {
-    let (title, body) = match modal {
+fn modal_text(modal: &Modal, cfg: &Config) -> (String, String) {
+    match modal {
         Modal::Scalar { field, input } => (
             format!(" {} ", field.label()),
             format!("value: {input}█\nEnter save · Esc cancel"),
@@ -429,17 +393,7 @@ fn draw_modal(f: &mut Frame, area: Rect, modal: &Modal, cfg: &Config) {
             " Delete root ".into(),
             format!("delete {}?\ny/Enter confirm · Esc cancel", value_of(cfg, Field::Root(*i))),
         ),
-    };
-    let w = area.width.saturating_sub(4).min(72);
-    let rect = Rect::new(area.x + (area.width - w) / 2, area.y + area.height / 3, w, 5)
-        .intersection(area);
-    let block = Block::default()
-        .title(title)
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Cyan))
-        .style(Style::default().bg(MODAL_BG).fg(CLR_TEXT));
-    f.render_widget(ratatui::widgets::Clear, rect);
-    f.render_widget(Paragraph::new(body).block(block), rect);
+    }
 }
 
 #[cfg(test)]

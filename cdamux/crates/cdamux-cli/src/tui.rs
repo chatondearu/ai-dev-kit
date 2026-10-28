@@ -10,6 +10,7 @@ use crate::app_tabs::{
 };
 use crate::keymap::{fleet_help_text, map_key_event, DashboardAction};
 use crate::settings_form::{draw_settings, SettingsForm};
+use crate::widgets::edit_text;
 use cdamux_core::{
     build_project_session_tree, capture_pane_text, config_path, discover_projects,
     format_orch_graph_panel, kill_tmux_session, load_config,
@@ -121,17 +122,11 @@ fn rename_on_key(state: &mut RenameState, key: KeyEvent) -> RenameAction {
     match key.code {
         KeyCode::Esc => RenameAction::Cancel,
         KeyCode::Enter => RenameAction::Confirm,
-        KeyCode::Backspace => {
-            state.input.pop();
+        _ => {
+            // tmux session names: ASCII only.
+            edit_text(&mut state.input, key, |c| c.is_ascii());
             RenameAction::Continue
         }
-        KeyCode::Char(c) if key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT => {
-            if c.is_ascii() && !c.is_control() {
-                state.input.push(c);
-            }
-            RenameAction::Continue
-        }
-        _ => RenameAction::Continue,
     }
 }
 

@@ -6,6 +6,7 @@ mod review_tui;
 mod settings_form;
 mod spawn_modal;
 mod tui;
+mod widgets;
 
 use cdamux_core::{
     command_on_path, config_path, configured_agent_ids, default_agent_name, discover_projects,

@@ -55,6 +55,8 @@ See `config/cdamux.example.toml`. Highlights:
   no `-E -1`, which blanks panes with `history_size=0`). CLI renders ANSI via `ansi-to-tui`;
   **Enter** attaches for full interactive tmux. Session Active/Idle uses `pane_idle_time`;
   empty/unsupported → Idle (fail closed), not Active-via-zero.
+- **Agent tag** — spawn sets `@cdamux_agent` (legacy `@ccmux_agent`); Fleet session rows
+  and Preview chrome show that label, or `—` when unset.
 - `sessions.attach_mode` — `mirror | exclusive` (tmux `-d`), same semantics as skzv.
 - `daemon.listen_tailnet`, `daemon.tailnet_port`.
 - `[agents.cursor]` command override (kit: `cursor-agent`).

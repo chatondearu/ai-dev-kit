@@ -111,6 +111,7 @@ Diff source: `git diff` plus `git diff --cached` in the resolved repo directory.
 - [ ] App tabs `1`–`5`: Fleet, Projects, Sessions, Agents, Settings (`S` saves config)
 - [ ] `w` waiting filter; `F` fold/unfold all; `g` cycle `group_by` (tree layout); `?` help overlay
 - [ ] Fleet footer shows `m` rename / `f` fork / `x` kill; `?` lists the same keys grouped
+- [ ] Fleet session rows show agent tag (`@cdamux_agent`); missing option shows `—` (same as Preview chrome)
 
 ### Settings tab (`5`)
 

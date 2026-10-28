@@ -1,5 +1,6 @@
 //! Session list enrichment and grouping.
 
+use crate::session_chrome::{session_agent_label, AGENT_LABEL_MISSING};
 use crate::{discover_projects, GroupBy, Project, ProjectsConfig, TmuxSession};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -20,12 +21,19 @@ impl Default for SessionState {
     }
 }
 
+fn default_agent_label() -> String {
+    AGENT_LABEL_MISSING.into()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EnrichedSession {
     pub name: String,
     pub path: String,
     pub group_key: String,
     pub state: SessionState,
+    /// From `@cdamux_agent` / `@ccmux_agent`; [`AGENT_LABEL_MISSING`] when unset.
+    #[serde(default = "default_agent_label")]
+    pub agent: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -66,6 +74,7 @@ pub fn enrich_sessions(
                 path: s.path.clone(),
                 group_key: key,
                 state: classify_session(s, idle_seconds_for_needs_input),
+                agent: session_agent_label(&s.name),
             }
         })
         .collect()

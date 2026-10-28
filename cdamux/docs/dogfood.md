@@ -122,6 +122,10 @@ The old letter shortcuts (`a` attach, `g` group_by, `+`/`-` preview, `t` tailnet
 - [ ] Numbers (`preview_max_lines`, `tailnet_port`, `idle_seconds_for_needs_input`, `max_depth`): `Enter` opens an input; non-numbers rejected
 - [ ] Roots: `a` add (label + absolute path, `Tab` switches field), `Enter` edit, `d` delete (`y` confirm); empty / relative path rejected
 - [ ] Dirty `*` next to config path; `S` validates (`tailnet_port` ≠ 0, `max_depth` ≥ 1) then saves; restart sees the new roots
+- [ ] Rename modal (`m`, Fleet) types and backspaces like the Settings inputs; non-ASCII chars ignored
+
+Form pieces (Select, Toggle, TextInput, FieldList, text modal) live in
+`crates/cdamux-cli/src/widgets.rs`; Settings and the rename modal consume them (#79).
 
 | Key | Action |
 | --- | --- |

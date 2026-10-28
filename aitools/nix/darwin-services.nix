@@ -22,8 +22,10 @@
             ProgramArguments = [cdamuxdBin];
             RunAtLoad = true;
             KeepAlive = true;
+            # Nix tmux lives under /run/current-system/sw/bin — without it
+            # cdamuxd cannot poll and session STATE stays unknown.
             EnvironmentVariables = {
-              PATH = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin";
+              PATH = "/run/current-system/sw/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/Users/${a.user}/.local/bin:/usr/bin:/bin";
             };
           };
         };

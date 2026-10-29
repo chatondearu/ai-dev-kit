@@ -9,6 +9,8 @@ Map of Content (MOC). Start here before product or architecture decisions.
 3. **Technical choice** → `foam/decisions/ADR-NNN-slug.md`.
 4. **Sync kanban** → `import-kanban.sh` refreshes [[features/shipped|shipped]] / [[features/backlog|backlog]].
 
+**Layout verify:** skill **cda-doc-hygiene** → `doc-hygiene.sh --check`.
+
 ## Product
 
 - [[product/vision|Vision & positioning]]

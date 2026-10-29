@@ -34,4 +34,4 @@ PRD/plan/ADR/`doc/`).
 - Duplicating operator docs in foam (wikilink instead).
 - `docs/superpowers/**` (removed; use foam archive + kit workflows).
 
-Skills: **cda-foam**, **cda-prd**, **cda-plan**, **cda-docs**, **cda-agents**.
+Skills: **cda-foam**, **cda-prd**, **cda-plan**, **cda-docs**, **cda-agents**, **cda-doc-hygiene**.

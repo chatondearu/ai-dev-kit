@@ -36,4 +36,4 @@ Before implementing features or making technical/product/design decisions:
 - Durable stack or workflow changes → update `AGENTS.md` § Project-specific notes.
 
 Skills: **cda-foam**, **cda-prd**, **cda-plan**,
-**cda-kanban**, **cda-agents**.
+**cda-kanban**, **cda-agents**, **cda-doc-hygiene**.

@@ -120,6 +120,16 @@ bash scripts/import-kanban.sh --dry-run
 Regenerates `foam/features/shipped.md` and `foam/features/backlog.md` from
 `gh issue list`. Re-run after milestones or when onboarding a repo.
 
+### C2 — Doc layout verify
+
+```bash
+bash ~/.cursor/skills/cda-doc-hygiene/scripts/doc-hygiene.sh --check
+bash ~/.cursor/skills/cda-doc-hygiene/scripts/doc-hygiene.sh --report --gh
+```
+
+Skill **cda-doc-hygiene** — catches misplaced Superpowers trees, broken plan links,
+and closed issues still under `plans/`. See `foam/product/documentation-layout.md`.
+
 ### D — Import historical decisions (one-off)
 
 For mature repos: read closed issues + CHANGELOG + `AGENTS.md` gotchas → distill

@@ -22,7 +22,7 @@ must follow this sequence:
    refresh this file when stack or skills change.
 
 Skills: **cda-foam**, **cda-prd**, **cda-plan**,
-**cda-dev**, **cda-graph**, **cda-kanban**,
+**cda-dev**, **cda-graph**, **cda-kanban**, **cda-doc-hygiene**,
 **cda-agents**, **cda-commit**, **cda-review**.
 
 ## Project memory (foam)
@@ -54,6 +54,7 @@ Cursor rule (if present): `.cursor/rules/product-memory.mdc`.
 | Implementation plan from PRD | `cda-plan` |
 | Multi-task chat batch → epic + parallel PRs | `cda-dev` |
 | Issues, board, PRs, milestones | `cda-kanban` |
+| Foam / PRD / plan layout verify | `cda-doc-hygiene` |
 | Commits | `cda-commit` |
 | Code review | `cda-review` |
 | Bold creative UI | `cda-design-bold` |
@@ -91,7 +92,8 @@ Never enabled by `install.sh`. Relocatable root: `CDA_AITOOLS_HOME`.
 **Verify (run before every PR):**
 
 ```bash
-for t in skills/core/cda-dev/scripts/tests/test_*.sh skills/core/cda-dev/scripts/tests/smoke_orch_dry.sh scripts/tests/test_doctor.sh; do bash "$t"; done
+for t in skills/core/cda-dev/scripts/tests/test_*.sh skills/core/cda-dev/scripts/tests/smoke_orch_dry.sh scripts/tests/test_doctor.sh skills/core/cda-doc-hygiene/scripts/tests/test_doc_hygiene.sh; do bash "$t"; done
+bash skills/core/cda-doc-hygiene/scripts/doc-hygiene.sh --check
 bash skills/quality/cda-kiss/hooks/test.sh
 bash skills/design/cda-design-loop/scripts/tests/test_seed_design.sh
 (cd cdamux && cargo test)

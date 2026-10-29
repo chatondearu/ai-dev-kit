@@ -164,6 +164,7 @@ collision, max iterations, CI red needing product/decision input.
 | `cda-commit` | Conventional Commits on worker branches |
 | `cda-review` | Systematic review before / with PR |
 | `cda-graph` | Graph orchestration model, foam export, OpenClaw mapping |
+| `cda-doc-hygiene` | Layout verify; archive closed plans before long-running orch |
 | Host plugins | Compose `loop-on-ci`, Bugbot, security review — do not replace |
 
 ## Out of scope (v1)

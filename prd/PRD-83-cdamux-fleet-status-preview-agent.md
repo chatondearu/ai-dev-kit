@@ -64,6 +64,6 @@ on session rows in the tree.
 
 ## Implementation pointer
 
-- `plans/PLAN-84-cdamux-idle-preview.md`
-- `plans/PLAN-85-cdamux-agent-tag.md`
+- `foam/archive/plans/PLAN-84-cdamux-idle-preview.md`
+- `foam/archive/plans/PLAN-85-cdamux-agent-tag.md`
 - Graph: `plans/graph/epic-83.json`

@@ -56,5 +56,5 @@ Research and feature matrix: [`cdamux/docs/research.md`](../../cdamux/docs/resea
 ## References
 
 - PRD: [`prd/PRD-39-cdamux.md`](../../prd/PRD-39-cdamux.md)
-- Plan: [`plans/PLAN-39-cdamux-v0.md`](../../plans/PLAN-39-cdamux-v0.md)
+- Plan (v0, archived): [`foam/archive/plans/PLAN-39-cdamux-v0.md`](../../foam/archive/plans/PLAN-39-cdamux-v0.md)
 - [[ADR-003-cda-aitools|ADR-003]] cda.aitools companion

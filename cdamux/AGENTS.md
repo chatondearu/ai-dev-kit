@@ -4,12 +4,13 @@ Read this file first when working in `cdamux/` (in-tree until v0 extract).
 
 ## Mandatory context
 
-1. **PRD**: [`../prd/PRD-39-cdamux.md`](../prd/PRD-39-cdamux.md)
-2. **Plan**: [`../plans/PLAN-39-cdamux-v0.md`](../plans/PLAN-39-cdamux-v0.md)
-3. **ADR**: [`../foam/decisions/ADR-004-cdamux.md`](../foam/decisions/ADR-004-cdamux.md)
-4. **Research matrix**: [`docs/research.md`](docs/research.md) — do not drop competitor rationale
-5. **Architecture**: [`docs/architecture.md`](docs/architecture.md)
-6. **GitHub**: [#40](https://github.com/chatondearu/ai-dev-kit/issues/40)
+1. **PRD**: [`../prd/PRD-39-cdamux.md`](../prd/PRD-39-cdamux.md) · v2: [`../prd/PRD-41-cdamux-mission-control-tui.md`](../prd/PRD-41-cdamux-mission-control-tui.md)
+2. **Plan (active)**: [`../plans/PLAN-41-cdamux-mission-control-tui.md`](../plans/PLAN-41-cdamux-mission-control-tui.md)
+3. **Plan (v0 bootstrap, archived)**: [`../foam/archive/plans/PLAN-39-cdamux-v0.md`](../foam/archive/plans/PLAN-39-cdamux-v0.md)
+4. **ADR**: [`../foam/decisions/ADR-004-cdamux.md`](../foam/decisions/ADR-004-cdamux.md)
+5. **Research matrix**: [`docs/research.md`](docs/research.md) — do not drop competitor rationale
+6. **Architecture**: [`docs/architecture.md`](docs/architecture.md)
+7. **GitHub**: [#40](https://github.com/chatondearu/ai-dev-kit/issues/40) · v2 epic [#58](https://github.com/chatondearu/ai-dev-kit/issues/58)
 
 Parent kit rules: [`../AGENTS.md`](../AGENTS.md) (foam, kanban, verify scripts for kit — not all apply here).
 

@@ -120,4 +120,4 @@ _(none — resolved in design: approach 1 now / 2 next; roots in v1)_
 
 ## Implementation pointer
 
-`plans/PLAN-75-cdamux-keymap-settings-form.md` from `plans/template.md`
+`foam/archive/plans/PLAN-75-cdamux-keymap-settings-form.md` from `plans/template.md`

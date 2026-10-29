@@ -83,7 +83,7 @@ agent telemetry are not specified end-to-end.
 - [[../foam/decisions/ADR-004-cdamux|ADR-004]] — cdamux in-tree, Rust, tmux orchestration
 - [[../prd/PRD-41-cdamux-mission-control-tui|PRD-41]] — Fleet / spawn modal baseline (shipped)
 - [[../prd/PRD-39-cdamux|PRD-39]] — v0 orchestrator scope
-- Plan: [[../plans/PLAN-72-cdamux-worktree-session-chrome|PLAN-72]] (phased checklist)
+- Plan: [[../foam/archive/plans/PLAN-72-cdamux-worktree-session-chrome|PLAN-72]] (phased checklist, archived)
 - Research: [`cdamux/docs/research.md`](../cdamux/docs/research.md)
 
 ## Open questions
@@ -101,6 +101,6 @@ agent telemetry are not specified end-to-end.
 
 ## Implementation pointer
 
-Phased checklist: [`plans/PLAN-72-cdamux-worktree-session-chrome.md`](../plans/PLAN-72-cdamux-worktree-session-chrome.md)
+Phased checklist: [`foam/archive/plans/PLAN-72-cdamux-worktree-session-chrome.md`](../foam/archive/plans/PLAN-72-cdamux-worktree-session-chrome.md)
 
 Phase A (chrome + agent label) partially landed on `main`; complete refresh/caching and docs before marking shipped.

@@ -48,4 +48,4 @@ design was to extract `Toggle` / `Select` / `TextInput` / `FieldList` next.
 
 ## Implementation pointer
 
-`plans/PLAN-79-cdamux-widgets-extract.md`
+`foam/archive/plans/PLAN-79-cdamux-widgets-extract.md`

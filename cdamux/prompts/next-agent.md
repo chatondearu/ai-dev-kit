@@ -37,4 +37,4 @@ cargo run -p cdamux-cli -- doctor
 
 ## Reference
 
-`docs/research.md`, `plans/PLAN-39-cdamux-v0.md`, `prd/PRD-39-cdamux.md`, `docs/dogfood.md`
+`docs/research.md`, `foam/archive/plans/PLAN-39-cdamux-v0.md`, `prd/PRD-39-cdamux.md`, `docs/dogfood.md`

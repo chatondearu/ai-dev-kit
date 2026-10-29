@@ -37,7 +37,8 @@ Skills: **cda-foam**, **cda-prd**, **cda-plan**,
 
 Operator docs: `doc/`. External tools list: `docs/recommended.md` only — do not
 create `docs/superpowers/` or PRDs/plans outside `prd/` / `plans/` (see
-`foam/product/documentation-layout.md`).
+`foam/product/documentation-layout.md`). Closed issue plans:
+`foam/archive/plans/`.
 
 Sync feature lists: `cda-foam/scripts/import-kanban.sh`.
 

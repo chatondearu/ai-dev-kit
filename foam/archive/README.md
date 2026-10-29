@@ -22,3 +22,8 @@ design notes were moved here.
 
 Removed files (git history only): `docs/superpowers/plans/*.md` (~1.7k lines of
 superseded superpowers execution plans).
+
+## Done implementation plans
+
+Shipped issue checklists live in [[plans/README|plans/]] (36 files). Active
+plans remain at repo-root `plans/` (see that README).

@@ -44,4 +44,4 @@ The 2026-10-13 `/kiss-audit` of this kit found 9 defects with concrete repros, a
 
 ## Implementation pointer
 
-`plans/PLAN-7-install-fixes.md`, `plans/PLAN-8-kiss-hooks-fixes.md`, `plans/PLAN-9-readme-fixes.md`, `plans/PLAN-11-new-prd-syntax.md`
+`foam/archive/plans/PLAN-7-install-fixes.md`, `foam/archive/plans/PLAN-8-kiss-hooks-fixes.md`, `foam/archive/plans/PLAN-9-readme-fixes.md`, `foam/archive/plans/PLAN-11-new-prd-syntax.md`

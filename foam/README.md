@@ -8,9 +8,10 @@ Structured project memory for humans and AI agents. **Start at
 ```
 foam/           # Knowledge graph (wikilinks)
   decisions/    # Architecture Decision Records (ADRs)
-  product/      # Vision, rules
+  product/      # Vision, rules, documentation layout
   features/     # Shipped / backlog (sync via import-kanban.sh)
   architecture/ # Topic guides linked to ADRs
+  archive/      # Read-only historical notes (see archive/README.md)
 prd/            # Product Requirements Documents
 plans/          # Implementation plans
 ```

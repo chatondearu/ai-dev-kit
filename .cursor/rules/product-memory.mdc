@@ -12,12 +12,15 @@ Before implementing features or making technical/product/design decisions:
 2. Search `foam/decisions/` for related ADRs.
 3. If a PRD exists under `prd/` for this work, follow it.
 4. If a plan exists under `plans/`, use it as the checklist.
-5. Search GitHub for overlap:
+5. **Paths:** PRD → `prd/` only; plans → `plans/` only; ADRs → `foam/decisions/`;
+   operator docs → `doc/`; see `foam/product/documentation-layout.md`. Do not
+   create `docs/superpowers/` or duplicate specs outside foam/`prd`/`plans`/`doc`.
+6. Search GitHub for overlap:
    ```bash
    gh issue list --state all --search "keywords" --limit 20
    gh pr list --state all --search "keywords" --limit 20
    ```
-6. Read relevant issues, PRs, ADRs, and PRDs — **confront** the new proposal.
+7. Read relevant issues, PRs, ADRs, and PRDs — **confront** the new proposal.
 
 ## Challenge the user when
 

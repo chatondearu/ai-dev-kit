@@ -35,6 +35,10 @@ Skills: **cda-foam**, **cda-prd**, **cda-plan**,
 | `plans/` | Implementation checklists |
 | GitHub Project | Kanban execution status |
 
+Operator docs: `doc/`. External tools list: `docs/recommended.md` only — do not
+create `docs/superpowers/` or PRDs/plans outside `prd/` / `plans/` (see
+`foam/product/documentation-layout.md`).
+
 Sync feature lists: `cda-foam/scripts/import-kanban.sh`.
 
 Cursor rule (if present): `.cursor/rules/product-memory.mdc`.

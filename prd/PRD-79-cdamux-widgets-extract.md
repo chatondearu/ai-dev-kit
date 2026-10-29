@@ -44,7 +44,7 @@ design was to extract `Toggle` / `Select` / `TextInput` / `FieldList` next.
 ## Related project memory
 
 - ADRs: [[../foam/decisions/ADR-004-cdamux|ADR-004]]
-- Design: [[../docs/superpowers/specs/2026-10-28-cdamux-keymap-settings-form-design|PRD-75 design]]
+- Prior art: [[PRD-75-cdamux-keymap-settings-form|PRD-75]] (keymap + Settings form)
 
 ## Implementation pointer
 

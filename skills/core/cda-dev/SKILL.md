@@ -25,7 +25,8 @@ not full worker diffs.
 | Aggregate | Ledger + human report | [templates/run-ledger.md](templates/run-ledger.md) |
 
 Details: [conventions.md](conventions.md). Design:
-[docs/superpowers/specs/2026-10-02-cda-dev-design.md](../../../docs/superpowers/specs/2026-10-02-cda-dev-design.md).
+[foam/archive/superpowers/2026-10-02-dev-orchestrator-design.md](../../../foam/archive/superpowers/2026-10-02-dev-orchestrator-design.md)
+(historical; operator truth in `doc/orchestration.md`).
 
 ## Modes
 

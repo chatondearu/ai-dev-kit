@@ -227,4 +227,4 @@ Document the flag in `cda-dev/SKILL.md` and the web overlay; implementation can 
 
 ## Implementation
 
-Plan: [`docs/superpowers/plans/2026-10-17-cda-design-loop.md`](../plans/2026-10-17-cda-design-loop.md).
+Plan: removed (superseded superpowers checklist). Skill: `cda-design-loop`; archive index: [[../../archive/README|foam/archive]].

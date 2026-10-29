@@ -14,5 +14,6 @@ Related (not duplicated here):
 
 - Ideology: [`PHILOSOPHY.md`](../PHILOSOPHY.md)
 - ADRs: [`foam/decisions/`](../foam/decisions/)
-- External tools: [`docs/recommended.md`](../docs/recommended.md)
+- External tools: [`docs/recommended.md`](../docs/recommended.md) ([`docs/README.md`](../docs/README.md))
+- Doc layout (agent memory vs operator docs): [`foam/product/documentation-layout.md`](../foam/product/documentation-layout.md)
 - Skills index: [`skills/README.md`](../skills/README.md)

@@ -12,3 +12,6 @@ result-*
 
 # cda-dev worktrees and run ledger
 .orch/
+
+# Cursor Superpowers local SDD session (never commit)
+.superpowers/

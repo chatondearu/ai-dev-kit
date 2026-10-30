@@ -21,6 +21,8 @@ pub enum DashboardAction {
     KillSession,
     ForkSession,
     RenameSession,
+    /// Open GitHub issue for `feat/<n>-*` / worktree (via `gh issue view --web`).
+    OpenIssue,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -82,6 +84,7 @@ pub const FLEET_KEYMAP: &[Binding] = &[
     b(&[K::Char('m')], "m", A::RenameSession, "rename session", Some("m rename"), G::Session),
     b(&[K::Char('f')], "f", A::ForkSession, "fork session (same cwd, new name)", Some("f fork"), G::Session),
     b(&[K::Char('x')], "x", A::KillSession, "kill session", Some("x kill"), G::Session),
+    b(&[K::Char('o')], "o", A::OpenIssue, "open GitHub issue from branch/worktree", Some("o issue"), G::Session),
     b(&[K::Char(' ')], "Space", A::FocusComposer, "composer (Preview tab)", Some("Space send"), G::Session),
     Binding { codes: &[K::Char('r')], ctrl: true, label: "Ctrl+R", action: A::StartReview, help: "hunk review TUI", footer: None, group: G::Session },
     b(&[K::Tab], "Tab", A::CycleSideTab, "Preview / Notes / Review / Orch graph", None, G::View),
@@ -146,7 +149,7 @@ mod tests {
     #[test]
     fn footer_lists_session_keys() {
         let footer = fleet_footer();
-        for part in ["m rename", "f fork", "x kill", "Enter attach", "? help"] {
+        for part in ["m rename", "f fork", "x kill", "o issue", "Enter attach", "? help"] {
             assert!(footer.contains(part), "{footer}");
         }
     }

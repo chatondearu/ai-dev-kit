@@ -107,5 +107,5 @@ Operator curl examples: [tailnet-api.md](tailnet-api.md).
 | Topic | Options | Default proposal |
 | ----- | ------- | ------------------ |
 | tmux socket | User default vs `-L cdamux` | User default v0 (see existing `c-*` sessions) |
-| Status source | Hooks vs pane heuristics | Heuristics v0; hooks v0.1 for Cursor |
+| Status source | Hooks vs pane heuristics | Heuristics default; **`@cdamux_state`** overrides when set (`running`/`waiting`/`done`/`error`/`idle`) |
 | TUI stack | ratatui vs skim in `--pick` | skim-style minimal v0, ratatui dashboard v0.1 |

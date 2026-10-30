@@ -84,6 +84,20 @@ orch_graph_finish() {
     --arg ended "$(orch_graph_now)" \
     --arg updated "$(orch_graph_now)" \
     '.status = $status | .ended_at = $ended | .updated_at = $updated'
+
+  # Archive snapshot for cdamux recent-runs (keep last 20).
+  local runs_dir run_id dest safe
+  runs_dir="$(dirname "$gf")/runs"
+  mkdir -p "$runs_dir"
+  run_id="$(jq -r '.run_id // empty' "$gf" 2>/dev/null || true)"
+  [ -n "$run_id" ] || return 0
+  safe="$(printf '%s' "$run_id" | tr -c 'A-Za-z0-9._-' '_')"
+  dest="$runs_dir/${safe}.json"
+  cp "$gf" "$dest" 2>/dev/null || true
+  # shellcheck disable=SC2012
+  ls -1t "$runs_dir"/*.json 2>/dev/null | tail -n +21 | while read -r old; do
+    rm -f "$old"
+  done
 }
 
 # Warn when worker-result.json is missing or lacks required fields (issue/status/checks).

@@ -73,7 +73,24 @@ pub struct PaneSignals {
     pub tail: String,
 }
 
-/// v0 pane heuristics (hooks deferred per architecture.md).
+/// Read a tmux user option (e.g. `@cdamux_state`) for a session.
+pub fn tmux_user_option(session_name: &str, option: &str) -> Option<String> {
+    let out = Command::new("tmux")
+        .args(["display-message", "-p", "-t", session_name, option])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if s.is_empty() {
+        None
+    } else {
+        Some(s)
+    }
+}
+
+/// Pane heuristics; prefer `@cdamux_state` when hooks set it (see architecture.md).
 pub fn classify_pane_heuristics(
     idle_seconds: Option<u32>,
     pane_tail: &str,

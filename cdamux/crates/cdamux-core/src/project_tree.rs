@@ -132,6 +132,8 @@ pub fn state_icon(state: SessionState) -> char {
         SessionState::Idle => '○',
         SessionState::Active => '●',
         SessionState::NeedsInput => '◆',
+        SessionState::Done => '✓',
+        SessionState::Error => '✗',
     }
 }
 
@@ -186,6 +188,7 @@ mod tests {
                     group_key: "cursor".into(),
                     state: SessionState::Idle,
                     agent: "cursor".into(),
+                    issue: None,
                 },
                 EnrichedSession {
                     name: "o-b".into(),
@@ -193,6 +196,7 @@ mod tests {
                     group_key: "opencode".into(),
                     state: SessionState::Active,
                     agent: "opencode".into(),
+                    issue: None,
                 },
             ],
             GroupBy::Agent,

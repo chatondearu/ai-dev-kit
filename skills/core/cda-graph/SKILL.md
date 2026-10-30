@@ -74,9 +74,10 @@ bash ~/.cursor/skills/cda-graph/scripts/foam-graph-export.sh --repo . --merge-or
 
 ### 5 — Watch the graph
 
-- **cdamux** TUI: Fleet → **project** or session → sidecar **Orch graph**; expand project for `⚙` worker rows (`.orch/run/status.json`)
-- **cdamuxd** web: session → **Orch graph** tab (`GET /v1/sessions/{name}/orch-graph`)
-- **API**: `GET /v1/orch-graph?repo=/abs/path` · `GET /v1/orch-status?repo=/abs/path`
+- **cdamux** TUI: Fleet → **project** or session → sidecar **Orch graph**; expand project for `⚙` worker rows (`.orch/run/status.json`); `o` opens GitHub issue from `feat/<n>-*`
+- Hooks: `tmux set-option -t SESSION @cdamux_state running|waiting|done|error` (Fleet prefers over pane heuristics)
+- Archives: `.orch/graph/runs/<run_id>.json` after `orch_graph_finish` (shown as recent runs)
+- **API**: `GET /v1/orch-graph?repo=` · `GET /v1/orch-status?repo=` · `GET /v1/orch-runs?repo=`
 
 ### 6 — Disable graph file
 

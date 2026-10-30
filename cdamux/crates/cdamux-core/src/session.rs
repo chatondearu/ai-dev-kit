@@ -13,6 +13,10 @@ pub enum SessionState {
     Idle,
     Active,
     NeedsInput,
+    /// Hook `@cdamux_state=done` (agent finished).
+    Done,
+    /// Hook `@cdamux_state=error` (agent failed / needs human).
+    Error,
 }
 
 impl Default for SessionState {
@@ -34,6 +38,9 @@ pub struct EnrichedSession {
     /// From `@cdamux_agent` / `@ccmux_agent`; [`AGENT_LABEL_MISSING`] when unset.
     #[serde(default = "default_agent_label")]
     pub agent: String,
+    /// Parsed from `feat/<n>-*` branch or `.orch/worktrees/<n>-*` path when known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub issue: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -48,7 +55,24 @@ pub struct GroupedSessions {
     pub groups: Vec<SessionGroup>,
 }
 
+/// Map `@cdamux_state` / `@cdamux_state` hook values → [`SessionState`].
+pub fn parse_hook_session_state(raw: &str) -> Option<SessionState> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "running" | "active" => Some(SessionState::Active),
+        "waiting" | "needs_input" | "needs-input" => Some(SessionState::NeedsInput),
+        "done" => Some(SessionState::Done),
+        "idle" => Some(SessionState::Idle),
+        "error" | "failed" | "blocked" => Some(SessionState::Error),
+        _ => None,
+    }
+}
+
 pub fn classify_session(session: &TmuxSession, idle_seconds_for_needs_input: u32) -> SessionState {
+    if let Some(raw) = crate::tmux::tmux_user_option(&session.name, "@cdamux_state") {
+        if let Some(state) = parse_hook_session_state(&raw) {
+            return state;
+        }
+    }
     match crate::tmux::pane_signals_for_session(&session.name) {
         Some(signals) => crate::tmux::classify_pane_heuristics(
             signals.idle_seconds,
@@ -69,12 +93,15 @@ pub fn enrich_sessions(
     raw.iter()
         .map(|s| {
             let key = group_key_for(s, group_by, &projects);
+            let branch = crate::session_chrome::branch_for_cwd(&s.path);
+            let issue = crate::issue_ref::issue_from_branch_or_path(&branch, &s.path);
             EnrichedSession {
                 name: s.name.clone(),
                 path: s.path.clone(),
                 group_key: key,
                 state: classify_session(s, idle_seconds_for_needs_input),
                 agent: session_agent_label(&s.name),
+                issue,
             }
         })
         .collect()
@@ -106,6 +133,26 @@ pub fn group_sessions(sessions: Vec<EnrichedSession>, group_by: GroupBy) -> Grou
     GroupedSessions {
         group_by,
         groups,
+    }
+}
+
+#[cfg(test)]
+mod hook_tests {
+    use super::*;
+
+    #[test]
+    fn hook_state_parsing() {
+        assert_eq!(
+            parse_hook_session_state("running"),
+            Some(SessionState::Active)
+        );
+        assert_eq!(
+            parse_hook_session_state("waiting"),
+            Some(SessionState::NeedsInput)
+        );
+        assert_eq!(parse_hook_session_state("done"), Some(SessionState::Done));
+        assert_eq!(parse_hook_session_state("error"), Some(SessionState::Error));
+        assert_eq!(parse_hook_session_state("nope"), None);
     }
 }
 

@@ -4,6 +4,7 @@ mod agents_util;
 mod daemon;
 mod diff;
 mod notes;
+mod issue_ref;
 mod orch_graph;
 mod orch_status;
 mod project_tree;
@@ -33,8 +34,8 @@ pub use project_tree::{
 };
 pub use session_chrome::{session_agent_label, SessionChrome, AGENT_LABEL_MISSING};
 pub use session::{
-    classify_session, enrich_sessions, group_sessions, EnrichedSession, GroupedSessions,
-    SessionGroup, SessionState,
+    classify_session, enrich_sessions, group_sessions, parse_hook_session_state, EnrichedSession,
+    GroupedSessions, SessionGroup, SessionState,
 };
 pub use tailnet_api::{
     decode_path_segment, dispatch_tailnet_request, resolve_tailnet_bind_ip, LiveTailnetBackend,
@@ -42,9 +43,11 @@ pub use tailnet_api::{
 };
 pub use notes::{ensure_note_file, note_refs_for_projects, resolve_note_path, NoteRef};
 pub use orch_graph::{
-    find_orch_graph_from_cwd, format_orch_graph_panel, format_orch_graph_panel_ex, load_orch_graph,
-    orch_graph_path, OrchGraphError, OrchGraphFile, OrchGraphNode,
+    find_orch_graph_from_cwd, format_orch_graph_panel, format_orch_graph_panel_ex,
+    format_orch_graph_panel_with_history, list_orch_graph_runs, load_orch_graph, orch_graph_path,
+    orch_graph_runs_dir, OrchGraphError, OrchGraphFile, OrchGraphNode, OrchGraphRunSummary,
 };
+pub use issue_ref::{issue_from_branch_or_path, parse_issue_number};
 pub use orch_status::{
     load_orch_run_status, orch_run_status_path, project_has_orch_artifacts, worker_phase_icon,
     OrchRunStatusFile, OrchWorkerStatus,

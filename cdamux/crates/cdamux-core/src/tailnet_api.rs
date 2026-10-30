@@ -1,6 +1,8 @@
 //! Tailnet HTTP API dispatch (testable without binding a socket).
 
-use crate::orch_graph::{find_orch_graph_from_cwd, load_orch_graph, OrchGraphError};
+use crate::orch_graph::{
+    find_orch_graph_from_cwd, list_orch_graph_runs, load_orch_graph, OrchGraphError,
+};
 use crate::orch_status::load_orch_run_status;
 use crate::project_tree::project_for_path;
 use crate::tmux::{capture_pane_text, list_tmux_sessions, send_line_to_session};
@@ -389,6 +391,43 @@ pub fn dispatch_tailnet_request(
             ),
         };
     }
+    if path == "/v1/orch-runs" {
+        if method != "GET" {
+            return method_not_allowed();
+        }
+        let Some(repo) = query_param(query, "repo") else {
+            return json_error(
+                400,
+                TailnetApiError::BadRequest("missing repo query".into()),
+            );
+        };
+        let repo_path = match backend.resolve_orch_repo(&repo) {
+            Ok(p) => p,
+            Err(e) => {
+                let status = match e {
+                    TailnetApiError::NotFound(_) => 404,
+                    TailnetApiError::BadRequest(_) => 400,
+                    _ => 502,
+                };
+                return json_error(status, e);
+            }
+        };
+        #[derive(Serialize)]
+        struct RunRow {
+            run_id: String,
+            status: Option<String>,
+            path: String,
+        }
+        let rows: Vec<RunRow> = list_orch_graph_runs(&repo_path, 20)
+            .into_iter()
+            .map(|r| RunRow {
+                run_id: r.run_id,
+                status: r.status,
+                path: r.path.display().to_string(),
+            })
+            .collect();
+        return json_ok(200, &rows);
+    }
     if let Some(rest) = path.strip_prefix("/v1/sessions/") {
         let parts: Vec<&str> = rest.split('/').collect();
         if parts.len() == 2 {
@@ -529,6 +568,7 @@ mod tests {
                     group_key: "proj".into(),
                     state: SessionState::Idle,
                     agent: "—".into(),
+                    issue: None,
                 }],
             }],
         }

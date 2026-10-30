@@ -61,7 +61,9 @@ bash ~/.cursor/skills/cda-graph/scripts/graph-plan-validate.sh my-plan.json
 | **cdamux TUI** | Fleet → select **project** or session → sidecar **Orch graph**; expand project for `⚙ #id` workers from `.orch/run/status.json` |
 | **cdamuxd web** | Tailnet dashboard → session → **Orch graph** (canvas, polls API) |
 | **API** | `GET /v1/sessions/{tmux-name}/orch-graph` |
-| **API (project)** | `GET /v1/orch-graph?repo=/abs/path` · `GET /v1/orch-status?repo=/abs/path` (path must sit under configured roots) |
+| **API (project)** | `GET /v1/orch-graph?repo=` · `GET /v1/orch-status?repo=` · `GET /v1/orch-runs?repo=` (archived finishes under `.orch/graph/runs/`) |
+| **Session hooks** | `tmux set-option -t SESSION @cdamux_state running\|waiting\|done\|error` — cdamux Fleet prefers this over pane heuristics |
+| **GitHub issue** | Fleet `o` opens `gh issue view N --web` when branch is `feat/<n>-*` or worker id is numeric |
 
 ## Cursor-only (no harness)
 

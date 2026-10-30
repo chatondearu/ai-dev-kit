@@ -17,6 +17,8 @@ pub struct SessionChrome {
     pub uptime: String,
     pub context: String,
     pub tasks: String,
+    pub issue: Option<u32>,
+    pub cwd: String,
 }
 
 impl SessionChrome {
@@ -31,6 +33,7 @@ impl SessionChrome {
         } else {
             git_context_cached(Path::new(path))
         };
+        let issue = crate::issue_ref::issue_from_branch_or_path(&branch, path);
         Self {
             repo,
             worktree,
@@ -39,6 +42,8 @@ impl SessionChrome {
             uptime: tmux_session_uptime(session_name),
             context: "n/a".into(),
             tasks: "n/a".into(),
+            issue,
+            cwd: path.to_string(),
         }
     }
 
@@ -49,22 +54,30 @@ impl SessionChrome {
     }
 
     pub fn lines(&self) -> Vec<String> {
+        let mut branch_line = format!(
+            "repo: {}  │  worktree: {}  │  branch: {}",
+            self.repo, self.worktree, self.branch
+        );
+        if let Some(n) = self.issue {
+            branch_line.push_str(&format!("  │  issue: #{n} (o = open)"));
+        }
         vec![
-            format!(
-                "repo: {}  │  worktree: {}  │  branch: {}",
-                self.repo,
-                self.worktree,
-                self.branch
-            ),
+            branch_line,
             format!(
                 "agent: {}  │  up: {}  │  context: {}  │  tasks: {}",
-                self.agent,
-                self.uptime,
-                self.context,
-                self.tasks
+                self.agent, self.uptime, self.context, self.tasks
             ),
         ]
     }
+}
+
+/// Current branch for a cwd (cached with other git chrome fields).
+pub fn branch_for_cwd(cwd: &str) -> String {
+    let path = cwd.trim();
+    if path.is_empty() {
+        return "—".into();
+    }
+    git_context_cached(Path::new(path)).2
 }
 
 fn git_context_cached(path: &Path) -> (String, String, String) {

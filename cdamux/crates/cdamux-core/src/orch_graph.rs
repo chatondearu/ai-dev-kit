@@ -209,6 +209,27 @@ pub fn format_orch_graph_panel_ex(
         }
     }
 
+    // Detail block: full messages for non-terminal nodes (P1.5).
+    let interesting: Vec<_> = graph
+        .nodes
+        .iter()
+        .filter(|n| {
+            !matches!(n.status.as_str(), "done" | "ok" | "skipped")
+                || n.message.len() > 24
+        })
+        .take(8)
+        .collect();
+    if !interesting.is_empty() {
+        lines.push(String::new());
+        lines.push("detail:".to_string());
+        for n in interesting {
+            lines.push(truncate(
+                &format!("  {} · {} · {}", n.id, n.status, n.message),
+                w,
+            ));
+        }
+    }
+
     if graph.edges.is_empty() && graph.nodes.is_empty() {
         lines.push("(no nodes yet)".to_string());
     } else if !graph.edges.is_empty() {
@@ -225,6 +246,69 @@ pub fn format_orch_graph_panel_ex(
     }
 
     lines.join("\n")
+}
+
+/// Append recent archived runs under `.orch/graph/runs/` (newest first).
+pub fn format_orch_graph_panel_with_history(
+    graph: &OrchGraphFile,
+    width: usize,
+    age_secs: Option<u64>,
+    repo: &Path,
+) -> String {
+    let mut out = format_orch_graph_panel_ex(graph, width, age_secs);
+    let runs = list_orch_graph_runs(repo, 5);
+    if runs.is_empty() {
+        return out;
+    }
+    out.push_str("\n\nrecent runs:\n");
+    for r in runs {
+        let st = r.status.unwrap_or_else(|| "?".into());
+        out.push_str(&format!("  {} · {}\n", truncate(&r.run_id, 28), st));
+    }
+    out
+}
+
+#[derive(Debug, Clone)]
+pub struct OrchGraphRunSummary {
+    pub run_id: String,
+    pub path: PathBuf,
+    pub status: Option<String>,
+}
+
+pub fn orch_graph_runs_dir(repo: &Path) -> PathBuf {
+    repo.join(".orch/graph/runs")
+}
+
+/// Newest-first summaries from archived run JSON files.
+pub fn list_orch_graph_runs(repo: &Path, limit: usize) -> Vec<OrchGraphRunSummary> {
+    let dir = orch_graph_runs_dir(repo);
+    let Ok(rd) = fs::read_dir(&dir) else {
+        return Vec::new();
+    };
+    let mut entries: Vec<_> = rd
+        .filter_map(|e| e.ok())
+        .filter(|e| {
+            e.path()
+                .extension()
+                .map(|x| x == "json")
+                .unwrap_or(false)
+        })
+        .collect();
+    entries.sort_by_key(|e| std::cmp::Reverse(e.metadata().ok().and_then(|m| m.modified().ok())));
+    entries
+        .into_iter()
+        .take(limit)
+        .filter_map(|e| {
+            let path = e.path();
+            let raw = fs::read_to_string(&path).ok()?;
+            let g: OrchGraphFile = serde_json::from_str(&raw).ok()?;
+            Some(OrchGraphRunSummary {
+                run_id: g.run_id,
+                path,
+                status: g.status,
+            })
+        })
+        .collect()
 }
 
 fn render_node_tree(
@@ -257,12 +341,13 @@ fn push_node_line(n: &OrchGraphNode, depth: usize, width: usize, lines: &mut Vec
         _ => "·",
     };
     let head = format!(
-        "{}{} {} [{}] {}",
+        "{}{} {} [{}|{}] {}",
         indent,
         icon,
-        truncate(&n.id, 20),
-        n.phase,
-        truncate(&n.message, 24)
+        truncate(&n.id, 18),
+        truncate(&n.kind, 8),
+        truncate(&n.phase, 10),
+        truncate(&n.message, 36)
     );
     lines.push(truncate(&head, width));
 }

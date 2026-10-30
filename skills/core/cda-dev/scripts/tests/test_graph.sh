@@ -51,4 +51,6 @@ else
   assert_eq "missing-ended" "has-ended" "finish sets ended_at"
 fi
 
+assert_file "$TMP/.orch/graph/runs/test-run.json" "finish archives run snapshot"
+
 summary

@@ -386,6 +386,8 @@ fn format_state(state: cdamux_core::SessionState) -> &'static str {
         SessionState::Idle => "idle",
         SessionState::Active => "active",
         SessionState::NeedsInput => "needs_input",
+        SessionState::Done => "done",
+        SessionState::Error => "error",
     }
 }
 

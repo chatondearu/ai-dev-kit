@@ -20,7 +20,8 @@ use cdamux_core::{
     GroupBy, SessionChrome, PaneLayout, ProjectSessionTree, ProjectTreeNode, SessionState,
     SpawnOutcome,
 };
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 use crossterm::event::{
     self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers,
     MouseButton, MouseEventKind,
@@ -183,7 +184,11 @@ fn tree_node_key(node: &ProjectTreeNode, group_by: GroupBy) -> String {
 }
 
 fn session_passes_waiting_filter(session: &EnrichedSession, waiting_only: bool) -> bool {
-    !waiting_only || session.state == SessionState::NeedsInput
+    !waiting_only
+        || matches!(
+            session.state,
+            SessionState::NeedsInput | SessionState::Error
+        )
 }
 
 #[derive(Debug, Clone)]
@@ -331,7 +336,10 @@ fn fleet_attention_hint(rows: &[TreeRow]) -> String {
     for r in rows {
         match r {
             TreeRow::Session(s) | TreeRow::Unassigned(s)
-                if s.state == SessionState::NeedsInput =>
+                if matches!(
+                    s.state,
+                    SessionState::NeedsInput | SessionState::Error
+                ) =>
             {
                 need_input += 1;
             }
@@ -421,9 +429,21 @@ fn orch_graph_text_for_cwd(cwd: &str, width: usize) -> String {
         return "Select a project or session with a live orch run.".to_string();
     }
     match cdamux_core::find_orch_graph_from_cwd(cwd) {
-        Ok((g, age)) => cdamux_core::format_orch_graph_panel_ex(&g, width, age),
+        Ok((g, age)) => {
+            cdamux_core::format_orch_graph_panel_with_history(&g, width, age, Path::new(cwd))
+        }
         Err(cdamux_core::OrchGraphError::NotFound(_)) => {
-            "(no live graph — start orch.sh in this repo; tab cycles with sidecar)".to_string()
+            let runs = cdamux_core::list_orch_graph_runs(Path::new(cwd), 5);
+            if runs.is_empty() {
+                "(no live graph — start orch.sh in this repo; tab cycles with sidecar)".to_string()
+            } else {
+                let mut s = String::from("(no live graph)\n\nrecent runs:\n");
+                for r in runs {
+                    let st = r.status.unwrap_or_else(|| "?".into());
+                    s.push_str(&format!("  {} · {}\n", r.run_id, st));
+                }
+                s
+            }
         }
         Err(cdamux_core::OrchGraphError::Invalid { path, message }) => {
             format!("invalid current.json at {}:\n{}", path.display(), message)
@@ -1063,6 +1083,19 @@ pub fn run_dashboard() -> ExitCode {
                     DashboardAction::Spawn => {
                         spawn_overlay = Some(ModalState::new(&cfg));
                     }
+                    DashboardAction::OpenIssue => {
+                        match issue_at_row(&rows, selected_row) {
+                            Some((cwd, n)) => match open_github_issue(&cwd, n) {
+                                Ok(msg) => status_line = msg,
+                                Err(e) => status_line = e,
+                            },
+                            None => {
+                                status_line =
+                                    "no issue on row (need feat/<n>-* branch or orch worker id)"
+                                        .into();
+                            }
+                        }
+                    }
                     DashboardAction::KillSession => {
                         if let Some(s) = session_at_row(&rows, selected_row) {
                             match kill_tmux_session(&s.name) {
@@ -1152,6 +1185,38 @@ fn session_state_color(state: SessionState) -> Color {
         SessionState::Idle => CLR_IDLE,
         SessionState::Active => CLR_OK,
         SessionState::NeedsInput => CLR_WARN,
+        SessionState::Done => CLR_ACCENT,
+        SessionState::Error => CLR_WARN,
+    }
+}
+
+fn open_github_issue(cwd: &str, issue: u32) -> Result<String, String> {
+    let out = Command::new("gh")
+        .args(["issue", "view", &issue.to_string(), "--web"])
+        .current_dir(cwd)
+        .output()
+        .map_err(|e| format!("gh: {e}"))?;
+    if out.status.success() {
+        Ok(format!("opened issue #{issue}"))
+    } else {
+        let err = String::from_utf8_lossy(&out.stderr);
+        Err(format!("gh issue view failed: {}", err.trim()))
+    }
+}
+
+fn issue_at_row(rows: &[TreeRow], idx: usize) -> Option<(String, u32)> {
+    match rows.get(idx)? {
+        TreeRow::Session(s) | TreeRow::Unassigned(s) => s.issue.map(|n| (s.path.clone(), n)),
+        TreeRow::Worker {
+            id, project_path, ..
+        } => {
+            let n = id
+                .parse()
+                .ok()
+                .or_else(|| cdamux_core::parse_issue_number(id))?;
+            Some((project_path.clone(), n))
+        }
+        _ => None,
     }
 }
 
@@ -1463,7 +1528,7 @@ fn tree_row_item(row: &TreeRow) -> ListItem<'_> {
         }
         TreeRow::Session(s) | TreeRow::Unassigned(s) => {
             let icon = state_icon(s.state);
-            ListItem::new(Line::from(vec![
+            let mut spans = vec![
                 Span::raw("  "),
                 Span::styled(
                     format!("{} ", icon),
@@ -1473,12 +1538,19 @@ fn tree_row_item(row: &TreeRow) -> ListItem<'_> {
                     format!("{}  ", s.name),
                     Style::default().fg(CLR_TEXT).add_modifier(Modifier::BOLD),
                 ),
-                Span::styled(
-                    format!("{}  ", s.agent),
-                    Style::default().fg(CLR_MUTED),
-                ),
-                Span::styled(s.path.clone(), Style::default().fg(CLR_MUTED)),
-            ]))
+            ];
+            if let Some(n) = s.issue {
+                spans.push(Span::styled(
+                    format!("#{n}  "),
+                    Style::default().fg(CLR_ACCENT),
+                ));
+            }
+            spans.push(Span::styled(
+                format!("{}  ", s.agent),
+                Style::default().fg(CLR_MUTED),
+            ));
+            spans.push(Span::styled(s.path.clone(), Style::default().fg(CLR_MUTED)));
+            ListItem::new(Line::from(spans))
         }
         TreeRow::UnassignedHeader => ListItem::new(Line::from(Span::styled(
             "— unassigned sessions",
@@ -1672,6 +1744,7 @@ mod tests {
                     group_key: "p".into(),
                     state: SessionState::Idle,
                     agent: "—".into(),
+                    issue: None,
                 }],
             }],
             unassigned: vec![],
@@ -1702,6 +1775,7 @@ mod tests {
                         group_key: "p".into(),
                         state: SessionState::Idle,
                         agent: "claude".into(),
+                        issue: None,
                     },
                     cdamux_core::EnrichedSession {
                         name: "wait".into(),
@@ -1709,6 +1783,7 @@ mod tests {
                         group_key: "p".into(),
                         state: SessionState::NeedsInput,
                         agent: "cursor".into(),
+                        issue: None,
                     },
                 ],
             }],

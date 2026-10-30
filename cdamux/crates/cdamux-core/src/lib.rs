@@ -5,6 +5,7 @@ mod daemon;
 mod diff;
 mod notes;
 mod orch_graph;
+mod orch_status;
 mod project_tree;
 mod send;
 mod session;
@@ -43,6 +44,10 @@ pub use notes::{ensure_note_file, note_refs_for_projects, resolve_note_path, Not
 pub use orch_graph::{
     find_orch_graph_from_cwd, format_orch_graph_panel, format_orch_graph_panel_ex, load_orch_graph,
     orch_graph_path, OrchGraphError, OrchGraphFile, OrchGraphNode,
+};
+pub use orch_status::{
+    load_orch_run_status, orch_run_status_path, project_has_orch_artifacts, worker_phase_icon,
+    OrchRunStatusFile, OrchWorkerStatus,
 };
 pub use agents_util::{
     command_on_path, preferred_spawn_agent, preferred_spawn_agent_index,

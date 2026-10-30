@@ -1,5 +1,6 @@
 //! Join discovered projects with tmux sessions for the Fleet tree UI.
 
+use crate::orch_status::project_has_orch_artifacts;
 use crate::session::{EnrichedSession, SessionState};
 use crate::{
     discover_projects, enrich_sessions, group_sessions, list_tmux_sessions, GroupBy, GroupedSessions,
@@ -82,7 +83,8 @@ pub fn build_project_session_tree(
         .filter_map(|project| {
             let key = project_key(&project.path);
             let mut sessions = by_project.remove(&key).unwrap_or_default();
-            if sessions.is_empty() {
+            let has_orch = project_has_orch_artifacts(&project.path);
+            if sessions.is_empty() && !has_orch {
                 return None;
             }
             sessions.sort_by(|a, b| a.name.cmp(&b.name));

@@ -35,10 +35,38 @@ orch_graph_init() {
     '{run_id:$run_id,repo:$repo,nodes:[],edges:[],updated_at:$updated,status:"running"}' >"$gf"
 }
 
+# Serialize jq read-modify-write (parallel graph-plan / multi-worker).
+# Usage: orch_graph_locked_jq --arg k v 'filter'
+orch_graph_locked_jq() {
+  local gf dir lock tmp rc=0
+  gf="$(orch_graph_file)"
+  dir="$(dirname "$gf")"
+  mkdir -p "$dir"
+  lock="$dir/.lock"
+  tmp="$(mktemp)"
+  if command -v flock >/dev/null 2>&1; then
+    (
+      flock 200
+      if ! jq "$@" "$gf" >"$tmp"; then
+        rm -f "$tmp"
+        exit 1
+      fi
+      mv "$tmp" "$gf"
+    ) 200>"$lock" || rc=$?
+  else
+    if ! jq "$@" "$gf" >"$tmp"; then
+      rm -f "$tmp"
+      return 1
+    fi
+    mv "$tmp" "$gf" || rc=$?
+  fi
+  return "$rc"
+}
+
 # Mark run finished (ok|blocked). Sets .status and .ended_at for cdamux freshness.
 orch_graph_finish() {
   local outcome="${1:-ok}"
-  local gf tmp status
+  local gf status
   if ! orch_graph_enabled; then
     return 0
   fi
@@ -51,13 +79,11 @@ orch_graph_finish() {
   if ! command -v jq >/dev/null 2>&1; then
     return 0
   fi
-  tmp="$(mktemp)"
-  jq \
+  orch_graph_locked_jq \
     --arg status "$status" \
     --arg ended "$(orch_graph_now)" \
     --arg updated "$(orch_graph_now)" \
-    '.status = $status | .ended_at = $ended | .updated_at = $updated' \
-    "$gf" >"$tmp" && mv "$tmp" "$gf"
+    '.status = $status | .ended_at = $ended | .updated_at = $updated'
 }
 
 # Warn when worker-result.json is missing or lacks required fields (issue/status/checks).
@@ -77,21 +103,20 @@ orch_worker_result_warn() {
 }
 
 orch_graph_touch() {
-  local gf tmp
+  local gf
   gf="$(orch_graph_file)"
   [ -f "$gf" ] || orch_graph_init
   if ! command -v jq >/dev/null 2>&1; then
     return 0
   fi
-  tmp="$(mktemp)"
-  jq --arg updated "$(orch_graph_now)" '.updated_at = $updated' "$gf" >"$tmp" && mv "$tmp" "$gf"
+  orch_graph_locked_jq --arg updated "$(orch_graph_now)" '.updated_at = $updated'
 }
 
 # orch_graph_upsert_node ID kind phase status message [parent]
 orch_graph_upsert_node() {
   local id="$1" kind="$2" phase="$3" status="$4" msg="$5"
   local parent="${6:-}"
-  local gf tmp
+  local gf
   if ! orch_graph_enabled; then
     return 0
   fi
@@ -100,8 +125,7 @@ orch_graph_upsert_node() {
   if ! command -v jq >/dev/null 2>&1; then
     return 0
   fi
-  tmp="$(mktemp)"
-  jq \
+  orch_graph_locked_jq \
     --arg id "$id" \
     --arg kind "$kind" \
     --arg phase "$phase" \
@@ -122,20 +146,19 @@ orch_graph_upsert_node() {
               parent: (if $parent == "" then null else $parent end)
             }]
         )
-    ' "$gf" >"$tmp" && mv "$tmp" "$gf"
+    '
 }
 
 # orch_graph_add_edge FROM TO TYPE
 orch_graph_add_edge() {
   local from="$1" to="$2" etype="${3:-depends}"
-  local gf tmp
+  local gf
   if ! orch_graph_enabled || ! command -v jq >/dev/null 2>&1; then
     return 0
   fi
   gf="$(orch_graph_file)"
   [ -f "$gf" ] || return 0
-  tmp="$(mktemp)"
-  jq \
+  orch_graph_locked_jq \
     --arg from "$from" \
     --arg to "$to" \
     --arg type "$etype" \
@@ -146,7 +169,7 @@ orch_graph_add_edge() {
           [.edges[] | select(.from != $from or .to != $to or .type != $type)]
           + [{from:$from,to:$to,type:$type}]
         )
-    ' "$gf" >"$tmp" && mv "$tmp" "$gf"
+    '
 }
 
 # Graph-shaped worker: implement/fix nodes + verify; falls back to same semantics as orch_loop_worker.

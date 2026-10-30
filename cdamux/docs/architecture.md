@@ -98,6 +98,9 @@ Operator curl examples: [tailnet-api.md](tailnet-api.md).
 - Orch worktrees stay `.orch/worktrees/` (no auto-bridge, ADR-003). cdamux spawn may
   create worktrees under `[worktrees].root` in `config.toml` only when the operator
   toggles worktree mode in the Fleet modal (`cdamux worktree list` inspects links).
+- Fleet **reads** repo-local orch state: `.orch/graph/current.json` (Orch graph tab /
+  `GET /v1/orch-graph?repo=`) and `.orch/run/status.json` (worker rows under a project).
+  Execution stays in `orch.sh`; cdamux does not start workers.
 
 ## Open design choices
 

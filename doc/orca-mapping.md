@@ -91,12 +91,16 @@ Shipped / in progress (visibility slice):
 4. ~~cdamux schema errors (422) + stale badge~~ — `OrchGraphError` / `format_orch_graph_panel_ex`.
 5. ~~bash `export -f` for graph helpers~~ — workers actually write nodes under `bash -c`.
 
-Still open (P1+):
+Shipped (P1 visibility):
+
+6. Fleet worker rows from `.orch/run/status.json` + orch-only projects.
+7. Project-level orch graph in TUI + `GET /v1/orch-graph?repo=` / `orch-status`.
+8. Atomic graph writes (`flock`) + sandbox bind of `ORCH_REPO/.orch`.
+
+Still open:
 
 1. cdamux: GitHub issue link from branch `feat/<n>-*` in Fleet chrome.
-2. Fleet rows from `.orch/run/status.json` (workers without tmux).
-3. Project-level orch graph (no session required).
-4. Atomic graph writes + sandbox bind for `.orch/graph`.
+2. Node detail panel (timestamps per node) / run history.
 
 ## References
 

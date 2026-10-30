@@ -298,7 +298,7 @@ orch_ready_pickup_one() {
 export -f orch_ready_pickup_one orch_wait_for_slot orch_fetch_agent_brief
 export -f orch_loop_worker orch_graph_worker orch_graph_integrator_run
 export -f orch_graph_init orch_graph_upsert_node orch_graph_add_edge orch_graph_finish orch_graph_touch
-export -f orch_graph_enabled orch_graph_file orch_graph_now orch_graph_verifier_pass
+export -f orch_graph_locked_jq orch_graph_enabled orch_graph_file orch_graph_now orch_graph_verifier_pass
 export -f orch_worker_result_warn
 export -f orch_graph_plan_run orch_graph_plan_run_task orch_graph_plan_validate_disjoint
 export -f orch_graph_plan_wants_parallel orch_graph_norm_path orch_graph_paths_overlap

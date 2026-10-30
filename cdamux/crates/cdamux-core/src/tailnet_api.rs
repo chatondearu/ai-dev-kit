@@ -1,10 +1,15 @@
 //! Tailnet HTTP API dispatch (testable without binding a socket).
 
-use crate::orch_graph::{find_orch_graph_from_cwd, OrchGraphError};
+use crate::orch_graph::{find_orch_graph_from_cwd, load_orch_graph, OrchGraphError};
+use crate::orch_status::load_orch_run_status;
+use crate::project_tree::project_for_path;
 use crate::tmux::{capture_pane_text, list_tmux_sessions, send_line_to_session};
-use crate::{grouped_for_list, GroupedSessions, ProjectsConfig, SessionsConfig};
+use crate::{
+    discover_projects, grouped_for_list, GroupedSessions, ProjectsConfig, SessionsConfig,
+};
 use serde::{Deserialize, Serialize};
 use std::net::IpAddr;
+use std::path::{Path, PathBuf};
 
 pub const PANE_CAPTURE_LINES: i32 = 200;
 
@@ -128,6 +133,13 @@ pub trait TailnetApiBackend {
     fn sessions_grouped(&self) -> GroupedSessions;
     fn pane_tail(&self, session_id: &str) -> Result<String, TailnetApiError>;
     fn send_line(&self, session_id: &str, line: &str, enter: bool) -> Result<(), TailnetApiError>;
+    /// Absolute repo path allowed for orch reads (must sit under configured project roots).
+    fn resolve_orch_repo(&self, repo: &str) -> Result<PathBuf, TailnetApiError> {
+        let _ = repo;
+        Err(TailnetApiError::BadRequest(
+            "orch repo lookup not supported on this backend".into(),
+        ))
+    }
 }
 
 pub struct LiveTailnetBackend {
@@ -181,6 +193,50 @@ impl TailnetApiBackend for LiveTailnetBackend {
         send_line_to_session(session_id, line, enter)
             .map_err(|e| TailnetApiError::Tmux(e.to_string()))
     }
+
+    fn resolve_orch_repo(&self, repo: &str) -> Result<PathBuf, TailnetApiError> {
+        resolve_orch_repo_path(&self.projects, repo)
+    }
+}
+
+fn resolve_orch_repo_path(projects: &ProjectsConfig, repo: &str) -> Result<PathBuf, TailnetApiError> {
+    if repo.is_empty() {
+        return Err(TailnetApiError::BadRequest("missing repo query".into()));
+    }
+    let path = PathBuf::from(repo);
+    if !path.is_absolute() {
+        return Err(TailnetApiError::BadRequest(
+            "repo must be an absolute path".into(),
+        ));
+    }
+    let discovered = discover_projects(projects);
+    if discovered.iter().any(|p| p.path == path) {
+        return Ok(path);
+    }
+    if project_for_path(repo, &discovered).is_some() {
+        return Ok(path);
+    }
+    for root in &projects.roots {
+        if path.starts_with(Path::new(&root.path)) {
+            return Ok(path);
+        }
+    }
+    Err(TailnetApiError::NotFound(format!(
+        "repo not under configured project roots: {repo}"
+    )))
+}
+
+fn query_param(query: Option<&str>, key: &str) -> Option<String> {
+    let q = query?;
+    for pair in q.split('&') {
+        let Some((k, v)) = pair.split_once('=') else {
+            continue;
+        };
+        if k == key {
+            return Some(decode_path_segment(v));
+        }
+    }
+    None
 }
 
 fn session_cwd_from_grouped(grouped: &GroupedSessions, session_id: &str) -> Option<String> {
@@ -239,7 +295,10 @@ pub fn dispatch_tailnet_request(
     body: &str,
     backend: &impl TailnetApiBackend,
 ) -> TailnetResponse {
-    let path = path.split('?').next().unwrap_or(path);
+    let (path, query) = match path.split_once('?') {
+        Some((p, q)) => (p, Some(q)),
+        None => (path, None),
+    };
     if path == "/v1/health" {
         if method != "GET" {
             return method_not_allowed();
@@ -258,6 +317,77 @@ pub fn dispatch_tailnet_request(
             return method_not_allowed();
         }
         return json_ok(200, &backend.sessions_grouped());
+    }
+    if path == "/v1/orch-graph" {
+        if method != "GET" {
+            return method_not_allowed();
+        }
+        let Some(repo) = query_param(query, "repo") else {
+            return json_error(
+                400,
+                TailnetApiError::BadRequest("missing repo query".into()),
+            );
+        };
+        let repo_path = match backend.resolve_orch_repo(&repo) {
+            Ok(p) => p,
+            Err(e) => {
+                let status = match e {
+                    TailnetApiError::NotFound(_) => 404,
+                    TailnetApiError::BadRequest(_) => 400,
+                    _ => 502,
+                };
+                return json_error(status, e);
+            }
+        };
+        return match load_orch_graph(&repo_path) {
+            Ok((graph, _)) => json_ok(200, &graph),
+            Err(OrchGraphError::NotFound(_)) => json_error(
+                404,
+                TailnetApiError::NotFound(format!(
+                    "no .orch/graph/current.json under {}",
+                    repo_path.display()
+                )),
+            ),
+            Err(OrchGraphError::Invalid { path, message }) => json_error(
+                422,
+                TailnetApiError::BadRequest(format!(
+                    "invalid current.json at {}: {message}",
+                    path.display()
+                )),
+            ),
+        };
+    }
+    if path == "/v1/orch-status" {
+        if method != "GET" {
+            return method_not_allowed();
+        }
+        let Some(repo) = query_param(query, "repo") else {
+            return json_error(
+                400,
+                TailnetApiError::BadRequest("missing repo query".into()),
+            );
+        };
+        let repo_path = match backend.resolve_orch_repo(&repo) {
+            Ok(p) => p,
+            Err(e) => {
+                let status = match e {
+                    TailnetApiError::NotFound(_) => 404,
+                    TailnetApiError::BadRequest(_) => 400,
+                    _ => 502,
+                };
+                return json_error(status, e);
+            }
+        };
+        return match load_orch_run_status(&repo_path) {
+            Some(st) => json_ok(200, &st),
+            None => json_error(
+                404,
+                TailnetApiError::NotFound(format!(
+                    "no .orch/run/status.json under {}",
+                    repo_path.display()
+                )),
+            ),
+        };
     }
     if let Some(rest) = path.strip_prefix("/v1/sessions/") {
         let parts: Vec<&str> = rest.split('/').collect();

@@ -58,9 +58,10 @@ bash ~/.cursor/skills/cda-graph/scripts/graph-plan-validate.sh my-plan.json
 
 | Surface | How |
 | ------- | --- |
-| **cdamux TUI** | Fleet → select session → sidecar tab **Orch graph** |
+| **cdamux TUI** | Fleet → select **project** or session → sidecar **Orch graph**; expand project for `⚙ #id` workers from `.orch/run/status.json` |
 | **cdamuxd web** | Tailnet dashboard → session → **Orch graph** (canvas, polls API) |
 | **API** | `GET /v1/sessions/{tmux-name}/orch-graph` |
+| **API (project)** | `GET /v1/orch-graph?repo=/abs/path` · `GET /v1/orch-status?repo=/abs/path` (path must sit under configured roots) |
 
 ## Cursor-only (no harness)
 

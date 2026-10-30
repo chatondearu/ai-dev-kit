@@ -13,11 +13,12 @@ use crate::settings_form::{draw_settings, SettingsForm};
 use crate::widgets::edit_text;
 use cdamux_core::{
     build_project_session_tree, capture_pane_text, config_path, discover_projects,
-    kill_tmux_session, load_config,
-    preferred_spawn_agent, project_key, rename_tmux_session, resolve_agent_command,
+    kill_tmux_session, load_config, load_orch_run_status, preferred_spawn_agent,
+    project_has_orch_artifacts, project_key, rename_tmux_session, resolve_agent_command,
     send_to_session, session_name_for_path, spawn_tmux_session_with_layout, state_icon,
-    switch_client_to_session, unique_session_name, Config, EnrichedSession, GroupBy, SessionChrome,
-    PaneLayout, ProjectSessionTree, ProjectTreeNode, SessionState, SpawnOutcome,
+    switch_client_to_session, unique_session_name, worker_phase_icon, Config, EnrichedSession,
+    GroupBy, SessionChrome, PaneLayout, ProjectSessionTree, ProjectTreeNode, SessionState,
+    SpawnOutcome,
 };
 use std::path::PathBuf;
 use crossterm::event::{
@@ -192,9 +193,17 @@ enum TreeRow {
         name: String,
         path: String,
         session_count: usize,
+        worker_count: usize,
         expanded: bool,
     },
     Session(EnrichedSession),
+    /// Headless orch worker from `.orch/run/status.json` (no tmux session).
+    Worker {
+        id: String,
+        phase: String,
+        message: String,
+        project_path: String,
+    },
     UnassignedHeader,
     Unassigned(EnrichedSession),
 }
@@ -213,19 +222,40 @@ fn flatten_tree(
             .filter(|s| session_passes_waiting_filter(s, waiting_only))
             .cloned()
             .collect();
-        if waiting_only && visible.is_empty() {
+        let workers = load_orch_run_status(&node.project.path)
+            .map(|s| s.workers)
+            .unwrap_or_default();
+        let visible_workers: Vec<_> = if waiting_only {
+            workers
+                .into_iter()
+                .filter(|w| w.phase == "blocked")
+                .collect()
+        } else {
+            workers
+        };
+        if waiting_only && visible.is_empty() && visible_workers.is_empty() {
             continue;
         }
         let key = tree_node_key(node, group_by);
         let is_exp = expanded.contains(&key);
+        let project_path = node.project.path.to_string_lossy().to_string();
         rows.push(TreeRow::Project {
             key,
             name: node.project.name.clone(),
-            path: node.project.path.to_string_lossy().to_string(),
+            path: project_path.clone(),
             session_count: visible.len(),
+            worker_count: visible_workers.len(),
             expanded: is_exp,
         });
         if is_exp {
+            for w in visible_workers {
+                rows.push(TreeRow::Worker {
+                    id: w.id,
+                    phase: w.phase,
+                    message: w.message,
+                    project_path: project_path.clone(),
+                });
+            }
             for s in visible {
                 rows.push(TreeRow::Session(s));
             }
@@ -250,7 +280,7 @@ fn toggle_fold_all(tree: &ProjectSessionTree, expanded: &mut HashSet<String>, gr
     let keys: Vec<String> = tree
         .nodes
         .iter()
-        .filter(|n| !n.sessions.is_empty())
+        .filter(|n| !n.sessions.is_empty() || project_has_orch_artifacts(&n.project.path))
         .map(|n| tree_node_key(n, group_by))
         .collect();
     let all_open = !keys.is_empty() && keys.iter().all(|k| expanded.contains(k));
@@ -276,11 +306,45 @@ fn selectable_indices(rows: &[TreeRow]) -> Vec<usize> {
         .filter(|(_, r)| {
             matches!(
                 r,
-                TreeRow::Project { .. } | TreeRow::Session(_) | TreeRow::Unassigned(_)
+                TreeRow::Project { .. }
+                    | TreeRow::Session(_)
+                    | TreeRow::Worker { .. }
+                    | TreeRow::Unassigned(_)
             )
         })
         .map(|(i, _)| i)
         .collect()
+}
+
+fn orch_repo_at_row(rows: &[TreeRow], idx: usize) -> Option<String> {
+    match rows.get(idx)? {
+        TreeRow::Project { path, .. } => Some(path.clone()),
+        TreeRow::Worker { project_path, .. } => Some(project_path.clone()),
+        TreeRow::Session(s) | TreeRow::Unassigned(s) => Some(s.path.clone()),
+        TreeRow::UnassignedHeader => None,
+    }
+}
+
+fn fleet_attention_hint(rows: &[TreeRow]) -> String {
+    let mut need_input = 0usize;
+    let mut blocked = 0usize;
+    for r in rows {
+        match r {
+            TreeRow::Session(s) | TreeRow::Unassigned(s)
+                if s.state == SessionState::NeedsInput =>
+            {
+                need_input += 1;
+            }
+            TreeRow::Worker { phase, .. } if phase == "blocked" => blocked += 1,
+            _ => {}
+        }
+    }
+    match (need_input, blocked) {
+        (0, 0) => String::new(),
+        (n, 0) => format!("{n} session(s) need input"),
+        (0, b) => format!("{b} orch worker(s) blocked"),
+        (n, b) => format!("{n} need input · {b} orch blocked"),
+    }
 }
 
 fn clamp_selection(rows: &[TreeRow], selected_row: usize) -> usize {
@@ -354,7 +418,7 @@ fn sidecar_plain_body(tab: SideTab, notes: &str, review: &str, orch_graph: &str)
 
 fn orch_graph_text_for_cwd(cwd: &str, width: usize) -> String {
     if cwd.is_empty() {
-        return "Select a session tied to a repo running orch.sh.".to_string();
+        return "Select a project or session with a live orch run.".to_string();
     }
     match cdamux_core::find_orch_graph_from_cwd(cwd) {
         Ok((g, age)) => cdamux_core::format_orch_graph_panel_ex(&g, width, age),
@@ -571,12 +635,51 @@ pub fn run_dashboard() -> ExitCode {
                 notes_text = crate::note_text_for_session_cwd(&cfg, &s.path);
                 notes_for_session = Some(s.name.clone());
             }
-            let graph_key = format!("{}:{}", s.name, s.path);
+            let graph_key = format!("sess:{}:{}", s.name, s.path);
             if orch_graph_for_session.as_deref() != Some(graph_key.as_str())
                 || (side_tab == SideTab::OrchGraph
                     && last_preview_refresh.elapsed() >= PREVIEW_REFRESH)
             {
                 orch_graph_text = orch_graph_text_for_cwd(&s.path, 72);
+                orch_graph_for_session = Some(graph_key);
+            }
+        } else if let Some(repo) = orch_repo_at_row(&rows, selected_row) {
+            preview_for_session = None;
+            chrome_for_session = None;
+            preview_scroll = 0;
+            session_chrome = SessionChrome::gather("", "");
+            match rows.get(selected_row) {
+                Some(TreeRow::Worker {
+                    id, phase, message, ..
+                }) => {
+                    preview_text = format!(
+                        "orch worker #{id}\nphase: {phase}\n{message}\n\n(no tmux pane — headless orch)"
+                    );
+                }
+                Some(TreeRow::Project {
+                    name,
+                    worker_count,
+                    session_count,
+                    ..
+                }) => {
+                    preview_text = format!(
+                        "project {name}\nsessions: {session_count} · orch workers: {worker_count}\n\nExpand for workers/sessions; Orch graph tab reads this repo."
+                    );
+                }
+                _ => {
+                    preview_text = "(select a session for preview)".to_string();
+                }
+            }
+            if notes_for_session.as_deref() != Some(repo.as_str()) {
+                notes_text = crate::note_text_for_session_cwd(&cfg, &repo);
+                notes_for_session = Some(repo.clone());
+            }
+            let graph_key = format!("repo:{repo}");
+            if orch_graph_for_session.as_deref() != Some(graph_key.as_str())
+                || (side_tab == SideTab::OrchGraph
+                    && last_preview_refresh.elapsed() >= PREVIEW_REFRESH)
+            {
+                orch_graph_text = orch_graph_text_for_cwd(&repo, 72);
                 orch_graph_for_session = Some(graph_key);
             }
         } else {
@@ -594,14 +697,22 @@ pub fn run_dashboard() -> ExitCode {
 
         let composer_session = session.map(|s| s.name.as_str());
 
-        let help_status = if app_tab == AppTab::Settings {
+        let attention = fleet_attention_hint(&rows);
+        let help_status_owned = if app_tab == AppTab::Settings {
             if settings.status.is_empty() {
-                status_line.as_str()
+                status_line.clone()
             } else {
-                settings.status.as_str()
+                settings.status.clone()
             }
         } else {
-            status_line.as_str()
+            status_line.clone()
+        };
+        let help_status = if attention.is_empty() {
+            help_status_owned
+        } else if help_status_owned.is_empty() {
+            attention
+        } else {
+            format!("{attention}  |  {help_status_owned}")
         };
 
         let modal_open = spawn_overlay.is_some() || rename_overlay.is_some();
@@ -636,7 +747,7 @@ pub fn run_dashboard() -> ExitCode {
                             } else {
                                 None
                             },
-                            status_line: help_status,
+                            status_line: help_status.as_str(),
                         },
                         &cfg,
                         &settings,
@@ -1302,10 +1413,16 @@ fn tree_row_item(row: &TreeRow) -> ListItem<'_> {
             name,
             path,
             session_count,
+            worker_count,
             expanded,
             ..
         } => {
             let chevron = if *expanded { "▼" } else { "▶" };
+            let counts = if *worker_count > 0 {
+                format!("({session_count} sess · {worker_count} orch) ")
+            } else {
+                format!("({session_count}) ")
+            };
             ListItem::new(Line::from(vec![
                 Span::styled(format!("{} ", chevron), Style::default().fg(CLR_MUTED)),
                 Span::styled("◇ ", Style::default().fg(CLR_ACCENT)),
@@ -1315,11 +1432,33 @@ fn tree_row_item(row: &TreeRow) -> ListItem<'_> {
                         .fg(CLR_PROJECT)
                         .add_modifier(Modifier::BOLD),
                 ),
-                Span::styled(
-                    format!("({}) ", session_count),
-                    Style::default().fg(CLR_MUTED),
-                ),
+                Span::styled(counts, Style::default().fg(CLR_MUTED)),
                 Span::styled(path.clone(), Style::default().fg(CLR_MUTED)),
+            ]))
+        }
+        TreeRow::Worker {
+            id,
+            phase,
+            message,
+            ..
+        } => {
+            let icon = worker_phase_icon(phase);
+            let color = if phase == "blocked" {
+                CLR_WARN
+            } else if phase == "done" {
+                CLR_ACCENT
+            } else {
+                CLR_MUTED
+            };
+            ListItem::new(Line::from(vec![
+                Span::raw("  "),
+                Span::styled(format!("{icon} "), Style::default().fg(color)),
+                Span::styled(
+                    format!("#{id} "),
+                    Style::default().fg(CLR_TEXT).add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(format!("{phase}  "), Style::default().fg(CLR_MUTED)),
+                Span::styled(message.clone(), Style::default().fg(CLR_MUTED)),
             ]))
         }
         TreeRow::Session(s) | TreeRow::Unassigned(s) => {

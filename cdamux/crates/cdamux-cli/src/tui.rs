@@ -1612,7 +1612,9 @@ fn draw_sidecar(
     );
     f.render_widget(Paragraph::new(tabs), vertical[0]);
 
-    let preview_idx = if show_chrome { 2 } else { 1 };
+    // Layout is always [tabs, chrome?, body, composer?]. Chrome may be height 0
+    // when hidden — body is still index 2 (was wrongly 1 → zero-height / black panel).
+    let preview_idx = 2;
     if show_chrome {
         let chrome = state.session_chrome.unwrap();
         let chrome_block = Block::default()
@@ -1654,6 +1656,7 @@ fn draw_sidecar(
             state.review_text,
             state.orch_graph_text,
         ))
+            .style(Style::default().fg(CLR_TEXT))
             .wrap(Wrap { trim: false })
             .block(body_block)
     };

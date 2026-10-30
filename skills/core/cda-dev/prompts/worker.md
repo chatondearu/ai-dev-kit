@@ -15,6 +15,15 @@ branches. **Do not merge.**
 - Repo root: {{REPO_ROOT}}
 - Worktree cwd: {{WORKTREE}} (run all git/verify commands here)
 
+## Preamble (graph / harness)
+
+- Issue id: `#{{ISSUE}}` — you own only this child.
+- Worktree: `{{WORKTREE}}` — all edits and verifies here; do not touch other
+  worktrees under `.orch/worktrees/`.
+- One PR for this issue; **do not merge**.
+- Before you finish: write `.orch/worker-result.json` (schema below) and
+  optionally `touch .orch/worker-done` so fan-in / cdamux see completion.
+
 ## Contract
 
 - **`full`**: treat the plan as the behavioral contract (checklist + acceptance).

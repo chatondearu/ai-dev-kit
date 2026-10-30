@@ -235,6 +235,7 @@ orch_ready_pickup_one() {
     echo 1 >"$rc_file"
     return 1
   fi
+  orch_worker_result_warn "$path"
 
   orch_progress_set "$id" ci "looking up PR for ${branch}"
   if command -v gh >/dev/null 2>&1; then
@@ -296,8 +297,11 @@ orch_ready_pickup_one() {
 
 export -f orch_ready_pickup_one orch_wait_for_slot orch_fetch_agent_brief
 export -f orch_loop_worker orch_graph_worker orch_graph_integrator_run
-export -f orch_graph_init orch_graph_upsert_node orch_graph_add_edge
+export -f orch_graph_init orch_graph_upsert_node orch_graph_add_edge orch_graph_finish orch_graph_touch
+export -f orch_graph_enabled orch_graph_file orch_graph_now orch_graph_verifier_pass
+export -f orch_worker_result_warn
 export -f orch_graph_plan_run orch_graph_plan_run_task orch_graph_plan_validate_disjoint
+export -f orch_graph_plan_wants_parallel orch_graph_norm_path orch_graph_paths_overlap
 export -f orch_agent_run orch_run_verify orch_resolve_verify
 export -f _orch_extract_agents_verify orch_detect_agent orch_render_prompt
 export -f orch_pr_mergeable orch_pr_checks_watch _orch_pr_checks_classify
@@ -376,11 +380,14 @@ case "$MODE" in
         exit 0
       fi
       if ! orch_graph_plan_run "$GRAPH_PLAN" "${ISSUES[0]}"; then
+        orch_graph_finish blocked
         exit 1
       fi
       if ! orch_ready_pickup_one "${ISSUES[0]}" 0; then
+        orch_graph_finish blocked
         exit 1
       fi
+      orch_graph_finish ok
       exit 0
     fi
 
@@ -522,8 +529,10 @@ case "$MODE" in
     done
 
     if [ "$any_blocked" -ne 0 ]; then
+      orch_graph_finish blocked
       exit 1
     fi
+    orch_graph_finish ok
     ;;
   pr-fix)
     [ -n "$PR" ] || { echo "need --pr"; exit 2; }

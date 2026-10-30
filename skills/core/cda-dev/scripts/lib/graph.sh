@@ -24,7 +24,7 @@ orch_graph_init() {
   dir="$(dirname "$gf")"
   mkdir -p "$dir"
   if ! command -v jq >/dev/null 2>&1; then
-    printf '{"run_id":"%s","repo":"%s","nodes":[],"edges":[],"updated_at":"%s"}\n' \
+    printf '{"run_id":"%s","repo":"%s","nodes":[],"edges":[],"updated_at":"%s","status":"running"}\n' \
       "$run_id" "${ORCH_REPO:-.}" "$(orch_graph_now)" >"$gf"
     return 0
   fi
@@ -32,7 +32,48 @@ orch_graph_init() {
     --arg run_id "$run_id" \
     --arg repo "${ORCH_REPO:-.}" \
     --arg updated "$(orch_graph_now)" \
-    '{run_id:$run_id,repo:$repo,nodes:[],edges:[],updated_at:$updated}' >"$gf"
+    '{run_id:$run_id,repo:$repo,nodes:[],edges:[],updated_at:$updated,status:"running"}' >"$gf"
+}
+
+# Mark run finished (ok|blocked). Sets .status and .ended_at for cdamux freshness.
+orch_graph_finish() {
+  local outcome="${1:-ok}"
+  local gf tmp status
+  if ! orch_graph_enabled; then
+    return 0
+  fi
+  gf="$(orch_graph_file)"
+  [ -f "$gf" ] || return 0
+  case "$outcome" in
+    ok|done|success) status="ok";;
+    *) status="blocked";;
+  esac
+  if ! command -v jq >/dev/null 2>&1; then
+    return 0
+  fi
+  tmp="$(mktemp)"
+  jq \
+    --arg status "$status" \
+    --arg ended "$(orch_graph_now)" \
+    --arg updated "$(orch_graph_now)" \
+    '.status = $status | .ended_at = $ended | .updated_at = $updated' \
+    "$gf" >"$tmp" && mv "$tmp" "$gf"
+}
+
+# Warn when worker-result.json is missing or lacks required fields (issue/status/checks).
+orch_worker_result_warn() {
+  local wt="$1"
+  local f="$wt/.orch/worker-result.json"
+  if [ ! -f "$f" ]; then
+    printf 'orch: warn: missing %s (integrator/graph fan-in weaker)\n' "$f" >&2
+    return 0
+  fi
+  if ! command -v jq >/dev/null 2>&1; then
+    return 0
+  fi
+  if ! jq -e '(.issue | type == "number") and (.status == "done" or .status == "blocked") and (.checks == "green" or .checks == "red" or .checks == "none")' "$f" >/dev/null 2>&1; then
+    printf 'orch: warn: %s missing required fields (issue, status, checks)\n' "$f" >&2
+  fi
 }
 
 orch_graph_touch() {
@@ -233,9 +274,15 @@ orch_graph_integrator_run() {
 
   [ "${#ids[@]}" -ge 1 ] || return 0
   case "${ORCH_GRAPH_INTEGRATOR:-auto}" in
-    0|off|false|no) return 0;;
+    0|off|false|no)
+      orch_graph_upsert_node integrator integrator skipped skipped "ORCH_GRAPH_INTEGRATOR off" ""
+      return 0
+      ;;
     auto)
-      [ "${#ids[@]}" -lt 2 ] && return 0
+      if [ "${#ids[@]}" -lt 2 ]; then
+        orch_graph_upsert_node integrator integrator skipped skipped "single issue — no synthesize" ""
+        return 0
+      fi
       ;;
   esac
 
@@ -374,7 +421,9 @@ orch_graph_plan_run_task() {
 # Intra-issue fan-out from JSON plan (opt-in --graph-plan).
 orch_graph_plan_run() {
   local plan_file="$1" issue="$2"
-  local slug="issue-$issue" branch="feat/${issue}-${slug}"
+  # Split locals: bash expands ${slug} before assignment in the same `local` line.
+  local slug="issue-$issue"
+  local branch="feat/${issue}-${slug}"
   local path n i rc_dir rc_file parallel=0 max_p pids pid still
 
   command -v jq >/dev/null 2>&1 || {

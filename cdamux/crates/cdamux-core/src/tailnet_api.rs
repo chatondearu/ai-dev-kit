@@ -1,6 +1,6 @@
 //! Tailnet HTTP API dispatch (testable without binding a socket).
 
-use crate::orch_graph::find_orch_graph_from_cwd;
+use crate::orch_graph::{find_orch_graph_from_cwd, OrchGraphError};
 use crate::tmux::{capture_pane_text, list_tmux_sessions, send_line_to_session};
 use crate::{grouped_for_list, GroupedSessions, ProjectsConfig, SessionsConfig};
 use serde::{Deserialize, Serialize};
@@ -294,13 +294,22 @@ pub fn dispatch_tailnet_request(
                     }
                 };
                 match find_orch_graph_from_cwd(&cwd) {
-                    Some(graph) => return json_ok(200, &graph),
-                    None => {
+                    Ok((graph, _)) => return json_ok(200, &graph),
+                    Err(OrchGraphError::NotFound(_)) => {
                         return json_error(
                             404,
                             TailnetApiError::NotFound(
                                 "no .orch/graph/current.json for this session cwd".into(),
                             ),
+                        );
+                    }
+                    Err(OrchGraphError::Invalid { path, message }) => {
+                        return json_error(
+                            422,
+                            TailnetApiError::BadRequest(format!(
+                                "invalid current.json at {}: {message}",
+                                path.display()
+                            )),
                         );
                     }
                 }

@@ -101,19 +101,34 @@ bash "$SKILL/scripts/orch.sh" --no-graph --mode ready-pickup --issue 12
 | File | Purpose |
 | ---- | ------- |
 | [templates/graph-plan.schema.json](templates/graph-plan.schema.json) | `--graph-plan` |
+| [templates/orch-graph.schema.json](templates/orch-graph.schema.json) | `.orch/graph/current.json` |
 | [../cda-dev/templates/worker-result.schema.json](../cda-dev/templates/worker-result.schema.json) | Worker / task output |
 
 ## Cursor session fallback
 
-Without `orch.sh`:
+Without `orch.sh`, **do not hand-write** `current.json`. Use `graph-node.sh`:
 
-1. Dispatch parallel Task subagents (one disjoint scope each).
-2. Collect JSON summaries per [worker-result.schema.json](../cda-dev/templates/worker-result.schema.json).
-3. One integrator subagent + `cda-review` on the combined diff.
+```bash
+G=~/.cursor/skills/cda-graph/scripts/graph-node.sh
+bash "$G" init --repo .
+bash "$G" node --id integrator --kind integrator --phase pending --status queued --message "awaiting tasks"
+# one node per parallel Task (disjoint scopes):
+bash "$G" node --id task-api --kind worker --phase implement --status running --message "API" --parent integrator
+# … after each Task finishes:
+bash "$G" node --id task-api --kind worker --phase done --status done --message "ok" --parent integrator
+bash "$G" finish --outcome ok
+```
+
+Steps:
+
+1. `graph-node.sh init` then dispatch parallel Task subagents (one disjoint scope each).
+2. Each Task writes `.orch/worker-result.json` / task result JSON per [worker-result.schema.json](../cda-dev/templates/worker-result.schema.json) and updates its graph node via `graph-node.sh node`.
+3. One integrator subagent + `cda-review` on the combined diff; then `graph-node.sh finish`.
 
 ## References
 
 - Skill `cda-dev` — harness owner
 - ADR [[ADR-005-cda-graph-orchestration|ADR-005]]
+- Orca crosswalk: [doc/orca-mapping.md](../../../doc/orca-mapping.md)
 - [foam/graph/README.md](../../../foam/graph/README.md)
 - OpenClaw Swarm: program = orchestration (`Promise.all`, structured child results)

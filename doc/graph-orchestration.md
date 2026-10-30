@@ -4,6 +4,9 @@ Graph-first runs replace **one fat agent loop** with explicit nodes: parallel
 workers, short verify/fix motion, integrator fan-in, optional foam grounding.
 OpenClaw Swarm uses the same idea (program orchestration, structured child output).
 
+For comparison with **Orca** orchestration (Run / Task / Dispatch, `worker_done`), see
+[Orca ↔ kit mapping](orca-mapping.md) — we map concepts; we do not implement Orca’s inbox.
+
 ## Quick start
 
 ```bash
@@ -61,9 +64,19 @@ bash ~/.cursor/skills/cda-graph/scripts/graph-plan-validate.sh my-plan.json
 
 ## Cursor-only (no harness)
 
-1. Split plan into disjoint file scopes.
-2. Dispatch parallel subagents (one scope each); each returns JSON like `worker-result.schema.json`.
-3. Integrator subagent reads summaries → one review (`cda-review`) on combined diff.
+**Do not invent** `.orch/graph/current.json` by hand — cdamux requires `run_id` +
+`nodes`/`edges` ([orch-graph.schema.json](../skills/core/cda-graph/templates/orch-graph.schema.json)).
+
+```bash
+G=~/.cursor/skills/cda-graph/scripts/graph-node.sh
+bash "$G" init --repo "$REPO"
+# update nodes as Tasks run; then:
+bash "$G" finish --outcome ok
+```
+
+1. Split plan into disjoint file scopes; `graph-node.sh init`.
+2. Dispatch parallel subagents (one scope each); each returns JSON like `worker-result.schema.json` and updates a graph node.
+3. Integrator subagent reads summaries → one review (`cda-review`) on combined diff; `graph-node.sh finish`.
 
 Skill: `cda-graph`. Harness owner: `cda-dev`. ADR: [ADR-005](../foam/decisions/ADR-005-cda-graph-orchestration.md).
 

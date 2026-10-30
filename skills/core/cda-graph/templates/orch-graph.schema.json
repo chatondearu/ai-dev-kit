@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CDA live orch graph (.orch/graph/current.json)",
+  "type": "object",
+  "required": ["run_id"],
+  "properties": {
+    "run_id": { "type": "string", "minLength": 1 },
+    "repo": { "type": "string" },
+    "updated_at": { "type": "string" },
+    "status": {
+      "type": "string",
+      "enum": ["running", "ok", "blocked"]
+    },
+    "ended_at": { "type": "string" },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "kind", "phase", "status", "message"],
+        "properties": {
+          "id": { "type": "string" },
+          "kind": { "type": "string" },
+          "phase": { "type": "string" },
+          "status": { "type": "string" },
+          "message": { "type": "string" },
+          "parent": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["from", "to", "type"],
+        "properties": {
+          "from": { "type": "string" },
+          "to": { "type": "string" },
+          "type": { "type": "string" }
+        }
+      }
+    }
+  }
+}

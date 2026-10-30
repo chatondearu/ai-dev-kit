@@ -13,7 +13,7 @@ use crate::settings_form::{draw_settings, SettingsForm};
 use crate::widgets::edit_text;
 use cdamux_core::{
     build_project_session_tree, capture_pane_text, config_path, discover_projects,
-    format_orch_graph_panel, kill_tmux_session, load_config,
+    kill_tmux_session, load_config,
     preferred_spawn_agent, project_key, rename_tmux_session, resolve_agent_command,
     send_to_session, session_name_for_path, spawn_tmux_session_with_layout, state_icon,
     switch_client_to_session, unique_session_name, Config, EnrichedSession, GroupBy, SessionChrome,
@@ -357,8 +357,13 @@ fn orch_graph_text_for_cwd(cwd: &str, width: usize) -> String {
         return "Select a session tied to a repo running orch.sh.".to_string();
     }
     match cdamux_core::find_orch_graph_from_cwd(cwd) {
-        Some(g) => format_orch_graph_panel(&g, width),
-        None => "(no live graph — start orch.sh in this repo; tab cycles with sidecar)".to_string(),
+        Ok((g, age)) => cdamux_core::format_orch_graph_panel_ex(&g, width, age),
+        Err(cdamux_core::OrchGraphError::NotFound(_)) => {
+            "(no live graph — start orch.sh in this repo; tab cycles with sidecar)".to_string()
+        }
+        Err(cdamux_core::OrchGraphError::Invalid { path, message }) => {
+            format!("invalid current.json at {}:\n{}", path.display(), message)
+        }
     }
 }
 

@@ -1,7 +1,8 @@
 # cdamux — research & competitor matrix
 
 Captured 2026-10-26 from operator dogfood (skzv/ccmux 0.6.4, agent-manager,
-epilande/ccmux docs, pickers). Update this file when evaluating new tools.
+epilande/ccmux docs, pickers). **Orca** section added 2026-10-29. Update this file
+when evaluating new tools.
 
 ## Operator goals (why cdamux exists)
 
@@ -113,6 +114,51 @@ excellent for “find agent pane” without owning spawn.
 
 Sidecar **viewer** (files, diff, markdown/mermaid) — complement, not mux. Phase 2+ idea.
 
+### Orca (onorca.dev)
+
+[Orca](https://www.onorca.dev/) is a **desktop Agent Development Environment** (MIT,
+[stablyai/orca](https://github.com/stablyai/orca)): worktrees, parallel agent terminals,
+embedded browser/editor, mobile companion, and an **experimental orchestration** layer
+(Run / Task / Dispatch, `worker_done`, decision gates). It overlaps cdamux on **fleet +
+worktrees + send + review** and overlaps the kit on **parallel workers + completion tracking**,
+but Orca owns the full GUI and supervised inbox; we keep **tmux + bash orch + foam**.
+
+**Kit mapping (detailed):** [`doc/orca-mapping.md`](../../doc/orca-mapping.md).
+
+#### Orca vs cdamux vs kit (selected rows)
+
+| Attout | Orca | cdamux | Kit (`cda-dev` / `cda-graph`) |
+| ------ | ---- | ------ | ------------------------------ |
+| **Spawns agent sessions** | Yes (native + CLI) | Yes (`spawn`, tmux) | `orch.sh` workers (worktrees, not tmux API) |
+| **Worktrees** | Core UX + CLI | Opt-in spawn modal; `worktree list` | `.orch/worktrees/` via orch |
+| **Structured multi-agent** | Orchestration inbox | Read-only Orch graph sidecar | `current.json`, integrator, `--graph-plan` |
+| **GitHub / Linear UI** | In-app | — | `cda-kanban`, `gh` |
+| **Review → agent** | Inline diff comments | Hunk review TUI | PR / `cda-review` |
+| **Remote** | SSH worktrees, federated workers | Tailnet HTTP + pane send | — |
+| **Mobile** | iOS / Android app | Web UI (tailnet) | — |
+| **Agent-driven CLI** | `orca … --json` | Partial (`cdamuxd` API) | `orch.sh`, `headless.sh` |
+| **Licence** | MIT | (extract-time dual licence) | MIT kit |
+
+**Liked (reference)**
+
+- One app for parallel agents + worktrees + diff review without branch juggling.
+- Supervised worker contract (`worker_done`, dispatch IDs) for coordinator loops.
+- GitHub/Linear → worktree from task (operator flow we do via issues + orch pickup).
+- CLI so agents drive the environment (`orca skills get orchestration --full`).
+
+**Limits (vs our goals)**
+
+- Not tmux-native — different from maintainer popup/`M-p` + personal tmux mix.
+- Orchestration state lives in Orca runtime, not repo-local JSON + foam.
+- Heavy desktop; we optimize for Nix/tmux/headless orch on a always-on host.
+- Multi-root discover and `/hdd/dev/**` layout are cdamux config concerns Orca solves differently (workspace folders).
+
+**Do not confuse**
+
+- Orca **orchestration** ≠ kit **graph** file alone: we persist `.orch/graph/current.json`
+  but do not implement Delivery ack or `dispatchId` completion authority.
+- cdamux **Orch graph** tab is **observability** of orch runs, not Orca’s Task scheduler.
+
 ## UX decisions to steal (cdamux v0 → v1)
 
 | Phase | Feature | Source |
@@ -128,6 +174,8 @@ Sidecar **viewer** (files, diff, markdown/mermaid) — complement, not mux. Phas
 | v2 | Fleet tree + preview composer + spawn modal | PRD-41 / prototype C+ |
 | v2 | `w` waiting filter, `F` fold all, `g` group_by cycle | agent-manager parity (see `?` help: AM `g` ≠ cdamux `g`) |
 | v2 | App tabs (Projects, Sessions, Agents, Settings) | mockup top nav |
+| future | Issue # → spawn hint / Fleet link | Orca GitHub tasks (see `doc/orca-mapping.md`) |
+| future | Worker completion artifact enforcement | Orca `worker_done` (kit: `worker-result.json`) |
 
 ## tmux integration (kit)
 
@@ -158,4 +206,6 @@ bind-key -n M-p display-popup -E -w 80% -h 75% "cdamux"
 - [ccmux configuration (epilande)](https://ccmux.dev/docs/configuration/)
 - [MuxPilot](https://github.com/muxpilot/muxpilot)
 - [taimux](https://github.com/pdecat/taimux)
+- [Orca](https://www.onorca.dev/) — [orchestration docs](https://www.onorca.dev/docs/cli/orchestration)
+- [`doc/orca-mapping.md`](../../doc/orca-mapping.md) (kit crosswalk)
 - ADR-003, ADR-004, PRD-39

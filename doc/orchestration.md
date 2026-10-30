@@ -16,6 +16,7 @@ Host readiness (checks only, never installs):
 
 See **[graph-orchestration.md](graph-orchestration.md)** (cookbook, env vars, graph-plan, cdamux).
 Skill: `cda-graph`. ADR: [ADR-005](../foam/decisions/ADR-005-cda-graph-orchestration.md).
+Orca comparison: [orca-mapping.md](orca-mapping.md).
 
 ## Manual ready-pickup
 

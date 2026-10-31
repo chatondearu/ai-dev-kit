@@ -73,10 +73,23 @@ pub struct PaneSignals {
     pub tail: String,
 }
 
+/// `display-message -p` format for a user option name (`@foo` → `#{@foo}`).
+/// Passing `@foo` alone prints the literal `@foo`, not the option value.
+pub(crate) fn user_option_display_format(option: &str) -> String {
+    if option.starts_with("#{") {
+        option.to_string()
+    } else if let Some(name) = option.strip_prefix('@') {
+        format!("#{{@{name}}}")
+    } else {
+        option.to_string()
+    }
+}
+
 /// Read a tmux user option (e.g. `@cdamux_state`) for a session.
 pub fn tmux_user_option(session_name: &str, option: &str) -> Option<String> {
+    let format = user_option_display_format(option);
     let out = Command::new("tmux")
-        .args(["display-message", "-p", "-t", session_name, option])
+        .args(["display-message", "-p", "-t", session_name, &format])
         .output()
         .ok()?;
     if !out.status.success() {
@@ -344,5 +357,17 @@ mod tests {
         assert!(!args.windows(2).any(|w| w[0] == "-E" && w[1] == "-1"));
         assert!(args.contains(&"-S".into()));
         assert!(args.contains(&"-40".into()));
+    }
+
+    #[test]
+    fn user_option_format_wraps_at_name() {
+        assert_eq!(
+            user_option_display_format("@cdamux_state"),
+            "#{@cdamux_state}"
+        );
+        assert_eq!(
+            user_option_display_format("#{@cdamux_agent}"),
+            "#{@cdamux_agent}"
+        );
     }
 }

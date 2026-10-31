@@ -148,6 +148,7 @@ fn rekey_daemon_sessions(
     projects: &ProjectsConfig,
     idle_seconds_for_needs_input: u32,
 ) -> Vec<EnrichedSession> {
+    // Re-classify locally so a newer CLI is not stuck with a stale daemon state.
     let raw: Vec<crate::TmuxSession> = sessions
         .iter()
         .map(|s| crate::TmuxSession {
@@ -156,13 +157,6 @@ fn rekey_daemon_sessions(
         })
         .collect();
     enrich_sessions(&raw, group_by, projects, idle_seconds_for_needs_input)
-        .into_iter()
-        .zip(sessions)
-        .map(|(mut e, old)| {
-            e.state = old.state;
-            e
-        })
-        .collect()
 }
 
 pub fn grouped_for_list(

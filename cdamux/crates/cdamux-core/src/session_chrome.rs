@@ -154,8 +154,8 @@ pub fn resolve_agent_label(primary: Option<&str>, legacy: Option<&str>) -> Strin
 /// Agent id from tmux user options (`@cdamux_agent`, legacy `@ccmux_agent`).
 pub fn session_agent_label(session_name: &str) -> String {
     resolve_agent_label(
-        tmux_display(session_name, "@cdamux_agent").as_deref(),
-        tmux_display(session_name, "@ccmux_agent").as_deref(),
+        crate::tmux::tmux_user_option(session_name, "@cdamux_agent").as_deref(),
+        crate::tmux::tmux_user_option(session_name, "@ccmux_agent").as_deref(),
     )
 }
 

@@ -167,21 +167,21 @@ orch_ready_pickup_one() {
   worker_prompt="$path/.orch/worker-prompt.md"
 
   title="N/A"
+  local body=""
   if command -v gh >/dev/null 2>&1; then
     title="$(gh issue view "$id" --json title -q .title 2>/dev/null || echo "N/A")"
+    body="$(gh issue view "$id" --json body -q .body 2>/dev/null || true)"
     # Escape hatch (ADR-006): `orch: allow-no-verify` in the body keeps verify=true
     # when no verify command exists; otherwise a missing command blocks.
-    if gh issue view "$id" --json body -q .body 2>/dev/null | grep -Fq 'orch: allow-no-verify'; then
+    if printf '%s' "$body" | grep -Fq 'orch: allow-no-verify'; then
       allow_no_verify=1
     fi
   fi
+  orch_resolve_context "$ORCH_REPO" "$id" "$body"
   [ -z "$title" ] && title="N/A"
 
   plan_path="N/A"
-  # Prefer foam/plans (ADR-017); keep root plans/ for harness-compat repos.
   for p in \
-    "$ORCH_REPO"/foam/plans/PLAN-"$id"-*.md \
-    "$path"/foam/plans/PLAN-"$id"-*.md \
     "$ORCH_REPO"/plans/PLAN-"$id"-*.md \
     "$path"/plans/PLAN-"$id"-*.md
   do
@@ -220,7 +220,10 @@ orch_ready_pickup_one() {
     "TITLE=$title" \
     "PLAN_PATH=$plan_path" \
     "BRIEF_PATH=$brief_path" \
-    "LANE=$lane"
+    "LANE=$lane" \
+    "PRD_PATH=$ORCH_PRD_PATH" \
+    "EPIC=$ORCH_EPIC" \
+    "CONSTRAINTS=$ORCH_CONSTRAINTS"
 
   export ORCH_WT="$path"
   orch_detect_agent >/dev/null
@@ -355,7 +358,7 @@ export -f orch_graph_locked_jq orch_graph_enabled orch_graph_file orch_graph_now
 export -f orch_worker_result_warn
 export -f orch_graph_plan_run orch_graph_plan_run_task orch_graph_plan_validate_disjoint
 export -f orch_graph_plan_wants_parallel orch_graph_norm_path orch_graph_paths_overlap
-export -f orch_agent_run orch_run_verify orch_resolve_verify orch_verify_retry_prompt
+export -f orch_agent_run orch_run_verify orch_resolve_verify orch_verify_retry_prompt orch_resolve_context
 export -f orch_review_run orch_review_fix_prompt
 export -f _orch_extract_agents_verify orch_detect_agent orch_render_prompt
 export -f orch_pr_mergeable orch_pr_checks_watch _orch_pr_checks_classify

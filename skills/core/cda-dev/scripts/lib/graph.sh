@@ -281,13 +281,11 @@ orch_graph_verifier_pass() {
   local prompts="${ORCH_PROMPTS_DIR:-}"
   local tpl="$prompts/verifier.md"
   local vprompt="$wt/.orch/verifier-prompt.md"
-  local constraints="N/A"
-  local plan="N/A"
+  local plan="none"
 
   local p repo="${ORCH_REPO:-$wt}" wid="${ORCH_WORKER_ID:-0}"
   for p in \
     "$repo/plans/PLAN-${wid}"-*.md \
-    "$repo/foam/plans/PLAN-${wid}"-*.md \
     "$wt/plans/PLAN-${wid}"-*.md
   do
     [ -f "$p" ] || continue
@@ -298,11 +296,12 @@ orch_graph_verifier_pass() {
   if [ ! -f "$tpl" ]; then
     return 0
   fi
+  orch_resolve_context "$repo" "$wid"
   orch_render_prompt "$tpl" "$vprompt" \
     "WORKTREE=$wt" \
     "ISSUE=${ORCH_WORKER_ID:-N/A}" \
-    "PLAN_PATH=${plan:-N/A}" \
-    "CONSTRAINTS=$constraints"
+    "PLAN_PATH=$plan" \
+    "CONSTRAINTS=$ORCH_CONSTRAINTS"
 
   local vnode="${parent}-verifier"
   orch_graph_upsert_node "$vnode" verifier grounding running "checking plan/ADR" "$parent"

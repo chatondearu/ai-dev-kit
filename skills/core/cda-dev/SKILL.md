@@ -4,7 +4,8 @@ description: >-
   Unified meta-orchestrator: intake, Ready pickup, or PR-fix through foam/kanban,
   git worktrees, verify loops, and CI-green PRs (no auto-merge). Portable across
   Cursor, Claude Code, and opencode via orch.sh harness or skill-only fallback.
-  Use for multi-subject batches, parallel features, or unblocking red CI.
+  Use for any feature or fix requested in chat (one subject or many), parallel
+  features, or unblocking red CI.
 ---
 
 # Dev orchestrator
@@ -32,14 +33,17 @@ Details: [conventions.md](conventions.md). Design:
 
 | Mode | Trigger | Human GO | Bootstrap | Exit |
 | ---- | ------- | -------- | --------- | ---- |
-| `intake` | Multi-subject chat list | Yes (epic breakdown) | Epic issue + approved PRD + N Ready children + N plans | PRs CI-green |
+| `intake` | Feature/fix request in chat, one or more subjects | Yes (breakdown) | Epic issue (2+ children) + approved PRD + N≥1 Ready children + plans | PRs CI-green |
 | `ready-pickup` | Ready Kanban cards | No | Plan **or** triage agent brief (fast-lane) | PRs CI-green |
 | `pr-fix` | PR URL/number | No | None | Same PR CI-green |
 
 **Lanes (ready-pickup):** if `plans/PLAN-<id>-*` exists → `full` (plan/PRD).
 Else → `fast` (triage agent brief required). See foam ADR-002.
 
-Intake Q&A: [prompts/intake.md](prompts/intake.md). PR repair: [prompts/pr-fix.md](prompts/pr-fix.md).
+Intake Q&A: [prompts/intake.md](prompts/intake.md) — questioning policy is
+`cda-grill`: **one** frontier round (every question whose answer changes the
+breakdown, each with a recommended answer; "ok" accepts them all), then GO.
+PR repair: [prompts/pr-fix.md](prompts/pr-fix.md).
 Epic table: [templates/epic-breakdown.md](templates/epic-breakdown.md).
 
 ## Hard rules

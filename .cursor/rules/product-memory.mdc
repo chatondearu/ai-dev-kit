@@ -21,6 +21,9 @@ Before implementing features or making technical/product/design decisions:
    gh pr list --state all --search "keywords" --limit 20
    ```
 7. Read relevant issues, PRs, ADRs, and PRDs — **confront** the new proposal.
+8. Any feature or fix requested in chat — one subject or several — goes through
+   `cda-dev` intake (`cda-dev/prompts/intake.md`): one round of questions, a
+   breakdown, GO. A single child issue is fine. Do not start coding from chat.
 
 ## Challenge the user when
 

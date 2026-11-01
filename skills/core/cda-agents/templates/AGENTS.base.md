@@ -18,9 +18,12 @@ must follow this sequence:
    ```
 4. If an issue, PR, ADR, or PRD already covers the topic — **read it** and
    confront the new proposal with recorded decisions. Cite sources.
-5. For non-trivial scope: ensure a Kanban issue, PRD (`prd/`), and plan
+5. Any feature or fix requested in chat — one subject or several — goes through
+   `cda-dev` intake (`cda-dev/prompts/intake.md`): one round of questions, a
+   breakdown, GO. A single child issue is fine. Do not start coding from chat.
+6. For non-trivial scope: ensure a Kanban issue, PRD (`prd/`), and plan
    (`plans/`) exist or create them before coding.
-6. After shipping or deciding: update foam (ADR, PRD status, feature lists) and
+7. After shipping or deciding: update foam (ADR, PRD status, feature lists) and
    refresh this file when stack or skills change.
 
 Skills: **cda-foam**, **cda-prd**, **cda-plan**,
@@ -49,7 +52,7 @@ Cursor rule (if present): `.cursor/rules/product-memory.mdc`.
 | ADRs, foam graph, import kanban | `cda-foam` |
 | PRD from Kanban issue | `cda-prd` |
 | Implementation plan from PRD | `cda-plan` |
-| Multi-task chat batch → epic + parallel PRs | `cda-dev` |
+| Feature / fix request in chat (one or many) → intake, PRs | `cda-dev` |
 | Graph orchestration (parallel workers, graph-plan) | `cda-graph` |
 | Issues, board, PRs, milestones | `cda-kanban` |
 | Commits | `cda-commit` |

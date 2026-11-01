@@ -18,15 +18,15 @@ Parent kit rules: [`../AGENTS.md`](../AGENTS.md) (foam, kanban, verify scripts f
 
 **cdamux** orchestrates AI agent sessions on **tmux**: spawn with chosen agent and path,
 multi-root project discovery, dynamic `group_by` on sessions (epilande-style), and a
-**`--pick`** mode that exits after `switch-client` for tmux popups. Daemon + optional
-tailnet web later. Rust. Default session tool in `aitools/` (replaces ccmux).
+**`--pick`** mode that exits after `switch-client` for tmux popups. Optional
+tailnet daemon/web later. Rust. Default session tool in `aitools/` (replaces ccmux).
 
 ## Repo layout
 
 ```text
 cdamux/
   crates/cdamux-core/   # config, discover, types
-  crates/cdamuxd/       # daemon
+  crates/cdamuxd/       # daemon (tailnet API server only; list/TUI read tmux directly)
   crates/cdamux-cli/    # user binary `cdamux`
   config/               # example TOML
   docs/                 # research, architecture, dogfood
@@ -46,11 +46,11 @@ Use `nix develop` at ai-dev-kit root if Rust toolchain comes from the flake.
 ## Implementation order (PLAN-39)
 
 1. Config load + `GroupBy` / `DiscoverMode` types in `cdamux-core`
-2. `cdamux list` delegating to tmux (then enrich from daemon)
+2. `cdamux list` delegating to tmux (read directly from tmux; no daemon IPC)
 3. `cdamux --pick` → switch-client → exit 0
 4. `discover` git repos under all roots
 5. `spawn` with agent table from config
-6. `cdamuxd` poll loop + Unix socket
+6. `cdamuxd` tailnet API server
 
 ## Conventions
 

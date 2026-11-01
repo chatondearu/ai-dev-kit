@@ -27,12 +27,11 @@ cargo build
 cargo test
 ```
 
-## Daemon (optional, enriches list + state cache)
+## Daemon (optional, tailnet HTTP API only)
 
 ```bash
-cargo run -p cdamuxd
-# Socket: $XDG_RUNTIME_DIR/cdamux/cdamux.sock
-# Cache:  $XDG_CACHE_HOME/cdamux/sessions.json
+cargo run -p cdamuxd   # requires daemon.listen_tailnet = true
+# `cdamux list` and the TUI read tmux directly; no socket or cache.
 ```
 
 ## tmux popup bind (kit target)

@@ -3,8 +3,8 @@
 ## Principles
 
 1. **tmux is the database** — sessions, panes, and attach semantics stay in tmux.
-2. **Daemon is optional but recommended** — classification, caching, tailnet API;
-   CLI can degrade to tmux-only for `doctor` and early `list`.
+2. **Daemon = tailnet API server only** — `cdamux list` and the TUI read tmux
+   directly (no IPC, no cache); `cdamuxd` is only needed for the tailnet HTTP API.
 3. **Clients** — CLI first (`cdamux`, `cdamux --pick`); web on tailnet v0.2; mobile
    via Mosh/SSH to CLI or browser on tailnet (no native app v0).
 4. **No telemetry** — default off, no network except explicit tailnet bind.
@@ -20,18 +20,14 @@
       │  cdamux     │                 │  cdamux-web │
       │  (CLI/TUI)  │                 │  (static)   │
       └──────┬──────┘                 └──────┬──────┘
-             │         Unix socket / HTTP      │
+             │                               │ HTTP (tailnet)
+             │                        ┌──────▼──────┐
+             │                        │  cdamuxd    │
+             │                        │  (API only) │
+             │                        └──────┬──────┘
       ┌──────▼───────────────────────────────▼──────┐
-      │  cdamuxd                                     │
-      │  - poll tmux                                 │
-      │  - session state machine                     │
-      │  - project discover (roots + mode)           │
-      │  - optional: listen tailnet :PORT            │
-      └──────┬──────────────────────────────────────┘
-             │
-      ┌──────▼──────┐
-      │  tmux       │  default socket or `-L cdamux` (TBD)
-      └─────────────┘
+      │  tmux  default socket or `-L cdamux` (TBD)   │
+      └──────────────────────────────────────────────┘
 ```
 
 ## Crates
@@ -39,7 +35,7 @@
 | Crate | Responsibility |
 | ----- | -------------- |
 | `cdamux-core` | Config, types, `GroupBy`, discover, session id |
-| `cdamuxd` | Daemon main loop, tmux parser, API handlers |
+| `cdamuxd` | Tailnet HTTP API server |
 | `cdamux-cli` | clap, `list`/`attach`/`spawn`/`doctor`, `--pick` TUI |
 
 ## Config (`~/.config/cdamux/config.toml`)

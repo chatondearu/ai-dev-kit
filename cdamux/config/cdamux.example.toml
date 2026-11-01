@@ -26,6 +26,7 @@ attach_mode = "mirror"
 group_by = "project"
 
 [daemon]
+# poll_interval_seconds is unused since the daemon IPC removal; kept for config compatibility.
 poll_interval_seconds = 2
 idle_seconds_for_needs_input = 3
 listen_tailnet = false

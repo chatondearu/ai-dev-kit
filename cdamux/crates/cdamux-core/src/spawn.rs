@@ -26,7 +26,8 @@ pub fn session_name_for_path(path: &Path) -> String {
         .file_name()
         .map(|s| s.to_string_lossy().to_string())
         .unwrap_or_else(|| "session".to_string());
-    format!("c-{base}")
+    // tmux itself maps `.` and `:` to `_` (they are target separators).
+    format!("c-{}", base.replace(['.', ':'], "_"))
 }
 
 pub fn resolve_agent_command(agents: &AgentsConfig, name: &str) -> Result<String, SpawnError> {
@@ -172,21 +173,13 @@ fn apply_pane_split(session_name: &str, layout: PaneLayout) -> Result<(), SpawnE
         PaneLayout::Horizontal => "-h",
         PaneLayout::Vertical => "-v",
     };
-    let target = format!("{}:0", session_name);
+    // Session target = active pane of the current window (independent of base-index);
+    // split-window already starts the default shell in the new pane.
     let status = Command::new("tmux")
-        .args(["split-window", flag, "-t", &target])
+        .args(["split-window", flag, "-t", session_name])
         .status()
         .map_err(|e| SpawnError::Tmux(e.to_string()))?;
     if !status.success() {
-        return Err(SpawnError::TmuxFailed);
-    }
-    let shell = default_shell_command();
-    let pane1 = format!("{}:0.1", session_name);
-    let send = Command::new("tmux")
-        .args(["send-keys", "-t", &pane1, &shell, "Enter"])
-        .status()
-        .map_err(|e| SpawnError::Tmux(e.to_string()))?;
-    if !send.success() {
         return Err(SpawnError::TmuxFailed);
     }
     Ok(())
@@ -217,6 +210,12 @@ pub fn configured_agent_ids(agents: &AgentsConfig) -> Vec<String> {
 mod tests {
     use super::*;
     use crate::AgentsConfig;
+
+    #[test]
+    fn session_name_replaces_tmux_separators() {
+        assert_eq!(session_name_for_path(Path::new("/x/web.app")), "c-web_app");
+        assert_eq!(session_name_for_path(Path::new("/x/a:b")), "c-a_b");
+    }
 
     #[test]
     fn pane_layout_cycles_default() {

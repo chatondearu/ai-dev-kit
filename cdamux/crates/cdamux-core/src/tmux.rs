@@ -219,27 +219,38 @@ pub fn capture_pane_text(session_name: &str, max_lines: i32) -> Result<String, T
     Ok(String::from_utf8_lossy(&capture.stdout).to_string())
 }
 
+/// tmux argv per invocation needed to type `line` (and optionally submit it).
+///
+/// `-l` disables key-name lookup for every arg, so `Enter` must be a separate call.
+fn send_line_argvs(session_name: &str, line: &str, enter: bool) -> Vec<Vec<String>> {
+    let argv = |tail: &[&str]| -> Vec<String> {
+        ["send-keys", "-t", session_name]
+            .iter()
+            .chain(tail)
+            .map(|s| s.to_string())
+            .collect()
+    };
+    let mut out = Vec::new();
+    if !line.is_empty() {
+        out.push(argv(&["-l", "--", line]));
+    }
+    if enter {
+        out.push(argv(&["Enter"]));
+    }
+    out
+}
+
 /// Send a literal line to the session's active pane; optional Enter keypress.
 pub fn send_line_to_session(session_name: &str, line: &str, enter: bool) -> Result<(), TmuxError> {
-    let send = Command::new("tmux")
-        .args(["send-keys", "-t", session_name, "-l", "--", line])
-        .status()
-        .map_err(|e| {
+    for argv in send_line_argvs(session_name, line, enter) {
+        let status = Command::new("tmux").args(&argv).status().map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
                 TmuxError::NotFound
             } else {
                 TmuxError::ListFailed
             }
         })?;
-    if !send.success() {
-        return Err(TmuxError::ListFailed);
-    }
-    if enter {
-        let enter_status = Command::new("tmux")
-            .args(["send-keys", "-t", session_name, "Enter"])
-            .status()
-            .map_err(|_| TmuxError::ListFailed)?;
-        if !enter_status.success() {
+        if !status.success() {
             return Err(TmuxError::ListFailed);
         }
     }
@@ -276,6 +287,19 @@ fn parse_active_pane_idle(list_panes_output: &str) -> Option<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn send_line_enter_is_separate_key_invocation() {
+        assert_eq!(
+            send_line_argvs("c-bar", "echo hi", true),
+            vec![
+                vec!["send-keys", "-t", "c-bar", "-l", "--", "echo hi"],
+                vec!["send-keys", "-t", "c-bar", "Enter"],
+            ]
+        );
+        assert_eq!(send_line_argvs("c-bar", "y", false).len(), 1);
+        assert_eq!(send_line_argvs("c-bar", "", true).len(), 1); // Enter only
+    }
 
     #[test]
     fn parse_sessions_tab_separated() {

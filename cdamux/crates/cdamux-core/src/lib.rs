@@ -55,7 +55,7 @@ pub use orch_status::{
 pub use agents_util::{
     command_on_path, preferred_spawn_agent, preferred_spawn_agent_index,
 };
-pub use send::{build_send_keys_argv, send_to_session, SendError, tmux_has_session};
+pub use send::{send_to_session, SendError, tmux_has_session};
 pub use session_manage::{
     kill_tmux_session, mark_session_cdamux_return, rename_tmux_session, switch_client_to_session,
     unique_session_name,

@@ -153,10 +153,13 @@ pub fn resolve_agent_label(primary: Option<&str>, legacy: Option<&str>) -> Strin
 
 /// Agent id from tmux user options (`@cdamux_agent`, legacy `@ccmux_agent`).
 pub fn session_agent_label(session_name: &str) -> String {
-    resolve_agent_label(
-        crate::tmux::tmux_user_option(session_name, "@cdamux_agent").as_deref(),
-        crate::tmux::tmux_user_option(session_name, "@ccmux_agent").as_deref(),
-    )
+    agent_label_from(|opt| crate::tmux::tmux_user_option(session_name, opt))
+}
+
+/// Legacy `@ccmux_agent` is only read when `@cdamux_agent` is unset (one spawn saved per call).
+fn agent_label_from(read: impl Fn(&str) -> Option<String>) -> String {
+    let label = read("@cdamux_agent").or_else(|| read("@ccmux_agent"));
+    resolve_agent_label(label.as_deref(), None)
 }
 
 fn tmux_session_uptime(session_name: &str) -> String {
@@ -222,5 +225,26 @@ mod tests {
         assert_eq!(resolve_agent_label(Some("  "), Some("pi")), "pi");
         assert_eq!(resolve_agent_label(None, None), AGENT_LABEL_MISSING);
         assert_eq!(resolve_agent_label(Some(""), Some("")), AGENT_LABEL_MISSING);
+    }
+
+    #[test]
+    fn legacy_option_read_only_when_primary_unset() {
+        use std::cell::RefCell;
+        let asked: RefCell<Vec<String>> = RefCell::new(Vec::new());
+        let fake = |primary: Option<&'static str>, asked: &RefCell<Vec<String>>| {
+            asked.borrow_mut().clear();
+            agent_label_from(|opt: &str| {
+                asked.borrow_mut().push(opt.to_string());
+                if opt == "@cdamux_agent" {
+                    primary.map(String::from)
+                } else {
+                    Some("legacy".into())
+                }
+            })
+        };
+        assert_eq!(fake(Some("claude"), &asked), "claude");
+        assert_eq!(*asked.borrow(), vec!["@cdamux_agent"]);
+        assert_eq!(fake(None, &asked), "legacy");
+        assert_eq!(*asked.borrow(), vec!["@cdamux_agent", "@ccmux_agent"]);
     }
 }

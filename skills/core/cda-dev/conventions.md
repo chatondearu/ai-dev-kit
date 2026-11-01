@@ -87,11 +87,13 @@ Worker report shape (required):
   "issue": 42,
   "pr_url": "https://github.com/org/repo/pull/99",
   "status": "done",
+  "checks": "green",
   "reason": null
 }
 ```
 
 `status`: `done` | `blocked`  
+`checks`: `green` | `red` | `none` (required, see `templates/worker-result.schema.json`)  
 On `blocked`, `reason` is a short English sentence; `pr_url` may be null.
 
 ## Worker status (ledger)
@@ -205,8 +207,8 @@ exits non-zero with "no frontier". This is the same `Blocked by:` convention
 language end to end.
 
 Gating is skipped in `--dry-run`, when `ORCH_FRONTIER=0`, or when `gh` is
-unavailable. It fail-opens if an issue body can't be fetched (can't see blockers →
-treat as unblocked) and holds a blocker whose state can't be read (safe default).
+unavailable. It is **fail-closed**: an issue whose body can't be fetched, or a blocker whose
+state can't be read, is held (reason `body-fetch-failed` / the blocker number).
 
 ## Claim protocol
 

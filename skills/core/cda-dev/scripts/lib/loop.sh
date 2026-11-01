@@ -21,6 +21,39 @@ orch_render_prompt() {
   printf '%s\n' "$content" >"$dest"
 }
 
+# Resolve worker prompt context: sets ORCH_PRD_PATH, ORCH_EPIC, ORCH_CONSTRAINTS
+# (literal `none` when missing). PRD = prd/PRD-<issue>-*.md, else the PRD of the
+# parent named under `## Parent` / `Part of #N` (same lookup as cda-plan/new-plan.sh).
+# Optional 3rd arg is the issue body; fetched with gh when omitted.
+orch_resolve_context() {
+  local root="$1" issue="$2" body="" parent="" n adr
+  if [ $# -ge 3 ]; then
+    body="$3"
+  elif command -v gh >/dev/null 2>&1; then
+    body="$(gh issue view "$issue" --json body -q .body 2>/dev/null || true)"
+  fi
+  ORCH_PRD_PATH="" ORCH_EPIC="none" ORCH_CONSTRAINTS=""
+  parent="$(printf '%s' "$body" | tr -d '\r' | awk '
+    /^##[[:space:]]+Parent[[:space:]]*$/ { p=1; next }
+    p && /^##/ { p=0 }
+    (p || /^Part of /) && match($0, /#[0-9]+/) { print substr($0, RSTART+1, RLENGTH-1); exit }')"
+  [ -n "$parent" ] && ORCH_EPIC="$parent"
+  for n in "$issue" "$parent"; do
+    [ -n "$n" ] || continue
+    ORCH_PRD_PATH="$(find "$root/prd" -maxdepth 1 -name "PRD-${n}-*.md" 2>/dev/null | head -1)"
+    [ -n "$ORCH_PRD_PATH" ] && break
+  done
+  ORCH_PRD_PATH="${ORCH_PRD_PATH#"$root"/}"
+  [ -n "$ORCH_PRD_PATH" ] || ORCH_PRD_PATH="none"
+  for adr in "$root"/foam/decisions/ADR-*.md; do
+    [ -f "$adr" ] || continue
+    case "$adr" in */ADR-template.md) continue ;; esac
+    adr="${adr##*/}"
+    ORCH_CONSTRAINTS="${ORCH_CONSTRAINTS:+$ORCH_CONSTRAINTS, }${adr%.md}"
+  done
+  [ -n "$ORCH_CONSTRAINTS" ] || ORCH_CONSTRAINTS="none"
+}
+
 orch_loop_worker() {
   local wt="$1" prompt="$2"
   if orch_graph_enabled 2>/dev/null && type orch_graph_worker >/dev/null 2>&1; then

@@ -52,24 +52,22 @@ acceptance criteria. No scope expansion.
    - Run the project’s normal verification (see `AGENTS.md`, plan/brief test
      section, `nix develop -c …` when the repo uses Nix)
    - Fix failures you can fix without product decisions
-3b. **Design loop (opt-in only)**
+5. **Design loop (opt-in only)**
    - If `CDA_DESIGN_LOOP=1` or `AGENTS.md` notes `design-loop: auto` or dispatch passed `--design-loop`,
      and this diff touches UI paths, and `DESIGN.md` or `docs/DESIGN.md` exists:
      run skill `cda-design-loop` on affected routes; treat `FAIL_SERVER` / remaining Blocker|High after CAP as verify failures.
    - Otherwise skip.
-5. **Systematic review**
+6. **Systematic review**
    - Follow [reviewer.md](reviewer.md) and/or skill `cda-review`
    - Fix Critical and Important findings; re-review until clean or BLOCKED
-6. **PR**
+7. **PR**
    - Open PR with `Closes #{{ISSUE}}`
    - English title/body; link plan + epic PRD when `full`, or the issue brief when `fast`
    - Move board card → In review
-7. **CI**
+8. **CI**
    - Ensure PR exists; wait for checks green (harness `orch_pr_checks_watch` or `gh pr checks`)
    - Do **not** merge
-8. **Graph artifact** — write `.orch/worker-result.json` in the worktree (same fields as below). The harness and cdamux read this for live orchestration graphs.
-
-9. **Report to master** (exact shape):
+9. **Report to master** — also write it to `.orch/worker-result.json` (cdamux reads it). Exact shape:
 
 ```json
 {

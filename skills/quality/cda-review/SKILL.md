@@ -36,7 +36,7 @@ This skill guides the agent in conducting professional and thorough code reviews
 1.  **Identify Changes**:
     *   Check status: `git status`
     *   Read diffs: `git diff` (working tree) and/or `git diff --staged` (staged).
-2.  **Preflight (Optional)**: If the changes are substantial, ask the user if they want to run the project's verification suite (detected as in the Remote PR flow above) before reviewing.
+2.  **Preflight (Optional)**: If the changes are substantial, ask the user if they want to run the project's verification suite (detected as in the Remote PR flow above) before reviewing. **Unattended (cda-dev worker):** run the preflight unconditionally, do not prompt to switch branches; ask nothing.
 
 ### 3. In-Depth Analysis
 Analyze the code changes based on the following pillars:
@@ -66,4 +66,4 @@ Analyze the code changes based on the following pillars:
 *   For approvals, acknowledge the specific value of the contribution.
 
 ### 5. Cleanup (Remote PRs only)
-*   After the review, ask the user if they want to switch back to the default branch (e.g., `main` or `master`).
+*   After the review, ask the user if they want to switch back to the default branch (e.g., `main` or `master`) (skip when running as a cda-dev worker; see Local preflight above).

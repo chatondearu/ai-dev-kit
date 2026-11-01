@@ -16,7 +16,7 @@ Announce at start: **"Using cda-kanban skill."**
 
 ## Scope
 
-Governs **project management on GitHub** for the current repository. It does not replace code skills (`review-and-ship`, `babysit`, `new-branch-and-pr`) — it wires them to a Kanban board.
+Governs **project management on GitHub** for the current repository. It does not replace code skills (`cda-dev`, `review-and-ship`, `new-branch-and-pr`) — it wires them to a Kanban board.
 
 This skill is **repo-agnostic**: it resolves the owner, repo, project number, and field/option IDs at runtime. Nothing is hardcoded.
 
@@ -169,7 +169,7 @@ Each event is `{ts, type, actor, number, title, url, detail}`. React per type:
 | Event type | Trigger | Skill reaction |
 |------------|---------|----------------|
 | `comment` | New issue/PR comment | Read it. If it's an instruction/mention → act, then reply. If `Claimed for implementation` → respect the claim, don't double-pick. |
-| `review_approved` | PR approved | Keep card in **In review**; it's ready to merge (hand off to `babysit`/`loop-on-ci`). |
+| `review_approved` | PR approved | Keep card in **In review**; it's ready to merge (hand off to `cda-dev` verify / CI-green loop). |
 | `review_changes_requested` | Review requests changes | Move card → **In progress**; address feedback on the branch. |
 | `review_commented` / `review_dismissed` | Review note / dismissed | Note it; act only if it contains a blocking request. |
 | `pr_merged` | PR merged | Move linked issue card → **Done**; close the issue if not auto-closed. |
@@ -257,10 +257,10 @@ Then add `Status`, `Priority`, `Size` single-select fields in the GitHub UI (or 
 | Phase | Skill |
 |-------|-------|
 | Chat multi-task → epic + parallel workers | `cda-dev` |
-| Plan decomposition | `writing-plans` |
-| Execute plan tasks | `executing-plans`, `subagent-driven-development` |
+| Plan decomposition | `cda-plan` |
+| Execute plan tasks | `cda-dev` |
 | Open / update PR | `new-branch-and-pr`, `review-and-ship` |
-| PR merge-ready | `babysit`, `loop-on-ci`, `fix-ci` |
+| PR merge-ready | `cda-dev`, `loop-on-ci`, `fix-ci` |
 | Split large work | `split-to-prs` |
 
 ### Batch from chat → cda-dev

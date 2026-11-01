@@ -80,7 +80,7 @@ Chat list → intake Q&A → GO on epic breakdown
   of layer B. See the `cda-tdd` skill.
 - **Test plan** declares the **seams under test** up front: the public boundaries
   where behavior is observed (not internals). Use the `cda-codebase` /`cda-tdd`
-  vocabulary (seam, interface, depth) and confirm the seams before coding. Match
+  vocabulary (seam, interface, depth) and confirm the seams before coding. **Unattended (cda-dev worker):** ask nothing; the seams are those listed in the plan's Test plan. Match
   project conventions (nix develop, CI, etc.).
 - **Verification** section completed before merge.
 - English for all plan content.

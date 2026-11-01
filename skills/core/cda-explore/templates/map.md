@@ -9,7 +9,8 @@
 ## Notes
 
 <!-- Domain; which skills every session should consult (e.g. grilling, prototype,
-     deep-research, cda-foam); standing preferences for this effort. -->
+     cda-foam); standing preferences for this effort. AFK research tickets use a
+     generalPurpose subagent for web/doc research. -->
 
 ## Decisions so far
 

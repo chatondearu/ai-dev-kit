@@ -42,7 +42,8 @@ while [ $# -gt 0 ]; do
   shift
 done
 
-REPO="$(cd "$REPO" && pwd)"
+source "$ROOT/lib/worktree.sh"
+REPO="$(orch_repo_root "$REPO")"
 export ORCH_REPO="$REPO" ORCH_PROGRESS="${ORCH_PROGRESS:-0}"
 
 GH_BOARD="${ORCH_GH_BOARD:-}"
@@ -157,8 +158,8 @@ cd "$REPO"
 
 exec 9>"$LOCK"
 if ! flock -n 9; then
-  echo "orch-auto: another run holds $LOCK" >&2
-  exit 0
+  echo "orch-auto: another run holds $LOCK; exiting 75 (EX_TEMPFAIL)" >&2
+  exit 75
 fi
 
 if [ "$ONCE" = 1 ] || [ "${ORCH_AUTO_ONCE:-0}" = 1 ]; then

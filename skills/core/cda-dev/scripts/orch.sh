@@ -75,9 +75,15 @@ while [ $# -gt 0 ]; do
   shift
 done
 
+# Ctrl-C / SIGTERM must not orphan agents running with --force / --dangerously-skip-permissions.
+# Kills this process group (workers, agents, dashboard). Armed after the libs are sourced, so
+# sourcing them from a test never installs it. Run orch in its own group (`setsid`, or `set -m`)
+# when launching it from a script that must survive an interrupt.
+trap 'trap - INT TERM; kill 0' INT TERM
+
 export ORCH_MAX_PARALLEL="$MAX_P" ORCH_MAX_ITER="$MAX_I" ORCH_SANDBOX="$SANDBOX"
 export ORCH_FAIL_FAST="$FAIL_FAST" ORCH_FORCE_CLEAN="$FORCE_CLEAN" ORCH_ROOT="$ROOT"
-REPO="$(cd "$REPO" && pwd)"
+REPO="$(orch_repo_root "$REPO")"
 export ORCH_REPO="$REPO"
 if [ "$NO_PROGRESS" = 1 ]; then
   export ORCH_PROGRESS=0
@@ -92,23 +98,6 @@ orch_apply_agents_orch_flags() {
   fi
 }
 orch_apply_agents_orch_flags
-
-# Wait until fewer than MAX_P background jobs are running (bash job pool).
-orch_wait_for_slot() {
-  local max="$1"
-  while [ "$(jobs -rp 2>/dev/null | wc -l | tr -d ' ')" -ge "$max" ]; do
-    if ! wait -n 2>/dev/null; then
-      # bash without wait -n, or no jobs left: wait for any one pid
-      local pid
-      pid="$(jobs -rp 2>/dev/null | head -n 1 || true)"
-      if [ -n "$pid" ]; then
-        wait "$pid" || true
-      else
-        break
-      fi
-    fi
-  done
-}
 
 # Write the latest triage agent brief for issue $1 into $2. Returns 0 if found.
 orch_fetch_agent_brief() {
@@ -351,7 +340,7 @@ orch_ready_pickup_one() {
   return 0
 }
 
-export -f orch_ready_pickup_one orch_wait_for_slot orch_fetch_agent_brief
+export -f orch_ready_pickup_one orch_fetch_agent_brief
 export -f orch_loop_worker orch_graph_worker orch_graph_integrator_run
 export -f orch_graph_init orch_graph_upsert_node orch_graph_add_edge orch_graph_finish orch_graph_touch
 export -f orch_graph_locked_jq orch_graph_enabled orch_graph_file orch_graph_now orch_graph_verifier_pass
@@ -375,7 +364,7 @@ orch_acquire_lock() {
     exec 8>"$lock"
     if ! flock -n 8; then
       printf 'orch: another run holds %s\n' "$lock" >&2
-      exit 0
+      exit 75
     fi
     return 0
   fi
@@ -387,7 +376,18 @@ orch_acquire_lock() {
     return 0
   fi
   printf 'orch: another run holds %s\n' "$dir" >&2
-  exit 0
+  exit 75
+}
+
+# Remove worktrees of issues that ended `done`; blocked ones stay for inspection.
+orch_cleanup_done() {
+  local id names=()
+  for id in "$@"; do
+    if [ "$(cat "$REPO/.orch/run/${id}.rc" 2>/dev/null)" = "0" ]; then
+      names+=("$(basename "$(orch_worktree_path "$REPO" "$id" "issue-$id")")")
+    fi
+  done
+  [ "${#names[@]}" -eq 0 ] || bash "$ROOT/orch-cleanup.sh" --repo "$REPO" --apply "${names[@]}" || true
 }
 
 case "$MODE" in
@@ -445,6 +445,7 @@ case "$MODE" in
         exit 1
       fi
       orch_graph_finish ok
+      orch_cleanup_done "${ISSUES[0]}"
       exit 0
     fi
 
@@ -495,57 +496,27 @@ case "$MODE" in
       if ! orch_progress_enabled; then
         printf 'orch: dispatching %s workers with ORCH_MAX_PARALLEL=%s\n' "${#ISSUES[@]}" "$MAX_P" >&2
       fi
-      # Monitor mode required for jobs/wait -n in non-interactive scripts
-      set -m
-      pids=()
       for id in "${ISSUES[@]}"; do
-        while [ "${#pids[@]}" -ge "$MAX_P" ]; do
-          if wait -n 2>/dev/null; then
-            :
-          else
-            still=()
-            for pid in "${pids[@]}"; do
-              if kill -0 "$pid" 2>/dev/null; then
-                still+=("$pid")
-              else
-                wait "$pid" || true
-              fi
-            done
-            pids=("${still[@]}")
-            if [ "${#pids[@]}" -ge "$MAX_P" ]; then
-              sleep 0.05
-            fi
-          fi
-          still=()
-          for pid in "${pids[@]}"; do
-            if kill -0 "$pid" 2>/dev/null; then
-              still+=("$pid")
-            fi
-          done
-          pids=("${still[@]}")
-        done
+        orch_pool_slot "$MAX_P"
         (
           set +e
           orch_ready_pickup_one "$id" "$idx"
           exit $?
         ) &
-        pids+=($!)
+        orch_pool_add $!
         idx=$((idx + 1))
         if [ "$FAIL_FAST" = 1 ]; then
           for rc_file in "$REPO/.orch/run"/*.rc; do
             [ -f "$rc_file" ] || continue
             if [ "$(cat "$rc_file")" != "0" ]; then
-              for pid in "${pids[@]}"; do wait "$pid" || true; done
+              orch_pool_drain
               orch_progress_dashboard_stop
               exit 1
             fi
           done
         fi
       done
-      for pid in "${pids[@]}"; do
-        wait "$pid" || true
-      done
-      set +m
+      orch_pool_drain
     fi
 
     orch_progress_dashboard_stop
@@ -584,6 +555,8 @@ case "$MODE" in
     for i in "${!HELD_IDS[@]}"; do
       printf 'summary #%s blocked — waiting on #%s\n' "${HELD_IDS[$i]}" "${HELD_REASON[$i]}"
     done
+
+    orch_cleanup_done "${ISSUES[@]}"
 
     if [ "$any_blocked" -ne 0 ]; then
       orch_graph_finish blocked

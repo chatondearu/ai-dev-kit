@@ -2,6 +2,19 @@
 # shellcheck shell=bash
 # Source-only library (no main).
 
+# Main checkout root for DIR, even from inside a linked worktree, so `.orch/` is
+# never created inside a worktree (nested worktrees). Non-git DIR: its own path.
+orch_repo_root() {
+  local top common
+  top="$(git -C "$1" rev-parse --show-toplevel 2>/dev/null)" || { (cd "$1" && pwd); return; }
+  common="$(cd "$top" && cd "$(git rev-parse --git-common-dir)" && pwd)"
+  if [ "$(cd "$top" && cd "$(git rev-parse --git-dir)" && pwd)" != "$common" ]; then
+    dirname "$common"
+  else
+    printf '%s\n' "$top"
+  fi
+}
+
 orch_worktree_path() {
   local repo="$1" id="$2" slug="$3"
   printf '%s/.orch/worktrees/%s-%s\n' "$repo" "$id" "$slug"

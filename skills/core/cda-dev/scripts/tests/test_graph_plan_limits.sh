@@ -12,6 +12,7 @@ fi
 source "$TROOT/../lib/worktree.sh"
 source "$TROOT/../lib/progress.sh"
 source "$TROOT/../lib/sandbox.sh"
+source "$TROOT/../lib/loop.sh"
 source "$TROOT/../lib/graph.sh"
 
 TMP="$(mktemp -d)"

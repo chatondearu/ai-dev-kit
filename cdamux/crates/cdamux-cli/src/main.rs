@@ -41,7 +41,7 @@ struct Cli {
 enum Commands {
     /// Health check for tmux and config.
     Doctor,
-    /// List tmux sessions (daemon enrichment when cdamuxd runs).
+    /// List tmux sessions (read directly from tmux).
     List {
         #[arg(long)]
         json: bool,
@@ -279,15 +279,6 @@ fn cmd_doctor() -> ExitCode {
             println!("tailscale: {}", ver.lines().next().unwrap_or("ok"));
         }
         _ => println!("tailscale: not installed (optional)"),
-    }
-
-    if let Some(sock) = cdamux_core::socket_path() {
-        let status = if sock.exists() {
-            "running (socket present)"
-        } else {
-            "not running"
-        };
-        println!("cdamuxd: {} ({})", status, sock.display());
     }
 
     if !doctor_ok {

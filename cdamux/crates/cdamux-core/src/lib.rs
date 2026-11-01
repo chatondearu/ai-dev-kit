@@ -21,10 +21,7 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
-pub use daemon::{
-    daemon_list_sessions, grouped_for_list, handle_daemon_request, poll_sessions, socket_path,
-    state_cache_path, write_state_cache,
-};
+pub use daemon::grouped_for_list;
 pub use diff::{
     format_review_prompt, git_diff_unified, parse_unified_diff, DiffError, DiffHunk,
 };

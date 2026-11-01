@@ -1,6 +1,7 @@
 //! Session list enrichment and grouping.
 
-use crate::session_chrome::{session_agent_label, AGENT_LABEL_MISSING};
+use crate::session_chrome::{resolve_agent_label, AGENT_LABEL_MISSING};
+use crate::tmux::{list_panes_all, SessionPaneInfo};
 use crate::{discover_projects, GroupBy, Project, ProjectsConfig, TmuxSession};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -67,16 +68,23 @@ pub fn parse_hook_session_state(raw: &str) -> Option<SessionState> {
     }
 }
 
-pub fn classify_session(session: &TmuxSession, idle_seconds_for_needs_input: u32) -> SessionState {
-    if let Some(raw) = crate::tmux::tmux_user_option(&session.name, "@cdamux_state") {
-        if let Some(state) = parse_hook_session_state(&raw) {
-            return state;
-        }
+/// Hook `@cdamux_state` wins; otherwise pane heuristics (one `capture-pane` only when idle is known).
+pub fn classify_session(
+    session: &TmuxSession,
+    info: &SessionPaneInfo,
+    idle_seconds_for_needs_input: u32,
+) -> SessionState {
+    if let Some(state) = info.hook_state.as_deref().and_then(parse_hook_session_state) {
+        return state;
     }
-    match crate::tmux::pane_signals_for_session(&session.name) {
-        Some(signals) => crate::tmux::classify_pane_heuristics(
-            signals.idle_seconds,
-            &signals.tail,
+    // Unknown idle classifies Idle whatever the tail says: skip the capture spawn.
+    if info.idle_seconds.is_none() {
+        return SessionState::Idle;
+    }
+    match crate::tmux::pane_tail(&session.name) {
+        Some(tail) => crate::tmux::classify_pane_heuristics(
+            info.idle_seconds,
+            &tail,
             idle_seconds_for_needs_input,
         ),
         None => SessionState::Idle,
@@ -89,9 +97,16 @@ pub fn enrich_sessions(
     projects_cfg: &ProjectsConfig,
     idle_seconds_for_needs_input: u32,
 ) -> Vec<EnrichedSession> {
-    let projects = discover_projects(projects_cfg);
+    // Only GroupPath needs the project list; the tree builder discovers for Project itself.
+    let projects = if group_by == GroupBy::GroupPath {
+        discover_projects(projects_cfg)
+    } else {
+        Vec::new()
+    };
+    let panes = list_panes_all();
     raw.iter()
         .map(|s| {
+            let info = panes.get(&s.name).cloned().unwrap_or_default();
             let key = group_key_for(s, group_by, &projects);
             let branch = crate::session_chrome::branch_for_cwd(&s.path);
             let issue = crate::issue_ref::issue_from_branch_or_path(&branch, &s.path);
@@ -99,8 +114,11 @@ pub fn enrich_sessions(
                 name: s.name.clone(),
                 path: s.path.clone(),
                 group_key: key,
-                state: classify_session(s, idle_seconds_for_needs_input),
-                agent: session_agent_label(&s.name),
+                state: classify_session(s, &info, idle_seconds_for_needs_input),
+                agent: resolve_agent_label(
+                    info.cdamux_agent.as_deref(),
+                    info.ccmux_agent.as_deref(),
+                ),
                 issue,
             }
         })

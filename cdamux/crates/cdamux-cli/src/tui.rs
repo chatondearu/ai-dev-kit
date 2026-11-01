@@ -593,6 +593,11 @@ pub fn run_dashboard() -> ExitCode {
     let mut sidecar_preview_rect: Option<ratatui::layout::Rect> = None;
     let mut preview_scroll = 0usize;
     let mut cached_tree = tree;
+    // Per-tab data refreshed with the tree, never on every 100 ms poll.
+    let mut cached_tab = app_tab;
+    let mut discovered = Vec::new();
+    let mut flat = Vec::new();
+    let mut agent_lines = Vec::new();
     let mut tree_dirty = true;
     let mut last_tree_refresh = Instant::now();
     let mut last_preview_refresh = Instant::now();
@@ -601,37 +606,37 @@ pub fn run_dashboard() -> ExitCode {
 
     while !should_quit && attach_name.is_none() && review_session.is_none() {
         let group_by = cfg.sessions.group_by;
-        if tree_dirty || last_tree_refresh.elapsed() >= TREE_REFRESH {
+        if tree_dirty || app_tab != cached_tab || last_tree_refresh.elapsed() >= TREE_REFRESH {
             cached_tree = build_project_session_tree(
                 &cfg.projects,
                 cfg.daemon.idle_seconds_for_needs_input,
                 group_by,
             );
+            discovered = if app_tab == AppTab::Projects {
+                discover_projects(&cfg.projects)
+            } else {
+                Vec::new()
+            };
+            flat = if app_tab == AppTab::Sessions {
+                flat_sessions(&cfg)
+            } else {
+                Vec::new()
+            };
+            agent_lines = if app_tab == AppTab::Agents {
+                crate::doctor_agent_lines(&cfg)
+            } else {
+                Vec::new()
+            };
+            cached_tab = app_tab;
             last_tree_refresh = Instant::now();
             tree_dirty = false;
         }
         let tree = &cached_tree;
         let rows = flatten_tree(tree, &expanded, group_by, waiting_only);
         selected_row = clamp_selection(&rows, selected_row);
-
-        let discovered = if app_tab == AppTab::Projects {
-            discover_projects(&cfg.projects)
-        } else {
-            Vec::new()
-        };
-        let flat = if app_tab == AppTab::Sessions {
-            flat_sessions(&cfg)
-        } else {
-            Vec::new()
-        };
         if app_tab == AppTab::Sessions && sessions_selected >= flat.len() && !flat.is_empty() {
             sessions_selected = flat.len() - 1;
         }
-        let agent_lines = if app_tab == AppTab::Agents {
-            crate::doctor_agent_lines(&cfg)
-        } else {
-            Vec::new()
-        };
 
         let preview_max = cfg.ui.preview_max_lines;
         let session = session_at_row(&rows, selected_row);

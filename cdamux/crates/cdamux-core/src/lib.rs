@@ -70,8 +70,9 @@ pub use worktree::{
     worktree_add_new_branch, WorktreeEntry, WorktreeError,
 };
 pub use tmux::{
-    capture_pane_text, classify_pane_heuristics, list_tmux_sessions, parse_list_sessions,
-    pane_signals_for_session, send_line_to_session, PaneSignals, TmuxError, TmuxSession,
+    capture_pane_text, classify_pane_heuristics, list_panes_all, list_tmux_sessions,
+    parse_list_panes_all, parse_list_sessions, send_line_to_session, SessionPaneInfo, TmuxError,
+    TmuxSession,
 };
 
 #[derive(Debug, Error)]

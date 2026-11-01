@@ -2,6 +2,7 @@
 
 use crate::session::SessionState;
 use serde::Serialize;
+use std::collections::HashMap;
 use std::process::Command;
 use thiserror::Error;
 
@@ -65,12 +66,56 @@ pub fn list_tmux_sessions() -> Result<Vec<TmuxSession>, TmuxError> {
     Ok(parse_list_sessions(&text))
 }
 
-/// Signals from the session's active pane (tmux subprocess; absent when tmux is down).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PaneSignals {
-    /// `None` when `pane_idle_time` is empty/unsupported (do not treat as 0 → Active).
+/// Per-session snapshot from one `tmux list-panes -a` call (idle + hook user options).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SessionPaneInfo {
+    /// Active pane idle; `None` when `pane_idle_time` is empty/unsupported (do not treat as 0 → Active).
     pub idle_seconds: Option<u32>,
-    pub tail: String,
+    /// Raw `@cdamux_state` set by hooks, if any.
+    pub hook_state: Option<String>,
+    pub cdamux_agent: Option<String>,
+    pub ccmux_agent: Option<String>,
+}
+
+/// Session user options resolve through pane formats, so one `-a` call covers every session.
+const LIST_PANES_ALL_FORMAT: &str =
+    "#{session_name}\t#{pane_active}\t#{pane_idle_time}\t#{@cdamux_state}\t#{@cdamux_agent}\t#{@ccmux_agent}";
+
+fn non_empty(s: &str) -> Option<String> {
+    let t = s.trim();
+    (!t.is_empty()).then(|| t.to_string())
+}
+
+/// Parse [`LIST_PANES_ALL_FORMAT`] lines into a map keyed by session name.
+/// Idle comes from the active pane, else the session's first pane.
+pub fn parse_list_panes_all(stdout: &str) -> HashMap<String, SessionPaneInfo> {
+    let mut out: HashMap<String, SessionPaneInfo> = HashMap::new();
+    for line in stdout.lines() {
+        let mut f = line.split('\t');
+        let (Some(name), Some(active), Some(idle)) = (f.next(), f.next(), f.next()) else {
+            continue;
+        };
+        let is_new = !out.contains_key(name);
+        let info = out.entry(name.to_string()).or_default();
+        if is_new || active == "1" {
+            info.idle_seconds = idle.trim().parse().ok();
+        }
+        info.hook_state = f.next().and_then(non_empty);
+        info.cdamux_agent = f.next().and_then(non_empty);
+        info.ccmux_agent = f.next().and_then(non_empty);
+    }
+    out
+}
+
+/// One tmux spawn for all sessions (empty map when tmux is down or has no server).
+pub fn list_panes_all() -> HashMap<String, SessionPaneInfo> {
+    let out = Command::new("tmux")
+        .args(["list-panes", "-a", "-F", LIST_PANES_ALL_FORMAT])
+        .output();
+    match out {
+        Ok(o) if o.status.success() => parse_list_panes_all(&String::from_utf8_lossy(&o.stdout)),
+        _ => HashMap::new(),
+    }
 }
 
 /// `display-message -p` format for a user option name (`@foo` → `#{@foo}`).
@@ -148,42 +193,16 @@ fn pane_tail_looks_like_input(tail: &str) -> bool {
     line.ends_with('>') || line.ends_with("›") || line.ends_with("»")
 }
 
-pub fn pane_signals_for_session(session_name: &str) -> Option<PaneSignals> {
-    let idle = Command::new("tmux")
-        .args([
-            "list-panes",
-            "-t",
-            session_name,
-            "-F",
-            "#{pane_active} #{pane_idle_time}",
-        ])
-        .output()
-        .ok()?;
-    if !idle.status.success() {
-        return None;
-    }
-    let idle_text = String::from_utf8_lossy(&idle.stdout);
-    let idle_seconds = parse_active_pane_idle(&idle_text);
-
+/// Plain (no escapes) tail of the active pane for the prompt heuristics.
+pub fn pane_tail(session_name: &str) -> Option<String> {
     let capture = Command::new("tmux")
-        .args([
-            "capture-pane",
-            "-p",
-            "-t",
-            session_name,
-            "-S",
-            "-30",
-        ])
+        .args(["capture-pane", "-p", "-t", session_name, "-S", "-30"])
         .output()
         .ok()?;
     if !capture.status.success() {
         return None;
     }
-    let tail = String::from_utf8_lossy(&capture.stdout).to_string();
-    Some(PaneSignals {
-        idle_seconds,
-        tail,
-    })
+    Some(String::from_utf8_lossy(&capture.stdout).to_string())
 }
 
 /// Args for `tmux capture-pane` preview (no `-E -1`: empty history_size panes otherwise blank).
@@ -246,33 +265,6 @@ pub fn send_line_to_session(session_name: &str, line: &str, enter: bool) -> Resu
     Ok(())
 }
 
-/// Parse idle seconds from `list-panes -F "#{pane_active} #{pane_idle_time}"`.
-/// Empty/missing second field → `None` (unsupported), not `Some(0)`.
-fn parse_active_pane_idle(list_panes_output: &str) -> Option<u32> {
-    for line in list_panes_output.lines() {
-        let mut parts = line.splitn(2, char::is_whitespace);
-        let Some(active) = parts.next() else {
-            continue;
-        };
-        if active.trim() != "1" {
-            continue;
-        }
-        let rest = parts.next().unwrap_or("").trim();
-        if rest.is_empty() {
-            return None;
-        }
-        return rest.parse().ok();
-    }
-    let first = list_panes_output.lines().next()?;
-    let mut parts = first.splitn(2, char::is_whitespace);
-    let _ = parts.next()?;
-    let rest = parts.next()?.trim();
-    if rest.is_empty() {
-        return None;
-    }
-    rest.parse().ok()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -329,17 +321,24 @@ mod tests {
     }
 
     #[test]
-    fn empty_idle_field_from_list_panes_is_none() {
-        // Active pane with blank pane_idle_time (unsupported builds).
-        assert_eq!(parse_active_pane_idle("1 \n"), None);
-        assert_eq!(parse_active_pane_idle("1\n"), None);
-        assert_eq!(parse_active_pane_idle("0 12\n1 \n"), None);
-    }
-
-    #[test]
-    fn parse_idle_seconds_when_present() {
-        assert_eq!(parse_active_pane_idle("1 0\n"), Some(0));
-        assert_eq!(parse_active_pane_idle("0 99\n1 42\n"), Some(42));
+    fn parse_list_panes_all_keys_by_session() {
+        // Active pane wins for idle; blank idle → None; blank options → None.
+        let raw = "a\t0\t99\t\t\t\nb\t1\t42\twaiting\tclaude\tcursor\nb\t0\t7\twaiting\tclaude\tcursor\na\t1\t\t\t\tpi\n";
+        let map = parse_list_panes_all(raw);
+        assert_eq!(map.len(), 2);
+        let a = &map["a"];
+        assert_eq!(a.idle_seconds, None);
+        assert_eq!(a.hook_state, None);
+        assert_eq!(a.cdamux_agent, None);
+        assert_eq!(a.ccmux_agent.as_deref(), Some("pi"));
+        let b = &map["b"];
+        assert_eq!(b.idle_seconds, Some(42));
+        assert_eq!(b.hook_state.as_deref(), Some("waiting"));
+        assert_eq!(b.cdamux_agent.as_deref(), Some("claude"));
+        // No active pane → first pane's idle.
+        let first = parse_list_panes_all("c\t0\t5\t\t\t\nc\t0\t9\t\t\t\n");
+        assert_eq!(first["c"].idle_seconds, Some(5));
+        assert!(parse_list_panes_all("").is_empty());
     }
 
     #[test]

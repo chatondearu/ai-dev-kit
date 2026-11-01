@@ -38,7 +38,14 @@ lives in each project's `AGENTS.md` (bootstrap with skill `cda-agents`).
 - Minimize scope — smallest correct diff.
 - Match existing project conventions before introducing new patterns.
 - Add comments only for non-obvious business logic.
-- Add tests only when requested or when they cover meaningful behavior.
+- Add one small test (or assert-based self-check) for every non-trivial new logic (branch, loop, parser, money, security); trivial changes need none (`cda-kiss`).
+
+## Exception: cda-dev workers
+
+When the prompt starts with "You are a cda-dev worker" (or is a cda-dev
+pr-fix/worker prompt), commit and push on the worker branch without asking,
+write code, comments, commit and PR text in **English**, and follow the worker
+prompt over the rules above.
 
 ---
 

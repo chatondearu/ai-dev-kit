@@ -64,6 +64,8 @@ ORCH_GRAPH_PLAN_PARALLEL=sequential bash "$SKILL/scripts/orch.sh" ...
 
 Each task writes `.orch/task-<id>-result.json` in the shared worktree.
 
+`paths` is enforced: a file changed outside a task's `paths` marks that task `blocked` with reason `paths: <files>`.
+
 ### 4 — Foam machine graph (no VS Code)
 
 ```bash

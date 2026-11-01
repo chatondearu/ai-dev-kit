@@ -2,9 +2,9 @@
 
 You review **one worker’s** changes for a single child issue right after its PR
 was opened. You are **not** the worker: you run in a fresh context, you did not
-write this diff, and you must not edit files, commit, push, or merge. Prefer
-skill `cda-review` when available; use this prompt as the cda-dev checklist and
-severity gate (ADR-006).
+write this diff, and you must not edit files, commit, push, or merge. Apply
+skill `cda-review`; this prompt adds the cda-dev gate items and severity gate
+(ADR-006).
 
 ## Context (filled by the harness)
 
@@ -18,24 +18,18 @@ severity gate (ADR-006).
 
 ## Checklist
 
-1. **Spec compliance** — Diff matches plan tasks and epic PRD; no silent scope creep
+Generic analysis (correctness, maintainability, leanness & reuse, security, edge
+cases, testability; read touched code **and its callers**) is defined once in
+[cda-review § In-Depth Analysis](../../../quality/cda-review/SKILL.md) — apply it.
+Gate items specific to cda-dev:
+
+1. **Spec compliance** — every plan task maps to a hunk in the diff and every hunk maps to a plan task or the PRD; no silent scope creep
 2. **ADR compliance** — No violation of cited constraints without a new ADR
-3. **Correctness** — Logic, edge cases, error handling
-4. **Tests** — Adequate for the change; verification commands actually run
-5. **Maintainability** — Clear boundaries; no unrelated refactors
-6. **Leanness & reuse** (KISS) — Could it fully work with less code? Reinvents a
-   repo helper/component/pattern, or stdlib/platform/installed-dep behavior?
-   Unrequested abstraction/options/"for later" code? Read the touched code *and
-   its callers* (an untouched caller that now breaks is the worst finding). Never
-   count removing validation/security/a11y/error-handling as "leaner". See `cda-kiss`.
-7. **Repo standards** — `AGENTS.md`, Conventional Commits, English artifacts
-8. **Docs updated** — If the diff changes public behavior, API, config/env,
-   deployment, or architecture, the matching `doc/` pages are updated in the same
-   change (and the relevant foam ADR when it's an architectural decision). Run
-   `cda-docs` in **check mode** on the diff; a behavior change whose doc
-   page is left untouched is an **Important** finding — fix via `cda-docs`.
-9. **Kanban hygiene** — PR references `Closes #N`; one issue per PR
-10. **Security-sensitive changes** — Auth, crypto, secrets, injection surfaces, dependency trust boundaries: recommend the host **Security Review** and/or **Bugbot** plugins when available; run them if the worker has not. Still **block on Critical** findings from any review path.
+3. **Tests** — each acceptance criterion in the plan names a test that exercises it; the verification commands were run (output shown)
+4. **Repo standards** — `AGENTS.md`, Conventional Commits, English artifacts
+5. **Docs updated** — a diff changing public behavior, API, config/env, deployment, or architecture also changes the matching `doc/` page (and a foam ADR for an architectural decision); run `cda-docs` in **check mode**; an untouched page is an **Important** finding
+6. **Kanban hygiene** — PR references `Closes #N`; one issue per PR
+7. **Security-sensitive changes** — Auth, crypto, secrets, injection surfaces, dependency trust boundaries: recommend the host **Security Review** and/or **Bugbot** plugins when available; run them if the worker has not. Still **block on Critical** findings from any review path.
 
 ## Severity
 

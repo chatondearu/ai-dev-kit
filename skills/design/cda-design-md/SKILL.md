@@ -9,8 +9,6 @@ description: >-
 
 # CDA Design.md (brand templates)
 
-Announce: **"Using cda-design-md skill."**
-
 ## Role
 
 Provide a **ready-to-copy brand design brief** (`DESIGN.md`) so agents generate

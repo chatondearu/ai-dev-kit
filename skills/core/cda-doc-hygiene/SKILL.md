@@ -9,8 +9,6 @@ description: >-
 
 # Doc hygiene (foam layout)
 
-Announce: **"Using cda-doc-hygiene skill."**
-
 ## Role
 
 Machine + agent guardrails for **project memory layout** (not runtime `doc/` sync —

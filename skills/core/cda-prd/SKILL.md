@@ -9,8 +9,6 @@ description: >-
 
 # Foam PRD authoring
 
-Announce at start: **"Using cda-prd skill."**
-
 ## Role
 
 Turn a **Kanban issue** into a versioned **PRD** (`prd/PRD-NNN-slug.md`) wired to

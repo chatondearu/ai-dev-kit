@@ -10,8 +10,6 @@ description: >-
 
 # Dev orchestrator
 
-Announce: **"Using cda-dev skill."**
-
 ## Role
 
 **Glue master** — orchestrates foam, Kanban, worktrees, workers, verify, and CI.
@@ -62,7 +60,7 @@ epic breakdown. English for GitHub / foam artifacts; match user language in chat
 
 ```
 Resolve context (repo, foam, board, agent CLI)
-  → Ensure artifacts (mode-dependent; GO gate for intake)
+  → Create missing artifacts (GO gate for intake): epic issue + `prd/PRD-<n>-*.md` + child issues + `plans/PLAN-<n>-*.md`
   → Frontier gating (hold children with an open `Blocked by:` issue)
   → Ownership check (non-overlapping paths when parallel)
   → Provision worktrees under .orch/worktrees/

@@ -9,8 +9,6 @@ description: >-
 
 # Foam plan authoring
 
-Announce at start: **"Using cda-plan skill."**
-
 ## Role
 
 Turn an **approved PRD** + **Kanban issue** into an implementation **plan**
@@ -46,13 +44,13 @@ Requires `prd/PRD-42-*.md` (create with `cda-prd/scripts/new-prd.sh` first).
 ## End-to-end feature pipeline
 
 ```
-Issue (Backlog)
-  → cda-prd: PRD draft → review → approved
+Issue (Backlog)                         cda-kanban
+  → PRD draft → review → approved       cda-prd/scripts/new-prd.sh <issue#>
   → Board: Ready
-  → cda-plan: PLAN-NNN
-  → cda-kanban: claim → In progress → branch → PR
+  → PLAN-NNN                            cda-plan/scripts/new-plan.sh <issue#>
+  → claim → In progress → branch → PR   cda-kanban B (PR body: Closes #NNN)
   → verify plan checklist + merge
-  → PRD shipped, import-kanban.sh, ADR if new technical choice
+  → PRD shipped, plan done, import-kanban.sh, ADR if new technical choice
 ```
 
 ### Batch from chat (several subjects)

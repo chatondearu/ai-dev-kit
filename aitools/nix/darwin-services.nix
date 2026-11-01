@@ -21,7 +21,8 @@
           serviceConfig = {
             ProgramArguments = [cdamuxdBin];
             RunAtLoad = true;
-            KeepAlive = true;
+            # Relaunch on failure only: cdamuxd exits 0 when listen_tailnet is false.
+            KeepAlive = { SuccessfulExit = false; };
             # Nix tmux lives under /run/current-system/sw/bin — without it
             # cdamuxd cannot poll and session STATE stays unknown.
             EnvironmentVariables = {

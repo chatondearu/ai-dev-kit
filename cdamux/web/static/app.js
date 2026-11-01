@@ -17,7 +17,12 @@ let activeView = "pane";
 let graphPollTimer = null;
 let lastGraph = null;
 
-async function api(path, options) {
+async function api(path, options = {}) {
+  // Shared secret for CDAMUX_TAILNET_TOKEN; set once via localStorage.setItem("cdamux_token", "...").
+  const token = localStorage.getItem("cdamux_token");
+  if (token) {
+    options.headers = { ...(options.headers || {}), "X-Cdamux-Token": token };
+  }
   const res = await fetch(path, options);
   const text = await res.text();
   let data;

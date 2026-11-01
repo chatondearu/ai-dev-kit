@@ -3,6 +3,7 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
+use crate::session_chrome::format_age;
 use std::time::SystemTime;
 
 /// Age after which a still-`running` graph is shown as stale in the TUI.
@@ -134,18 +135,6 @@ fn is_stale(graph: &OrchGraphFile, age_secs: Option<u64>) -> bool {
     age_secs.is_some_and(|a| a >= ORCH_GRAPH_STALE_SECS)
 }
 
-fn format_age(secs: u64) -> String {
-    if secs < 60 {
-        format!("{secs}s ago")
-    } else if secs < 3600 {
-        format!("{}m ago", secs / 60)
-    } else if secs < 86400 {
-        format!("{}h ago", secs / 3600)
-    } else {
-        format!("{}d ago", secs / 86400)
-    }
-}
-
 /// ASCII layout for ratatui side panel (dynamic snapshot).
 pub fn format_orch_graph_panel(graph: &OrchGraphFile, width: usize) -> String {
     format_orch_graph_panel_ex(graph, width, None)
@@ -170,9 +159,9 @@ pub fn format_orch_graph_panel_ex(
     };
     if let Some(age) = age_secs {
         if updated_line.is_empty() {
-            updated_line = format!("mtime {}", format_age(age));
+            updated_line = format!("mtime {} ago", format_age(age));
         } else {
-            updated_line.push_str(&format!(" · {}", format_age(age)));
+            updated_line.push_str(&format!(" · {} ago", format_age(age)));
         }
     }
     if is_stale(graph, age_secs) {

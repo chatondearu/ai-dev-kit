@@ -146,8 +146,8 @@ pub fn resolve_worktree_dest(root: &Path, slug: &str) -> PathBuf {
     root.join(name)
 }
 
-fn git_stdout(path: &Path, args: &[&str]) -> Option<String> {
-    git_output(path, args).ok()
+pub(crate) fn git_stdout(path: &Path, args: &[&str]) -> Option<String> {
+    git_output(path, args).ok().filter(|s| !s.is_empty())
 }
 
 fn git_output(path: &Path, args: &[&str]) -> Result<String, WorktreeError> {

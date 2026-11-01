@@ -51,7 +51,7 @@ Index: [[decisions/index|All ADRs]]
 | [[../prd/PRD-75-cdamux-keymap-settings-form|PRD-75]] cdamux keymap + Settings form | shipped |
 | [[../prd/PRD-79-cdamux-widgets-extract|PRD-79]] cdamux widgets extract | approved |
 | [[../prd/PRD-83-cdamux-fleet-status-preview-agent|PRD-83]] cdamux Fleet status/preview/agent tag | approved |
-| [[../prd/PRD-90-kiss-audit-2026-11|PRD-90]] kiss-audit 2026-11 fixes (plan: [[../plans/PLAN-90-kiss-audit-2026-11|PLAN-90]]) | approved |
+| [[../prd/PRD-90-kiss-audit-2026-11|PRD-90]] kiss-audit 2026-11 fixes (plan: [[archive/plans/PLAN-90-kiss-audit-2026-11|PLAN-90]]) | shipped |
 
 - PRD template: `prd/template.md`
 - Plan template: `plans/template.md`

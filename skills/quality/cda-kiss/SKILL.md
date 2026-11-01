@@ -56,4 +56,4 @@ Stop at the first rung that fully works:
 
 ## Relationship to the rest of the kit
 
-This is the always-on **code attitude** that rides under the project pipeline, not a replacement for it. The kit's hooks inject this ruleset at session start and into every spawned subagent, so `cda-dev` workers write lean code by default. For whole-diff/whole-repo quality passes, `cda-review` and `cda-architecture` carry the "what to cut / reuse / what breaks outside the diff" lens.
+This is the always-on **code attitude** that rides under the project pipeline, not a replacement for it. **Cursor:** `install.sh --hooks` wires `sessionStart` and `beforeSubmitPrompt` only (no subagent hook). **Claude Code:** `SessionStart`, `SubagentStart`, and `UserPromptSubmit`. **opencode:** the `kiss.mjs` plugin. For whole-diff/whole-repo quality passes, `cda-review` and `cda-architecture` carry the "what to cut / reuse / what breaks outside the diff" lens.

@@ -21,7 +21,7 @@ orch-auto / headless, configuration).
 | Asset | Cursor | Claude Code | opencode | Portable |
 | ----- | ------ | ----------- | -------- | -------- |
 | **Skills** (`SKILL.md`) | `~/.cursor/skills/` | `~/.claude/skills/` | `~/.config/opencode/skills/` | Yes |
-| **Rules** (`rules/*.md`) | `~/.cursor/user-rules/` | `~/.claude/CLAUDE.md` (assembled) | — | Partial |
+| **Rules** (`rules/*.md`) | paste into Cursor Settings → Rules for AI (not installed) | `~/.claude/CLAUDE.md` (assembled) | — | Partial |
 | **AGENTS.md** | per repo | per repo | per repo | Yes |
 | **Subagents** | `~/.cursor/agents/` | — | — | Cursor only |
 | **Plugins** | `~/.cursor/plugins/local/` | — | — | Cursor only |

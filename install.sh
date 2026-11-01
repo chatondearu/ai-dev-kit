@@ -9,7 +9,7 @@
 #   opencode  ${XDG_CONFIG_HOME:-~/.config}/opencode/skills
 #   agents    ${AGENTS_HOME:-~/.agents}/skills   (universal; opencode also reads this)
 #
-# Cursor-specific assets (user rules, subagents, local plugins) → ~/.cursor only.
+# Cursor-specific assets (subagents, local plugins) → ~/.cursor only.
 # Claude: assembled claude/CLAUDE.md → ${CLAUDE_CONFIG_DIR:-~/.claude}/CLAUDE.md
 # Skills may live in nested folders (skills/core/foo/); installers flatten by
 # skill directory name (each dir containing SKILL.md).
@@ -230,8 +230,7 @@ main() {
 
   # Cursor-specific assets
   if is_enabled cursor; then
-    log "# cursor user-rules / agents / plugins"
-    apply_children "$REPO_DIR/rules" "$CURSOR_HOME/user-rules"
+    log "# cursor agents / plugins"
     apply_children "$REPO_DIR/agents" "$CURSOR_HOME/agents"
     apply_children "$REPO_DIR/cursor/plugins/local" "$CURSOR_HOME/plugins/local"
   fi

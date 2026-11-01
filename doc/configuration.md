@@ -57,3 +57,30 @@ See [graph-orchestration.md](graph-orchestration.md).
 Example: `skills/core/cda-dev/templates/systemd/cda-orch-auto.env.example` →
 `~/.config/cda-orch-auto.env`. At minimum set `ORCH_REPO` to an absolute path.
 Ensure agent CLIs and `gh` are on `PATH` for the user systemd session.
+
+## `install.sh` and agent homes
+
+`./install.sh` symlinks skills (and Cursor agents/plugins) into each enabled
+tool's config dir. Override roots with `CURSOR_HOME`, `CLAUDE_CONFIG_DIR`, and
+`XDG_CONFIG_HOME` (opencode).
+
+### Cursor rules (manual)
+
+Cursor does **not** auto-load kit rules from disk. Copy or paste the contents
+of `rules/*.md` into **Cursor Settings → Rules for AI** yourself (see also
+`rules/nix-develop-shell.md`). Per-repo workflow lives in the project's
+`AGENTS.md`; `install.sh` does not copy `rules/` into `~/.cursor`.
+
+### KISS hooks (`--hooks`, default on)
+
+When hooks are enabled, `skills/quality/cda-kiss/hooks/` is merged into each
+tool's hook config (needs `jq`; idempotent):
+
+| Tool | Hook file | Events |
+| ---- | --------- | ------ |
+| Cursor | `$CURSOR_HOME/hooks.json` | `sessionStart`, `beforeSubmitPrompt` |
+| Claude Code | `$CLAUDE_CONFIG_DIR/settings.json` | `SessionStart`, `SubagentStart`, `UserPromptSubmit` |
+| opencode | `$XDG_CONFIG_HOME/opencode/plugin/kiss.mjs` | plugin (not JSON hooks) |
+
+Claude assembles global instructions from `rules/` into `CLAUDE.md` when Claude
+is enabled; that path is separate from KISS hooks.

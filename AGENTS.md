@@ -89,14 +89,10 @@ see `cdamux/AGENTS.md` and `cdamux/docs/research.md`. Not packaged in `aitools` 
 Experimental opt-in companion: `aitools/` (`cda.aitools` Nix modules, ADR-003).
 Never enabled by `install.sh`. Relocatable root: `CDA_AITOOLS_HOME`.
 
-**Verify (run before every PR):**
+**Verify (run before every PR):** `bash scripts/verify.sh`
 
 ```bash
-for t in skills/core/cda-dev/scripts/tests/test_*.sh skills/core/cda-dev/scripts/tests/smoke_orch_dry.sh scripts/tests/test_doctor.sh skills/core/cda-doc-hygiene/scripts/tests/test_doc_hygiene.sh; do bash "$t"; done
-bash skills/core/cda-doc-hygiene/scripts/doc-hygiene.sh --check
-bash skills/quality/cda-kiss/hooks/test.sh
-bash skills/design/cda-design-loop/scripts/tests/test_seed_design.sh
-(cd cdamux && cargo test)
+bash scripts/verify.sh
 ```
 
 **Gotchas**
@@ -113,4 +109,4 @@ bash skills/design/cda-design-loop/scripts/tests/test_seed_design.sh
   orch: allow-no-checks
   (or `ORCH_ALLOW_NO_CHECKS=1`). Poll live worker state at `.orch/run/status.json`.
 
-verify: bash -n skills/core/cda-kanban/scripts/gh-board.sh && bash skills/core/cda-kanban/scripts/gh-board.sh reconcile-backlog --help
+verify: bash scripts/verify.sh

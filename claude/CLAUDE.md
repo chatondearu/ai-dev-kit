@@ -101,7 +101,7 @@ When both apply, end in this order: the `cda-kiss` line (what was skipped / not 
 - the user asks to explain or walk through — explain fully, with headers to skim back;
 - a destructive action is ahead — confirm first, safety wins;
 - the last three turns were "still broken" — stop iterating, name the assumption that may be wrong, ask one diagnostic question;
-- the request is genuinely ambiguous — one short clarifying question;
+- a single word or term is ambiguous in an otherwise clear request — one short clarifying question; anything wider goes through `cda-dev` intake, which questions via `cda-grill`;
 - a rule would delete the answer (e.g. "what are my options" → 2–4 ranked options, recommendation first) or fights the harness — the task and the harness win, the shape stays.
 
 ## Pre-send check

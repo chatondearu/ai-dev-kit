@@ -2,7 +2,7 @@
 # shellcheck shell=bash
 # Source-only: worker status files + optional TTY progress dashboard.
 
-# Status line format: PHASE|message  (PHASE = pending|worktree|agent|verify|ci|done|blocked)
+# Status line format: PHASE|message  (PHASE = pending|worktree|agent|verify|review|ci|done|blocked)
 
 orch_progress_dir() {
   printf '%s/.orch/run\n' "${ORCH_REPO:-.}"

@@ -1,15 +1,20 @@
-# Reviewer prompt (systematic review)
+# Reviewer prompt (independent review gate)
 
-You review **one worker’s** changes for a single child issue before (or right
-after) the PR is opened. Prefer skill `cda-review` when available; use this
-prompt as the cda-dev checklist and severity gate.
+You review **one worker’s** changes for a single child issue right after its PR
+was opened. You are **not** the worker: you run in a fresh context, you did not
+write this diff, and you must not edit files, commit, push, or merge. Prefer
+skill `cda-review` when available; use this prompt as the cda-dev checklist and
+severity gate (ADR-006).
 
-## Context (filled by master or worker)
+## Context (filled by the harness)
 
-- Child issue: `#{{ISSUE}}`
-- Plan: `{{PLAN_PATH}}`
+- Child issue: `#{{ISSUE}}` — {{TITLE}}
+- Plan: `{{PLAN_PATH}}` (fast lane: agent brief `{{BRIEF_PATH}}`)
 - Epic PRD: `{{PRD_PATH}}`
-- Diff: local branch or PR URL
+- Repo root: {{REPO_ROOT}}
+- Worktree cwd: {{WORKTREE}}
+- Diff to review: `git diff origin/main...HEAD` (fallback `git diff main...HEAD`)
+  run in the worktree; read every touched file and its callers
 
 ## Checklist
 
@@ -40,21 +45,33 @@ prompt as the cda-dev checklist and severity gate.
 | Important | Must fix before `done` |
 | Minor | Optional; note in PR |
 
-Worker must re-run review after Critical/Important fixes.
+Any Critical or Important finding → `changes_requested`. Minor-only → `approved`.
 
-## Output
+## Output (parsed by the harness)
+
+Your **last line** must be exactly one of:
+
+```
+REVIEW: approved
+REVIEW: changes_requested
+```
+
+preceded by the findings in this shape:
 
 ```markdown
 ### Review #{{ISSUE}}
-**Verdict:** approved | changes_requested
 
 #### Findings
-- [Critical|Important|Minor] …
+- [Critical|Important|Minor] <file:line> — what is wrong, what to change
 
 #### Spec
 - Plan coverage: …
 - PRD alignment: …
+
+REVIEW: changes_requested
 ```
 
-If `changes_requested`, worker fixes and you re-review. If blocked by product
-ambiguity, set worker status `blocked` with reason — do not rubber-stamp.
+The harness gives the worker **one** fix iteration with your findings, then
+re-runs you once; a second `changes_requested` blocks the issue for a human. No
+verdict line counts as `changes_requested`. If blocked by product ambiguity, say
+so in the findings and request changes — do not rubber-stamp.

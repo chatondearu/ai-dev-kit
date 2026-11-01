@@ -6,6 +6,17 @@ _orch_extract_agents_verify() {
   local file="$1"
   [ -f "$file" ] || return 1
   local match
+  # 0. fenced block under a "Verify" heading (`## … Verify …` or `**Verify …**`)
+  #    wins over a trailing `verify:` line (ADR-006): the block is the real suite.
+  match="$(awk '
+    /^(#+ |\*\*).*Verify/ { seen = 1; next }
+    seen && /^```/ { if (in_fence) exit; in_fence = 1; next }
+    in_fence { print }
+  ' "$file" | sed -e '/^[[:space:]]*$/d' || true)"
+  if [ -n "$match" ]; then
+    printf '%s\n' "$match"
+    return 0
+  fi
   # 1. line like "verify: <cmd>" (case-insensitive)
   match="$(grep -m 1 -Ei '^[[:space:]]*(-[[:space:]]*)?verify[[:space:]]*:' "$file" | head -n 1 || true)"
   if [ -n "$match" ]; then
@@ -33,6 +44,10 @@ _orch_extract_agents_verify() {
 
 orch_resolve_verify() {
   local dir="$1"
+  if [ -n "${ORCH_VERIFY:-}" ]; then
+    printf '%s\n' "$ORCH_VERIFY"
+    return 0
+  fi
   if [ -f "$dir/AGENTS.md" ]; then
     local agents_cmd
     if agents_cmd="$(_orch_extract_agents_verify "$dir/AGENTS.md")" && [ -n "$agents_cmd" ]; then
@@ -66,8 +81,33 @@ orch_resolve_verify() {
     printf 'cargo test\n'
     return 0
   fi
-  printf 'orch_resolve_verify: no verify command heuristic matched; using true\n' >&2
-  printf 'true\n'
+  # Fail closed (ADR-006): no command → caller blocks. `orch: allow-no-verify` in
+  # the issue body (orch.sh exports ORCH_ALLOW_NO_VERIFY=1) keeps the old `true`.
+  if [ "${ORCH_ALLOW_NO_VERIFY:-0}" = "1" ]; then
+    printf 'orch_resolve_verify: no verify command; allow-no-verify set, using true\n' >&2
+    printf 'true\n'
+    return 0
+  fi
+  printf "orch_resolve_verify: no verify command found (add 'orch: allow-no-verify' to the issue body, or set ORCH_VERIFY)\n" >&2
+  return 1
+}
+
+# Reason string shared by every caller that blocks on a missing verify command
+# (exported: workers run under `bash -c`).
+export ORCH_NO_VERIFY_REASON="verify: no command (add 'orch: allow-no-verify' to the issue body to skip)"
+
+# Write <prompt> + the last 40 lines of a failed verify log to <wt>/.orch/worker-prompt-retry.md
+# and print that path, so the retry agent sees why verify failed (ADR-006).
+orch_verify_retry_prompt() {
+  local prompt="$1" wt="$2" log="$3"
+  local dest="$wt/.orch/worker-prompt-retry.md"
+  {
+    cat "$prompt"
+    printf '\n\n## Previous verify output (failed)\n\n```\n'
+    tail -n 40 "$log" 2>/dev/null
+    printf '```\n'
+  } >"$dest"
+  printf '%s\n' "$dest"
 }
 
 # Allowlist for untrusted trees (pr-fix). Free-form AGENTS.md verify is refused.
@@ -82,11 +122,7 @@ _orch_verify_is_allowed() {
 orch_run_verify() {
   local dir="$1"
   local cmd
-  if [ -n "${ORCH_VERIFY:-}" ]; then
-    cmd="$ORCH_VERIFY"
-  else
-    cmd="$(orch_resolve_verify "$dir")"
-  fi
+  cmd="$(orch_resolve_verify "$dir")" || return 1
   if [ "${ORCH_VERIFY_TRUST:-trusted}" = "untrusted" ]; then
     if ! _orch_verify_is_allowed "$cmd"; then
       printf 'orch_run_verify: refusing non-allowlisted verify (untrusted): %s\n' "$cmd" >&2
@@ -94,5 +130,6 @@ orch_run_verify() {
       return 1
     fi
   fi
-  (cd "$dir" && eval "$cmd")
+  # set -e: a multi-line Verify block must fail on its first failing command.
+  (cd "$dir" && set -e && eval "$cmd")
 }

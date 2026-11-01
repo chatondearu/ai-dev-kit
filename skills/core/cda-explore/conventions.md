@@ -5,7 +5,7 @@
 | Label | On | Meaning |
 | ----- | -- | ------- |
 | `explore:map` | the map issue | the canonical index for one effort |
-| `explore:research` | ticket | AFK fact-finding (resolve via `deep-research`) |
+| `explore:research` | ticket | AFK fact-finding (resolve via a generalPurpose subagent doing web/doc research) |
 | `explore:prototype` | ticket | HITL concrete artifact (resolve via `cda-prototype`) |
 | `explore:grilling` | ticket | HITL conversation — the default |
 | `explore:task` | ticket | manual work that unblocks a decision |

@@ -98,6 +98,12 @@ case "$*" in
     state="${GH_STUB_STATE:-OPEN}"
     echo "{\"mergeable\":\"${mergeable}\",\"state\":\"${state}\",\"headRefName\":\"main\"}"
     ;;
+  *"repo view"*)
+    case "$*" in
+      *"-q"*) echo "stub/repo" ;;
+      *) echo '{"nameWithOwner":"stub/repo"}' ;;
+    esac
+    ;;
   *)
     exit 0
     ;;
@@ -233,7 +239,7 @@ cat >"$STUB_BIN/slow-agent" <<'EOF'
 marker_dir="${ORCH_PARALLEL_MARKERS:-/tmp/orch-parallel-markers}"
 mkdir -p "$marker_dir"
 # Prefer issue id from worker prompt path in cwd; fallback to pid
-id="${ORCH_WT##*/}"
+id="${ORCH_WORKER_ID:-${ORCH_WT##*/}}"
 [ -n "$id" ] || id="$$"
 date +%s%N >"$marker_dir/start.$id"
 sleep 1
@@ -252,8 +258,9 @@ assert_contains "$out_par" "ORCH_MAX_PARALLEL=2" "logs parallel dispatch"
 assert_contains "$out_par" "done: issue 9" "done printed for issue 9"
 assert_contains "$out_par" "done: issue 10" "done printed for issue 10"
 shopt -s nullglob
-starts=("$MARKERS"/start.*)
-ends=("$MARKERS"/end.*)
+# Ignore stray markers from non-worker agent invocations (e.g. wrong ORCH_WT).
+starts=("$MARKERS"/start.[0-9]*)
+ends=("$MARKERS"/end.[0-9]*)
 shopt -u nullglob
 if [ "${#starts[@]}" -ge 2 ] && [ "${#ends[@]}" -ge 2 ]; then
   # Overlap: earliest end must be after latest start

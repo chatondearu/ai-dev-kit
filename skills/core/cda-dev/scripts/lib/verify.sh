@@ -44,6 +44,10 @@ _orch_extract_agents_verify() {
 
 orch_resolve_verify() {
   local dir="$1"
+  if [ -n "${ORCH_VERIFY:-}" ]; then
+    printf '%s\n' "$ORCH_VERIFY"
+    return 0
+  fi
   if [ -f "$dir/AGENTS.md" ]; then
     local agents_cmd
     if agents_cmd="$(_orch_extract_agents_verify "$dir/AGENTS.md")" && [ -n "$agents_cmd" ]; then
@@ -118,11 +122,7 @@ _orch_verify_is_allowed() {
 orch_run_verify() {
   local dir="$1"
   local cmd
-  if [ -n "${ORCH_VERIFY:-}" ]; then
-    cmd="$ORCH_VERIFY"
-  else
-    cmd="$(orch_resolve_verify "$dir")" || return 1
-  fi
+  cmd="$(orch_resolve_verify "$dir")" || return 1
   if [ "${ORCH_VERIFY_TRUST:-trusted}" = "untrusted" ]; then
     if ! _orch_verify_is_allowed "$cmd"; then
       printf 'orch_run_verify: refusing non-allowlisted verify (untrusted): %s\n' "$cmd" >&2

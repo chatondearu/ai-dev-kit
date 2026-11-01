@@ -27,9 +27,17 @@ git -C "$TMP" add README
 git -C "$TMP" commit -qm init
 git -C "$TMP" branch -M main
 
-# Setup stub agent that exits 0
+# Stub agent: reads the prompt on stdin; answers the review gate and the grounding
+# verifier (ADR-006) so worker scenarios can reach `done`. STUB_REVIEW overrides
+# the verdict (default approved).
 cat >"$STUB_BIN/stub-agent" <<'EOF'
 #!/usr/bin/env bash
+prompt="$(cat)"
+mkdir -p .orch
+case "$prompt" in
+  *"Verifier (grounding node)"*) touch .orch/verifier-ok ;;
+  *"Reviewer prompt"*) echo "REVIEW: ${STUB_REVIEW:-approved}" ;;
+esac
 exit 0
 EOF
 chmod +x "$STUB_BIN/stub-agent"
@@ -134,8 +142,9 @@ assert_contains "$out_held" "no frontier" "no-frontier message emitted"
 assert_contains "$out_held" "holding #20 (blocked by open #999)" "held issue surfaced to human"
 
 echo "# orch ready-pickup (issue 1: loop succeeds, no PR found -> status blocked, exit nonzero)"
+# No package.json yet: ORCH_VERIFY keeps this scenario on the no-PR path (ADR-006 would block on verify first).
 set +e
-out_no_pr="$(GH_STUB_NO_PR=1 bash "$SCRIPTS/orch.sh" --repo "$TMP" --mode ready-pickup --issue 1 --agent "$STUB_BIN/stub-agent" 2>&1)"
+out_no_pr="$(ORCH_VERIFY=true GH_STUB_NO_PR=1 bash "$SCRIPTS/orch.sh" --repo "$TMP" --mode ready-pickup --issue 1 --agent "$STUB_BIN/stub-agent" 2>&1)"
 rc_no_pr=$?
 set -e
 assert_eq "$rc_no_pr" "1" "ready-pickup exits nonzero when worker blocked (no PR)"
@@ -236,6 +245,13 @@ echo "# orch ready-pickup parallel pool (issues 9, 10 with MAX_P=2 overlap)"
 # Slow stub so both workers are in-flight together under the cap
 cat >"$STUB_BIN/slow-agent" <<'EOF'
 #!/usr/bin/env bash
+# Reviewer / verifier calls answer immediately; only the worker call leaves markers.
+prompt="$(cat)"
+mkdir -p .orch
+case "$prompt" in
+  *"Verifier (grounding node)"*) touch .orch/verifier-ok; exit 0 ;;
+  *"Reviewer prompt"*) echo "REVIEW: approved"; exit 0 ;;
+esac
 marker_dir="${ORCH_PARALLEL_MARKERS:-/tmp/orch-parallel-markers}"
 mkdir -p "$marker_dir"
 # Prefer issue id from worker prompt path in cwd; fallback to pid
@@ -305,5 +321,22 @@ assert_contains "$out_partial" "blocked: issue 7 (no PR for branch feat/7-issue-
 assert_contains "$out_partial" "done: issue 8 (PR 108 checks green, mergeable=MERGEABLE)" "issue 8 is done"
 orch_worktree_remove "$TMP" "$(orch_worktree_path "$TMP" 7 issue-7)" 2>/dev/null || true
 orch_worktree_remove "$TMP" "$(orch_worktree_path "$TMP" 8 issue-8)" 2>/dev/null || true
+
+echo "# orch ready-pickup (issue 11: reviewer says changes_requested twice -> blocked, exit nonzero)"
+set +e
+out_review="$(STUB_REVIEW=changes_requested GH_STUB_PR_NUM=111 GH_STUB_MERGEABLE=MERGEABLE GH_STUB_STATE=OPEN \
+  bash "$SCRIPTS/orch.sh" --repo "$TMP" --mode ready-pickup --issue 11 --agent "$STUB_BIN/stub-agent" 2>&1)"
+rc_review=$?
+set -e
+assert_eq "$rc_review" "1" "orch exits nonzero when review stays changes_requested"
+assert_contains "$out_review" "review: reviewer round 2" "one fix iteration then a second review"
+assert_contains "$out_review" "blocked: issue 11 review: changes_requested" "blocked with review reason"
+if echo "$out_review" | grep -q "^done: issue 11"; then
+  FAILS=$((FAILS + 1))
+  printf 'FAIL done must not be reported when review is rejected twice\n' >&2
+else
+  PASSES=$((PASSES + 1))
+fi
+orch_worktree_remove "$TMP" "$(orch_worktree_path "$TMP" 11 issue-11)" 2>/dev/null || true
 
 summary

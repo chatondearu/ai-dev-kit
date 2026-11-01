@@ -74,6 +74,7 @@ rc_run_none=$?
 set -e
 assert_eq "$rc_run_none" "1" "run_verify is not green when resolve fails"
 assert_eq "$(ORCH_ALLOW_NO_VERIFY=1 orch_resolve_verify "$E" 2>/dev/null)" "true" "allow-no-verify keeps true"
+assert_eq "$(ORCH_VERIFY="make check" orch_resolve_verify "$E" 2>/dev/null)" "make check" "ORCH_VERIFY overrides resolution"
 
 echo "# 3. ready-pickup review gate (stub gh + stub agent)"
 # Stub agent: reads the prompt on stdin; verifier -> verifier-ok; reviewer -> verdict

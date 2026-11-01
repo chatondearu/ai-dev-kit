@@ -35,7 +35,7 @@ let
           if subEntries ? "SKILL.md"
           then [ { inherit name; srcRel = subRel; } ]
           else findSkillDirs subRel
-      ) (builtins.attrNames entries)
+      ) (builtins.filter (name: entries.${name} == "directory") (builtins.attrNames entries))
     );
 
   mk = homeDir: srcRel: name: {

@@ -41,7 +41,7 @@ use std::time::{Duration, Instant};
 
 const COMPOSER_LABEL: &str = "send";
 
-/// Palette aligned with `prototype/dashboard-ui` (visible on dark terminals).
+/// Palette aligned with PRD-41 (archived HTML mockup: `foam/archive/cdamux-prototype/`).
 const CLR_TEXT: Color = Color::Rgb(230, 234, 240);
 const CLR_MUTED: Color = Color::Rgb(139, 149, 168);
 const CLR_ACCENT: Color = Color::Rgb(110, 181, 255);

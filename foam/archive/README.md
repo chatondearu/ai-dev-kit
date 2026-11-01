@@ -23,6 +23,10 @@ design notes were moved here.
 Removed files (git history only): `docs/superpowers/plans/*.md` (~1.7k lines of
 superseded superpowers execution plans).
 
+## cdamux HTML prototype (2026-11)
+
+Mission-control dashboard mockup (not served by cdamuxd): [[cdamux-prototype/README|cdamux-prototype]] → PRD-41.
+
 ## Done implementation plans
 
 Shipped issue checklists live in [[plans/README|plans/]] (36 files). Active

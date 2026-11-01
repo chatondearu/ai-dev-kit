@@ -5,7 +5,7 @@
 **Epic**: https://github.com/chatondearu/ai-dev-kit/issues/40  
 **Dashboard**: [#58](https://github.com/chatondearu/ai-dev-kit/issues/58) — phases 1–6 complete (merge stacked PRs #65–#70)  
 **Plan**: `plans/PLAN-41-cdamux-mission-control-tui.md`  
-**UX reference**: `prototype/dashboard-ui/index.html`  
+**UX reference**: PRD-41; archived HTML mockup under `foam/archive/cdamux-prototype/`  
 **Extract**: [#56](https://github.com/chatondearu/ai-dev-kit/issues/56) (after second-host dogfood)
 
 ## Pick work from GitHub

@@ -14,7 +14,7 @@ agent-manager, epilande, skzv) is a **mission control** surface: one tree of
 projects and sessions, live preview, quick send without attach, integrated notes
 and review entry, configuration screens, and a rich **new session** flow.
 
-Validated mockup: [`cdamux/prototype/dashboard-ui/`](../cdamux/prototype/dashboard-ui/)
+Validated mockup (archived): [`foam/archive/cdamux-prototype/`](../foam/archive/cdamux-prototype/)
 (variant **C+**).
 
 ## Goals
@@ -131,7 +131,7 @@ Not all keys required in phase 1; see implementation plan phases.
 - PRD-39 (v1 shipped): [[PRD-39-cdamux|PRD-39]]
 - ADRs: [[../foam/decisions/ADR-001-host-tools-vs-kit|ADR-001]], [[../foam/decisions/ADR-003-cda-aitools|ADR-003]], [[../foam/decisions/ADR-004-cdamux|ADR-004]]
 - Research: [`cdamux/docs/research.md`](../cdamux/docs/research.md)
-- Prototype: [`cdamux/prototype/dashboard-ui/README.md`](../cdamux/prototype/dashboard-ui/README.md)
+- Prototype: [`foam/archive/cdamux-prototype/README.md`](../foam/archive/cdamux-prototype/README.md)
 
 ## Open questions
 

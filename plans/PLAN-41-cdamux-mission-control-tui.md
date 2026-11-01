@@ -3,7 +3,7 @@
 - **Status**: in-progress
 - **PRD**: [[../prd/PRD-41-cdamux-mission-control-tui|PRD-41]]
 - **GitHub**: [#58](https://github.com/chatondearu/ai-dev-kit/issues/58)
-- **Prototype**: [[../cdamux/prototype/dashboard-ui/README|dashboard-ui prototype]]
+- **Prototype**: [[../foam/archive/cdamux-prototype/README|dashboard-ui mockup (archived)]]
 - **Date**: 2026-10-26
 
 ## Summary

@@ -20,8 +20,11 @@ fn main() {
     };
 
     if !cfg.daemon.listen_tailnet {
-        eprintln!("cdamuxd: nothing to serve; set daemon.listen_tailnet = true");
-        std::process::exit(1);
+        // Exit 0: the systemd unit uses Restart=on-failure, so a clean exit does not loop.
+        println!(
+            "cdamuxd: nothing to serve (daemon.listen_tailnet = false); set it to true or disable cda.aitools.cdamuxd"
+        );
+        return;
     }
 
     info!(roots = cfg.projects.roots.len(), "cdamuxd starting");

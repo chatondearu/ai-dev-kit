@@ -51,7 +51,7 @@ Legacy option names `ccmux.*` / `ccmuxd.*` are renamed automatically (see `mkRen
 | ------- | ----- | ---------- | ------ |
 | Packages (tmux, cdamux, moshi-hook) | yes | yes | `cdamux-align-mac.sh` |
 | Deploy configs (maid) | `deploy.enable` | `deploy.enable` | copy `templates/cdamux` |
-| cdamuxd | systemd | launchd | `cdamuxd` in background |
+| cdamuxd | systemd | launchd | `cdamuxd` in background; only useful with `[daemon] listen_tailnet = true`, otherwise the unit exits immediately |
 | mosh server | `mosh.enable` | — | brew / apt |
 | moshi-hook | systemd + hook oneshots | launchd | `moshi-hook service install` |
 

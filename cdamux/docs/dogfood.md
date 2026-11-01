@@ -72,7 +72,7 @@ cdamux send c-myapp --enter
 ```
 
 Targeting matches tmux: `-t <session>` uses that session's current window and active pane.
-Core helper: `cdamux_core::send_to_session` / `build_send_keys_argv` (for future `cdamuxd` HTTP).
+Core helper: `cdamux_core::send_to_session` (for future `cdamuxd` HTTP).
 
 ## Hunk review → agent
 

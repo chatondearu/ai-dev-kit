@@ -87,7 +87,7 @@
   };
 
   cdamuxd = {
-    enable = lib.mkEnableOption "cdamuxd user daemon (systemd on NixOS, launchd on darwin)";
+    enable = lib.mkEnableOption "cdamuxd user daemon (systemd on NixOS, launchd on darwin); only useful with `[daemon] listen_tailnet = true` in the cdamux config, otherwise the unit exits immediately";
   };
 
   moshiHook = {

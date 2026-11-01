@@ -17,7 +17,6 @@ use ratatui::{
     Frame,
 };
 use std::path::PathBuf;
-use std::process::ExitCode;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PathMode {
@@ -287,57 +286,6 @@ pub(crate) fn on_key(cfg: &Config, state: &mut ModalState, key: KeyEvent) -> Spa
     }
 }
 
-/// Standalone spawn UI (alternate screen). Prefer overlay via `ModalState` in the dashboard.
-pub fn run(cfg: &Config) -> ExitCode {
-    use crossterm::event::{self, Event};
-    use ratatui::{backend::CrosstermBackend, Terminal};
-    use std::io::{self, stdout, Stdout};
-
-    struct TerminalGuard;
-
-    impl TerminalGuard {
-        fn enter() -> io::Result<(Terminal<CrosstermBackend<Stdout>>, Self)> {
-            crossterm::terminal::enable_raw_mode()?;
-            crossterm::execute!(stdout(), crossterm::terminal::EnterAlternateScreen)?;
-            Ok((Terminal::new(CrosstermBackend::new(stdout()))?, Self))
-        }
-    }
-
-    impl Drop for TerminalGuard {
-        fn drop(&mut self) {
-            let _ = crossterm::execute!(stdout(), crossterm::terminal::LeaveAlternateScreen);
-            let _ = crossterm::terminal::disable_raw_mode();
-        }
-    }
-
-    let mut state = ModalState::new(cfg);
-    let (mut terminal, _guard) = match TerminalGuard::enter() {
-        Ok(t) => t,
-        Err(e) => {
-            eprintln!("spawn modal: {e}");
-            return ExitCode::from(1);
-        }
-    };
-
-    loop {
-        terminal.draw(|f| draw_modal(f, &state)).ok();
-        if !event::poll(std::time::Duration::from_millis(200)).unwrap_or(false) {
-            continue;
-        }
-        let Ok(Event::Key(key)) = event::read() else {
-            continue;
-        };
-        match on_key(cfg, &mut state, key) {
-            SpawnModalAction::Continue => {}
-            SpawnModalAction::DismissCancel => return ExitCode::SUCCESS,
-            SpawnModalAction::DismissDone { status } => {
-                println!("{status}");
-                return ExitCode::SUCCESS;
-            }
-        }
-    }
-}
-
 fn execute_spawn(
     cfg: &Config,
     state: &ModalState,
@@ -579,7 +527,7 @@ pub(crate) fn draw_modal(f: &mut Frame, state: &ModalState) {
     );
 }
 
-fn centered_rect(percent_x: u16, percent_y: u16, r: ratatui::layout::Rect) -> ratatui::layout::Rect {
+pub(crate) fn centered_rect(percent_x: u16, percent_y: u16, r: ratatui::layout::Rect) -> ratatui::layout::Rect {
     let popup_layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints([

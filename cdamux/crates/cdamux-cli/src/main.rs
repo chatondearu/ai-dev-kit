@@ -65,11 +65,11 @@ enum Commands {
         interactive: bool,
     },
     /// Send text to a session pane without attaching (tmux send-keys).
+    #[command(after_help = "Examples:\n  cdamux send t1 \"echo hi\" --enter\n  cdamux send --enter t1 echo hi\n\nText starting with '-' needs `--` first: cdamux send t1 --enter -- -la")]
     Send {
         /// tmux session name (targets active window + active pane).
         session: String,
         /// Literal text to send (`-l`); words are joined with spaces.
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         message: Vec<String>,
         /// Append Enter after the message.
         #[arg(long)]
@@ -253,23 +253,9 @@ fn cmd_doctor() -> ExitCode {
 
     let mut doctor_ok = true;
     if let Ok(cfg) = load_config() {
-        println!("roots: {}", cfg.projects.roots.len());
-        println!("group_by: {:?}", cfg.sessions.group_by);
-        let agents = configured_agent_ids(&cfg.agents);
-        println!("agents (configured): {}", agents.join(", "));
-        for id in ["cursor", "opencode", "claude", "pi"] {
-            let configured = agent_configured(&cfg.agents, id);
-            let exe = agent_executable_name(&cfg.agents, id);
-            let on_path = command_on_path(&exe);
-            let tag = if configured { "configured" } else { "optional" };
-            if configured && !on_path {
-                doctor_ok = false;
-                eprintln!("agent {id}: missing on PATH ({exe}) [{tag}]");
-            } else if on_path {
-                println!("agent {id}: ok ({exe}) [{tag}]");
-            } else {
-                println!("agent {id}: not on PATH ({exe}) [{tag}]");
-            }
+        for line in doctor_agent_lines(&cfg) {
+            doctor_ok &= !line.contains("MISSING on PATH");
+            println!("{line}");
         }
     }
 
@@ -548,10 +534,6 @@ fn cmd_send(session: &str, message: &[String], enter: bool) -> ExitCode {
 }
 
 fn cmd_attach(session: &str) -> ExitCode {
-    tmux_attach_session(session)
-}
-
-pub(crate) fn tmux_attach_session(session: &str) -> ExitCode {
     tmux_attach_session_with_mode(session, None)
 }
 
@@ -627,14 +609,6 @@ fn cmd_spawn(agent: Option<String>, path: Option<String>, interactive: bool) -> 
     };
 
     spawn_with_path_and_agent(&cfg, path_buf, agent_name)
-}
-
-pub(crate) fn cmd_spawn_interactive(cfg: &cdamux_core::Config) -> ExitCode {
-    let (path_buf, agent_name) = match interactive_spawn(cfg) {
-        Ok(v) => v,
-        Err(()) => return ExitCode::from(1),
-    };
-    spawn_with_path_and_agent(cfg, path_buf, agent_name)
 }
 
 fn spawn_with_path_and_agent(
@@ -929,4 +903,28 @@ fn skim_pick(prompt: &str, input: &str) -> Result<String, ()> {
         return Err(());
     }
     Ok(selected[0].output().to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse_send(args: &[&str]) -> (String, Vec<String>, bool) {
+        let cli = Cli::try_parse_from(args).expect("parse");
+        match cli.command {
+            Some(Commands::Send { session, message, enter }) => (session, message, enter),
+            _ => panic!("expected send"),
+        }
+    }
+
+    #[test]
+    fn send_enter_works_before_and_after_text() {
+        let after = parse_send(&["cdamux", "send", "t1", "echo hi", "--enter"]);
+        assert_eq!(after, ("t1".into(), vec!["echo hi".to_string()], true));
+        let before = parse_send(&["cdamux", "send", "--enter", "t1", "echo", "hi"]);
+        assert_eq!(before, ("t1".into(), vec!["echo".to_string(), "hi".to_string()], true));
+        let after_words = parse_send(&["cdamux", "send", "t1", "echo", "hi", "--enter"]);
+        assert_eq!(after_words.1, ["echo", "hi"]);
+        assert!(after_words.2);
+    }
 }

@@ -2,7 +2,7 @@
 
 use ansi_to_tui::IntoText as _;
 use crate::spawn_modal::{
-    draw_modal, draw_overlay_scrim, on_key as spawn_modal_on_key, ModalState, SpawnModalAction,
+    centered_rect, draw_modal, draw_overlay_scrim, on_key as spawn_modal_on_key, ModalState, SpawnModalAction,
 };
 use crate::app_tabs::{
     draw_agents, draw_projects, draw_sessions_list, draw_tab_bar, flat_sessions, help_for_tab,
@@ -153,26 +153,6 @@ fn fork_selected_session(cfg: &Config, s: &EnrichedSession) -> Result<String, St
         Ok(SpawnOutcome::ReusedExisting) => Ok(format!("reusing '{}'", base)),
         Err(e) => Err(e.to_string()),
     }
-}
-
-fn centered_rect(percent_x: u16, percent_y: u16, r: ratatui::layout::Rect) -> ratatui::layout::Rect {
-    let popup_layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Percentage((100 - percent_y) / 2),
-            Constraint::Percentage(percent_y),
-            Constraint::Percentage((100 - percent_y) / 2),
-        ])
-        .split(r);
-
-    Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage((100 - percent_x) / 2),
-            Constraint::Percentage(percent_x),
-            Constraint::Percentage((100 - percent_x) / 2),
-        ])
-        .split(popup_layout[1])[1]
 }
 
 fn tree_node_key(node: &ProjectTreeNode, group_by: GroupBy) -> String {

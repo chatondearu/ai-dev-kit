@@ -43,6 +43,18 @@ cargo run -p cdamux-cli -- doctor
 
 Use `nix develop` at ai-dev-kit root if Rust toolchain comes from the flake.
 
+## Testing against tmux
+
+A worker once killed the operator's live tmux server. Rules:
+
+- Throwaway servers only: `TMUX_TMPDIR=$(mktemp -d)` **and** `tmux -L <name>` on
+  every tmux command you type. cdamux itself calls `tmux` without `-L`, so
+  `TMUX_TMPDIR` (or a `tmux` wrapper in `PATH` adding `-L <name>`) is what
+  isolates the binary under test.
+- Before any `kill-server`: `tmux -L <name> display -p '#{socket_path}'`; abort
+  if it is not under your temp dir or contains `/default`.
+- Never touch the default server, never `pkill -f tmux`, never `kill 0`.
+
 ## Implementation order (PLAN-39)
 
 1. Config load + `GroupBy` / `DiscoverMode` types in `cdamux-core`

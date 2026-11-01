@@ -1,6 +1,6 @@
 # PRD-90 — Fix kiss-audit 2026-11-01 (harness gate, skills routing, cdamux)
 
-- **Status**: approved
+- **Status**: shipped
 - **GitHub**: [#90](https://github.com/chatondearu/ai-dev-kit/issues/90)
 - **Date**: 2026-11-01
 - **Tags**: #quality #tooling #architecture
@@ -21,12 +21,22 @@ every `-t` target, `has-session` prefix-matches, and the tailnet API accepts
 
 ## Goals
 
-- [ ] Findings 1–20 of the audit no longer reproduce (each fix carries one test
-      when the logic is non-trivial)
-- [ ] A Ready issue picked by `orch.sh` gets an independent review and a real
+- [x] Findings 1–20 of the audit no longer reproduce (each fix carries one test
+      when the logic is non-trivial) — replayed on `main` by V1 (#108); two seams
+      have no automated test: `apply_pane_split` (manual only) and the Fleet
+      spawn budget (parser test only)
+- [x] A Ready issue picked by `orch.sh` gets an independent review and a real
       verify before `done`; "no verify command" blocks instead of passing
-- [ ] The fixes are delivered by parallel subagents with a model matched to task
+- [x] The fixes are delivered by parallel subagents with a model matched to task
       difficulty; the operator only reviews PRs and decides
+
+### What does not hold (V1, 2026-11-01)
+
+- Non-functional "at most `2 + N` tmux processes per Fleet tick": the Fleet poll
+  is 2 per tick, but the preview sidecar adds 4 spawns / 800 ms for the selected
+  session and 3 `display-message -t ""` per 100 ms loop when no session row is
+  selected → [#127](https://github.com/chatondearu/ai-dev-kit/issues/127).
+- S5 dedupe target (−400 lines) landed at −33; see PLAN-90 § Outcome.
 
 ## Non-goals
 
@@ -85,7 +95,7 @@ every `-t` target, `has-session` prefix-matches, and the tailnet API accepts
 
 ## Links
 
-- Plan: [[../plans/PLAN-90-kiss-audit-2026-11|PLAN-90]]
+- Plan: [[../foam/archive/plans/PLAN-90-kiss-audit-2026-11|PLAN-90]]
 - Prior batches: [[PRD-6-kiss-audit-fixes|PRD-6]], [[PRD-25-kiss-audit-orch-gh-board|PRD-25]]
 - ADRs: [[../foam/decisions/ADR-002-orch-auto-and-fast-lane|ADR-002]],
   [[../foam/decisions/ADR-004-cdamux|ADR-004]],

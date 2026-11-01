@@ -1,7 +1,7 @@
 # PLAN-90 — Fix kiss-audit 2026-11-01 with a fleet of subagents
 
-- **Status**: in-progress
-- **PRD**: [[../prd/PRD-90-kiss-audit-2026-11|PRD-90]]
+- **Status**: done
+- **PRD**: [[../../prd/PRD-90-kiss-audit-2026-11|PRD-90]]
 - **GitHub**: [#90](https://github.com/chatondearu/ai-dev-kit/issues/90)
 - **Date**: 2026-11-01
 
@@ -18,10 +18,10 @@ auto-merges.
 
 | ADR | Constraint |
 | --- | ---------- |
-| [[../foam/decisions/ADR-001-host-tools-vs-kit|ADR-001]] | `headless.sh` never opens PRs from issues; host tools stay outside the kit |
-| [[../foam/decisions/ADR-002-orch-auto-and-fast-lane|ADR-002]] | `orch-auto` is opt-in, never enabled by `install.sh`; no auto-merge |
-| [[../foam/decisions/ADR-004-cdamux|ADR-004]] | tmux is the source of truth; daemon optional; tailnet-only exposure, never `0.0.0.0` |
-| [[../foam/decisions/ADR-005-cda-graph-orchestration|ADR-005]] | Graph = workers → integrator → verifier; verifier grounds on plan/ADR |
+| [[../decisions/ADR-001-host-tools-vs-kit|ADR-001]] | `headless.sh` never opens PRs from issues; host tools stay outside the kit |
+| [[../decisions/ADR-002-orch-auto-and-fast-lane|ADR-002]] | `orch-auto` is opt-in, never enabled by `install.sh`; no auto-merge |
+| [[../decisions/ADR-004-cdamux|ADR-004]] | tmux is the source of truth; daemon optional; tailnet-only exposure, never `0.0.0.0` |
+| [[../decisions/ADR-005-cda-graph-orchestration|ADR-005]] | Graph = workers → integrator → verifier; verifier grounds on plan/ADR |
 
 Do not violate accepted ADRs without superseding them. Task H2 adds **ADR-006**
 (independent review gate + fail-closed verify) because it changes the orch
@@ -84,7 +84,7 @@ C7 #106 · C8 #107 · V1 #108.
 | -- | -- | -------------------------- | ---- | ----- | ------- | ------ |
 | H1 | 9 | `smoke_orch_dry.sh` passes on `main`: the stub `gh` answers `repo view --json nameWithOwner`. The `verify:` line at the bottom of `AGENTS.md` runs the **whole** "Verify (run before every PR)" block (one script or a `for` loop), so the orch executes the real suite. | `cda-dev/scripts/tests/smoke_orch_dry.sh`, `AGENTS.md` (verify line only), new `scripts/verify.sh` if needed | fast | — | `bash smoke_orch_dry.sh`; the `verify:` command exits 0 |
 
-- [ ] H1 merged
+- [x] H1 merged
 
 ### Wave 1 — Must fix (parallel: H2, S1, S2, C1, C3)
 
@@ -96,11 +96,11 @@ C7 #106 · C8 #107 · V1 #108.
 | C1 | 6, 7 | **tmux targeting & send.** `send_to_session` delegates to `tmux::send_line_to_session` (two invocations, `-l` text then `Enter`); `build_send_keys_argv` removed and its test replaced. `session_name_for_path` replaces `.` and `:` with `_`. `tmux_has_session` uses the exact-match prefix `=`. `apply_pane_split` targets the session (active pane) and no longer sends `$SHELL`. | `cdamux-core/src/{send,spawn}.rs`, `session_manage.rs` call sites, tests | mid | — | `cargo test`; manual on a throwaway server `tmux -L audit`: `cdamux send t1 "echo hi" --enter` executes; dir `web.app` spawns twice; `base-index 1` split works |
 | C3 | 8 | **Tailnet hardening.** `resolve_tailnet_bind_ip` rejects unspecified IPs with a clear error; `resolve_orch_repo_path` canonicalizes before `starts_with` and never echoes the path in 404/422 bodies; `handle_one` requires header `X-Cdamux-Token` equal to `CDAMUX_TAILNET_TOKEN` when set, documented in `cdamux/docs/tailnet-api.md` and the ADR-004 amendment. | `cdamux-core/src/tailnet_api.rs`, `cdamuxd/src/tailnet_server.rs`, `cdamux/docs/tailnet-api.md`, `foam/decisions/ADR-004-cdamux.md` (amendment section) | frontier | — | tests: `0.0.0.0` → Err; `"/root/../../etc"` → 404; missing token → 401; `/v1/orch-graph?repo=` dispatch exercised |
 
-- [ ] H2 merged (ADR-006 accepted)
-- [ ] S1 merged
-- [ ] S2 merged
-- [ ] C1 merged
-- [ ] C3 merged
+- [x] H2 merged (ADR-006 accepted)
+- [x] S1 merged
+- [x] S2 merged
+- [x] C1 merged
+- [x] C3 merged
 
 ### Wave 2 — Should fix (parallel: H3, H4, S3, S4, C4, C5)
 
@@ -113,26 +113,26 @@ C7 #106 · C8 #107 · V1 #108.
 | C4 | 16 | **Daemon IPC removal.** `sessions_for_list` = local `enrich_sessions(list_tmux_sessions())`; `daemon_list_sessions`, `handle_daemon_request`, `rekey_daemon_sessions`, state cache read/write, `DaemonRequest/DaemonListResponse`, socket bind/accept removed. `poll_sessions` kept for the tailnet server. `doc`/`AGENTS.md` of cdamux updated ("daemon recommended" → "daemon = tailnet only"). | `cdamux-core/src/daemon.rs`, `cdamuxd/src/main.rs`, `cdamux/AGENTS.md`, `cdamux/docs/architecture.md` | mid | — | `cargo test`; `cdamux list` with daemon running returns in < 300 ms for 10 sessions |
 | C5 | 17 | **TUI hot loop.** `flat_sessions`, `discover_projects`, agent lines are computed only under the refresh gate; `session_agent_label` tries `@ccmux_agent` only if `@cdamux_agent` is empty; one `tmux list-panes -a -F` call replaces per-session `display-message` + `list-panes`, parsed once. Target ≤ `2 + N` tmux spawns per Fleet tick. | `cdamux-cli/src/tui.rs` (loop only), `cdamux-core/src/{tmux,session,session_chrome}.rs` | frontier | — | `cargo test`; count spawns with `strace -f -e execve -c` or a `CDAMUX_TRACE_TMUX=1` counter over 10 s with 10 sessions |
 
-- [ ] H3 merged
-- [ ] H4 merged
-- [ ] S3 merged
-- [ ] S4 merged
-- [ ] C4 merged
-- [ ] C5 merged
+- [x] H3 merged
+- [x] H4 merged
+- [x] S3 merged
+- [x] S4 merged
+- [x] C4 merged
+- [x] C5 merged
 
 ### Wave 3 — Should fix, second pass (parallel: H5, S5, C6, C7)
 
 | Id | F# | Task | Owns | Model | Depends | Verify |
 | -- | -- | ---- | ---- | ----- | ------- | ------ |
 | H5 | 11, 12 | **Process hygiene.** `orch.sh` and `graph.sh` trap `INT TERM` and kill their process group; `orch-auto.sh` exits non-zero (75) when the lock is held; dead `orch_wait_for_slot` deleted; the `wait -n` pool lives once in `lib/`; worktree root resolved with `git rev-parse --show-toplevel` so nested worktrees are impossible; `orch-cleanup.sh` runs after a successful run. | `orch.sh`, `orch-auto.sh`, `lib/{graph,worktree,loop}.sh`, `orch-cleanup.sh`, tests | mid | H3, H4 | test: Ctrl-C in dry run leaves no child; test: lock held → exit 75; test: run from inside a worktree creates `.orch/` at toplevel |
-| S5 | 19 | **Dedupe skills.** Foam protocol lives once in `cda-foam` (others link); pipeline issue→PRD→plan→PR once in `cda-plan`; review checklist once in `cda-review` (reviewer.md links); the 10 "Announce: Using X skill" lines removed; vague verbs ("Adequate", "Ensure", "appropriate", "Consider") replaced by observable predicates in `reviewer.md`, `intake.md`, `cda-dev/SKILL.md`, `AGENTS.base.md`, `cda-review`. | `skills/**/SKILL.md` text, `cda-dev/prompts/*.md`, `.cursor/rules/product-memory.mdc` | mid | S2, S3 | `rg -n "Announce at start" skills/` → 0; `doc-hygiene.sh --check` green; total SKILL+prompts lines reported in PR (target −400) |
+| S5 | 19 | **Dedupe skills.** Foam protocol lives once in `cda-foam` (others link); pipeline issue→PRD→plan→PR once in `cda-plan`; review checklist once in `cda-review` (reviewer.md links); the 10 "Announce: Using X skill" lines removed; vague verbs ("Adequate", "Ensure", "appropriate", "Consider") replaced by observable predicates in `reviewer.md`, `intake.md`, `cda-dev/SKILL.md`, `AGENTS.base.md`, `cda-review`. | `skills/**/SKILL.md` text, `cda-dev/prompts/*.md`, `.cursor/rules/product-memory.mdc` | mid | S2, S3 | `rg -n "Announce at start" skills/` → 0; `doc-hygiene.sh --check` green; total SKILL+prompts lines reported in PR (target −400; actual −33 — the duplicated blocks listed here total ~80 lines, the remaining volume is single-source SKILL bodies out of S5 scope) |
 | C6 | 18 | **Dead code + duplicates.** Remove `cmd_spawn_interactive`, `spawn_modal::run` + its `TerminalGuard`, inline `tmux_attach_session`; `session_chrome::tmux_display` → `tmux_user_option`; `git_output` → `worktree.rs` helper; single `centered_rect`; `cmd_doctor` prints `doctor_agent_lines`; single `format_age`. | `cdamux-cli/src/{main,spawn_modal,tui,orch_graph}.rs`, `cdamux-core/src/{session_chrome,worktree}.rs` | fast | C5 | `cargo test`; `cargo build` with 0 dead-code warnings; `cargo clippy` count not higher than before |
 | C7 | 18 | cdamux HTML mockup under `cdamux/prototype/` moves to `foam/archive/cdamux-prototype/` with a README pointing to PRD-41; `tui.rs` comment and `prompts/next-agent.md` updated. | `cdamux/prototype/`, `foam/archive/`, `cdamux/prompts/next-agent.md`, `plans/PLAN-41-*.md` link | fast | — | no stale cdamux prototype paths outside `foam/archive/` |
 
-- [ ] H5 merged
-- [ ] S5 merged
-- [ ] C6 merged
-- [ ] C7 merged
+- [x] H5 merged
+- [x] S5 merged
+- [x] C6 merged
+- [x] C7 merged
 
 ### Wave 4 — Nice to have + closure (parallel: C8, V1)
 
@@ -141,8 +141,41 @@ C7 #106 · C8 #107 · V1 #108.
 | C8 | 18 | `run_dashboard` split without new abstractions: pure tree model (`TreeRow`, `flatten_tree`, selection) → `fleet_tree.rs`; `draw_*` → `fleet_draw.rs`. Zero behavior change. | `cdamux-cli/src/tui.rs` → new modules | mid | C5, C6 | `cargo test` unchanged count; `tui.rs` < 900 lines |
 | V1 | 20, all | **Closure verifier.** Re-run every repro of the audit report (harness `_orch_extract_agents_verify`, `max_p`, frontier, tmux send/`.`/`=`/split, `0.0.0.0`, `..`), confirm each is covered by a test; run the AGENTS.md Verify block + `cargo test`; update PRD-90 → `shipped`, this plan → `done`, `foam/features/shipped.md` via `import-kanban.sh`, `plans/README.md`. Opens one PR with foam updates only, or a comment on #90 listing uncovered repros. | foam, prd, plans | frontier | everything above merged | all checks green on `main`; report attached to #90 |
 
-- [ ] C8 merged
-- [ ] V1 done — PRD shipped, plan done
+- [x] C8 merged
+- [x] V1 done — PRD shipped, plan done
+
+## Outcome (V1, 2026-11-01, main `9b4790a`)
+
+| Task | PR | Task | PR | Task | PR |
+| ---- | -- | ---- | -- | ---- | -- |
+| H1 | #110 | S1 | #109 | C1 | #112 |
+| H2 | #116 (ADR-006) | S2 | #111 | C3 | #113 (ADR-004 amended) |
+| H3 | #118 | S3 | #114 | C4 | #117 |
+| H4 | #120 | S4 | #115 | C5 | #122 |
+| H5 | #125 | S5 | #124 | C6 | #123 |
+| — | #121 (nix: `nix develop -c true` on `skills/` files) | — | — | C7 / C8 | #119 / #126 |
+
+Closure: every audit repro replayed on `main`, `bash scripts/verify.sh` exit 0,
+`cargo build` 0 warnings, `cargo clippy --all-targets | grep -c '^warning'` = 19
+(22 before C6; style lints, no clippy target in this plan). Replay table in the
+V1 PR and on #90.
+
+Incident: a C-lane worker killed the operator's live tmux server while testing
+against `tmux -L`; rule added to `cdamux/AGENTS.md` § Testing against tmux
+(throwaway server + `TMUX_TMPDIR`, check `#{socket_path}` before `kill-server`).
+
+Follow-ups (not fixed here):
+
+- #127 — TUI sidecar calls `SessionChrome::gather("", "")` every 100 ms when no
+  session row is selected (3 `display-message` spawns per loop); the 800 ms
+  preview sidecar (4 spawns) is outside the `2 + N` budget. The Fleet poll
+  itself is 2 spawns per tick (C5 holds).
+- `apply_pane_split` has no automated test (needs a tmux server); verified
+  manually on a throwaway server with `base-index 1`.
+- `cdamux spawn` prints `can't find session: <name>` on stderr from the
+  `has-session` probe — cosmetic noise, pre-existing.
+- S5 line-count target (−400) was unrealistic; large single-source SKILL bodies
+  (design skills) are the remaining volume if a trim is wanted.
 
 ## Execution procedure
 
@@ -201,13 +234,15 @@ Seams under test (public boundaries, not internals):
 - tailnet HTTP: bind resolution, `?repo=` traversal, token header
 - Fleet tick: tmux spawn count for N sessions
 
-- [ ] Each seam has one test in the PR that touches it
-- [ ] AGENTS.md Verify block green on `main` after each wave
-- [ ] `cargo test` + `cargo build` 0 warnings after wave 3
+- [ ] Each seam has one test in the PR that touches it — all but two: `apply_pane_split`
+      (manual on a throwaway server only) and the Fleet tick spawn budget (parser test
+      only, no spawn counter; see Outcome § Follow-ups)
+- [x] AGENTS.md Verify block green on `main` after each wave
+- [x] `cargo test` + `cargo build` 0 warnings after wave 3
 
 ## Verification
 
-- [ ] Lint / test / build per project conventions (AGENTS.md Verify block, `cargo test`)
-- [ ] ADR-006 recorded (review gate + fail-closed verify); ADR-004 amended (tailnet token)
-- [ ] PRD-90 → shipped, this plan → done, `import-kanban.sh` run, `plans/README.md` + `foam/index.md` updated
-- [ ] `doc/` synced for changed operator behavior (`orch: allow-no-verify`, reviewer step, tailnet token, Cursor rules note)
+- [x] Lint / test / build per project conventions (AGENTS.md Verify block, `cargo test`)
+- [x] ADR-006 recorded (review gate + fail-closed verify); ADR-004 amended (tailnet token)
+- [x] PRD-90 → shipped, this plan → done, `import-kanban.sh` run, `plans/README.md` + `foam/index.md` updated
+- [x] `doc/` synced for changed operator behavior (`orch: allow-no-verify`, reviewer step, tailnet token, Cursor rules note)

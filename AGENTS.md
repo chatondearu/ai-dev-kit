@@ -32,11 +32,6 @@ Skills: **cda-foam**, **cda-prd**, **cda-plan**,
 | `plans/` | Implementation checklists |
 | GitHub Project | Kanban execution status |
 
-Operator docs: `doc/`. External tools list: `docs/recommended.md` only — do not
-create `docs/superpowers/` or PRDs/plans outside `prd/` / `plans/` (see
-`foam/product/documentation-layout.md`). Closed issue plans:
-`foam/archive/plans/`.
-
 Sync feature lists: `cda-foam/scripts/import-kanban.sh`.
 
 Cursor rule (if present): `.cursor/rules/product-memory.mdc`.
@@ -50,6 +45,7 @@ Cursor rule (if present): `.cursor/rules/product-memory.mdc`.
 | PRD from Kanban issue | `cda-prd` |
 | Implementation plan from PRD | `cda-plan` |
 | Feature / fix request in chat (one or many) → intake, PRs | `cda-dev` |
+| Graph orchestration (parallel workers, graph-plan) | `cda-graph` |
 | Issues, board, PRs, milestones | `cda-kanban` |
 | Foam / PRD / plan layout verify | `cda-doc-hygiene` |
 | Commits | `cda-commit` |
@@ -79,6 +75,9 @@ _Add stack versions, deployment URLs, gotchas, and links below._
 This repo **is** the ai-dev-kit: skills under `skills/<category>/<name>/`, linked into
 agents by `install.sh`. Index: `skills/README.md`. Ideology: `PHILOSOPHY.md`.
 Operator docs: `doc/README.md` (orchestration, architecture, configuration).
+External tools list: `docs/recommended.md` only — do not create `docs/superpowers/`
+or PRDs/plans outside `prd/` / `plans/` (see `foam/product/documentation-layout.md`).
+Closed issue plans: `foam/archive/plans/`.
 
 **cdamux** (Rust agent/tmux orchestrator, ADR-004): in-tree at `cdamux/` until v0;
 see `cdamux/AGENTS.md` and `cdamux/docs/research.md`. Not packaged in `aitools` yet.

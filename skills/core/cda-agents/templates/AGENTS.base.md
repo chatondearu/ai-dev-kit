@@ -21,7 +21,7 @@ must follow this sequence:
    refresh this file when stack or skills change.
 
 Skills: **cda-foam**, **cda-prd**, **cda-plan**,
-**cda-dev**, **cda-graph**, **cda-kanban**,
+**cda-dev**, **cda-graph**, **cda-kanban**, **cda-doc-hygiene**,
 **cda-agents**, **cda-commit**, **cda-review**.
 
 ## Project memory (foam)
@@ -49,6 +49,7 @@ Cursor rule (if present): `.cursor/rules/product-memory.mdc`.
 | Feature / fix request in chat (one or many) → intake, PRs | `cda-dev` |
 | Graph orchestration (parallel workers, graph-plan) | `cda-graph` |
 | Issues, board, PRs, milestones | `cda-kanban` |
+| Foam / PRD / plan layout verify | `cda-doc-hygiene` |
 | Commits | `cda-commit` |
 | Code review | `cda-review` |
 | Bold creative UI | `cda-design-bold` |

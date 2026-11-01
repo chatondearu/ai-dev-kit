@@ -1,6 +1,6 @@
 # PLAN-90 — Fix kiss-audit 2026-11-01 with a fleet of subagents
 
-- **Status**: draft
+- **Status**: in-progress
 - **PRD**: [[../prd/PRD-90-kiss-audit-2026-11|PRD-90]]
 - **GitHub**: [#90](https://github.com/chatondearu/ai-dev-kit/issues/90)
 - **Date**: 2026-11-01
@@ -73,6 +73,10 @@ task in the same lane wave. Before opening the PR the subagent rebases on
 
 Legend — **F#** = audit finding. **Verify** is what the subagent must run green
 before opening the PR, in addition to the AGENTS.md Verify block.
+
+Child issues: H1 #91 · H2 #92 · S1 #93 · S2 #94 · C1 #95 · C3 #96 · H3 #97 ·
+H4 #98 · S3 #99 · S4 #100 · C4 #101 · C5 #102 · H5 #103 · S5 #104 · C6 #105 ·
+C7 #106 · C8 #107 · V1 #108.
 
 ### Wave 0 — enablers (run first, both lanes H and C can start right after)
 

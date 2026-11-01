@@ -54,6 +54,8 @@ Store plans under `plans/graph/` or `.orch/graph/` (gitignored). Example:
 bash ~/.cursor/skills/cda-graph/scripts/graph-plan-validate.sh my-plan.json
 ```
 
+**Paths are enforced:** after a task's worker returns, any changed file outside its `paths` (and outside `.orch/`) sets the task to `blocked` with reason `paths: <files>`; tasks without `paths` are unrestricted.
+
 ## Observability
 
 | Surface | How |

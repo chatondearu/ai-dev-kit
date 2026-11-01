@@ -439,9 +439,52 @@ orch_graph_plan_wants_parallel() {
   esac
 }
 
+# Files changed in WT since BASE (commits + tracked/untracked edits), minus .orch/.
+orch_graph_changed_files() {
+  local wt="$1" base="$2"
+  {
+    git -C "$wt" diff --name-only "$base" HEAD 2>/dev/null
+    git -C "$wt" status --porcelain -uall 2>/dev/null | cut -c4- | sed 's/.* -> //'
+  } | { grep -v '^\.orch/' || true; } | sort -u
+}
+
+# Return 0 when FILE matches one of the path prefixes/globs given after it.
+orch_graph_path_allowed() {
+  local f="$1" p
+  shift
+  for p in "$@"; do
+    p="${p%/}"
+    # shellcheck disable=SC2254
+    case "$f" in $p|$p/*) return 0;; esac
+  done
+  return 1
+}
+
+# Print files changed since BASE that fall outside task I's `paths` (empty = ok).
+# BASELINE = files already dirty before the task. In parallel mode the worktree
+# is shared, so other tasks' paths are tolerated (the writer cannot be told apart).
+orch_graph_paths_violations() {
+  local plan_file="$1" i="$2" wt="$3" base="$4" baseline="$5" parallel="${6:-0}"
+  local own=() other=() f
+  mapfile -t own < <(jq -r ".tasks[$i].paths[]?" "$plan_file")
+  [ "${#own[@]}" -gt 0 ] || return 0
+  if [ "$parallel" = 1 ]; then
+    mapfile -t other < <(jq -r --argjson i "$i" '.tasks | to_entries[] | select(.key != $i) | .value.paths[]?' "$plan_file")
+  fi
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    grep -qxF -- "$f" <<<"$baseline" && continue
+    orch_graph_path_allowed "$f" "${own[@]}" && continue
+    if [ "${#other[@]}" -gt 0 ] && orch_graph_path_allowed "$f" "${other[@]}"; then
+      continue
+    fi
+    printf '%s\n' "$f"
+  done < <(orch_graph_changed_files "$wt" "$base")
+}
+
 orch_graph_plan_run_task() {
-  local plan_file="$1" path="$2" issue="$3" i="$4"
-  local tid body paths prompt_file rc_task
+  local plan_file="$1" path="$2" issue="$3" i="$4" parallel="${5:-0}"
+  local tid body paths prompt_file rc_task base baseline bad
   tid="$(jq -r ".tasks[$i].id" "$plan_file")"
   body="$(jq -r ".tasks[$i].prompt" "$plan_file")"
   paths="$(jq -r ".tasks[$i].paths | join(\", \")" "$plan_file")"
@@ -459,11 +502,20 @@ orch_graph_plan_run_task() {
   } >"$prompt_file"
 
   rc_task="$path/.orch/task-${tid}.rc"
+  base="$(git -C "$path" rev-parse HEAD)"
+  baseline="$(orch_graph_changed_files "$path" "$base")"
   export ORCH_WT="$path"
   export ORCH_WORKER_ID="task-${tid}"
   orch_progress_set "$issue" agent "task ${tid}"
   if ! orch_sandbox_wrap bash -c "ORCH_WT=\"$path\" ORCH_WORKER_ID=\"task-${tid}\" ORCH_REPO=\"$ORCH_REPO\" orch_graph_worker \"$path\" \"$prompt_file\""; then
     orch_graph_upsert_node "task-${tid}" worker task failed "agent failed" ""
+    printf '1' >"$rc_task"
+    return 1
+  fi
+  bad="$(orch_graph_paths_violations "$plan_file" "$i" "$path" "$base" "$baseline" "$parallel" | paste -sd, -)"
+  if [ -n "$bad" ]; then
+    orch_graph_upsert_node "task-${tid}" worker task blocked "paths: $bad" ""
+    printf 'graph-plan: task %s blocked, files outside paths: %s\n' "$tid" "$bad" >&2
     printf '1' >"$rc_task"
     return 1
   fi
@@ -542,8 +594,7 @@ orch_graph_plan_run() {
       i=$((i + 1))
     done
   else
-    max_p="${ORCH_GRAPH_PLAN_MAX_PARALLEL:-$ORCH_MAX_PARALLEL:-3}"
-    max_p="${max_p:-3}"
+    max_p="${ORCH_GRAPH_PLAN_MAX_PARALLEL:-${ORCH_MAX_PARALLEL:-3}}"
     set -m
     pids=()
     i=0
@@ -571,7 +622,7 @@ orch_graph_plan_run() {
       done
       (
         set +e
-        orch_graph_plan_run_task "$plan_file" "$path" "$issue" "$i"
+        orch_graph_plan_run_task "$plan_file" "$path" "$issue" "$i" 1
         exit $?
       ) &
       pids+=($!)

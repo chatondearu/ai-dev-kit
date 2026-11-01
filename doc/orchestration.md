@@ -29,6 +29,19 @@ bash "$SKILL/scripts/orch.sh" --mode pr-fix --pr 88
 Requires `gh`, a detected agent CLI, and (for fast-lane) an agent brief on the
 issue when no `plans/PLAN-<id>-*` exists.
 
+Per issue the harness runs: worker loop (agent → verify, retry prompt carries
+the failed verify output) → PR exists → **independent review** (fresh
+`reviewer.md` agent; `REVIEW: changes_requested` gives the worker one fix
+iteration, then re-review once, then `blocked`) → CI green + mergeable → `done`.
+See [ADR-006](../foam/decisions/ADR-006-review-gate-fail-closed-verify.md).
+
+**Verify is fail-closed.** `orch` prefers the fenced block under the `Verify`
+heading of `AGENTS.md` over a `verify:` line. When no verify command can be
+found at all, the issue ends `blocked` with
+`verify: no command (add 'orch: allow-no-verify' to the issue body to skip)`.
+Put the literal `orch: allow-no-verify` in the issue body to accept `true` for
+that issue (e.g. docs-only repos), or set `ORCH_VERIFY` to a command.
+
 ### Watch progress (agents / humans)
 
 While orch runs, poll machine-readable status (updated on every phase change;

@@ -139,6 +139,7 @@ orch_ready_pickup_one() {
   local loop_rc=0 pr_num="" pr_json="" m=""
   local rc_dir rc_file
   local lane="full" brief_path="N/A" brief_file=""
+  local allow_no_verify=0 review_prompt review_log fix_prompt
 
   export ORCH_WORKER_ID="$id"
   path="$(orch_worktree_path "$ORCH_REPO" "$id" "$slug")"
@@ -168,6 +169,11 @@ orch_ready_pickup_one() {
   title="N/A"
   if command -v gh >/dev/null 2>&1; then
     title="$(gh issue view "$id" --json title -q .title 2>/dev/null || echo "N/A")"
+    # Escape hatch (ADR-006): `orch: allow-no-verify` in the body keeps verify=true
+    # when no verify command exists; otherwise a missing command blocks.
+    if gh issue view "$id" --json body -q .body 2>/dev/null | grep -Fq 'orch: allow-no-verify'; then
+      allow_no_verify=1
+    fi
   fi
   [ -z "$title" ] && title="N/A"
 
@@ -226,11 +232,19 @@ orch_ready_pickup_one() {
     } >"$path/.orch/worker-prompt-handoff.md"
     worker_prompt="$path/.orch/worker-prompt-handoff.md"
   fi
-  orch_sandbox_wrap bash -c "ORCH_WT=\"$path\" ORCH_WORKER_ID=\"$id\" ORCH_REPO=\"$ORCH_REPO\" ORCH_PROGRESS=\"${ORCH_PROGRESS:-auto}\" orch_loop_worker \"$path\" \"$worker_prompt\"" || loop_rc=$?
+  local worker_env="ORCH_WT=\"$path\" ORCH_WORKER_ID=\"$id\" ORCH_REPO=\"$ORCH_REPO\" ORCH_PROGRESS=\"${ORCH_PROGRESS:-auto}\" ORCH_ALLOW_NO_VERIFY=\"$allow_no_verify\""
+  orch_sandbox_wrap bash -c "$worker_env orch_loop_worker \"$path\" \"$worker_prompt\"" || loop_rc=$?
   if [ "$loop_rc" -ne 0 ]; then
-    orch_progress_set "$id" blocked "worker loop failed"
+    # rc 3 = no verify command (loop already set the progress reason).
+    if [ "$loop_rc" -ne 3 ]; then
+      orch_progress_set "$id" blocked "worker loop failed"
+    fi
     if ! orch_progress_enabled; then
-      printf 'blocked: worker loop failed for issue %s\n' "$id" >&2
+      if [ "$loop_rc" -eq 3 ]; then
+        printf 'blocked: issue %s %s\n' "$id" "$ORCH_NO_VERIFY_REASON" >&2
+      else
+        printf 'blocked: worker loop failed for issue %s\n' "$id" >&2
+      fi
     fi
     echo 1 >"$rc_file"
     return 1
@@ -256,6 +270,45 @@ orch_ready_pickup_one() {
     echo 1 >"$rc_file"
     return 1
   fi
+
+  # Independent review gate (ADR-006): reviewer.md in a fresh agent context.
+  # changes_requested → exactly one fix iteration, one re-review, then blocked.
+  local round
+  for round in 1 2; do
+    review_prompt="$path/.orch/reviewer-prompt-${round}.md"
+    review_log="$path/.orch/review-${round}.log"
+    orch_render_prompt "$ORCH_ROOT/../prompts/reviewer.md" "$review_prompt" \
+      "ISSUE=$id" \
+      "WORKTREE=$path" \
+      "REPO_ROOT=$ORCH_REPO" \
+      "TITLE=$title" \
+      "PLAN_PATH=$plan_path" \
+      "BRIEF_PATH=$brief_path"
+    orch_progress_set "$id" review "reviewer round ${round} (PR #${pr_num})"
+    if orch_sandbox_wrap bash -c "$worker_env orch_review_run \"$path\" \"$review_prompt\" \"$review_log\""; then
+      break
+    fi
+    if [ "$round" -eq 2 ]; then
+      orch_progress_set "$id" blocked "review: changes_requested"
+      if ! orch_progress_enabled; then
+        printf 'blocked: issue %s review: changes_requested (see %s)\n' "$id" "$review_log" >&2
+      fi
+      echo 1 >"$rc_file"
+      return 1
+    fi
+    fix_prompt="$(orch_review_fix_prompt "$worker_prompt" "$path" "$review_log")"
+    orch_progress_set "$id" agent "review fix iteration"
+    loop_rc=0
+    orch_sandbox_wrap bash -c "$worker_env ORCH_MAX_ITER=1 orch_loop_worker \"$path\" \"$fix_prompt\"" || loop_rc=$?
+    if [ "$loop_rc" -ne 0 ]; then
+      orch_progress_set "$id" blocked "review fix iteration failed"
+      if ! orch_progress_enabled; then
+        printf 'blocked: review fix iteration failed for issue %s\n' "$id" >&2
+      fi
+      echo 1 >"$rc_file"
+      return 1
+    fi
+  done
 
   orch_progress_set "$id" ci "PR #${pr_num} checks"
   local ci_status=""
@@ -302,12 +355,13 @@ export -f orch_graph_locked_jq orch_graph_enabled orch_graph_file orch_graph_now
 export -f orch_worker_result_warn
 export -f orch_graph_plan_run orch_graph_plan_run_task orch_graph_plan_validate_disjoint
 export -f orch_graph_plan_wants_parallel orch_graph_norm_path orch_graph_paths_overlap
-export -f orch_agent_run orch_run_verify orch_resolve_verify
+export -f orch_agent_run orch_run_verify orch_resolve_verify orch_verify_retry_prompt
+export -f orch_review_run orch_review_fix_prompt
 export -f _orch_extract_agents_verify orch_detect_agent orch_render_prompt
 export -f orch_pr_mergeable orch_pr_checks_watch _orch_pr_checks_classify
 export -f orch_worktree_path orch_worktree_add orch_worktree_bootstrap orch_worktree_remove
 export -f orch_sandbox_wrap
-export -f orch_progress_dir orch_progress_enabled orch_progress_set
+export -f orch_progress_dir orch_progress_enabled orch_progress_set orch_progress_write_json
 export -f orch_progress_icon orch_progress_draw
 
 # Serialize ready-pickup / pr-fix against orch-auto and concurrent orch (ADR-002).

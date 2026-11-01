@@ -71,6 +71,42 @@ assert_eq "$rc2" "1" "loop fails when max iter exhausted"
 assert_contains "$out2" "blocked" "logs blocked when exhausted"
 assert_contains "$out2" "orch loop iter 2/2" "reaches max iteration"
 
+# Test 2b: retry prompt carries the failed verify output (ADR-006)
+TMP2B="$(mktemp -d)"
+printf '{"scripts":{"test":"npm test"}}\n' >"$TMP2B/package.json"
+cat >"$FAKE/npm" <<EOF
+#!$STUB_BASH
+echo "assertion failed: expected 1 got 2"
+exit 1
+EOF
+cat >"$FAKE/claude-record" <<EOF
+#!$STUB_BASH
+cat >>.orch/seen-prompts.txt
+exit 0
+EOF
+chmod +x "$FAKE/claude-record"
+mkdir -p "$TMP2B/.orch"
+set +e
+ORCH_AGENT="$FAKE/claude-record" ORCH_MAX_ITER=2 orch_loop_worker "$TMP2B" "$PROMPT" >/dev/null 2>&1
+set -e
+retry="$TMP2B/.orch/worker-prompt-retry.md"
+assert_file "$retry" "retry prompt written after failed verify"
+assert_contains "$(cat "$retry")" "## Previous verify output (failed)" "retry prompt has verify section"
+assert_contains "$(cat "$retry")" "assertion failed: expected 1 got 2" "retry prompt carries verify output"
+assert_contains "$(head -n 1 "$retry")" "fix" "retry prompt keeps the original prompt"
+assert_contains "$(cat "$TMP2B/.orch/seen-prompts.txt")" "assertion failed" "iteration 2 agent received the verify output"
+rm -rf "$TMP2B"
+
+# Test 2c: no verify command and no allow-no-verify -> rc 3, blocked (fail closed)
+TMP2C="$(mktemp -d)"
+set +e
+out_nov="$(ORCH_AGENT="$FAKE/claude" ORCH_MAX_ITER=2 orch_loop_worker "$TMP2C" "$PROMPT" 2>&1)"
+rc_nov=$?
+set -e
+rm -rf "$TMP2C"
+assert_eq "$rc_nov" "3" "loop returns 3 when no verify command"
+assert_contains "$out_nov" "verify: no command (add 'orch: allow-no-verify'" "logs no-verify reason"
+
 # Test 3: Prompt substitution helper
 TMP_TPL="$(mktemp)"
 TMP_DEST="$(mktemp -u)"
@@ -81,6 +117,9 @@ rm -f "$TMP_TPL" "$TMP_DEST"
 assert_contains "$dest_content" "Issue: 99" "prompt helper substitutes known key"
 assert_contains "$dest_content" "WT: /tmp/wt-99" "prompt helper substitutes second key"
 assert_contains "$dest_content" "Unknown: N/A" "prompt helper converts unknown key to N/A"
+
+# Tests 4-6 opt into verify 'true' via ORCH_ALLOW_NO_VERIFY=1 (issue body `orch: allow-no-verify`).
+export ORCH_ALLOW_NO_VERIFY=1
 
 # Test 4: When verify is fallback 'true' and agent fails -> blocked (not silently passed)
 TMP_EMPTY="$(mktemp -d)"

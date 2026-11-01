@@ -100,15 +100,49 @@ On `blocked`, `reason` is a short English sentence; `pr_url` may be null.
 | ------ | ------- |
 | `pending` | Not dispatched yet |
 | `running` | Worker claimed / implementing |
-| `review` | Waiting on systematic review / fixes |
+| `review` | Independent reviewer agent running (`prompts/reviewer.md`) / fix iteration |
 | `ci` | Waiting on remote checks (`gh pr checks`) |
 | `done` | PR open, checks green, card In review |
 | `blocked` | Needs human; see reason |
 
 ## Exit criteria
 
-A worker is **done** only when its PR is open **and** `gh pr checks` reports green
-(or the run is **blocked** with a documented reason). **Never merge** automatically.
+A worker is **done** only when its PR is open, the **independent review** said
+`REVIEW: approved`, **and** `gh pr checks` reports green (or the run is
+**blocked** with a documented reason). **Never merge** automatically.
+
+## Ready-pickup flow (ADR-006)
+
+1. Worktree + branch `feat/<id>-issue-<id>`; render `prompts/worker.md`.
+2. **Worker loop** (`orch_loop_worker`, max `ORCH_MAX_ITER`): agent → verify.
+   A failed verify re-prompts the agent with the **last 40 lines** of the verify
+   output (`## Previous verify output (failed)`), never the same prompt blind.
+   The grounding verifier (`prompts/verifier.md`) runs after a green verify.
+3. **PR must exist** on the branch, else `blocked`.
+4. **Independent review gate**: `prompts/reviewer.md` rendered into a fresh
+   prompt and run in a fresh agent call. The last line must be `REVIEW: approved`
+   or `REVIEW: changes_requested` (no verdict = changes_requested).
+   `changes_requested` → **one** fix iteration whose prompt carries the findings
+   (`.orch/worker-prompt-review-fix.md`) → one re-review → still
+   `changes_requested` → `blocked`, reason `review: changes_requested`.
+5. CI checks + mergeable → `done`.
+
+## Verify resolution
+
+`orch_resolve_verify <dir>` picks, in order:
+
+1. `AGENTS.md`: a fenced block under a heading or bold line containing
+   **Verify** (`## … Verify …` / `**Verify …**`) — every line of the block runs
+   under `set -e`; this **beats** a `verify:` line.
+2. `AGENTS.md`: `verify: <cmd>` line; then a fenced / inline `nix develop`,
+   `npm test`, `pnpm test`.
+3. Repo heuristics: flake + `package.json`/`Makefile`, `pnpm-lock.yaml`,
+   `package.json`, `Makefile`, `Cargo.toml`.
+4. **Nothing found → fail closed**: the worker is `blocked` with reason
+   `verify: no command (add 'orch: allow-no-verify' to the issue body to skip)`.
+   The literal `orch: allow-no-verify` in the issue body keeps the old `true`
+   behavior for that issue (harness sets `ORCH_ALLOW_NO_VERIFY=1`). `ORCH_VERIFY`
+   still overrides everything.
 
 ## Worktrees
 
@@ -135,8 +169,9 @@ bash scripts/orch-cleanup.sh --repo DIR --apply
 | `ORCH_COPY_ENV` | `0` | If `1`, copy repo `.env` into each worktree |
 | `ORCH_VERIFY` | _(unset)_ | Override verify command (must be allowlisted when `ORCH_VERIFY_TRUST=untrusted`) |
 | `ORCH_VERIFY_TRUST` | `trusted` | `untrusted` in pr-fix: refuse non-allowlisted verify from the PR tree |
+| `ORCH_ALLOW_NO_VERIFY` | `0` | Set by orch from `orch: allow-no-verify` in the issue body: missing verify command → `true` instead of `blocked` |
 | `ORCH_GRAPH` | `1` | Write `.orch/graph/current.json` (see `cda-graph`) |
-| `ORCH_GRAPH_VERIFY` | `0` | Grounding verifier agent when `1` |
+| `ORCH_GRAPH_VERIFY` | `1` | Grounding verifier agent after a green verify; `0` disables (ADR-006) |
 | `ORCH_GRAPH_PLAN_PARALLEL` | `auto` | `--graph-plan` task parallelism |
 
 Graph orchestration cookbook: [doc/graph-orchestration.md](../../../doc/graph-orchestration.md).

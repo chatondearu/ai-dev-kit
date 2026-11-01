@@ -31,7 +31,7 @@ these (`./scripts/doctor.sh` only checks `PATH`).
 | `ORCH_AUTO_ONCE` | off | Force one orch-auto cycle |
 | `CDA_DESIGN_LOOP` | off | Opt-in design loop for UI diffs |
 | `ORCH_GRAPH` | `1` | Live `.orch/graph/current.json` (`0` / `--no-graph` off) |
-| `ORCH_GRAPH_VERIFY` | `0` | `1` → foam/plan verifier agent after local verify |
+| `ORCH_GRAPH_VERIFY` | `1` | foam/plan verifier agent after local verify; `0` disables |
 | `ORCH_GRAPH_INTEGRATOR` | `auto` | Integrator after workers (`1` always, `0` never) |
 | `ORCH_GRAPH_PLAN_PARALLEL` | `auto` | Graph-plan tasks: `auto` / `parallel` / `sequential` |
 | `ORCH_GRAPH_PLAN_MAX_PARALLEL` | `$ORCH_MAX_PARALLEL` | Parallel cap for `--graph-plan` tasks |

@@ -38,7 +38,7 @@ bash ~/.cursor/skills/cda-graph/scripts/foam-graph-export.sh --repo "$REPO" --me
 | Variable | Default | Meaning |
 | -------- | ------- | ------- |
 | `ORCH_GRAPH` | `1` | Write `current.json`; `0` / `--no-graph` disables |
-| `ORCH_GRAPH_VERIFY` | `0` | `1` → verifier agent after local verify (plan/ADR grounding) |
+| `ORCH_GRAPH_VERIFY` | `1` | Verifier agent after local verify (plan/ADR grounding); `0` disables (ADR-006) |
 | `ORCH_GRAPH_INTEGRATOR` | `auto` | `auto` = integrator when 2+ issues; `1` = always; `0` = never |
 | `ORCH_GRAPH_PLAN_PARALLEL` | `auto` | `auto` = parallel tasks when paths disjoint; `parallel` = require disjoint; `sequential` = always serial |
 | `ORCH_GRAPH_PLAN_MAX_PARALLEL` | `$ORCH_MAX_PARALLEL` | Cap parallel graph-plan tasks (default 3) |

@@ -9,8 +9,6 @@ description: >-
 
 # Project agents setup
 
-Announce at start: **"Using cda-agents skill."**
-
 ## Purpose
 
 Produce or refresh **`AGENTS.md`** at the repo root so every agent (Cursor,
@@ -53,14 +51,9 @@ bash "$SKILL/scripts/setup-agents.sh" --dry-run --type auto
 
 ## Agent obligations (also written into AGENTS.md)
 
-Before **any** feature or technical/product/design decision:
-
-1. Read `AGENTS.md` and `foam/index.md`.
-2. Search foam ADRs, PRDs, plans.
-3. Search GitHub issues and PRs (`gh issue list`, `gh pr list`) for overlap.
-4. Read existing material and **confront** the new proposal.
-5. Update foam + Kanban artifacts after shipping or deciding.
-6. **Update `AGENTS.md`** when stack, skills, or durable gotchas change.
+Before **any** feature or technical/product/design decision, follow the foam
+protocol (`cda-foam` § Protocol). After shipping or deciding, update foam +
+Kanban, and **`AGENTS.md`** when stack, skills, or durable gotchas change.
 
 ## Integration
 

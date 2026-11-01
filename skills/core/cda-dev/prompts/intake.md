@@ -43,7 +43,7 @@ Write the breakdown table in **English** (artifact); chat in the user’s langua
 
 Master must:
 
-1. Run the appropriate **foam** skills (`cda-prd`, `cda-plan`, `cda-kanban`, etc.) to create epic/child issues and board state.
+1. Run `cda-kanban` (epic + child issues, board state), `cda-prd` (epic PRD) and `cda-plan` (one plan per child).
 2. For each child ready to implement, dispatch workers via the harness:
 
    ```bash

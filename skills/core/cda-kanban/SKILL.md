@@ -12,8 +12,6 @@ description: >-
 
 # GitHub Kanban Orchestrator
 
-Announce at start: **"Using cda-kanban skill."**
-
 ## Scope
 
 Governs **project management on GitHub** for the current repository. It does not replace code skills (`cda-dev`, `review-and-ship`, `new-branch-and-pr`) — it wires them to a Kanban board.
@@ -96,6 +94,8 @@ If the board uses different option names, map intent to the closest existing opt
 ```
 
 ### B — Pick up work (single agent)
+
+Pipeline context: `cda-plan` § End-to-end feature pipeline.
 
 1. `gh project item-list` — find **Ready** items without an active PR
 2. Confirm no other agent claimed it (no open PR, no "Claimed" comment in last 24h)

@@ -42,12 +42,12 @@ This skill guides the agent in conducting professional and thorough code reviews
 Analyze the code changes based on the following pillars:
 
 *   **Correctness**: Does the code achieve its stated purpose without bugs or logical errors?
-*   **Maintainability**: Is the code clean, well-structured, and easy to understand and modify in the future? Consider factors like code clarity, modularity, and adherence to established design patterns.
+*   **Maintainability**: Is the code clean, well-structured, and easy to understand and modify in the future? Check: names say what things do, no function does two jobs, existing repo patterns are followed.
 *   **Readability**: Is the code well-commented (where necessary) and consistently formatted according to our project's coding style guidelines?
 *   **Efficiency**: Are there any obvious performance bottlenecks or resource inefficiencies introduced by the changes?
 *   **Security**: Are there any potential security vulnerabilities or insecure coding practices?
-*   **Edge Cases and Error Handling**: Does the code appropriately handle edge cases and potential errors?
-*   **Testability**: Is the new or modified code adequately covered by tests (even if preflight checks pass)? Suggest additional test cases that would improve coverage or robustness.
+*   **Edge Cases and Error Handling**: Are empty, null and boundary inputs and failing calls handled, with no swallowed errors?
+*   **Testability**: Does each new or changed branch have a test that fails without it (even if preflight passes)? Suggest additional test cases that would improve coverage or robustness.
 *   **Leanness & reuse** (KISS lens): Could this fully work with less code? Does it reinvent a helper, component, service or pattern that already exists in the repo — or something the standard library, the platform, or an already-installed dependency provides? Flag unrequested abstractions, options, wrappers and "for later" code. **Read beyond the diff**: open the code the change touches *and its callers* — the worst finding is often an untouched file that now breaks. State each finding as: what the code does, what goes wrong, the fix, and the cost of skipping it. Never label removing validation, security, accessibility or error handling as "leaner".
 
 ### 4. Provide Feedback

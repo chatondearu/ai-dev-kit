@@ -10,8 +10,6 @@ description: >-
 
 # Foam project memory
 
-Announce at start: **"Using cda-foam skill."**
-
 ## What this is
 
 A **versioned knowledge graph** in Markdown (wikilinks `[[note]]`) so agents and
@@ -52,7 +50,9 @@ bash "$(dirname "$0")/scripts/import-kanban.sh"
 `init.sh` copies templates only. It does **not** run `git commit` — you decide
 when to commit the scaffold.
 
-## Agent protocol (every product/architecture/design task)
+## Protocol (every product/architecture/design task)
+
+Single source: `AGENTS.md`, rules and `cda-agents` summarize this and link here.
 
 1. Read `AGENTS.md` and `foam/index.md` (Map of Content).
 2. Search `foam/decisions/` for related ADRs (grep tags or keywords).
@@ -76,13 +76,7 @@ when to commit the scaffold.
 
 ### A — New feature
 
-1. Kanban: issue on board (`cda-kanban`).
-2. PRD: `cda-prd/scripts/new-prd.sh <issue#>` → `prd/PRD-NNN-slug.md`.
-3. Plan: `cda-plan/scripts/new-plan.sh <issue#>` → `plans/PLAN-NNN-slug.md`.
-4. Board: **Ready** when PRD `approved`; claim → implement (`cda-kanban` B).
-5. PR with `Closes #NNN`.
-6. On merge: PRD → `shipped`; plan → `done`; `import-kanban.sh`; new ADR if needed;
-   sync `doc/` via `cda-docs` when behavior/API/config/arch changed.
+Issue → PRD → plan → PR: see `cda-plan` § End-to-end feature pipeline.
 
 ### B — Architecture decision
 

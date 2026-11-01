@@ -9,8 +9,6 @@ description: >-
 
 # CDA graph orchestration
 
-Announce: **"Using cda-graph skill."**
-
 Operator reference: [doc/graph-orchestration.md](../../../doc/graph-orchestration.md).
 
 ## Mental model (OpenClaw-aligned)

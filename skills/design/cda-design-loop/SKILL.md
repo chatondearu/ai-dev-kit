@@ -10,8 +10,6 @@ description: >-
 
 # CDA design loop (visual)
 
-Announce: **Using cda-design-loop.**
-
 ## Inputs (resolve in order)
 
 1. **Brief:** Read `DESIGN.md`, else `docs/DESIGN.md`. If absent → seed a **taste stub** (or ask once for vibe), not a brand pack. Copy from [templates/DESIGN.stub.md](templates/DESIGN.stub.md) or run the project seed script when available. Use **`cda-design-md`** only when a brand is already evidenced on the project (existing brief names Linear/Notion/Cal/Raycast/Cursor/Resend, a copied brand file, or repo already ships that language) or the user explicitly asks for a curated brand.

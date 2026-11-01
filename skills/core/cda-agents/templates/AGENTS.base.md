@@ -9,21 +9,15 @@ Instructions for AI agents working in this repository.
 Every feature, fix, or decision that affects product, architecture, or design
 must follow this sequence:
 
-1. Read this `AGENTS.md`, then `foam/index.md` (if present).
-2. Search **foam** (`foam/decisions/`, `prd/`, `plans/`) for related ADRs and specs.
-3. Search **GitHub** for overlap before starting work:
-   ```bash
-   gh issue list --state all --search "keywords" --limit 20
-   gh pr list --state all --search "keywords" --limit 20
-   ```
-4. If an issue, PR, ADR, or PRD already covers the topic — **read it** and
-   confront the new proposal with recorded decisions. Cite sources.
-5. Any feature or fix requested in chat — one subject or several — goes through
+1. Follow the foam protocol (`cda-foam` § Protocol): read this file and
+   `foam/index.md`, search ADRs/PRDs/plans and GitHub issues/PRs, confront the
+   proposal with recorded decisions, cite sources.
+2. Any feature or fix requested in chat — one subject or several — goes through
    `cda-dev` intake (`cda-dev/prompts/intake.md`): one round of questions, a
    breakdown, GO. A single child issue is fine. Do not start coding from chat.
-6. For non-trivial scope: ensure a Kanban issue, PRD (`prd/`), and plan
-   (`plans/`) exist or create them before coding.
-7. After shipping or deciding: update foam (ADR, PRD status, feature lists) and
+3. For non-trivial scope, before coding a Kanban issue, `prd/PRD-<n>-*.md` and
+   `plans/PLAN-<n>-*.md` exist (create the missing ones).
+4. After shipping or deciding: update foam (ADR, PRD status, feature lists) and
    refresh this file when stack or skills change.
 
 Skills: **cda-foam**, **cda-prd**, **cda-plan**,

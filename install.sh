@@ -9,8 +9,9 @@
 #   opencode  ${XDG_CONFIG_HOME:-~/.config}/opencode/skills
 #   agents    ${AGENTS_HOME:-~/.agents}/skills   (universal; opencode also reads this)
 #
-# Cursor-specific assets (user rules, subagents, local plugins) → ~/.cursor only.
-# Claude: assembled claude/CLAUDE.md → ${CLAUDE_CONFIG_DIR:-~/.claude}/CLAUDE.md
+# Cursor-specific assets (subagents, local plugins) → ~/.cursor only; rules/ are
+# not copied — paste rules/*.md into Cursor Settings → Rules for AI manually.
+# Claude: assembled rules/ → claude/CLAUDE.md → ${CLAUDE_CONFIG_DIR:-~/.claude}/CLAUDE.md
 # Skills may live in nested folders (skills/core/foo/); installers flatten by
 # skill directory name (each dir containing SKILL.md).
 #
@@ -24,8 +25,9 @@
 #                [--cursor-home DIR]
 #
 # Hooks: unless --no-hooks, the kiss code-attitude ruleset is wired into each
-# enabled tool's lifecycle hooks (Claude settings.json, Cursor hooks.json) so it
-# is injected every session + into subagents. Needs jq; merge is idempotent.
+# enabled tool's lifecycle hooks (needs jq; merge is idempotent). Cursor:
+# sessionStart + beforeSubmitPrompt. Claude Code: SessionStart, SubagentStart,
+# UserPromptSubmit. opencode: kiss.mjs plugin.
 #
 # Tool selection: a tool defaults to ON when its config dir exists (Cursor is
 # always considered). --<tool> forces ON, --no-<tool> forces OFF. The universal
@@ -230,8 +232,7 @@ main() {
 
   # Cursor-specific assets
   if is_enabled cursor; then
-    log "# cursor user-rules / agents / plugins"
-    apply_children "$REPO_DIR/rules" "$CURSOR_HOME/user-rules"
+    log "# cursor agents / plugins"
     apply_children "$REPO_DIR/agents" "$CURSOR_HOME/agents"
     apply_children "$REPO_DIR/cursor/plugins/local" "$CURSOR_HOME/plugins/local"
   fi

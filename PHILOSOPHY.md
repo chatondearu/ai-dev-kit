@@ -77,7 +77,7 @@ site. We audited its hooks before re-authoring — local-only, no network, fail-
 
 The maintainer has ADHD, so the kit shapes its own output for that reader:
 `rules/02-adhd-output.md` (next action first, numbered steps, state restated,
-wins made visible — always-on through `CLAUDE.md` and Cursor user-rules, no hook),
+wins made visible — always-on via `CLAUDE.md` (Claude Code) or pasted into Cursor Rules for AI, no hook),
 `cda-standing` (weekly progress against your own trailing month, every number
 sourced), `cda-goal` (pin the task, catch drift), an anti-loop rule in `cda-kiss`, and
 personal-use helpers adapted from [pm-claude-skills](https://github.com/mohitagw15856/pm-claude-skills)

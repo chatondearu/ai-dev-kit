@@ -137,3 +137,33 @@ orch_review_fix_prompt() {
   } >"$dest"
   printf '%s\n' "$dest"
 }
+
+# Bounded background pool shared by orch.sh and graph.sh. Callers run
+# `orch_pool_slot MAX`, start a job with `&`, then `orch_pool_add $!`; finish
+# with `orch_pool_drain`. Needs bash >= 4.3 for `wait -n`.
+ORCH_POOL_PIDS=()
+
+orch_pool_reap() {
+  local pid still=()
+  for pid in "${ORCH_POOL_PIDS[@]}"; do
+    if kill -0 "$pid" 2>/dev/null; then still+=("$pid"); else wait "$pid" 2>/dev/null || true; fi
+  done
+  ORCH_POOL_PIDS=("${still[@]}")
+}
+
+orch_pool_slot() {
+  orch_pool_reap
+  while [ "${#ORCH_POOL_PIDS[@]}" -ge "$1" ]; do
+    # wait -n returns the finished job's status; a failed worker is not an error here.
+    wait -n 2>/dev/null || sleep 0.05
+    orch_pool_reap
+  done
+}
+
+orch_pool_add() { ORCH_POOL_PIDS+=("$1"); }
+
+orch_pool_drain() {
+  local pid
+  for pid in "${ORCH_POOL_PIDS[@]}"; do wait "$pid" || true; done
+  ORCH_POOL_PIDS=()
+}

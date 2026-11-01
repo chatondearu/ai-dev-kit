@@ -15,7 +15,7 @@ cleanup() {
   PATH="$_ORIG_PATH"
   rm -rf "$TMP/.orch/worktrees" 2>/dev/null || true
   git -C "$TMP" worktree prune 2>/dev/null || true
-  rm -rf "$TMP" "$STUB_BIN"
+  rm -rf "$TMP" "$TMP.linked" "$STUB_BIN"
 }
 trap cleanup EXIT
 
@@ -184,16 +184,13 @@ assert_eq "$rc_pr_ok" "0" "ready-pickup exits 0 when PR has green checks and mer
 assert_contains "$out_pr_ok" "done: issue 2 (PR 102 checks green, mergeable=MERGEABLE)" "done printed on green PR"
 
 WT_PATH2="$(orch_worktree_path "$TMP" 2 issue-2)"
-assert_file "$WT_PATH2" "worktree path after dispatch (issue 2)"
-assert_file "$WT_PATH2/.orch/worker-prompt.md" "rendered worker prompt exists under worktree (issue 2)"
-
-orch_worktree_remove "$TMP" "$WT_PATH2"
-if [ -e "$TMP/.orch/worktrees/2-issue-2" ]; then
+if [ -e "$WT_PATH2" ]; then
   FAILS=$((FAILS + 1))
-  printf 'FAIL worktree removed: %s/.orch/worktrees/2-issue-2\n' "$TMP" >&2
+  printf 'FAIL done issue worktree must be cleaned at run end: %s\n' "$WT_PATH2" >&2
 else
   PASSES=$((PASSES + 1))
 fi
+assert_contains "$out_pr_ok" "removed $WT_PATH2" "orch-cleanup reported the done worktree"
 
 echo "# orch ready-pickup (issue 3: checks green but mergeable=CONFLICTING -> blocked, exit nonzero)"
 set +e
@@ -319,6 +316,13 @@ set -e
 assert_eq "$rc_partial" "1" "overall exit is nonzero when any worker is blocked"
 assert_contains "$out_partial" "blocked: issue 7 (no PR for branch feat/7-issue-7)" "issue 7 is blocked"
 assert_contains "$out_partial" "done: issue 8 (PR 108 checks green, mergeable=MERGEABLE)" "issue 8 is done"
+assert_file "$(orch_worktree_path "$TMP" 7 issue-7)" "blocked issue keeps its worktree"
+if [ -e "$(orch_worktree_path "$TMP" 8 issue-8)" ]; then
+  FAILS=$((FAILS + 1))
+  printf 'FAIL done issue 8 worktree must be cleaned\n' >&2
+else
+  PASSES=$((PASSES + 1))
+fi
 orch_worktree_remove "$TMP" "$(orch_worktree_path "$TMP" 7 issue-7)" 2>/dev/null || true
 orch_worktree_remove "$TMP" "$(orch_worktree_path "$TMP" 8 issue-8)" 2>/dev/null || true
 
@@ -338,5 +342,58 @@ else
   PASSES=$((PASSES + 1))
 fi
 orch_worktree_remove "$TMP" "$(orch_worktree_path "$TMP" 11 issue-11)" 2>/dev/null || true
+
+echo "# Ctrl-C leaves no agent child (issue 30: slow stub agent receives INT on orch)"
+MARK="orch-h5-sleeper-$$"
+cat >"$STUB_BIN/$MARK" <<'EOS'
+#!/usr/bin/env bash
+cat >/dev/null
+while :; do sleep 1; done
+EOS
+chmod +x "$STUB_BIN/$MARK"
+# orch runs in its own session/process group (setsid), so `kill 0` in its trap can only
+# reach the stub. SIGINT is reset to default because async jobs (and nohup) start with it ignored,
+# and a signal ignored on entry cannot be trapped.
+PIDF="$TMP/orch30.pid"
+set -m
+setsid bash -c 'echo $$ >"$1"; shift; exec "$@"' _ "$PIDF" \
+  env --default-signal=INT ORCH_VERIFY=true GH_STUB_NO_PR=1 bash "$SCRIPTS/orch.sh" --repo "$TMP" --mode ready-pickup --issue 30 \
+  --agent "$STUB_BIN/$MARK" >/dev/null 2>&1 &
+set +m
+for _ in $(seq 100); do [ -s "$PIDF" ] && pgrep -f "$MARK" >/dev/null && break; sleep 0.1; done
+orch_pid="$(cat "$PIDF" 2>/dev/null || true)"
+if [ -n "$orch_pid" ] && [ "$(ps -o pgid= -p "$orch_pid" | tr -d ' ')" = "$orch_pid" ] && pgrep -f "$MARK" >/dev/null; then
+  PASSES=$((PASSES + 1))
+  kill -INT "$orch_pid"
+  for _ in $(seq 50); do kill -0 "$orch_pid" 2>/dev/null || break; sleep 0.1; done
+  sleep 0.3
+  if pgrep -f "$MARK" >/dev/null; then
+    FAILS=$((FAILS + 1))
+    printf 'FAIL agent child survived INT\n' >&2
+    kill -KILL -- "-$orch_pid" 2>/dev/null || true
+  else
+    PASSES=$((PASSES + 1))
+  fi
+else
+  # Never signal anything unless orch is the leader of its own group.
+  FAILS=$((FAILS + 1))
+  printf 'FAIL orch did not start as its own process group leader with a running stub agent\n' >&2
+fi
+orch_worktree_remove "$TMP" "$(orch_worktree_path "$TMP" 30 issue-30)" 2>/dev/null || true
+
+echo "# orch from inside a linked worktree keeps .orch/ at the main toplevel"
+LINKED="$TMP.linked"
+git -C "$TMP" worktree add -q -b linked-test "$LINKED"
+out_nested="$(cd "$LINKED" && bash "$SCRIPTS/orch.sh" --mode ready-pickup --issue 31 --dry-run)"
+assert_contains "$out_nested" "wt=$TMP/.orch/worktrees/31-issue-31" "worktree path derives from main toplevel"
+if [ -e "$LINKED/.orch" ]; then
+  FAILS=$((FAILS + 1))
+  printf 'FAIL .orch created inside linked worktree: %s\n' "$LINKED/.orch" >&2
+else
+  PASSES=$((PASSES + 1))
+fi
+assert_eq "$(orch_repo_root "$LINKED")" "$TMP" "orch_repo_root resolves a linked worktree to the main checkout"
+assert_eq "$(orch_repo_root "$TMP")" "$TMP" "orch_repo_root keeps the main checkout"
+git -C "$TMP" worktree remove --force "$LINKED"
 
 summary

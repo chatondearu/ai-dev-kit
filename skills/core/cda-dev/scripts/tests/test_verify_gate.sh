@@ -88,6 +88,9 @@ case "$prompt" in
   *"Reviewer prompt"*)
     n=0; [ -f .orch/review-count ] && n="$(cat .orch/review-count)"; n=$((n + 1))
     echo "$n" >.orch/review-count
+    # Done worktrees are removed at run end: keep what the tests inspect outside.
+    mkdir -p "$STUB_KEEP"; cp .orch/review-count "$STUB_KEEP/review-count"
+    printf "%s\n" "$prompt" >"$STUB_KEEP/reviewer-prompt-$n.md"
     set -- ${STUB_REVIEW_VERDICTS:-approved}
     v="${!n:-}"; [ -n "$v" ] || v="${@: -1}"
     echo "- [Important] foo.sh:1 — stub finding"
@@ -97,6 +100,7 @@ esac
 exit 0
 EOF
 chmod +x "$STUB_BIN/stub-agent"
+export STUB_KEEP="$TMP/keep"
 
 cat >"$STUB_BIN/gh" <<'EOF'
 #!/usr/bin/env bash
@@ -137,10 +141,10 @@ assert_eq "$rc_ok" "0" "approved review -> done"
 assert_contains "$out_ok" "review: reviewer round 1 (PR #55)" "reviewer step shown"
 assert_contains "$out_ok" "done: issue 1 (PR 55" "done after approved review"
 WT1="$(orch_worktree_path "$R1" 1 issue-1)"
-assert_file "$WT1/.orch/reviewer-prompt-1.md" "reviewer prompt rendered in a fresh file"
-assert_contains "$(cat "$WT1/.orch/reviewer-prompt-1.md")" "Plan: \`plans/PLAN-1-test.md\`" "reviewer prompt has PLAN_PATH"
-assert_contains "$(cat "$WT1/.orch/reviewer-prompt-1.md")" "Worktree cwd: $WT1" "reviewer prompt has WORKTREE"
-assert_eq "$(cat "$WT1/.orch/review-count")" "1" "approved -> exactly one review"
+assert_file "$STUB_KEEP/reviewer-prompt-1.md" "reviewer prompt rendered in a fresh file"
+assert_contains "$(cat "$STUB_KEEP/reviewer-prompt-1.md")" "Plan: \`plans/PLAN-1-test.md\`" "reviewer prompt has PLAN_PATH"
+assert_contains "$(cat "$STUB_KEEP/reviewer-prompt-1.md")" "Worktree cwd: $WT1" "reviewer prompt has WORKTREE"
+assert_eq "$(cat "$STUB_KEEP/review-count")" "1" "approved -> exactly one review"
 if [ -e "$WT1/.orch/worker-prompt-review-fix.md" ]; then
   FAILS=$((FAILS + 1)); printf 'FAIL approved review must not trigger a fix iteration\n' >&2
 else

@@ -74,7 +74,7 @@ assert_eq "$out" "10" "only eligible #10 printed"
 assert_contains "$(cat "$TMP/stderr")" "skip #11" "logs skip human"
 assert_contains "$(cat "$TMP/stderr")" "skip #12" "logs skip open PR"
 
-echo "# orch-auto flock second run exits 0"
+echo "# orch-auto flock second run exits 75 (EX_TEMPFAIL)"
 mkdir -p "$TMP/.orch"
 (
   exec 9>"$TMP/.orch/auto.lock"
@@ -83,7 +83,7 @@ mkdir -p "$TMP/.orch"
   out2="$(bash "$SCRIPTS/orch-auto.sh" --repo "$TMP" --once --dry-run 2>&1)"
   rc2=$?
   set -e
-  assert_eq "$rc2" "0" "second run exits 0 when lock held"
+  assert_eq "$rc2" "75" "second run exits 75 when lock held"
   assert_contains "$out2" "another run holds" "reports lock contention"
 )
 

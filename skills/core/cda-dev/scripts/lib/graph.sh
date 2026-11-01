@@ -530,7 +530,7 @@ orch_graph_plan_run() {
   # Split locals: bash expands ${slug} before assignment in the same `local` line.
   local slug="issue-$issue"
   local branch="feat/${issue}-${slug}"
-  local path n i rc_dir rc_file parallel=0 max_p pids pid still
+  local path n i rc_dir rc_file parallel=0 max_p
 
   command -v jq >/dev/null 2>&1 || {
     printf 'graph-plan: jq required\n' >&2
@@ -595,43 +595,18 @@ orch_graph_plan_run() {
     done
   else
     max_p="${ORCH_GRAPH_PLAN_MAX_PARALLEL:-${ORCH_MAX_PARALLEL:-3}}"
-    set -m
-    pids=()
     i=0
     while [ "$i" -lt "$n" ]; do
-      while [ "${#pids[@]}" -ge "$max_p" ]; do
-        if wait -n 2>/dev/null; then
-          :
-        else
-          still=()
-          for pid in "${pids[@]}"; do
-            if kill -0 "$pid" 2>/dev/null; then
-              still+=("$pid")
-            else
-              wait "$pid" || true
-            fi
-          done
-          pids=("${still[@]}")
-          [ "${#pids[@]}" -ge "$max_p" ] && sleep 0.05
-        fi
-        still=()
-        for pid in "${pids[@]}"; do
-          kill -0 "$pid" 2>/dev/null && still+=("$pid")
-        done
-        pids=("${still[@]}")
-      done
+      orch_pool_slot "$max_p"
       (
         set +e
         orch_graph_plan_run_task "$plan_file" "$path" "$issue" "$i" 1
         exit $?
       ) &
-      pids+=($!)
+      orch_pool_add $!
       i=$((i + 1))
     done
-    for pid in "${pids[@]}"; do
-      wait "$pid" || true
-    done
-    set +m
+    orch_pool_drain
     i=0
     while [ "$i" -lt "$n" ]; do
       tid="$(jq -r ".tasks[$i].id" "$plan_file")"

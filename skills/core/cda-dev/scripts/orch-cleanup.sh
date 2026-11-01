@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 # orch-cleanup.sh — remove stale .orch/worktrees (dry-run by default).
 #
-#   bash orch-cleanup.sh --repo DIR [--apply] [--dry-run]
+#   bash orch-cleanup.sh --repo DIR [--apply] [--dry-run] [WORKTREE_NAME...]
 set -euo pipefail
+ROOT="$(cd "$(dirname "$0")" && pwd)"
+source "$ROOT/lib/worktree.sh"
 REPO="$(pwd)"
+NAMES=()
 APPLY=0
 DRY=1
 
@@ -14,6 +17,7 @@ orch-cleanup.sh — prune leftover orch worktrees
   --repo DIR     git repo root (default: cwd)
   --dry-run      list only (default)
   --apply        actually remove worktrees via git worktree remove --force
+  WORKTREE_NAME  only these entries of .orch/worktrees (default: all)
   -h|--help
 EOF
 }
@@ -24,12 +28,13 @@ while [ $# -gt 0 ]; do
     --dry-run) DRY=1; APPLY=0;;
     --apply) APPLY=1; DRY=0;;
     -h|--help) usage; exit 0;;
-    *) echo "unknown: $1" >&2; usage >&2; exit 2;;
+    -*) echo "unknown: $1" >&2; usage >&2; exit 2;;
+    *) NAMES+=("$1");;
   esac
   shift
 done
 
-REPO="$(cd "$REPO" && pwd)"
+REPO="$(orch_repo_root "$REPO")"
 WT_ROOT="$REPO/.orch/worktrees"
 if [ ! -d "$WT_ROOT" ]; then
   echo "orch-cleanup: no $WT_ROOT"
@@ -38,7 +43,12 @@ fi
 
 removed=0
 skipped=0
-for path in "$WT_ROOT"/*; do
+if [ "${#NAMES[@]}" -gt 0 ]; then
+  paths=("${NAMES[@]/#/$WT_ROOT/}")
+else
+  paths=("$WT_ROOT"/*)
+fi
+for path in "${paths[@]}"; do
   [ -e "$path" ] || continue
   [ -d "$path" ] || continue
   name="$(basename "$path")"

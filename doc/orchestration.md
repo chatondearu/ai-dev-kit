@@ -33,6 +33,7 @@ Per issue the harness runs: worker loop (agent → verify, retry prompt carries
 the failed verify output) → PR exists → **independent review** (fresh
 `reviewer.md` agent; `REVIEW: changes_requested` gives the worker one fix
 iteration, then re-review once, then `blocked`) → CI green + mergeable → `done`.
+At run end `orch-cleanup.sh` removes the worktrees of `done` issues; `blocked` ones stay.
 See [ADR-006](../foam/decisions/ADR-006-review-gate-fail-closed-verify.md).
 
 **Verify is fail-closed.** `orch` prefers the fenced block under the `Verify`
@@ -71,7 +72,7 @@ Board listing uses `cda-kanban` `gh-board.sh list-ready`. Override path with
 `ORCH_GH_BOARD` if needed (tests / custom layout).
 
 One run at a time: flock on `<repo>/.orch/auto.lock`. Logs under
-`<repo>/.orch/auto/`.
+`<repo>/.orch/auto/`. A second run exits 75 (EX_TEMPFAIL) when the lock is held, so a timer sees it did not run.
 
 ### Systemd (opt-in)
 

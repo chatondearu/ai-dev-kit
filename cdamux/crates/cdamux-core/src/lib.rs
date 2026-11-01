@@ -38,8 +38,8 @@ pub use session::{
     GroupedSessions, SessionGroup, SessionState,
 };
 pub use tailnet_api::{
-    decode_path_segment, dispatch_tailnet_request, resolve_tailnet_bind_ip, LiveTailnetBackend,
-    TailnetApiBackend, TailnetResponse,
+    check_tailnet_token, decode_path_segment, dispatch_tailnet_request, resolve_tailnet_bind_ip,
+    LiveTailnetBackend, TailnetApiBackend, TailnetResponse, TAILNET_TOKEN_HEADER,
 };
 pub use notes::{ensure_note_file, note_refs_for_projects, resolve_note_path, NoteRef};
 pub use orch_graph::{

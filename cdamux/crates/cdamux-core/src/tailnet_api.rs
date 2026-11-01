@@ -4,11 +4,8 @@ use crate::orch_graph::{
     find_orch_graph_from_cwd, list_orch_graph_runs, load_orch_graph, OrchGraphError,
 };
 use crate::orch_status::load_orch_run_status;
-use crate::project_tree::project_for_path;
 use crate::tmux::{capture_pane_text, list_tmux_sessions, send_line_to_session};
-use crate::{
-    discover_projects, grouped_for_list, GroupedSessions, ProjectsConfig, SessionsConfig,
-};
+use crate::{grouped_for_list, GroupedSessions, ProjectsConfig, SessionsConfig};
 use serde::{Deserialize, Serialize};
 use std::net::IpAddr;
 use std::path::{Path, PathBuf};
@@ -36,6 +33,7 @@ struct ErrorBody {
 pub enum TailnetApiError {
     NotFound(String),
     BadRequest(String),
+    Unauthorized(String),
     Tmux(String),
 }
 
@@ -44,15 +42,17 @@ impl TailnetApiError {
         match self {
             TailnetApiError::NotFound(_) => "not_found",
             TailnetApiError::BadRequest(_) => "bad_request",
+            TailnetApiError::Unauthorized(_) => "unauthorized",
             TailnetApiError::Tmux(_) => "tmux_error",
         }
     }
 
     fn message(&self) -> String {
         match self {
-            TailnetApiError::NotFound(m) => m.clone(),
-            TailnetApiError::BadRequest(m) => m.clone(),
-            TailnetApiError::Tmux(m) => m.clone(),
+            TailnetApiError::NotFound(m)
+            | TailnetApiError::BadRequest(m)
+            | TailnetApiError::Unauthorized(m)
+            | TailnetApiError::Tmux(m) => m.clone(),
         }
     }
 }
@@ -103,12 +103,24 @@ struct SendRequest {
     enter: bool,
 }
 
+/// Parse `CDAMUX_TAILNET_BIND_ADDR`; unspecified addresses (`0.0.0.0`, `::`) are refused (ADR-004).
+pub fn parse_tailnet_bind_addr(raw: &str) -> Result<IpAddr, String> {
+    let ip: IpAddr = raw
+        .trim()
+        .parse()
+        .map_err(|e| format!("CDAMUX_TAILNET_BIND_ADDR: {e}"))?;
+    if ip.is_unspecified() {
+        return Err(format!(
+            "CDAMUX_TAILNET_BIND_ADDR={raw}: refusing to bind an unspecified address; use the tailnet IP or 127.0.0.1"
+        ));
+    }
+    Ok(ip)
+}
+
 /// Resolve bind address for tailnet HTTP (never `0.0.0.0`).
 pub fn resolve_tailnet_bind_ip() -> Result<IpAddr, String> {
     if let Ok(raw) = std::env::var("CDAMUX_TAILNET_BIND_ADDR") {
-        return raw
-            .parse()
-            .map_err(|e| format!("CDAMUX_TAILNET_BIND_ADDR: {e}"));
+        return parse_tailnet_bind_addr(&raw);
     }
     let output = std::process::Command::new("tailscale")
         .args(["ip", "-4"])
@@ -127,6 +139,35 @@ pub fn resolve_tailnet_bind_ip() -> Result<IpAddr, String> {
         return Err("tailscale ip -4 returned no address".into());
     }
     line.parse().map_err(|e| format!("parse tailscale IP: {e}"))
+}
+
+/// Header carrying the shared secret (`CDAMUX_TAILNET_TOKEN`).
+pub const TAILNET_TOKEN_HEADER: &str = "X-Cdamux-Token";
+
+/// Gate a `/v1/*` request: when `expected` (the env token) is set, `provided` (the header) must
+/// match byte-for-byte; when unset, every request passes. Returns the 401 response on mismatch.
+pub fn check_tailnet_token(
+    expected: Option<&str>,
+    provided: Option<&str>,
+) -> Result<(), TailnetResponse> {
+    let Some(expected) = expected else {
+        return Ok(());
+    };
+    // Constant-time compare without a new dependency: length check then full byte fold.
+    let provided = provided.unwrap_or("").as_bytes();
+    let expected = expected.as_bytes();
+    let mut diff = (provided.len() != expected.len()) as u8;
+    for i in 0..expected.len() {
+        diff |= expected[i] ^ provided.get(i).copied().unwrap_or(0);
+    }
+    if diff == 0 {
+        Ok(())
+    } else {
+        Err(json_error(
+            401,
+            TailnetApiError::Unauthorized(format!("missing or invalid {TAILNET_TOKEN_HEADER}")),
+        ))
+    }
 }
 
 pub trait TailnetApiBackend {
@@ -205,27 +246,25 @@ fn resolve_orch_repo_path(projects: &ProjectsConfig, repo: &str) -> Result<PathB
     if repo.is_empty() {
         return Err(TailnetApiError::BadRequest("missing repo query".into()));
     }
-    let path = PathBuf::from(repo);
-    if !path.is_absolute() {
+    if !Path::new(repo).is_absolute() {
         return Err(TailnetApiError::BadRequest(
             "repo must be an absolute path".into(),
         ));
     }
-    let discovered = discover_projects(projects);
-    if discovered.iter().any(|p| p.path == path) {
-        return Ok(path);
+    // Same 404 for "does not exist" and "outside roots": the body must not act as a path oracle.
+    let not_found = || TailnetApiError::NotFound("repo not under configured project roots".into());
+    // Canonicalize both sides so `..` and symlinks cannot escape a root.
+    let path = std::fs::canonicalize(repo).map_err(|_| not_found())?;
+    let under_root = projects
+        .roots
+        .iter()
+        .filter_map(|r| std::fs::canonicalize(&r.path).ok())
+        .any(|root| path.starts_with(&root));
+    if under_root {
+        Ok(path)
+    } else {
+        Err(not_found())
     }
-    if project_for_path(repo, &discovered).is_some() {
-        return Ok(path);
-    }
-    for root in &projects.roots {
-        if path.starts_with(Path::new(&root.path)) {
-            return Ok(path);
-        }
-    }
-    Err(TailnetApiError::NotFound(format!(
-        "repo not under configured project roots: {repo}"
-    )))
 }
 
 fn query_param(query: Option<&str>, key: &str) -> Option<String> {
@@ -345,17 +384,11 @@ pub fn dispatch_tailnet_request(
             Ok((graph, _)) => json_ok(200, &graph),
             Err(OrchGraphError::NotFound(_)) => json_error(
                 404,
-                TailnetApiError::NotFound(format!(
-                    "no .orch/graph/current.json under {}",
-                    repo_path.display()
-                )),
+                TailnetApiError::NotFound("no .orch/graph/current.json under repo".into()),
             ),
-            Err(OrchGraphError::Invalid { path, message }) => json_error(
+            Err(OrchGraphError::Invalid { message, .. }) => json_error(
                 422,
-                TailnetApiError::BadRequest(format!(
-                    "invalid current.json at {}: {message}",
-                    path.display()
-                )),
+                TailnetApiError::BadRequest(format!("invalid current.json: {message}")),
             ),
         };
     }
@@ -384,10 +417,7 @@ pub fn dispatch_tailnet_request(
             Some(st) => json_ok(200, &st),
             None => json_error(
                 404,
-                TailnetApiError::NotFound(format!(
-                    "no .orch/run/status.json under {}",
-                    repo_path.display()
-                )),
+                TailnetApiError::NotFound("no .orch/run/status.json under repo".into()),
             ),
         };
     }
@@ -526,9 +556,25 @@ mod tests {
         grouped: GroupedSessions,
         pane: Option<String>,
         send_ok: bool,
+        projects: ProjectsConfig,
+    }
+
+    fn mock_backend() -> MockBackend {
+        MockBackend {
+            version: "0".into(),
+            tmux_ok: true,
+            grouped: mock_grouped(),
+            pane: None,
+            send_ok: true,
+            projects: ProjectsConfig::default(),
+        }
     }
 
     impl TailnetApiBackend for MockBackend {
+        fn resolve_orch_repo(&self, repo: &str) -> Result<PathBuf, TailnetApiError> {
+            resolve_orch_repo_path(&self.projects, repo)
+        }
+
         fn version(&self) -> &str {
             &self.version
         }
@@ -578,10 +624,7 @@ mod tests {
     fn health_returns_version_and_tmux_flag() {
         let backend = MockBackend {
             version: "0.0.1".into(),
-            tmux_ok: true,
-            grouped: mock_grouped(),
-            pane: None,
-            send_ok: true,
+            ..mock_backend()
         };
         let resp = dispatch_tailnet_request("GET", "/v1/health", "", &backend);
         assert_eq!(resp.status, 200);
@@ -591,13 +634,7 @@ mod tests {
 
     #[test]
     fn sessions_returns_grouped_json() {
-        let backend = MockBackend {
-            version: "0".into(),
-            tmux_ok: true,
-            grouped: mock_grouped(),
-            pane: None,
-            send_ok: true,
-        };
+        let backend = mock_backend();
         let resp = dispatch_tailnet_request("GET", "/v1/sessions", "", &backend);
         assert_eq!(resp.status, 200);
         assert!(resp.body.contains("c-foo"));
@@ -606,11 +643,8 @@ mod tests {
     #[test]
     fn pane_not_found_is_structured_404() {
         let backend = MockBackend {
-            version: "0".into(),
-            tmux_ok: true,
-            grouped: mock_grouped(),
             pane: Some("hi".into()),
-            send_ok: true,
+            ..mock_backend()
         };
         let resp = dispatch_tailnet_request("GET", "/v1/sessions/c-missing/pane", "", &backend);
         assert_eq!(resp.status, 404);
@@ -619,13 +653,7 @@ mod tests {
 
     #[test]
     fn orch_graph_missing_file_is_404() {
-        let backend = MockBackend {
-            version: "0".into(),
-            tmux_ok: true,
-            grouped: mock_grouped(),
-            pane: None,
-            send_ok: true,
-        };
+        let backend = mock_backend();
         let resp = dispatch_tailnet_request(
             "GET",
             "/v1/sessions/c-foo/orch-graph",
@@ -637,13 +665,7 @@ mod tests {
 
     #[test]
     fn send_accepts_json_body() {
-        let backend = MockBackend {
-            version: "0".into(),
-            tmux_ok: true,
-            grouped: mock_grouped(),
-            pane: None,
-            send_ok: true,
-        };
+        let backend = mock_backend();
         let resp = dispatch_tailnet_request(
             "POST",
             "/v1/sessions/c-foo/send",
@@ -657,5 +679,88 @@ mod tests {
     #[test]
     fn decode_path_segment_percent() {
         assert_eq!(decode_path_segment("c%2Dfoo"), "c-foo");
+    }
+
+    #[test]
+    fn bind_addr_refuses_unspecified() {
+        assert!(parse_tailnet_bind_addr("0.0.0.0").unwrap_err().contains("CDAMUX_TAILNET_BIND_ADDR"));
+        assert!(parse_tailnet_bind_addr("::").is_err());
+        assert!(parse_tailnet_bind_addr("not-an-ip").is_err());
+        assert_eq!(parse_tailnet_bind_addr("100.64.0.7").unwrap().to_string(), "100.64.0.7");
+        assert!(parse_tailnet_bind_addr("127.0.0.1").is_ok());
+    }
+
+    /// Temp root with one repo holding a valid `current.json`; the backend only allows that root.
+    fn backend_with_root() -> (tempfile::TempDir, MockBackend) {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path().join("repo");
+        std::fs::create_dir_all(repo.join(".orch/graph")).unwrap();
+        std::fs::write(
+            repo.join(".orch/graph/current.json"),
+            r#"{"run_id":"r1","status":"running"}"#,
+        )
+        .unwrap();
+        let backend = MockBackend {
+            projects: ProjectsConfig {
+                roots: vec![crate::ProjectRoot { path: dir.path().to_path_buf(), label: String::new() }],
+                ..ProjectsConfig::default()
+            },
+            ..mock_backend()
+        };
+        (dir, backend)
+    }
+
+    #[test]
+    fn orch_graph_repo_query_serves_repo_under_root() {
+        let (dir, backend) = backend_with_root();
+        let url = format!("/v1/orch-graph?repo={}/repo", dir.path().display());
+        let resp = dispatch_tailnet_request("GET", &url, "", &backend);
+        assert_eq!(resp.status, 200, "{}", resp.body);
+        assert!(resp.body.contains("\"run_id\":\"r1\""));
+    }
+
+    #[test]
+    fn orch_graph_repo_traversal_is_404_without_path_echo() {
+        let (dir, backend) = backend_with_root();
+        // `<root>/repo/../../..` escapes the root once canonicalized; `/etc` exists, so a naive
+        // `starts_with` on the raw string would have passed.
+        let escaped = format!("{}/repo/../../../../../../etc", dir.path().display());
+        let resp = dispatch_tailnet_request(
+            "GET",
+            &format!("/v1/orch-graph?repo={escaped}"),
+            "",
+            &backend,
+        );
+        assert_eq!(resp.status, 404, "{}", resp.body);
+        assert!(!resp.body.contains("etc"), "body must not echo the path: {}", resp.body);
+
+        // Outside any root entirely (and nonexistent): identical 404 body, no oracle.
+        let resp2 = dispatch_tailnet_request("GET", "/v1/orch-graph?repo=/nonexistent/zzz", "", &backend);
+        assert_eq!(resp2.status, 404);
+        assert_eq!(resp.body, resp2.body);
+    }
+
+    #[test]
+    fn orch_graph_repo_must_be_absolute() {
+        let (_dir, backend) = backend_with_root();
+        let resp = dispatch_tailnet_request("GET", "/v1/orch-graph?repo=relative/x", "", &backend);
+        assert_eq!(resp.status, 400);
+    }
+
+    #[test]
+    fn token_check_rejects_missing_or_wrong_header() {
+        let missing = check_tailnet_token(Some("s3cret"), None).unwrap_err();
+        assert_eq!(missing.status, 401);
+        assert!(missing.body.contains("\"code\":\"unauthorized\""));
+        assert_eq!(check_tailnet_token(Some("s3cret"), Some("s3cre")).unwrap_err().status, 401);
+        assert_eq!(check_tailnet_token(Some("s3cret"), Some("s3cretX")).unwrap_err().status, 401);
+        assert_eq!(check_tailnet_token(Some("s3cret"), Some("S3CRET")).unwrap_err().status, 401);
+    }
+
+    #[test]
+    fn token_check_passes_when_matching_or_unset() {
+        assert!(check_tailnet_token(Some("s3cret"), Some("s3cret")).is_ok());
+        assert!(check_tailnet_token(None, None).is_ok());
+        assert!(check_tailnet_token(None, Some("anything")).is_ok());
     }
 }

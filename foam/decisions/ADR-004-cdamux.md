@@ -53,6 +53,30 @@ Research and feature matrix: [`cdamux/docs/research.md`](../../cdamux/docs/resea
   unless v0 stays narrow.
 - **Constraint**: Do not break ADR-001 (host tools outside kit install path).
 
+## Amendment 2026-11 — tailnet API hardening
+
+Context: KISS audit finding 8 ([#90](https://github.com/chatondearu/ai-dev-kit/issues/90),
+[#96](https://github.com/chatondearu/ai-dev-kit/issues/96)). `POST /v1/sessions/:id/send`
+drives agent shells; "tailnet only" was the sole guard and `CDAMUX_TAILNET_BIND_ADDR`
+accepted `0.0.0.0`.
+
+Decisions (status stays **accepted**):
+
+1. **Unspecified binds are refused.** `CDAMUX_TAILNET_BIND_ADDR=0.0.0.0` / `::` is an
+   error naming the variable; the tailnet server does not start. Rejected alternative:
+   warn and bind anyway — it contradicts "no network except explicit tailnet bind".
+2. **Shared token, env-driven.** `CDAMUX_TAILNET_TOKEN` set ⇒ every `/v1/*` request
+   must carry `X-Cdamux-Token` (constant-time compare, 401 JSON otherwise). Unset ⇒
+   open API + one startup warning, so existing dogfood setups keep working. Rotation
+   = change env + restart. Rejected alternatives: per-peer Tailscale identity headers
+   (needs `tailscale serve`/whois plumbing, out of v0 scope), a new auth dependency
+   (ADR constraint: minimize dependencies). Static dashboard assets stay public; the
+   dashboard reads the token from `localStorage.cdamux_token`.
+3. **`?repo=` is canonicalized** and must resolve under a configured root; 404 bodies
+   never echo the path (no directory-existence oracle).
+
+Docs: [`cdamux/docs/tailnet-api.md`](../../cdamux/docs/tailnet-api.md).
+
 ## References
 
 - PRD: [`prd/PRD-39-cdamux.md`](../../prd/PRD-39-cdamux.md)

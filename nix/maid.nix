@@ -54,7 +54,6 @@ let
     (homeDir: map (mkSkill homeDir) skillEntries)
     skillDirs;
 
-  cursorRuleFiles = map (mk ".cursor/user-rules" "rules") (childrenOf "rules");
   cursorAgentFiles = map (mk ".cursor/agents" "agents") (childrenOf "agents");
   cursorPluginFiles = map (mk ".cursor/plugins/local" "cursor/plugins/local")
     (childrenOf "cursor/plugins/local");
@@ -64,7 +63,7 @@ let
     value.source = "${repoPath}/claude/CLAUDE.md";
   };
 
-  all = skillFiles ++ cursorRuleFiles ++ cursorAgentFiles ++ cursorPluginFiles
+  all = skillFiles ++ cursorAgentFiles ++ cursorPluginFiles
     ++ [ claudeMdFile ];
 in
 {

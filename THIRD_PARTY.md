@@ -24,7 +24,7 @@ contributed.
 | -------- | ------- | ------------ |
 | [mattpocock/skills](https://github.com/mattpocock/skills) | MIT | `cda-tdd`, `cda-diagnose`, `cda-grill`, `cda-prototype`, `cda-retro`, `cda-wizard`, `cda-writing`, `cda-codebase`, `cda-architecture`, `cda-standards`; pipeline ideas in `cda-explore`, `cda-triage`, `cda-dev`, `cda-foam` |
 | [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail) | MIT | `cda-kiss` (+ hooks), `cda-kiss-audit`, and the leanness lens in `cda-review` / `cda-dev` |
-| [ayghri/i-have-adhd](https://github.com/ayghri/i-have-adhd) | MIT | `rules/02-adhd-output.md` (reply shape, always-on via CLAUDE.md / Cursor user-rules) |
+| [ayghri/i-have-adhd](https://github.com/ayghri/i-have-adhd) | MIT | `rules/02-adhd-output.md` (reply shape, always-on via `CLAUDE.md` or pasted into Cursor Rules for AI) |
 | [Citability/claude-code-adhd-skills](https://github.com/Citability/claude-code-adhd-skills) | MIT | `cda-standing` (extended to every project) |
 | [onion-42/nadja-public-claude-skills](https://github.com/onion-42/nadja-public-claude-skills) | MIT | `cda-goal`, `cda-reflect`, `cda-nopanic`; the anti-loop rule in `cda-kiss` (from `step-back`) |
 | [mohitagw15856/pm-claude-skills](https://github.com/mohitagw15856/pm-claude-skills) | MIT | `cda-where`, `cda-overwhelm`, `cda-hyperfocus`, `cda-body-double`, `cda-unstuck` (made evidence-first) |

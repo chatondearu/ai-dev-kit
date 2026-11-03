@@ -120,7 +120,8 @@ export ORCH_AGENT="$STUB_BIN/stub-agent" ORCH_PROGRESS=0 ORCH_FRONTIER=0
 # Repo with a Verify block and a PLAN for issue 1 (full lane, no brief needed).
 mk_repo() {
   local r="$1" with_verify="$2"
-  mkdir -p "$r/plans"
+  mkdir -p "$r/plans" "$r/prd"
+  echo prd >"$r/prd/PRD-1-test.md"
   git -C "$r" init -q
   git -C "$r" config user.email t@t
   git -C "$r" config user.name t
@@ -143,6 +144,7 @@ assert_contains "$out_ok" "done: issue 1 (PR 55" "done after approved review"
 WT1="$(orch_worktree_path "$R1" 1 issue-1)"
 assert_file "$STUB_KEEP/reviewer-prompt-1.md" "reviewer prompt rendered in a fresh file"
 assert_contains "$(cat "$STUB_KEEP/reviewer-prompt-1.md")" "Plan: \`plans/PLAN-1-test.md\`" "reviewer prompt has PLAN_PATH"
+assert_contains "$(cat "$STUB_KEEP/reviewer-prompt-1.md")" "Epic PRD: \`prd/PRD-1-test.md\`" "reviewer prompt has PRD_PATH"
 assert_contains "$(cat "$STUB_KEEP/reviewer-prompt-1.md")" "Worktree cwd: $WT1" "reviewer prompt has WORKTREE"
 assert_eq "$(cat "$STUB_KEEP/review-count")" "1" "approved -> exactly one review"
 if [ -e "$WT1/.orch/worker-prompt-review-fix.md" ]; then

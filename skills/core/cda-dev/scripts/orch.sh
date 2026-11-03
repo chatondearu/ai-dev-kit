@@ -275,7 +275,8 @@ orch_ready_pickup_one() {
       "REPO_ROOT=$ORCH_REPO" \
       "TITLE=$title" \
       "PLAN_PATH=$plan_path" \
-      "BRIEF_PATH=$brief_path"
+      "BRIEF_PATH=$brief_path" \
+      "PRD_PATH=$ORCH_PRD_PATH"
     orch_progress_set "$id" review "reviewer round ${round} (PR #${pr_num})"
     if orch_sandbox_wrap bash -c "$worker_env orch_review_run \"$path\" \"$review_prompt\" \"$review_log\""; then
       break
@@ -340,21 +341,7 @@ orch_ready_pickup_one() {
   return 0
 }
 
-export -f orch_ready_pickup_one orch_fetch_agent_brief
-export -f orch_loop_worker orch_graph_worker orch_graph_integrator_run
-export -f orch_graph_init orch_graph_upsert_node orch_graph_add_edge orch_graph_finish orch_graph_touch
-export -f orch_graph_locked_jq orch_graph_enabled orch_graph_file orch_graph_now orch_graph_verifier_pass
-export -f orch_worker_result_warn
-export -f orch_graph_plan_run orch_graph_plan_run_task orch_graph_plan_validate_disjoint
-export -f orch_graph_plan_wants_parallel orch_graph_norm_path orch_graph_paths_overlap
-export -f orch_agent_run orch_run_verify orch_resolve_verify orch_verify_retry_prompt orch_resolve_context
-export -f orch_review_run orch_review_fix_prompt
-export -f _orch_extract_agents_verify orch_detect_agent orch_render_prompt
-export -f orch_pr_mergeable orch_pr_checks_watch _orch_pr_checks_classify
-export -f orch_worktree_path orch_worktree_add orch_worktree_bootstrap orch_worktree_remove
-export -f orch_sandbox_wrap
-export -f orch_progress_dir orch_progress_enabled orch_progress_set orch_progress_write_json
-export -f orch_progress_icon orch_progress_draw
+orch_export_functions
 
 # Serialize ready-pickup / pr-fix against orch-auto and concurrent orch (ADR-002).
 orch_acquire_lock() {

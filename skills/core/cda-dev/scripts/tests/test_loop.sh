@@ -5,6 +5,9 @@ source "$TROOT/helpers.sh"
 source "$TROOT/../lib/agents.sh"
 source "$TROOT/../lib/verify.sh"
 source "$TROOT/../lib/loop.sh"
+source "$TROOT/../lib/graph.sh"
+# --no-graph path: the same loop must still run verify and the grounding verifier.
+export ORCH_GRAPH=0
 
 TMP="$(mktemp -d)"
 FAKE="$(mktemp -d)"
@@ -106,6 +109,31 @@ set -e
 rm -rf "$TMP2C"
 assert_eq "$rc_nov" "3" "loop returns 3 when no verify command"
 assert_contains "$out_nov" "verify: no command (add 'orch: allow-no-verify'" "logs no-verify reason"
+
+# Test 2d: stale verifier-ok from a previous pass must not pass a failing verifier (ADR-006)
+TMP2D="$(mktemp -d)"
+printf '{"scripts":{"test":"npm test"}}\n' >"$TMP2D/package.json"
+mkdir -p "$TMP2D/.orch" "$TMP2D/prompts"
+touch "$TMP2D/.orch/verifier-ok"
+printf '# Verifier (grounding node)\n' >"$TMP2D/prompts/verifier.md"
+cat >"$FAKE/npm" <<EOF
+#!$STUB_BASH
+exit 0
+EOF
+cat >"$FAKE/claude-verifier-fail" <<EOF
+#!$STUB_BASH
+case "\$(cat)" in *"Verifier (grounding node)"*) echo "- not grounded" >.orch/verifier-fail ;; esac
+exit 0
+EOF
+chmod +x "$FAKE/claude-verifier-fail"
+set +e
+out_stale="$(ORCH_PROMPTS_DIR="$TMP2D/prompts" ORCH_REPO="$TMP2D" ORCH_AGENT="$FAKE/claude-verifier-fail" \
+  ORCH_MAX_ITER=1 orch_loop_worker "$TMP2D" "$PROMPT" 2>&1)"
+rc_stale=$?
+set -e
+assert_eq "$rc_stale" "1" "stale verifier-ok + verifier-fail -> loop fails (also with ORCH_GRAPH=0)"
+assert_contains "$out_stale" "grounding verifier failed" "logs grounding verifier failure"
+rm -rf "$TMP2D"
 
 # Test 3: Prompt substitution helper
 TMP_TPL="$(mktemp)"

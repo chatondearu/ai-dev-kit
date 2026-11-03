@@ -69,6 +69,15 @@ lazy worker is caught by nobody before the operator opens the PR.
   Harness tests stubbing an agent must answer `REVIEW: approved` and create
   `.orch/verifier-ok` to reach `done`.
 
+## Amendments
+
+- **2026-11-03** ([#130](https://github.com/chatondearu/ai-dev-kit/issues/130)):
+  `.orch/verifier-ok` / `.orch/verifier-fail` are cleared before every verifier
+  pass, so a marker left by an earlier pass (review fix, reused worktree) never
+  decides the current one. `orch_loop_worker` delegates to `orch_graph_worker`:
+  the verifier runs in both loop modes (`--no-graph` only stops `current.json`
+  writes). In the fast lane the verifier reads `.orch/brief.md` as its contract.
+
 ## References
 
 - `skills/core/cda-dev/scripts/orch.sh` (`orch_ready_pickup_one`),

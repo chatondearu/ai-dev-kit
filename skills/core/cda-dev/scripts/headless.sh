@@ -100,11 +100,7 @@ fi
 
 if [ "$SANDBOX" = 1 ]; then
   export ORCH_WT="$REPO"
-  export -f orch_loop_worker orch_graph_worker orch_agent_run orch_run_verify orch_resolve_verify
-  export -f orch_graph_enabled orch_graph_file orch_graph_now orch_graph_init
-  export -f orch_graph_upsert_node orch_graph_add_edge orch_graph_touch orch_graph_verifier_pass
-  export -f _orch_extract_agents_verify orch_detect_agent orch_render_prompt orch_resolve_context
-  export -f orch_sandbox_wrap
+  orch_export_functions
   orch_graph_init "headless-$(date -u +%Y%m%dT%H%M%SZ)"
   if orch_sandbox_wrap bash -c \
     "ORCH_WT=\"$REPO\" ORCH_REPO=\"$REPO\" ORCH_MAX_ITER=\"$MAX_I\" orch_loop_worker \"$REPO\" \"$PROMPT_PATH\""; then

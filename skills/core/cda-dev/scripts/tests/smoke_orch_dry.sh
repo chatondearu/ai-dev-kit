@@ -95,7 +95,11 @@ case "$*" in
     esac
     ;;
   *"pr checks"*)
-    if [ "${GH_STUB_CHECKS_FAIL:-0}" = "1" ]; then
+    if [ "${GH_STUB_NO_CHECKS:-0}" = "1" ]; then
+      # Real gh on a PR without checks: empty stdout, stderr message, exit 1.
+      echo "no checks reported on the 'feat/x' branch" >&2
+      exit 1
+    elif [ "${GH_STUB_CHECKS_FAIL:-0}" = "1" ]; then
       echo '[{"name":"ci","state":"FAILURE","bucket":"fail"}]'
     else
       echo '[{"name":"ci","state":"SUCCESS","bucket":"pass"}]'
@@ -158,6 +162,7 @@ assert_file "$WT_PATH" "worktree path after dispatch (issue 1)"
 assert_file "$WT_PATH/.orch/worker-prompt.md" "rendered worker prompt exists under worktree (issue 1)"
 assert_file "$WT_PATH/.orch/brief.md" "fast-lane brief written under worktree (issue 1)"
 assert_contains "$(cat "$WT_PATH/.orch/worker-prompt.md")" "Lane: \`fast\`" "worker prompt is fast-lane without PLAN"
+assert_contains "$(cat "$WT_PATH/.orch/verifier-prompt.md")" "/.orch/worktrees/1-issue-1/.orch/brief.md" "fast-lane verifier reads the brief"
 
 orch_worktree_remove "$TMP" "$WT_PATH"
 if [ -e "$TMP/.orch/worktrees/1-issue-1" ]; then
@@ -188,6 +193,15 @@ else
   PASSES=$((PASSES + 1))
 fi
 assert_contains "$out_pr_ok" "removed $WT_PATH2" "orch-cleanup reported the done worktree"
+
+echo "# orch ready-pickup (issue 12: no checks reported + ORCH_ALLOW_NO_CHECKS=1 -> done)"
+set +e
+out_nochk="$(ORCH_ALLOW_NO_CHECKS=1 _ORCH_CI_NO_CHECKS_GRACE=0 GH_STUB_NO_CHECKS=1 GH_STUB_PR_NUM=112 \
+  bash "$SCRIPTS/orch.sh" --repo "$TMP" --mode ready-pickup --issue 12 --agent "$STUB_BIN/stub-agent" 2>&1)"
+rc_nochk=$?
+set -e
+assert_eq "$rc_nochk" "0" "allow-no-checks reaches done when gh reports no checks"
+assert_contains "$out_nochk" "done: issue 12 (PR 112 checks green" "done printed with no checks + opt-in"
 
 echo "# orch ready-pickup (issue 3: checks green but mergeable=CONFLICTING -> blocked, exit nonzero)"
 set +e

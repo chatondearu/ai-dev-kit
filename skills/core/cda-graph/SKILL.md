@@ -82,7 +82,7 @@ bash "$SKILL/scripts/orch.sh" --no-graph --mode ready-pickup --issue 12
 
 | Flag / env | Effect |
 | ---------- | ------ |
-| `--no-graph` / `ORCH_GRAPH=0` | No `current.json` updates |
+| `--no-graph` / `ORCH_GRAPH=0` | No `current.json` updates (same worker loop, verifier still runs) |
 | `ORCH_GRAPH_VERIFY=1` | Verifier agent after verify |
 | `ORCH_GRAPH_INTEGRATOR=1` | Integrator even for one issue |
 | `ORCH_GRAPH_PLAN_PARALLEL=auto` | Parallel graph-plan tasks if paths disjoint |

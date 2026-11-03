@@ -20,7 +20,6 @@ ISSUE=""
 SLUG=""
 
 log() { printf '%s\n' "$*"; }
-run() { if [ "$DRY" = 1 ]; then printf 'DRY  %s\n' "$*"; else eval "$*"; fi; }
 die() { printf 'new-plan.sh: %s\n' "$*" >&2; exit 1; }
 
 usage() {
@@ -32,18 +31,25 @@ prefill_plan() {
   local dest="$1" title="$2" url="$3" num="$4" slug="$5" st="$6" prd_base="$7"
   local adr_table="" adr
   local kw
-  kw="$(printf '%s' "$title" | tr '[:upper:]' '[:lower:]' | awk '{print $1,$2,$3}')"
+  # First 3 title words of 4+ chars, as an alternation ("foo|bar|baz").
+  kw="$(printf '%s' "$title" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9\n' ' ' \
+    | awk '{ for (i=1; i<=NF && n<3; i++) if (length($i) >= 4) { printf "%s%s", (n++ ? "|" : ""), $i } }')"
 
-  while IFS= read -r adr; do
-    [ -n "$adr" ] || continue
-    adr_table="${adr_table}| [[../foam/decisions/${adr}|${adr}]] | _(review)_ |\n"
-  done < <(search_related_adrs "$ROOT" "$kw" || true)
+  # Empty kw would make grep -E match every ADR.
+  if [ -n "$kw" ]; then
+    while IFS= read -r adr; do
+      [ -n "$adr" ] || continue
+      adr_table="${adr_table}| [[../foam/decisions/${adr}|${adr}]] | _(review)_ |"$'\n'
+    done < <(search_related_adrs "$ROOT" "$kw" || true)
+  fi
 
-  [ -n "$adr_table" ] || adr_table="| _(none matched — add ADRs manually)_ | … |\n"
+  [ -n "$adr_table" ] || adr_table="| _(none matched — add ADRs manually)_ | … |"$'\n'
 
-  awk -v title="$title" -v url="$url" -v num="$num" -v slug="$slug" \
-      -v date="$(today)" -v st="$st" -v prd="$prd_base" -v adrs="$adr_table" '
-    BEGIN { n=0; inadr=0 }
+  # Free text goes via env: awk -v interprets backslashes (e.g. "\n" in titles).
+  PLAN_TITLE="$title" PLAN_URL="$url" PLAN_ST="$st" PLAN_ADRS="$adr_table" \
+    awk -v num="$num" -v slug="$slug" -v date="$(today)" -v prd="$prd_base" '
+    BEGIN { title = ENVIRON["PLAN_TITLE"]; url = ENVIRON["PLAN_URL"]; st = ENVIRON["PLAN_ST"]
+            adrs = ENVIRON["PLAN_ADRS"]; inadr=0 }
     /^# PLAN-XXX/ { print "# PLAN-" num " — " title; next }
     /^- \*\*Status\*\*/ { print "- **Status**: " st; next }
     /^- \*\*PRD\*\*/ { print "- **PRD**: [[../prd/" prd "|" prd "]]"; next }
@@ -53,7 +59,6 @@ prefill_plan() {
     inadr && /^\| ADR \|/ { next }
     inadr && /^\| \[\[/ { next }
     inadr && /^Do not violate/ { inadr=0 }
-    inadr && /^\| \[\[.*ADR-001/ { next }
   { print }
   ' "$dest" > "${dest}.tmp" && mv "${dest}.tmp" "$dest"
 }
@@ -116,7 +121,7 @@ main() {
     exit 0
   fi
 
-  run "cp \"$TEMPLATE\" \"$DEST\""
+  cp "$TEMPLATE" "$DEST"
   prefill_plan "$DEST" "$TITLE" "$URL" "$ISSUE" "$SLUG" "$STATUS" "$PRD_BASE"
   log "add  $DEST"
   log ""

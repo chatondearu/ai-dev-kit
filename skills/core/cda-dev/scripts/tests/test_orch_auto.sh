@@ -98,7 +98,7 @@ assert_contains "$(cat "$TMP/stderr")" "skip #11 (ready-for-human)" "labels stil
 echo "# orch-auto keeps only the newest 50 logs"
 for n in $(seq -w 1 60); do
   : >"$TMP/.orch/auto/old-$n.log"
-  touch -t "20000101${n}00" "$TMP/.orch/auto/old-$n.log"
+  touch -t "$(printf '2000010112%02d' $((10#$n - 1)))" "$TMP/.orch/auto/old-$n.log"  # minutes 00-59: valid for GNU and BSD touch
 done
 bash "$SCRIPTS/orch-auto.sh" --repo "$TMP" --dry-run >/dev/null 2>&1
 # 49 kept + the new log; 49 total when the new log shares a second-resolution name with an earlier one

@@ -135,15 +135,19 @@ pub fn session_subagents(session: &str) -> Vec<ChildRow> {
     rows
 }
 
-/// User/assistant text of a Claude-style JSONL transcript; tool calls, tool
-/// results and thinking blocks are skipped.
+/// User/assistant text of a Claude- or Cursor-style JSONL transcript (role in
+/// `message.role` or at the top level); tool calls, tool results and thinking
+/// blocks are skipped.
 fn transcript_lines(jsonl: &str) -> Vec<String> {
     let mut out = Vec::new();
     for line in jsonl.lines() {
         let Ok(v) = serde_json::from_str::<Value>(line) else {
             continue;
         };
-        let role = v["message"]["role"].as_str().unwrap_or_default();
+        let role = v["message"]["role"]
+            .as_str()
+            .or(v["role"].as_str())
+            .unwrap_or_default();
         if role != "user" && role != "assistant" {
             continue;
         }
@@ -261,5 +265,16 @@ not json
             ["assistant: Found it", "  in main.rs"]
         );
         assert_eq!(transcript_tail(&dir.path().join("missing"), 5), "(transcript unavailable)");
+    }
+
+    #[test]
+    fn transcript_lines_reads_cursor_top_level_role() {
+        let jsonl = [
+            r#"{"role":"user","message":{"content":[{"type":"text","text":"List files"}]}}"#,
+            r#"{"role":"assistant","message":{"content":[{"type":"text","text":"Done"}]}}"#,
+            r#"{"type":"turn_ended","status":"success"}"#,
+        ]
+        .join("\n");
+        assert_eq!(transcript_lines(&jsonl), ["user: List files", "assistant: Done"]);
     }
 }

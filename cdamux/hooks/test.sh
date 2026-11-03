@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# cdamux Claude sub-agent hook: sample payloads -> ledger lines. A stub `tmux` on
+# cdamux sub-agent adapters (Claude, Cursor, opencode): sample payloads -> ledger lines. A stub `tmux` on
 # PATH answers the session name, so no tmux server is touched.
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -34,4 +34,40 @@ hook '{"session_id":"s1","hook_event_name":"SubagentStart","agent_id":"last","ag
 [ "$(wc -l < "$L" | tr -d ' ')" = 500 ] || fail "ledger not trimmed to 500"
 [ "$(tail -n 1 "$L" | jq -r .id)" = last ] || fail "trim lost the newest line"
 
-echo "ok: cdamux claude sub-agent hook"
+# Cursor: payloads shaped from https://cursor.com/docs/hooks (not recorded live).
+C="$PWD/cursor-subagent.js"
+cursor() { printf '%s' "$1" | node "$C" || fail "cursor hook exited non-zero"; }
+rm -f "$L"
+out="$(cursor '{"hook_event_name":"subagentStart","transcript_path":"/c/agent-transcripts/p1/p1.jsonl","subagent_id":"u-1","subagent_type":"explore","parent_conversation_id":"p1","task":"x"}')"
+[ "$out" = '{"permission":"allow"}' ] || fail "cursor start must answer allow, got: $out"
+out="$(cursor '{"hook_event_name":"subagentStop","subagent_type":"explore","status":"error","agent_transcript_path":"/c/agent-transcripts/p1/subagents/u-1.jsonl"}')"
+[ "$out" = '{}' ] || fail "cursor stop output, got: $out"
+jq -e 'select(.event=="start") | .cli=="cursor" and .id=="u-1" and .parent_id=="p1" and .name=="explore"
+  and .transcript=="/c/agent-transcripts/p1/subagents/u-1.jsonl"' "$L" >/dev/null || fail "cursor start line wrong"
+jq -e 'select(.event=="stop") | .id=="u-1" and .status=="error"' "$L" >/dev/null || fail "cursor stop line wrong"
+cursor '{"hook_event_name":"subagentStop","status":"completed"}' >/dev/null   # no id derivable: skipped
+out="$(cursor 'not json')"; [ "$out" = '{"permission":"allow"}' ] || fail "cursor bad JSON must still allow"
+[ "$(wc -l < "$L" | tr -d ' ')" = 2 ] || fail "cursor skipped payloads wrote a line"
+
+# opencode: events shaped from the SDK types (Session.parentID); not recorded live.
+rm -f "$L"
+node --input-type=module -e '
+const { CdamuxSubagent } = await import(process.argv[1]);
+const { event } = await CdamuxSubagent();
+const info = (id, parentID) => ({ id, parentID, title: "Explore (@explore subagent)" });
+await event({ event: { type: "session.created", properties: { info: info("ses_main") } } });
+await event({ event: { type: "session.created", properties: { info: info("ses_c1", "ses_main") } } });
+await event({ event: { type: "session.created", properties: { info: info("ses_c2", "ses_main") } } });
+await event({ event: { type: "session.idle", properties: { sessionID: "ses_main" } } });
+await event({ event: { type: "session.idle", properties: { sessionID: "ses_c1" } } });
+await event({ event: { type: "session.idle", properties: { sessionID: "ses_c1" } } });
+await event({ event: { type: "session.error", properties: { sessionID: "ses_c2" } } });
+await event({ event: { type: "bogus" } });
+await event({});
+' "$PWD/opencode-subagent.js" || fail "opencode plugin threw"
+[ "$(wc -l < "$L" | tr -d ' ')" = 4 ] || fail "opencode: expected 2 start + 2 stop lines"
+jq -e 'select(.event=="start" and .id=="ses_c1") | .cli=="opencode" and .parent_id=="ses_main" and .name=="Explore (@explore subagent)"' "$L" >/dev/null || fail "opencode start line wrong"
+jq -e 'select(.event=="stop" and .id=="ses_c2") | .status=="error"' "$L" >/dev/null || fail "opencode error stop wrong"
+jq -e 'select(.event=="stop" and .id=="ses_c1") | .status==null' "$L" >/dev/null || fail "opencode idle stop wrong"
+
+echo "ok: cdamux sub-agent adapters"

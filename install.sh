@@ -28,9 +28,9 @@
 # enabled tool's lifecycle hooks (needs jq; merge is idempotent). Cursor:
 # sessionStart + beforeSubmitPrompt. Claude Code: SessionStart, SubagentStart,
 # UserPromptSubmit. opencode: kiss.mjs plugin.
-# --cdamux-hooks (opt-in, Claude only) also wires cdamux/hooks/claude-subagent.js
-# on SubagentStart/SubagentStop: it feeds the cdamux sub-agent ledger
-# (cdamux/docs/subagents.md). --uninstall removes it.
+# --cdamux-hooks (opt-in) also wires the cdamux sub-agent ledger adapters
+# (cdamux/docs/subagents.md) into each enabled tool: Claude (SubagentStart/Stop),
+# Cursor (subagentStart/subagentStop), opencode (plugin link). --uninstall removes them.
 #
 # Tool selection: a tool defaults to ON when its config dir exists (Cursor is
 # always considered). --<tool> forces ON, --no-<tool> forces OFF. The universal
@@ -192,6 +192,20 @@ wire_cdamux_claude_hooks() {
   log "hook $f (cdamux ledger: SubagentStart/SubagentStop)"
 }
 
+wire_cdamux_cursor_hooks() {
+  local f="$CURSOR_HOME/hooks.json" dir="$CDAMUX_HOOKS_DIR"
+  command -v jq >/dev/null 2>&1 || { log "skip cdamux hooks (cursor): jq not found"; return 0; }
+  if [ "$DRY" = 1 ]; then log "DRY  wire cdamux hooks → $f"; return 0; fi
+  mkdir -p "$CURSOR_HOME"; [ -f "$f" ] || printf '{"version":1,"hooks":{}}\n' > "$f"
+  _kiss_jq_inplace "$f" '
+    def strip(ev): (.hooks[ev] // []) | map(select((.command? // "") | contains($dir) | not));
+    .version //= 1 | .hooks //= {}
+    | .hooks.subagentStart = (strip("subagentStart") + [{command:$cmd, timeout:5}])
+    | .hooks.subagentStop  = (strip("subagentStop")  + [{command:$cmd, timeout:5}])
+  ' --arg dir "$dir" --arg cmd "node \"$dir/cursor-subagent.js\"" || return 0
+  log "hook $f (cdamux ledger: subagentStart/subagentStop)"
+}
+
 unwire_hooks() { # strip one hook dir's entries (default: kiss) from a tool's hook file, drop now-empty events
   local f="$1" dir="${2:-$KISS_HOOKS_DIR}"
   command -v jq >/dev/null 2>&1 || return 0
@@ -275,8 +289,6 @@ main() {
     if is_enabled claude; then
       log "# kiss hooks → claude"
       if [ "$UNINSTALL" = 1 ]; then unwire_hooks "$CLAUDE_HOME/settings.json"; else wire_claude_hooks; fi
-      if [ "$UNINSTALL" = 1 ]; then unwire_hooks "$CLAUDE_HOME/settings.json" "$CDAMUX_HOOKS_DIR"
-      elif [ "$CDAMUX_HOOKS" = 1 ]; then log "# cdamux hooks → claude"; wire_cdamux_claude_hooks; fi
     fi
     if is_enabled cursor; then
       log "# kiss hooks → cursor"
@@ -287,6 +299,23 @@ main() {
       local mjs="$REPO_DIR/skills/quality/cda-kiss/opencode/kiss.mjs"
       if [ "$UNINSTALL" = 1 ]; then unlink_one "$mjs" "$XDG/opencode/plugin/kiss.mjs"
       else link_one "$mjs" "$XDG/opencode/plugin/kiss.mjs"; fi
+    fi
+  fi
+
+  # cdamux sub-agent ledger adapters: opt-in with --cdamux-hooks, always removed by --uninstall
+  if [ "$HOOKS" = 1 ]; then
+    local ocp="$REPO_DIR/cdamux/hooks/opencode-subagent.js" ocl="$XDG/opencode/plugins/cdamux-subagent.js"
+    if is_enabled claude; then
+      if [ "$UNINSTALL" = 1 ]; then unwire_hooks "$CLAUDE_HOME/settings.json" "$CDAMUX_HOOKS_DIR"
+      elif [ "$CDAMUX_HOOKS" = 1 ]; then log "# cdamux hooks → claude"; wire_cdamux_claude_hooks; fi
+    fi
+    if is_enabled cursor; then
+      if [ "$UNINSTALL" = 1 ]; then unwire_hooks "$CURSOR_HOME/hooks.json" "$CDAMUX_HOOKS_DIR"
+      elif [ "$CDAMUX_HOOKS" = 1 ]; then log "# cdamux hooks → cursor"; wire_cdamux_cursor_hooks; fi
+    fi
+    if is_enabled opencode; then
+      if [ "$UNINSTALL" = 1 ]; then unlink_one "$ocp" "$ocl"
+      elif [ "$CDAMUX_HOOKS" = 1 ]; then log "# cdamux plugin → opencode"; link_one "$ocp" "$ocl"; fi
     fi
   fi
 

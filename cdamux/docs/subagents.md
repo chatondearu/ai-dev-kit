@@ -7,19 +7,22 @@ one Fleet child row per sub-agent under its session, with the sub-agent transcri
 tail as preview.
 
 This file is the contract for every adapter (#159 Claude Code, #160 the others).
+All adapters share one writer, `cdamux/hooks/ledger.js` (tmux session lookup,
+append, trim).
 
 ## CLI support
 
 | CLI | Adapter | Status |
 | --- | ------- | ------ |
 | Claude Code | `cdamux/hooks/claude-subagent.js` on `SubagentStart` / `SubagentStop` | supported |
-| Cursor | — | U4 (#160) |
-| opencode | — | U4 (#160) |
-| pi | — | U4 (#160) |
+| Cursor | `cdamux/hooks/cursor-subagent.js` on `subagentStart` / `subagentStop` | supported (see notes: payloads from docs, not recorded live) |
+| opencode | `cdamux/hooks/opencode-subagent.js` plugin on `session.created` / `session.idle` / `session.error` / `session.deleted` | supported, no transcript preview (payloads from SDK types, not run live) |
+| pi | none | gap: pi has no sub-agents (see notes); revisit if pi or a pi package adds a sub-agent/child-session event |
 
-Install (opt-in, Claude only): `./install.sh --claude --cdamux-hooks`.
-`./install.sh --uninstall` removes it. A plain `./install.sh` neither adds nor
-removes it.
+Install (opt-in): `./install.sh --cdamux-hooks` wires every enabled tool (Claude
+`settings.json`, Cursor `hooks.json`, opencode plugin link in
+`~/.config/opencode/plugins/`). `./install.sh --uninstall` removes them. A plain
+`./install.sh` neither adds nor removes them.
 
 ## Path
 
@@ -94,3 +97,56 @@ also `agent_transcript_path`, `last_assistant_message`):
 - The docs show `agent_id` both with and without an `agent-` prefix; the adapter
   strips it so `start` and `stop` share one `id`.
 - A leading `~/` in a path is expanded to `$HOME`.
+
+## Cursor notes
+
+Docs: <https://cursor.com/docs/hooks> (`subagentStart`: `subagent_id`,
+`subagent_type`, `parent_conversation_id`; `subagentStop`: `subagent_type`,
+`status` = `completed` | `error` | `aborted`, `agent_transcript_path`; no id).
+
+- `subagentStop` has no id and `subagentStart` has no transcript path. The
+  adapter links them by file name: Cursor writes
+  `<project>/agent-transcripts/<parent>/subagents/<subagent_id>.jsonl` (seen on
+  disk), so `start` derives that path from the common `transcript_path`, and `stop`
+  takes its `id` from the basename of `agent_transcript_path`. A `stop` without
+  `agent_transcript_path` is skipped (the row then stays running until trimmed).
+- `subagentStart` is a permission hook: empty or invalid output blocks the
+  sub-agent, so the adapter always prints `{"permission":"allow"}` (`{}` on stop).
+- Only `status: error` marks a failed row; `aborted` shows as done.
+- Cursor transcripts put `role` at the top level (`{"role":…,"message":{"content":[…]}}`);
+  `transcript_tail` reads both shapes.
+- Not checked live: the docs do not say whether `cursor-agent` (CLI) runs
+  `subagentStart`/`subagentStop` (only `workspaceOpen` is stated for the CLI), and
+  the payloads in the tests are shaped from the docs. Verify with a real
+  sub-agent run before relying on it.
+
+## opencode notes
+
+Docs: plugins <https://opencode.ai/docs/plugins/> (`event` hook, plugins in
+`~/.config/opencode/plugins/`); event and `Session` types (`parentID?`, `title`)
+in the SDK, `packages/sdk/js/src/gen/types.gen.ts`
+(<https://opencode.ai/docs/sdk/>).
+
+- A child session (created by the `task` tool) is a `Session` with `parentID`.
+  `start` on `session.created` with `parentID`; `stop` on the child's
+  `session.idle` / `session.deleted`, or with `status: error` on `session.error`.
+- No `transcript`: opencode does not keep a Claude-style JSONL transcript, so the
+  row has no preview.
+- shortcut: a child resumed after its `session.idle` is not shown again.
+- Not run live (opencode is not installed on the maintainer's machine); tests
+  feed sample events shaped from the SDK types.
+- The existing `kiss.mjs` is linked into the singular `plugin/` dir; the docs name
+  `plugins/` (`.js`/`.ts`), which is where this plugin goes.
+
+## pi notes
+
+Docs: <https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/README.md>
+("Pi ships with powerful defaults but skips features like sub-agents and plan
+mode") and <https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/extensions.md>
+(extension events: `session_start`, `agent_start`/`agent_end`, `tool_call`,
+`tool_execution_start`/`end`, …).
+
+pi has no sub-agent concept, so no extension event marks a child agent starting or
+stopping (`parentToolCallId` and `ctx.newSession({ parentSession })` exist but are
+not sub-agents). Agents a user spawns from pi are separate processes, which cdamux
+already sees as tmux panes. No adapter shipped.

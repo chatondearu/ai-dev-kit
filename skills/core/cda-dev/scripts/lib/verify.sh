@@ -110,6 +110,19 @@ orch_verify_retry_prompt() {
   printf '%s\n' "$dest"
 }
 
+# Same for a failed grounding verifier: <prompt> + the tail of .orch/verifier-fail.
+orch_verifier_retry_prompt() {
+  local prompt="$1" wt="$2"
+  local dest="$wt/.orch/worker-prompt-retry.md"
+  {
+    cat "$prompt"
+    printf '\n\n## Previous verifier findings (grounding failed)\n\n```\n'
+    tail -n 40 "$wt/.orch/verifier-fail" 2>/dev/null
+    printf '```\n'
+  } >"$dest"
+  printf '%s\n' "$dest"
+}
+
 # Allowlist for untrusted trees (pr-fix). Free-form AGENTS.md verify is refused.
 _orch_verify_is_allowed() {
   case "$1" in

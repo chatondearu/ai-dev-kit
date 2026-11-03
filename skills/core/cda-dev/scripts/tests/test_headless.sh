@@ -30,4 +30,20 @@ rc=$?
 set -e
 assert_eq "$rc" "2" "missing prompt exits 2"
 
+# A real (non dry-run) headless run reaches the grounding verifier: ORCH_PROMPTS_DIR is set,
+# so verifier.md is rendered and run (it used to be silently skipped), ADR-006.
+cat >"$FAKE/claude-grounded" <<EOF
+#!$STUB_BASH
+case "\$(cat)" in *"Verifier (grounding node)"*) mkdir -p .orch; touch .orch/verifier-ok ;; esac
+exit 0
+EOF
+chmod +x "$FAKE/claude-grounded"
+(cd "$TMP" && git init -q 2>/dev/null)
+set +e
+"$STUB_BASH" "$SCRIPTS/headless.sh" --repo "$TMP" --prompt "noop" --agent "$FAKE/claude-grounded" --max-iter 1 >/dev/null 2>&1
+rc=$?
+set -e
+assert_eq "$rc" "0" "headless run passes once the verifier approves"
+assert_file "$TMP/.orch/verifier-prompt.md" "headless renders prompts/verifier.md (ORCH_PROMPTS_DIR set)"
+
 summary

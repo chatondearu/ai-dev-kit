@@ -57,8 +57,20 @@ See `config/cdamux.example.toml`. Highlights:
   `@cdamux_parent` (source session). `@cdamux_run` carries an orch run id. All three come
   from the one `list-sessions -F` call. Fleet nests a session under its parent in the same
   project (any depth, `h`/`l` or arrows expand / collapse); a dead parent or a parent cycle leaves it at
-  the top of its project. Non-session children (orch workers) are `ChildRow`s with a
-  `PreviewSource` (`Pane` / `FileTail` / `None`).
+  the top of its project. Non-session children (orch workers, CLI sub-agents) are
+  `ChildRow`s with a `PreviewSource` (`Pane` / `FileTail` / `None`). Decision record:
+  [ADR-007](../../foam/decisions/ADR-007-cdamux-session-hierarchy.md).
+- **tmux workers** — with `ORCH_TMUX=1`, orch runs a worker's agent in a detached session
+  `orch-<run>-<worker>` carrying the three options above (`@cdamux_role=worker`); the
+  `status.json` entry gains `tmux_session` and `log`. A live session previews its pane,
+  otherwise the Worker row tails the log (64 KiB bound). Without `ORCH_TMUX` nothing changes:
+  Worker rows have no preview.
+- **Steps** — each worker entry of `status.json` has `phases` (`{phase, started_at}`);
+  `cdamux-core::orch_steps` maps them to implement / verify / review / CI / PR with state and
+  duration. Shown under the node detail in the Graph view and as a list in the Worker sidecar.
+- **Refresh** — `refresh.rs` is the one scheduler: injectable-clock intervals, `status.json`
+  parsed only when its mtime moves, session chrome fetched only for a session row, redraw
+  only when something changed.
 - `sessions.attach_mode` — `mirror | exclusive` (tmux `-d`), same semantics as skzv.
 - `daemon.listen_tailnet`, `daemon.tailnet_port`.
 - `[agents.cursor]` command override (kit: `cursor-agent`).
@@ -109,7 +121,8 @@ Operator curl examples: [tailnet-api.md](tailnet-api.md).
   and fall back to the indented text tree when the layers do not fit the width.
   Execution stays in `orch.sh`; cdamux does not start workers.
 - CLI sub-agents come from the per-session ledger fed by hook adapters
-  (sub-agent rows under a session): [subagents.md](subagents.md).
+  (sub-agent rows under a session): [subagents.md](subagents.md). Hooks are opt-in
+  (`./install.sh --cdamux-hooks`).
 
 ## Open design choices
 

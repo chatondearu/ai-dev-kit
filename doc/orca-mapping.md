@@ -102,12 +102,12 @@ Shipped (P1.5 / P2 slice):
 9. Fleet `o` + `#n` from `feat/<n>-*` / worktree; graph node detail + recent runs archive.
 10. `@cdamux_state` hook override (`Done`/`Error` states).
 11. `GET /v1/orch-runs?repo=` for archived finishes.
+12. `ORCH_TMUX=1` workers as tmux sessions linked by `@cdamux_*` options ([ADR-007](../foam/decisions/ADR-007-cdamux-session-hierarchy.md)).
 
 Still deferred (full P2):
 
 1. Orca-style attention inbox with ack (beyond footer hint).
-2. `ORCH_TMUX=1` workers as tmux sessions (needs ADR-004/005 amend).
-3. Per-node `started_at` timestamps in graph JSON.
+2. Per-node `started_at` timestamps in graph JSON.
 
 ## References
 

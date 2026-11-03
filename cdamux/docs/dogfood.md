@@ -109,6 +109,8 @@ Diff source: `git diff` plus `git diff --cached` in the resolved repo directory.
 - [ ] `n` spawn modal: running / discovered / custom path; optional shell-only and pane split
 - [ ] App tabs `1`–`5`: Fleet, Projects, Sessions, Agents, Settings (`S` saves config)
 - [ ] `w` waiting filter; `F` fold/unfold all; `G` cycle `group_by` (tree layout); `?` help overlay
+- [ ] Fork a session (`f`): the fork nests under its source (`h`/`l` fold); `ORCH_TMUX=1 orch.sh ...` on a throwaway repo: worker session `orch-<run>-<id>` appears, pane preview is live (throwaway tmux server only)
+- [ ] `./install.sh --cdamux-hooks` (temp HOME), start a Claude sub-agent inside tmux: a sub-agent row appears under its session ([subagents.md](subagents.md))
 - [ ] `g` full-screen Graph view: drawn DAG, `j`/`k` select node, detail panel, Enter jumps to a session named like the node, `g`/Esc back
 - [ ] Fleet footer shows `m` rename / `f` fork / `x` kill; `?` lists the same keys grouped
 - [ ] Fleet session rows show agent tag (`@cdamux_agent`); missing option shows `—` (same as Preview chrome)

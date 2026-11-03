@@ -20,6 +20,17 @@ Use your phone or another device on the same Tailscale tailnet — no native cda
 The static UI lists sessions, shows a pane tail, and can send lines via the JSON API
 ([tailnet-api.md](tailnet-api.md)). Same-origin only — no extra CORS setup.
 
+### Local only (no tailnet)
+
+To open the same UI on the host itself without Tailscale, bind to loopback:
+
+```bash
+CDAMUX_TAILNET_BIND_ADDR=127.0.0.1 cdamuxd   # with daemon.listen_tailnet = true
+```
+
+Then open `http://127.0.0.1:7480/`. Unspecified addresses (`0.0.0.0`, `::`) are
+refused. Details: [tailnet-api.md](tailnet-api.md).
+
 ## SSH + Mosh (CLI attach)
 
 When you need full terminal attach (ratatui, `cdamux attach`, or raw tmux):

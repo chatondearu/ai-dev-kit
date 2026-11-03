@@ -97,6 +97,9 @@ nix develop -c bash scripts/verify.sh
   override `HOME`, `CLAUDE_CONFIG_DIR`, `CURSOR_HOME`, `XDG_CONFIG_HOME` with temp dirs.
 - The live Claude config on the maintainer's machine is `CLAUDE_CONFIG_DIR=/cda/.claude`.
 - The kiss hooks run on every session: keep them local-only, fail-open, fast.
+- cdamux session hierarchy (ADR-007): `install.sh --cdamux-hooks` is opt-in and plain
+  `install.sh` never wires it; tests of `ORCH_TMUX=1` use a throwaway tmux server
+  (`TMUX_TMPDIR` temp dir + `-L <name>`), never the live one.
 - AFK Ready pickup: `orch-auto.sh` + optional systemd templates under
   `skills/core/cda-dev/templates/systemd/` (ADR-002). Do not enable from
   `install.sh`. Stop the timer to free the machine; prefer a dedicated host.

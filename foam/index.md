@@ -38,6 +38,7 @@ Index: [[decisions/index|All ADRs]]
 - [[decisions/ADR-004-cdamux|ADR-004 — cdamux in-tree orchestrator]]
 - [[decisions/ADR-005-cda-graph-orchestration|ADR-005 — CDA graph orchestration]]
 - [[decisions/ADR-006-review-gate-fail-closed-verify|ADR-006 — Independent review gate and fail-closed verify]]
+- [[decisions/ADR-007-cdamux-session-hierarchy|ADR-007 — cdamux session hierarchy]]
 - [[graph/README|Foam machine graph + orch overlay]]
 
 ## PRDs & plans

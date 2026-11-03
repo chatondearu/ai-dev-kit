@@ -66,7 +66,8 @@ Each task writes `.orch/task-<id>-result.json` in the shared worktree.
 
 ### 4 — Watch the graph
 
-- **cdamux** TUI: Fleet → **project** or session → sidecar **Orch graph**; expand project for `⚙` worker rows (`.orch/run/status.json`); `o` opens GitHub issue from `feat/<n>-*`
+- **cdamux** TUI: Fleet → **project** or session → sidecar **Orch graph**; expand project for `⚙` worker rows (`.orch/run/status.json`); `o` opens GitHub issue from `feat/<n>-*`; `g` = full-screen drawn DAG + steps bar of the selected worker (`G` cycles `group_by`)
+- `ORCH_TMUX=1` (opt-in, ignored with `--sandbox`): workers run in tmux sessions `orch-<run>-<worker>` linked by `@cdamux_parent` / `@cdamux_run` / `@cdamux_role`, previewed live in Fleet; `ORCH_TMUX_KEEP=1` keeps them after exit. CLI sub-agents appear as child rows when `./install.sh --cdamux-hooks` is on ([ADR-007](../../../foam/decisions/ADR-007-cdamux-session-hierarchy.md))
 - Hooks: `tmux set-option -t SESSION @cdamux_state running|waiting|done|error` (Fleet prefers over pane heuristics)
 - Archives: `.orch/graph/runs/<run_id>.json` after `orch_graph_finish` (shown as recent runs)
 - **API**: `GET /v1/orch-graph?repo=` · `GET /v1/orch-status?repo=` · `GET /v1/orch-runs?repo=`

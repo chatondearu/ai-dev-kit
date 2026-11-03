@@ -12,6 +12,7 @@ Status values: `proposed` | `accepted` | `deprecated` | `superseded`.
 | [[ADR-004-cdamux|ADR-004]] | cdamux in-tree orchestrator | accepted | #architecture #tooling |
 | [[ADR-005-cda-graph-orchestration|ADR-005]] | CDA graph orchestration | accepted | #architecture #tooling #autonomy |
 | [[ADR-006-review-gate-fail-closed-verify|ADR-006]] | Independent review gate and fail-closed verify | accepted | #architecture #tooling #quality #autonomy |
+| [[ADR-007-cdamux-session-hierarchy|ADR-007]] | cdamux session hierarchy: tmux links, tmux workers, sub-agent ledger | accepted | #architecture #tooling #autonomy |
 
 ## Template
 

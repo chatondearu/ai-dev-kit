@@ -38,6 +38,21 @@ bash "$SKILL/scripts/orch.sh" --repo "$REPO" --mode ready-pickup --issue 42 \
 | `ORCH_GRAPH_INTEGRATOR` | `auto` | `auto` = integrator when 2+ issues; `1` = always; `0` = never |
 | `ORCH_GRAPH_PLAN_PARALLEL` | `auto` | `auto` = parallel tasks when paths disjoint; `parallel` = require disjoint; `sequential` = always serial |
 | `ORCH_GRAPH_PLAN_MAX_PARALLEL` | `$ORCH_MAX_PARALLEL` | Cap parallel graph-plan tasks (default 3) |
+| `ORCH_TMUX` | `0` | `1` = each worker's agent runs in a tmux session `orch-<run>-<worker>` (see below); ignored with `--sandbox` |
+| `ORCH_TMUX_KEEP` | `0` | `1` = keep the worker session after the agent exits (`@cdamux_state` `done` / `error`) |
+
+### Workers in tmux (`ORCH_TMUX=1`)
+
+Opt-in. Each worker's agent runs in a detached tmux session so cdamux can preview
+its pane and you can attach with `tmux attach -t orch-<run>-<worker>`. Options set
+on the session: `@cdamux_run` (`ORCH_RUN_ID`), `@cdamux_role=worker`,
+`@cdamux_agent`, `@cdamux_state` (mirrors the phase), and `@cdamux_parent` when orch
+itself runs inside tmux (the worker then nests under that session in Fleet).
+`.orch/run/status.json` entries gain `tmux_session` and `log`
+(`.orch/run/<worker>.log`, the agent output, used as preview once the session is
+gone). The session is killed when the agent exits unless `ORCH_TMUX_KEEP=1`; Ctrl-C
+kills the run's sessions. `--sandbox` ignores `ORCH_TMUX` because the tmux server
+runs outside bubblewrap. Decision: [ADR-007](../foam/decisions/ADR-007-cdamux-session-hierarchy.md).
 
 ## Graph plan JSON
 
@@ -56,11 +71,12 @@ bash ~/.cursor/skills/cda-graph/scripts/graph-plan-validate.sh my-plan.json
 
 | Surface | How |
 | ------- | --- |
-| **cdamux TUI** | Fleet → select **project** or session → sidecar **Orch graph**; expand project for `⚙ #id` workers from `.orch/run/status.json` |
+| **cdamux TUI** | Fleet → select **project** or session → sidecar **Orch graph**; expand project for `⚙ #id` workers from `.orch/run/status.json`; `g` opens the full-screen drawn DAG with a steps bar (implement / verify / review / CI / PR) for the selected worker |
+| **cdamux sessions** | `ORCH_TMUX=1` workers are tmux sessions linked by `@cdamux_parent` / `@cdamux_run` / `@cdamux_role`; CLI sub-agents show as child rows (`cdamux/docs/subagents.md`, hooks via `./install.sh --cdamux-hooks`) |
 | **cdamuxd web** | Tailnet dashboard → session → **Orch graph** (canvas, polls API) |
 | **API** | `GET /v1/sessions/{tmux-name}/orch-graph` |
 | **API (project)** | `GET /v1/orch-graph?repo=` · `GET /v1/orch-status?repo=` · `GET /v1/orch-runs?repo=` (archived finishes under `.orch/graph/runs/`) |
-| **Session hooks** | `tmux set-option -t SESSION @cdamux_state running\|waiting\|done\|error` — cdamux Fleet prefers this over pane heuristics |
+| **Session hooks** | `tmux set-option -t SESSION @cdamux_state running\|waiting\|done\|error` — cdamux Fleet prefers this over pane heuristics (set automatically with `ORCH_TMUX=1`) |
 | **GitHub issue** | Fleet `o` opens `gh issue view N --web` when branch is `feat/<n>-*` or worker id is numeric |
 
 ## Cursor-only (no harness)

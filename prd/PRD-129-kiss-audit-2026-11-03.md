@@ -1,6 +1,6 @@
 # PRD-129 — Fix kiss-audit 2026-11-03 (harness gates, untrusted input, cdamux targeting)
 
-- **Status**: approved
+- **Status**: shipped
 - **GitHub**: [#129](https://github.com/chatondearu/ai-dev-kit/issues/129)
 - **Date**: 2026-11-03
 - **Tags**: #quality #tooling #security #architecture
@@ -21,10 +21,10 @@ acts on a row index that moves under the user.
 
 ## Goals
 
-- [ ] Every repro of the audit no longer reproduces; non-trivial fixes carry one test
-- [ ] `nix develop -c bash scripts/verify.sh` exits 0 on darwin (cargo test included)
-- [ ] No GitHub input from a non-collaborator becomes agent instructions or a push target
-- [ ] Delivered by parallel Task subagents (one PR per child); operator reviews and merges
+- [x] Every repro of the audit no longer reproduces; non-trivial fixes carry one test
+- [x] `nix develop -c bash scripts/verify.sh` exits 0 on darwin (cargo test included)
+- [x] No GitHub input from a non-collaborator becomes agent instructions or a push target
+- [x] Delivered by parallel Task subagents (one PR per child); operator reviews and merges
 
 ## Non-goals
 
@@ -45,7 +45,7 @@ acts on a row index that moves under the user.
 
 ## Requirements
 
-See [[../plans/PLAN-129-kiss-audit-2026-11-03|PLAN-129]] — one child issue per task
+See [[../foam/archive/plans/PLAN-129-kiss-audit-2026-11-03|PLAN-129]] — one child issue per task
 (#130–#140), each with the finding, repro, smallest fix and verify command.
 
 ## Success metrics
@@ -55,7 +55,7 @@ See [[../plans/PLAN-129-kiss-audit-2026-11-03|PLAN-129]] — one child issue per
 
 ## Links
 
-- Plan: [[../plans/PLAN-129-kiss-audit-2026-11-03|PLAN-129]]
+- Plan: [[../foam/archive/plans/PLAN-129-kiss-audit-2026-11-03|PLAN-129]]
 - Prior batches: [[PRD-90-kiss-audit-2026-11|PRD-90]], [[PRD-25-kiss-audit-orch-gh-board|PRD-25]], [[PRD-6-kiss-audit-fixes|PRD-6]]
 - ADRs: [[../foam/decisions/ADR-002-orch-auto-and-fast-lane|ADR-002]],
   [[../foam/decisions/ADR-004-cdamux|ADR-004]],

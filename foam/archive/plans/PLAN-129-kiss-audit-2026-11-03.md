@@ -1,7 +1,7 @@
 # PLAN-129 — Fix kiss-audit 2026-11-03 with a fleet of subagents
 
-- **Status**: in-progress
-- **PRD**: [[../prd/PRD-129-kiss-audit-2026-11-03|PRD-129]]
+- **Status**: done
+- **PRD**: [[../../prd/PRD-129-kiss-audit-2026-11-03|PRD-129]]
 - **GitHub**: [#129](https://github.com/chatondearu/ai-dev-kit/issues/129)
 - **Date**: 2026-11-03
 
@@ -9,17 +9,17 @@
 
 Close the 2026-11-03 audit with 11 Task subagents in 3 lanes (H harness, S
 scripts, C cdamux), one worktree + branch + PR each. Same procedure as
-[[../foam/archive/plans/PLAN-90-kiss-audit-2026-11|PLAN-90]]: `orch.sh` is not
+[[PLAN-90-kiss-audit-2026-11|PLAN-90]]: `orch.sh` is not
 used because its gates and lock are among the bugs.
 
 ## Constraints (from ADRs)
 
 | ADR | Constraint |
 | --- | ---------- |
-| [[../foam/decisions/ADR-002-orch-auto-and-fast-lane|ADR-002]] | orch-auto opt-in; no auto-merge |
-| [[../foam/decisions/ADR-004-cdamux|ADR-004]] | tmux is the source of truth; tailnet-only, never `0.0.0.0` |
-| [[../foam/decisions/ADR-005-cda-graph-orchestration|ADR-005]] | workers → integrator → verifier |
-| [[../foam/decisions/ADR-006-review-gate-fail-closed-verify|ADR-006]] | reviewer + verifier fail closed — H1 amends it (markers cleared per pass, both loop modes) |
+| [[../decisions/ADR-002-orch-auto-and-fast-lane|ADR-002]] | orch-auto opt-in; no auto-merge |
+| [[../decisions/ADR-004-cdamux|ADR-004]] | tmux is the source of truth; tailnet-only, never `0.0.0.0` |
+| [[../decisions/ADR-005-cda-graph-orchestration|ADR-005]] | workers → integrator → verifier |
+| [[../decisions/ADR-006-review-gate-fail-closed-verify|ADR-006]] | reviewer + verifier fail closed — H1 amends it (markers cleared per pass, both loop modes) |
 
 ## Tasks
 
@@ -41,9 +41,9 @@ The full contract of each task (finding, repro, fix, verify) is the child issue 
 
 Wave 1: H1, S1, S2, S4, S5, C1. Wave 2 (after its dependency merges): H2, S3, C2, C3. Wave 3: H3.
 
-- [ ] H1 · [ ] H2 · [ ] H3
-- [ ] S1 · [ ] S2 · [ ] S3 · [ ] S4 · [ ] S5
-- [ ] C1 · [ ] C2 · [ ] C3
+- [x] H1 · [x] H2 · [x] H3
+- [x] S1 · [x] S2 · [x] S3 · [x] S4 · [x] S5
+- [x] C1 · [x] C2 · [x] C3
 
 ## Execution
 
@@ -61,5 +61,13 @@ the contract. cdamux tasks follow `cdamux/AGENTS.md` § Testing against tmux.
 
 ## Verification
 
-- [ ] `nix develop -c bash scripts/verify.sh` green on `main`
-- [ ] PRD-129 → shipped, this plan → done and archived, `foam/index.md` updated
+- [x] `nix develop -c bash scripts/verify.sh` green on `main`
+- [x] PRD-129 → shipped, this plan → done and archived, `foam/index.md` updated
+
+## Outcome
+
+- 11 child PRs + PRD/plan PR merged 2026-11-03 as one linear stack (#146, #141, #142, #143, #145, #149, #144, #147, #150, #148, #151, #152).
+- Rebase conflicts were only in the `scripts/verify.sh` test list (union).
+- Two test bugs surfaced on the combined stack and were fixed in #152: `test_lock.sh` PATH shadowing let the apple-sdk `xcrun git` shim win (hang on `git init`); `test_orch_auto.sh` used invalid `touch -t` minutes for GNU touch.
+- `nix develop -c bash scripts/verify.sh` green on `main`. Audit repros are covered by the per-child tests; they were not replayed by hand.
+- Follow-ups not taken: `${BASH_SOURCE[0]:-$0}` guard in gh-board, single-variant `SpawnOutcome`, `=name` for session-level tmux targets, stale-lock takeover race.

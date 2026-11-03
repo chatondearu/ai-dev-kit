@@ -108,7 +108,8 @@ Diff source: `git diff` plus `git diff --cached` in the resolved repo directory.
 - [ ] Composer (`Space`) sends to session without attach
 - [ ] `n` spawn modal: running / discovered / custom path; optional shell-only and pane split
 - [ ] App tabs `1`–`5`: Fleet, Projects, Sessions, Agents, Settings (`S` saves config)
-- [ ] `w` waiting filter; `F` fold/unfold all; `g` cycle `group_by` (tree layout); `?` help overlay
+- [ ] `w` waiting filter; `F` fold/unfold all; `G` cycle `group_by` (tree layout); `?` help overlay
+- [ ] `g` full-screen Graph view: drawn DAG, `j`/`k` select node, detail panel, Enter jumps to a session named like the node, `g`/Esc back
 - [ ] Fleet footer shows `m` rename / `f` fork / `x` kill; `?` lists the same keys grouped
 - [ ] Fleet session rows show agent tag (`@cdamux_agent`); missing option shows `—` (same as Preview chrome)
 
@@ -137,7 +138,8 @@ Form pieces (Select, Toggle, TextInput, FieldList, text modal) live in
 | `x` | Kill selected session |
 | `w` | Toggle waiting-for-input (◆) filter on Fleet tree |
 | `F` | Expand or collapse all Fleet groups |
-| `g` | Cycle `sessions.group_by` (differs from agent-manager group tree) |
+| `g` | Full-screen Graph view of the selected row's orch run (drawn DAG + node detail) |
+| `G` | Cycle `sessions.group_by` (differs from agent-manager group tree) |
 | `?` | Keyboard help (Esc to close) |
 | `1`–`5` | Fleet / Projects / Sessions / Agents / Settings |
 

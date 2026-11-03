@@ -1,0 +1,24 @@
+ 1:Fleet   2:Projects   3:Sessions   4:Agents   5:Settings
+run run-001 · running
+
+╭worker──────╮
+│✓ w1        │──┐
+╰────────────╯  │ ╭integrator──╮
+                ├▶│· integrator│
+╭worker──────╮  │ ╰────────────╯
+│◎ w2        │──┘
+╰────────────╯
+
+
+
+
+
+
+ node ──────────────────────────────────────────────────────────────────────────
+◎ w2 · worker · status running · phase implement
+writing the parser tests
+
+
+
+j/k ↑↓ select node · Enter jump to session · g/Esc back · q quit
+

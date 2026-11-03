@@ -123,7 +123,8 @@ pub fn find_orch_graph_from_cwd(cwd: &str) -> Result<(OrchGraphFile, Option<u64>
     }
 }
 
-fn is_stale(graph: &OrchGraphFile, age_secs: Option<u64>) -> bool {
+/// True when a still-running graph has not been updated for [`ORCH_GRAPH_STALE_SECS`].
+pub fn orch_graph_is_stale(graph: &OrchGraphFile, age_secs: Option<u64>) -> bool {
     let running = graph
         .status
         .as_deref()
@@ -140,12 +141,8 @@ pub fn format_orch_graph_panel(graph: &OrchGraphFile, width: usize) -> String {
     format_orch_graph_panel_ex(graph, width, None)
 }
 
-pub fn format_orch_graph_panel_ex(
-    graph: &OrchGraphFile,
-    width: usize,
-    age_secs: Option<u64>,
-) -> String {
-    let w = width.clamp(40, 120);
+/// Run header: `run`, `status`, `updated … · age · stale`, `ended`.
+pub fn orch_graph_header(graph: &OrchGraphFile, age_secs: Option<u64>) -> Vec<String> {
     let mut lines = vec![format!("run {}", graph.run_id)];
     if let Some(status) = &graph.status {
         if !status.is_empty() {
@@ -164,7 +161,7 @@ pub fn format_orch_graph_panel_ex(
             updated_line.push_str(&format!(" · {} ago", format_age(age)));
         }
     }
-    if is_stale(graph, age_secs) {
+    if orch_graph_is_stale(graph, age_secs) {
         if updated_line.is_empty() {
             updated_line = "stale".into();
         } else {
@@ -179,6 +176,16 @@ pub fn format_orch_graph_panel_ex(
             lines.push(format!("ended {ended}"));
         }
     }
+    lines
+}
+
+pub fn format_orch_graph_panel_ex(
+    graph: &OrchGraphFile,
+    width: usize,
+    age_secs: Option<u64>,
+) -> String {
+    let w = width.clamp(40, 120);
+    let mut lines = orch_graph_header(graph, age_secs);
     lines.push(String::new());
 
     let roots: Vec<_> = graph

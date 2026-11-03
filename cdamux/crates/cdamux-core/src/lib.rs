@@ -6,6 +6,7 @@ mod diff;
 mod notes;
 mod issue_ref;
 mod orch_graph;
+mod orch_graph_layout;
 mod orch_status;
 mod project_tree;
 mod send;
@@ -39,8 +40,11 @@ pub use tailnet_api::{
     LiveTailnetBackend, TailnetApiBackend, TailnetResponse, TAILNET_TOKEN_HEADER,
 };
 pub use notes::{ensure_note_file, note_refs_for_projects, resolve_note_path, NoteRef};
+pub use orch_graph_layout::{
+    graph_node_order, layout_orch_graph, CellClass, GraphCell, GraphLayout, NodeBox, NodeState, BOX_H,
+};
 pub use orch_graph::{
-    find_orch_graph_from_cwd, format_orch_graph_panel, format_orch_graph_panel_ex,
+    find_orch_graph_from_cwd, orch_graph_is_stale, orch_graph_header, format_orch_graph_panel, format_orch_graph_panel_ex,
     format_orch_graph_panel_with_history, list_orch_graph_runs, load_orch_graph, orch_graph_path,
     orch_graph_runs_dir, OrchGraphError, OrchGraphFile, OrchGraphNode, OrchGraphRunSummary,
 };

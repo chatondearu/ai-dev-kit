@@ -1,6 +1,6 @@
 # PLAN-177 — cdamux home session + no kick-out on session close
 
-- **Status**: verify
+- **Status**: done
 - **PRD**: none (fix; issue body is the contract)
 - **GitHub**: [#177](https://github.com/chatondearu/ai-dev-kit/issues/177)
 - **Date**: 2026-11-03
@@ -65,5 +65,5 @@ session is the right trigger. Do **not** replace the home session with bare
 
 ## Verification
 
-- [ ] `nix develop -c bash scripts/verify.sh` (list unrelated failures in PR if any)
+- [x] `nix develop -c bash scripts/verify.sh` (list unrelated failures in PR if any)
 - [x] PR notes: copy `set -g detach-on-destroy next` into host tmux.conf if not on aitools module

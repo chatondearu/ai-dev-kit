@@ -12,7 +12,8 @@ use crate::graph_view::OrchGraphView;
 use crate::settings_form::SettingsForm;
 use crate::spawn_modal::{draw_modal, ModalState};
 use cdamux_core::{
-    Config, EnrichedSession, OrchGraphFile, ProjectRoot, SessionChrome, SessionState,
+    ChildRow, Config, EnrichedSession, OrchGraphFile, OrchWorkerStatus, ProjectRoot, SessionChrome,
+    SessionState,
 };
 use ratatui::{backend::TestBackend, Frame, Terminal};
 use std::path::PathBuf;
@@ -63,6 +64,25 @@ fn session(name: &str, path: &str, state: SessionState, agent: &str, issue: Opti
         state,
         agent: agent.into(),
         issue,
+        ..Default::default()
+    }
+}
+
+fn row(session: EnrichedSession, depth: usize, expanded: Option<bool>) -> TreeRow {
+    TreeRow::Session { session, depth, expanded }
+}
+
+fn worker(id: &str, phase: &str, message: &str) -> TreeRow {
+    TreeRow::Child {
+        row: ChildRow::from_orch_worker(&OrchWorkerStatus {
+            id: id.into(),
+            phase: phase.into(),
+            message: message.into(),
+            updated_at: String::new(),
+            phases: Vec::new(),
+        }),
+        depth: 1,
+        project_path: "/src/alpha".into(),
     }
 }
 
@@ -76,20 +96,10 @@ pub(crate) fn fixture_rows() -> Vec<TreeRow> {
             worker_count: 2,
             expanded: true,
         },
-        TreeRow::Session(session("alpha-main", "/src/alpha", SessionState::Active, "claude", None)),
-        TreeRow::Session(session("alpha-42", "/src/alpha", SessionState::NeedsInput, "cursor", Some(42))),
-        TreeRow::Worker {
-            id: "7".into(),
-            phase: "running".into(),
-            message: "implementing parser".into(),
-            project_path: "/src/alpha".into(),
-        },
-        TreeRow::Worker {
-            id: "8".into(),
-            phase: "blocked".into(),
-            message: "waiting on review".into(),
-            project_path: "/src/alpha".into(),
-        },
+        row(session("alpha-main", "/src/alpha", SessionState::Active, "claude", None), 1, None),
+        row(session("alpha-42", "/src/alpha", SessionState::NeedsInput, "cursor", Some(42)), 1, None),
+        worker("7", "running", "implementing parser"),
+        worker("8", "blocked", "waiting on review"),
         TreeRow::Project {
             key: "beta".into(),
             name: "beta".into(),
@@ -99,7 +109,26 @@ pub(crate) fn fixture_rows() -> Vec<TreeRow> {
             expanded: false,
         },
         TreeRow::UnassignedHeader,
-        TreeRow::Unassigned(session("scratch", "/tmp/scratch", SessionState::Idle, "shell", None)),
+        row(session("scratch", "/tmp/scratch", SessionState::Idle, "shell", None), 1, None),
+    ]
+}
+
+/// One parent session with a forked child and grandchild, plus a collapsed parent
+/// (its hidden child still counts in the project total).
+pub(crate) fn fixture_nested_rows() -> Vec<TreeRow> {
+    vec![
+        TreeRow::Project {
+            key: "alpha".into(),
+            name: "alpha".into(),
+            path: "/src/alpha".into(),
+            session_count: 5,
+            worker_count: 0,
+            expanded: true,
+        },
+        row(session("alpha-main", "/src/alpha", SessionState::Active, "claude", None), 1, Some(true)),
+        row(session("alpha-fork", "/src/alpha", SessionState::NeedsInput, "claude", Some(42)), 2, Some(true)),
+        row(session("alpha-fork-2", "/src/alpha", SessionState::Idle, "cursor", None), 3, None),
+        row(session("alpha-side", "/src/alpha", SessionState::Done, "claude", None), 1, Some(false)),
     ]
 }
 
@@ -155,19 +184,19 @@ const PREVIEW: &str = "$ cargo test\n   Compiling alpha v0.1.0\nrunning 3 tests\
 
 /// Full-screen render of `tab` (Fleet side panel = `side_tab`) with the fixed fixtures.
 pub(crate) fn render_app(w: u16, h: u16, tab: AppTab, side_tab: SideTab) -> Vec<String> {
-    render_app_ex(w, h, tab, side_tab, fixture_graph(), None)
+    render_app_ex(w, h, tab, side_tab, fixture_rows(), fixture_graph(), None)
 }
 
-/// [`render_app`] with `graph` and the full-screen Graph view open on node `graph_view`.
+/// [`render_app`] with `rows`, `graph` and the full-screen Graph view open on node `graph_view`.
 pub(crate) fn render_app_ex(
     w: u16,
     h: u16,
     tab: AppTab,
     side_tab: SideTab,
+    rows: Vec<TreeRow>,
     graph: OrchGraphView,
     graph_view: Option<usize>,
 ) -> Vec<String> {
-    let rows = fixture_rows();
     let chrome = SessionChrome {
         repo: "alpha".into(),
         worktree: "main".into(),
@@ -234,10 +263,14 @@ fn golden_screens() {
         let screens = [
             ("fleet", render_app(w, h, AppTab::Fleet, SideTab::Preview)),
             ("fleet-orch-graph", render_app(w, h, AppTab::Fleet, SideTab::OrchGraph)),
-            ("graph-view", render_app_ex(w, h, AppTab::Fleet, SideTab::Preview, fixture_graph(), Some(1))),
+            ("graph-view", render_app_ex(w, h, AppTab::Fleet, SideTab::Preview, fixture_rows(), fixture_graph(), Some(1))),
             (
                 "graph-steps",
-                render_app_ex(w, h, AppTab::Fleet, SideTab::Preview, fixture_steps_graph(), Some(0)),
+                render_app_ex(w, h, AppTab::Fleet, SideTab::Preview, fixture_rows(), fixture_steps_graph(), Some(0)),
+            ),
+            (
+                "fleet-nested",
+                render_app_ex(w, h, AppTab::Fleet, SideTab::Preview, fixture_nested_rows(), fixture_graph(), None),
             ),
             ("spawn-modal", render_spawn_modal(w, h)),
             ("settings", render_app(w, h, AppTab::Settings, SideTab::Preview)),

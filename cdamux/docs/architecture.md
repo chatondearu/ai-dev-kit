@@ -53,6 +53,12 @@ See `config/cdamux.example.toml`. Highlights:
   empty/unsupported → Idle (fail closed), not Active-via-zero.
 - **Agent tag** — spawn sets `@cdamux_agent` (legacy `@ccmux_agent`); Fleet session rows
   and Preview chrome show that label, or `—` when unset.
+- **Session links** — spawn sets `@cdamux_role` (`agent`/`shell`); fork also sets
+  `@cdamux_parent` (source session). `@cdamux_run` carries an orch run id. All three come
+  from the one `list-sessions -F` call. Fleet nests a session under its parent in the same
+  project (any depth, `h`/`l` or arrows expand / collapse); a dead parent or a parent cycle leaves it at
+  the top of its project. Non-session children (orch workers) are `ChildRow`s with a
+  `PreviewSource` (`Pane` / `FileTail` / `None`).
 - `sessions.attach_mode` — `mirror | exclusive` (tmux `-d`), same semantics as skzv.
 - `daemon.listen_tailnet`, `daemon.tailnet_port`.
 - `[agents.cursor]` command override (kit: `cursor-agent`).

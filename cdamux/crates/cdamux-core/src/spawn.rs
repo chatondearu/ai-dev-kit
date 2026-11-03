@@ -74,6 +74,7 @@ pub fn default_shell_command() -> String {
 }
 
 /// Primary pane runs `primary_command`; optional split adds a second pane with a shell.
+/// `parent` (fork source) becomes `@cdamux_parent` so the Fleet nests the new session.
 pub fn spawn_tmux_session_with_layout(
     session_name: &str,
     path: &Path,
@@ -81,6 +82,7 @@ pub fn spawn_tmux_session_with_layout(
     layout: PaneLayout,
     switch_to_session: bool,
     agent_label: Option<&str>,
+    parent: Option<&str>,
 ) -> Result<SpawnOutcome, SpawnError> {
     if !path.exists() {
         return Err(SpawnError::PathNotFound(path.to_path_buf()));
@@ -121,9 +123,9 @@ pub fn spawn_tmux_session_with_layout(
         apply_pane_split(session_name, layout)?;
     }
 
-    if let Some(label) = agent_label {
+    for (option, value) in link_options(agent_label, parent) {
         let _ = Command::new("tmux")
-            .args(["set-option", "-t", session_name, "@cdamux_agent", label])
+            .args(["set-option", "-t", session_name, option, value])
             .status();
     }
 
@@ -134,6 +136,19 @@ pub fn spawn_tmux_session_with_layout(
     }
 
     Ok(SpawnOutcome::Created)
+}
+
+/// Session user options set at spawn: agent label, role, and the fork parent.
+fn link_options<'a>(agent_label: Option<&'a str>, parent: Option<&'a str>) -> Vec<(&'static str, &'a str)> {
+    let mut out = Vec::new();
+    if let Some(label) = agent_label {
+        out.push(("@cdamux_agent", label));
+    }
+    out.push(("@cdamux_role", if agent_label == Some("shell") { "shell" } else { "agent" }));
+    if let Some(p) = parent {
+        out.push(("@cdamux_parent", p));
+    }
+    out
 }
 
 fn apply_pane_split(session_name: &str, layout: PaneLayout) -> Result<(), SpawnError> {
@@ -184,6 +199,22 @@ mod tests {
     fn session_name_replaces_tmux_separators() {
         assert_eq!(session_name_for_path(Path::new("/x/web.app")), "c-web_app");
         assert_eq!(session_name_for_path(Path::new("/x/a:b")), "c-a_b");
+    }
+
+    #[test]
+    fn fork_sets_parent_and_agent_role() {
+        assert_eq!(
+            link_options(Some("claude"), Some("c-main")),
+            vec![
+                ("@cdamux_agent", "claude"),
+                ("@cdamux_role", "agent"),
+                ("@cdamux_parent", "c-main"),
+            ]
+        );
+        assert_eq!(
+            link_options(Some("shell"), None),
+            vec![("@cdamux_agent", "shell"), ("@cdamux_role", "shell")]
+        );
     }
 
     #[test]

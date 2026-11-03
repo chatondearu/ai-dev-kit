@@ -8,7 +8,8 @@ use crate::fleet_draw::{
 use crate::graph_view::{load_orch_graph_view, node_session, worker_steps_text};
 use crate::fleet_tree::{
     clamp_selection, default_expanded, fleet_attention_hint, flatten_tree, focus_session_in_tree,
-    issue_at_row, move_selection, orch_repo_at_row, reanchor_selection, session_at_row, toggle_fold_all, TreeRow,
+    issue_at_row, move_selection, orch_repo_at_row, reanchor_selection, session_at_row, toggle_fold_all,
+    toggle_row_fold, TreeRow,
 };
 use crate::keymap::{map_key_event, DashboardAction};
 use crate::refresh::{sidecar_step, Interval, Sidecar, StatusCache};
@@ -68,6 +69,7 @@ fn fork_selected_session(cfg: &Config, s: &EnrichedSession) -> Result<String, St
         PaneLayout::Single,
         false,
         Some(agent.as_str()),
+        Some(s.name.as_str()),
     ) {
         Ok(SpawnOutcome::Created) => Ok(format!("forked '{}' with {}", base, agent)),
         Err(e) => Err(e.to_string()),
@@ -288,19 +290,16 @@ pub fn run_dashboard() -> ExitCode {
             session_chrome = None;
             preview_scroll = 0;
             match rows.get(selected_row) {
-                Some(TreeRow::Worker {
-                    id,
-                    phase,
-                    message,
-                    project_path,
-                }) => {
+                Some(TreeRow::Child { row, project_path, .. }) => {
                     // StatusCache (refresh scheduler) already holds status.json: no I/O per tick.
                     let worker = status
                         .workers(std::path::Path::new(project_path))
                         .iter()
-                        .find(|w| &w.id == id);
+                        .find(|w| w.id == row.id);
                     let text = format!(
-                        "orch worker #{id}\nphase: {phase}\n{message}\n\n{}\n\n(no tmux pane — headless orch)",
+                        "orch worker #{}\n{}\n\n{}\n\n(no tmux pane — headless orch)",
+                        row.id,
+                        row.label,
                         worker_steps_text(worker)
                     );
                     // Step durations tick: redraw only when the text moved.
@@ -713,15 +712,7 @@ pub fn run_dashboard() -> ExitCode {
                         notes_for_session = None;
                     }
                     DashboardAction::ToggleExpand => {
-                        if let Some(TreeRow::Project { key, expanded: is_exp, .. }) =
-                            rows.get(selected_row)
-                        {
-                            if *is_exp {
-                                expanded.remove(key);
-                            } else {
-                                expanded.insert(key.clone());
-                            }
-                        }
+                        toggle_row_fold(&rows, selected_row, &mut expanded);
                     }
                     DashboardAction::StartReview => {
                         if let Some(s) = session_at_row(&rows, selected_row) {
@@ -738,7 +729,7 @@ pub fn run_dashboard() -> ExitCode {
                             continue;
                         }
                         match rows.get(selected_row) {
-                        Some(TreeRow::Session(s) | TreeRow::Unassigned(s)) => {
+                        Some(TreeRow::Session { session: s, .. }) => {
                             match switch_or_attach(&s.name) {
                                 Some(Ok(msg)) => {
                                     status_line = msg;
@@ -748,14 +739,7 @@ pub fn run_dashboard() -> ExitCode {
                                 None => attach_name = Some(s.name.clone()),
                             }
                         }
-                        Some(TreeRow::Project { key, expanded: is_exp, .. }) => {
-                            if *is_exp {
-                                expanded.remove(key);
-                            } else {
-                                expanded.insert(key.clone());
-                            }
-                        }
-                        _ => {}
+                        _ => toggle_row_fold(&rows, selected_row, &mut expanded),
                         }
                     }
                     DashboardAction::Spawn => {

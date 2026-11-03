@@ -358,6 +358,7 @@ fn execute_spawn(
         state.layout,
         switch_to_session,
         agent_label,
+        None,
     ) {
         Ok(SpawnOutcome::Created) => Ok(format!(
             "spawned '{}' in {} ({})",

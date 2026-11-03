@@ -54,16 +54,6 @@ pub fn project_has_orch_artifacts(repo: &Path) -> bool {
     orch_run_status_path(repo).is_file() || repo.join(".orch/graph/current.json").is_file()
 }
 
-pub fn worker_phase_icon(phase: &str) -> char {
-    match phase {
-        "done" => '✓',
-        "blocked" => '✗',
-        "pending" => '·',
-        "ci" | "verify" | "agent" | "worktree" => '⚙',
-        _ => '⚙',
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -83,6 +73,5 @@ mod tests {
         let st = load_orch_run_status(dir.path()).unwrap();
         assert_eq!(st.workers.len(), 1);
         assert_eq!(st.workers[0].id, "72");
-        assert_eq!(worker_phase_icon("ci"), '⚙');
     }
 }

@@ -306,6 +306,7 @@ mod tests {
                 state: cdamux_core::SessionState::Idle,
                 agent: String::new(),
                 issue: None,
+                ..Default::default()
             })
             .collect()
     }

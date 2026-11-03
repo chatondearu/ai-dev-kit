@@ -13,6 +13,7 @@ mod project_tree;
 mod send;
 mod session;
 mod session_chrome;
+mod session_links;
 mod session_manage;
 mod spawn;
 mod worktree;
@@ -30,6 +31,9 @@ pub use diff::{
 pub use project_tree::{
     build_project_session_tree, project_for_path, project_key, state_icon, ProjectSessionTree,
     ProjectTreeNode,
+};
+pub use session_links::{
+    session_forest, ChildKind, ChildRow, PreviewSource, SessionForest,
 };
 pub use session_chrome::{session_agent_label, SessionChrome, AGENT_LABEL_MISSING};
 pub use session::{
@@ -51,8 +55,8 @@ pub use orch_graph::{
 };
 pub use issue_ref::{issue_from_branch_or_path, parse_issue_number};
 pub use orch_status::{
-    find_orch_run_status_from_cwd, load_orch_run_status, orch_run_status_path, project_has_orch_artifacts, worker_phase_icon,
-    OrchRunStatusFile, OrchWorkerStatus, PhaseMark,
+    find_orch_run_status_from_cwd, load_orch_run_status, orch_run_status_path,
+    project_has_orch_artifacts, OrchRunStatusFile, OrchWorkerStatus, PhaseMark,
 };
 pub use orch_steps::{step_worker_id, worker_steps, Step};
 pub use agents_util::{

@@ -31,7 +31,7 @@ fn default_agent_label() -> String {
     AGENT_LABEL_MISSING.into()
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct EnrichedSession {
     pub name: String,
     pub path: String,
@@ -43,6 +43,13 @@ pub struct EnrichedSession {
     /// Parsed from `feat/<n>-*` branch or `.orch/worktrees/<n>-*` path when known.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub issue: Option<u32>,
+    /// Session links (`@cdamux_parent` / `@cdamux_run` / `@cdamux_role`), see [`TmuxSession`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -121,6 +128,9 @@ pub fn enrich_sessions(
                     info.ccmux_agent.as_deref(),
                 ),
                 issue,
+                parent: s.parent.clone(),
+                run: s.run.clone(),
+                role: s.role.clone(),
             }
         })
         .collect()
@@ -245,10 +255,12 @@ mod tests {
             TmuxSession {
                 name: "c-a".into(),
                 path: "/hdd/dev/org/a".into(),
+                ..Default::default()
             },
             TmuxSession {
                 name: "c-b".into(),
                 path: "/hdd/dev/org/b".into(),
+                ..Default::default()
             },
         ];
         let cfg = ProjectsConfig::default();
@@ -265,6 +277,7 @@ mod tests {
         let raw = vec![TmuxSession {
             name: "c-x".into(),
             path: repo.to_string_lossy().into(),
+            ..Default::default()
         }];
         let cfg = ProjectsConfig {
             discover: DiscoverMode::GitOnly,

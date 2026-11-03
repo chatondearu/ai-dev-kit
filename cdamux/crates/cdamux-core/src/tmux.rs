@@ -17,14 +17,27 @@ pub enum TmuxError {
     Output(String),
 }
 
-/// One tmux session from `list-sessions -F`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+/// One tmux session from `list-sessions -F`, with its session-link user options.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct TmuxSession {
     pub name: String,
     pub path: String,
+    /// `@cdamux_parent`: name of the session this one was spawned from.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent: Option<String>,
+    /// `@cdamux_run`: orch run id.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub run: Option<String>,
+    /// `@cdamux_role`: agent | worker | subagent | shell.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub role: Option<String>,
 }
 
-/// Parse `tmux list-sessions -F "#{session_name}\t#{session_path}"` lines.
+/// Session user options resolve in `list-sessions` formats: one call reads every link.
+const LIST_SESSIONS_FORMAT: &str =
+    "#{session_name}\t#{session_path}\t#{@cdamux_parent}\t#{@cdamux_run}\t#{@cdamux_role}";
+
+/// Parse [`LIST_SESSIONS_FORMAT`] lines (trailing fields optional).
 pub fn parse_list_sessions(stdout: &str) -> Vec<TmuxSession> {
     let mut out = Vec::new();
     for line in stdout.lines() {
@@ -32,13 +45,13 @@ pub fn parse_list_sessions(stdout: &str) -> Vec<TmuxSession> {
         if line.is_empty() {
             continue;
         }
-        let (name, path) = match line.split_once('\t') {
-            Some((n, p)) => (n, p),
-            None => (line, ""),
-        };
+        let mut f = line.split('\t');
         out.push(TmuxSession {
-            name: name.to_string(),
-            path: path.to_string(),
+            name: f.next().unwrap_or_default().to_string(),
+            path: f.next().unwrap_or_default().to_string(),
+            parent: f.next().and_then(non_empty),
+            run: f.next().and_then(non_empty),
+            role: f.next().and_then(non_empty),
         });
     }
     out.sort_by(|a, b| a.name.cmp(&b.name));
@@ -48,7 +61,7 @@ pub fn parse_list_sessions(stdout: &str) -> Vec<TmuxSession> {
 /// Run `tmux list-sessions` and return parsed sessions (empty if no server).
 pub fn list_tmux_sessions() -> Result<Vec<TmuxSession>, TmuxError> {
     let output = Command::new("tmux")
-        .args(["list-sessions", "-F", "#{session_name}\t#{session_path}"])
+        .args(["list-sessions", "-F", LIST_SESSIONS_FORMAT])
         .output()
         .map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
@@ -329,6 +342,18 @@ mod tests {
         assert_eq!(sessions.len(), 2);
         assert_eq!(sessions[0].name, "c-bar");
         assert_eq!(sessions[1].name, "c-foo");
+    }
+
+    #[test]
+    fn parse_sessions_reads_link_options() {
+        let raw = "c-fork\t/p\tc-main\trun-1\tagent\nc-main\t/p\t\t\t\n";
+        let sessions = parse_list_sessions(raw);
+        assert_eq!(sessions[0].name, "c-fork");
+        assert_eq!(sessions[0].parent.as_deref(), Some("c-main"));
+        assert_eq!(sessions[0].run.as_deref(), Some("run-1"));
+        assert_eq!(sessions[0].role.as_deref(), Some("agent"));
+        assert_eq!(sessions[1].parent, None);
+        assert_eq!(sessions[1].role, None);
     }
 
     #[test]

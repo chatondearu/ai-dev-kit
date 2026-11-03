@@ -189,6 +189,7 @@ mod tests {
                     state: SessionState::Idle,
                     agent: "cursor".into(),
                     issue: None,
+                    ..Default::default()
                 },
                 EnrichedSession {
                     name: "o-b".into(),
@@ -197,6 +198,7 @@ mod tests {
                     state: SessionState::Active,
                     agent: "opencode".into(),
                     issue: None,
+                    ..Default::default()
                 },
             ],
             GroupBy::Agent,

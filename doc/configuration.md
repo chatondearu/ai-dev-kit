@@ -28,7 +28,6 @@ these (`./scripts/doctor.sh` only checks `PATH`).
 | `ORCH_FORCE_CLEAN` | off | Remove worktrees after success |
 | `ORCH_REPO` | cwd / `--repo` | Target git tree (required in systemd env) |
 | `ORCH_GH_BOARD` | discovered | Path to `gh-board.sh` for orch-auto |
-| `ORCH_AUTO_ONCE` | off | Force one orch-auto cycle |
 | `CDA_DESIGN_LOOP` | off | Opt-in design loop for UI diffs |
 | `ORCH_GRAPH` | `1` | Live `.orch/graph/current.json` (`0` / `--no-graph` off; the worker loop and verifier still run) |
 | `ORCH_GRAPH_VERIFY` | `1` | foam/plan verifier agent after local verify; `0` disables |
@@ -48,9 +47,9 @@ See [graph-orchestration.md](graph-orchestration.md).
 | `.orch/integrator-report.md` | Post-run synthesis (multi-worker) |
 | `.orch/headless/` | Headless prompt copy |
 | `.orch/auto.lock` | orch-auto mutex |
-| `.orch/orch.lock` | orch ready-pickup / pr-fix mutex |
+| `.orch/orch.lock` | orch ready-pickup / pr-fix mutex. Without `flock` it is the dir `.orch/orch.lock.d/` holding the owner `pid`; a dead pid is taken over |
 | `.orch/worktrees/` | Per-issue worktrees (prune with `orch-cleanup.sh`) |
-| `.orch/auto/*.log` | orch-auto run logs |
+| `.orch/auto/*.log` | orch-auto run logs (newest 50 kept) |
 
 ## Systemd env file
 

@@ -32,10 +32,10 @@ issue when no `plans/PLAN-<id>-*` exists. Only brief comments by an
 
 `pr-fix` only works on same-repo PRs: a cross-repository (fork) PR, a PR whose
 head branch is the default branch, or unreadable PR metadata ends `blocked`
-before any agent run.
+before any agent run (and before the PR is checked out).
 
 Per issue the harness runs: worker loop (agent → verify, retry prompt carries
-the failed verify output) → PR exists → **independent review** (fresh
+the failed verify output or verifier findings) → PR exists → **independent review** (fresh
 `reviewer.md` agent; `REVIEW: changes_requested` gives the worker one fix
 iteration, then re-review once, then `blocked`) → CI green + mergeable → `done`.
 At run end `orch-cleanup.sh` removes the worktrees of `done` issues; `blocked` ones stay.
@@ -71,15 +71,15 @@ Discovers open Issues in board Status **Ready**, skips
 PR lookup fails (rate limit, network), the issue is skipped (fail closed).
 
 ```bash
-bash "$SKILL/scripts/orch-auto.sh" --repo /path/to/repo --once --dry-run
-bash "$SKILL/scripts/orch-auto.sh" --repo /path/to/repo --once
+bash "$SKILL/scripts/orch-auto.sh" --repo /path/to/repo --dry-run
+bash "$SKILL/scripts/orch-auto.sh" --repo /path/to/repo
 ```
 
 Board listing uses `cda-kanban` `gh-board.sh list-ready`. Override path with
 `ORCH_GH_BOARD` if needed (tests / custom layout).
 
 One run at a time: flock on `<repo>/.orch/auto.lock`. Logs under
-`<repo>/.orch/auto/`. A second run exits 75 (EX_TEMPFAIL) when the lock is held, so a timer sees it did not run.
+`<repo>/.orch/auto/` (newest 50 kept). A second run exits 75 (EX_TEMPFAIL) when the lock is held, so a timer sees it did not run.
 
 ### Systemd (opt-in)
 

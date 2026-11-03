@@ -114,8 +114,8 @@ Graph cookbook: [doc/graph-orchestration.md](../../../doc/graph-orchestration.md
 Opt-in poller: discover Ready cards and run `ready-pickup` (not headless):
 
 ```bash
-bash "$SKILL/scripts/orch-auto.sh" --repo /path/to/repo --once --dry-run
-bash "$SKILL/scripts/orch-auto.sh" --repo /path/to/repo --once
+bash "$SKILL/scripts/orch-auto.sh" --repo /path/to/repo --dry-run
+bash "$SKILL/scripts/orch-auto.sh" --repo /path/to/repo
 ```
 
 Systemd user templates: `templates/systemd/` — copy, set `ORCH_REPO`, then

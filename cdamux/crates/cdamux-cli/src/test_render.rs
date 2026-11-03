@@ -7,13 +7,15 @@
 
 use crate::app_tabs::AppTab;
 use crate::fleet_draw::{draw_app_screen, draw_rename_modal, DrawState, FocusArea, RenameState, SideTab};
-use crate::fleet_tree::TreeRow;
+use crate::fleet_tree::{flatten_tree, TreeRow};
+use crate::refresh::{RepoRuns, StatusCache};
 use crate::graph_view::OrchGraphView;
 use crate::settings_form::SettingsForm;
 use crate::spawn_modal::{draw_modal, ModalState};
 use cdamux_core::{
-    ChildKind, ChildRow, Config, EnrichedSession, OrchGraphFile, OrchWorkerStatus, PreviewSource,
-    ProjectRoot, SessionChrome, SessionState,
+    ChildKind, ChildRow, Config, EnrichedSession, GroupBy, OrchGraphFile, OrchGraphRunSummary,
+    OrchRunStatusFile, OrchWorkerStatus, PreviewSource, Project, ProjectRoot, ProjectSessionTree,
+    ProjectTreeNode, SessionChrome, SessionState,
 };
 use ratatui::{backend::TestBackend, Frame, Terminal};
 use std::path::PathBuf;
@@ -85,6 +87,7 @@ fn worker(id: &str, phase: &str, message: &str) -> TreeRow {
         ),
         depth: 1,
         project_path: "/src/alpha".into(),
+        run: None,
     }
 }
 
@@ -147,6 +150,7 @@ pub(crate) fn fixture_children_rows() -> Vec<TreeRow> {
         },
         depth: 2,
         project_path: "/src/alpha".into(),
+        run: None,
     };
     vec![
         TreeRow::Project {
@@ -171,11 +175,77 @@ pub(crate) fn fixture_children_rows() -> Vec<TreeRow> {
             ),
             depth: 1,
             project_path: "/src/alpha".into(),
+            run: None,
         },
         row(session("alpha-main", "/src/alpha", SessionState::Active, "claude", None), 1, Some(true)),
         subagent("a1b2c3d4e5f6", "Explore", SessionState::Active),
         subagent("f6e5d4c3b2a1", "cda-review", SessionState::Done),
     ]
+}
+
+/// Run ids of [`fixture_runs`]: orch.sh timestamps and a graph-node.sh `-<pid>` id.
+pub(crate) const RUN_MAIN: &str = "20261103T100000Z";
+pub(crate) const RUN_42: &str = "cursor-fallback-20261103T110000Z-4242";
+pub(crate) const RUN_HEADLESS: &str = "20261103T090000Z";
+
+/// Two sessions each owning a live run, one headless run (orch-auto), and status.json
+/// workers of `alpha-main`'s run, one of them in a worker tmux session tagged with that run.
+pub(crate) fn fixture_runs() -> (ProjectSessionTree, StatusCache) {
+    let s = |name: &str, state, agent: &str, parent: Option<&str>, run: Option<&str>| EnrichedSession {
+        parent: parent.map(Into::into),
+        run: run.map(Into::into),
+        ..session(name, "/src/alpha", state, agent, None)
+    };
+    let worker_session = format!("orch-{RUN_MAIN}-7");
+    let tree = ProjectSessionTree {
+        nodes: vec![ProjectTreeNode {
+            project: Project { name: "alpha".into(), path: "/src/alpha".into(), root_label: "src".into() },
+            sessions: vec![
+                s("alpha-42", SessionState::NeedsInput, "cursor", None, None),
+                s("alpha-main", SessionState::Active, "claude", None, None),
+                s(&worker_session, SessionState::Active, "claude", Some("alpha-main"), Some(RUN_MAIN)),
+            ],
+        }],
+        unassigned: vec![],
+    };
+    let run = |id: &str, session: Option<&str>| OrchGraphRunSummary {
+        run_id: id.into(),
+        path: format!("/src/alpha/.orch/graph/live/{id}.json").into(),
+        status: Some("running".into()),
+        session: session.map(Into::into),
+        live: true,
+    };
+    let worker = |id: &str, phase: &str, message: &str, tmux: Option<String>| OrchWorkerStatus {
+        id: id.into(),
+        phase: phase.into(),
+        message: message.into(),
+        tmux_session: tmux,
+        ..Default::default()
+    };
+    let mut status = StatusCache::new(std::time::Duration::ZERO);
+    status.insert_fixture(
+        std::path::Path::new("/src/alpha"),
+        OrchRunStatusFile {
+            run_id: Some(RUN_MAIN.into()),
+            workers: vec![
+                worker("7", "agent", "iter 1/10", Some(worker_session)),
+                worker("8", "blocked", "waiting on review", None),
+            ],
+            ..Default::default()
+        },
+        RepoRuns {
+            live: vec![run(RUN_42, Some("alpha-42")), run(RUN_MAIN, Some("alpha-main")), run(RUN_HEADLESS, None)],
+            recent: vec![],
+            per_run: true,
+        },
+    );
+    (tree, status)
+}
+
+pub(crate) fn fixture_runs_rows() -> Vec<TreeRow> {
+    let (tree, status) = fixture_runs();
+    let open = ["/src/alpha".to_string()].into_iter().collect();
+    flatten_tree(&tree, &open, GroupBy::Project, false, &status)
 }
 
 pub(crate) fn fixture_graph() -> OrchGraphView {
@@ -342,6 +412,10 @@ fn golden_screens() {
             (
                 "fleet-nested",
                 render_app_ex(w, h, AppTab::Fleet, SideTab::Preview, fixture_nested_rows(), fixture_graph(), None, false),
+            ),
+            (
+                "fleet-runs",
+                render_app_ex(w, h, AppTab::Fleet, SideTab::Preview, fixture_runs_rows(), fixture_graph(), None, false),
             ),
             (
                 "fleet-children",

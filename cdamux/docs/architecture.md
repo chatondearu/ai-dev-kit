@@ -114,8 +114,14 @@ Operator curl examples: [tailnet-api.md](tailnet-api.md).
 - Orch worktrees stay `.orch/worktrees/` (no auto-bridge, ADR-003). cdamux spawn may
   create worktrees under `[worktrees].root` in `config.toml` only when the operator
   toggles worktree mode in the Fleet modal (`cdamux worktree list` inspects links).
-- Fleet **reads** repo-local orch state: `.orch/graph/current.json` (Orch graph tab /
-  `GET /v1/orch-graph?repo=`) and `.orch/run/status.json` (worker rows under a project).
+- Fleet **reads** repo-local orch state: one graph per run under `.orch/graph/live/`
+  (listed through the refresh scheduler, mtime-gated on `live/`, `runs/` and
+  `current.json`; a running pre-#178 `current.json` stands in when `live/` is missing),
+  `current.json` for the latest run (project rows, `GET /v1/orch-graph?repo=`, `&run=`
+  picks one) and `.orch/run/status.json` (workers, nested under the run with the same
+  `run_id`). A run row (`ChildKind::Run`) sits under the session in its `session`
+  field, headless runs under the project; the session sidecar and Graph view show the
+  session's own newest run, else its `@cdamux_run`.
   The Orch graph tab and the full-screen Graph view (`g`) draw a layered DAG
   (`cdamux-core::orch_graph_layout`, longest-path layers over `edges` + `parent`)
   and fall back to the indented text tree when the layers do not fit the width.

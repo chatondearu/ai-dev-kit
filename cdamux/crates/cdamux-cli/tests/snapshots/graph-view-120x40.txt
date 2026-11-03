@@ -36,5 +36,5 @@ writing the parser tests
 
 
 
-j/k ↑↓ select node · Enter jump to session · g/Esc back · q quit
+j/k ↑↓ select node · Tab next run · Enter jump to session · g/Esc back · q quit
 

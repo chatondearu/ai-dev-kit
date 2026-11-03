@@ -20,5 +20,5 @@ CI red on lint
 
 
 ✓ implement 2m00s → ✓ verify 10s → ✓ verifier → · review → ⊘ CI 1m00s → · PR
-j/k ↑↓ select node · Enter jump to session · g/Esc back · q quit
+j/k ↑↓ select node · Tab next run · Enter jump to session · g/Esc back · q quit
 

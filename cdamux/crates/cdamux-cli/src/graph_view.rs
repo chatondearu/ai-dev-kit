@@ -1,9 +1,11 @@
 //! Drawn orch graph: grid widget, sidecar / full-screen panel, node detail.
 
 use crate::fleet_draw::{node_state_color, CLR_MUTED, CLR_SEL_BG, CLR_TEXT};
+use crate::fleet_tree::GraphTarget;
 use cdamux_core::{
-    find_orch_graph_from_cwd, find_orch_run_status_from_cwd, format_orch_graph_panel_with_history,
-    graph_node_order, layout_orch_graph, list_orch_graph_runs, orch_graph_header,
+    find_orch_graph_from_cwd, find_orch_run_from_cwd, find_orch_run_status_from_cwd,
+    format_orch_graph_panel_ex, format_orch_graph_panel_with_history, graph_node_order,
+    layout_orch_graph, list_orch_graph_runs, load_orch_graph_at, orch_graph_header,
     orch_graph_is_stale, step_worker_id, tmux_has_session, worker_steps, CellClass, GraphLayout,
     NodeState, OrchGraphError, OrchGraphFile, OrchGraphNode, OrchWorkerStatus, Step, BOX_H,
 };
@@ -19,7 +21,8 @@ use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Footer while the full-screen Graph view is open.
-pub(crate) const GRAPH_FOOTER: &str = "j/k ↑↓ select node · Enter jump to session · g/Esc back · q quit";
+pub(crate) const GRAPH_FOOTER: &str =
+    "j/k ↑↓ select node · Tab next run · Enter jump to session · g/Esc back · q quit";
 
 /// Orch graph for the selected Fleet row: text tree (fallback) and parsed graph.
 pub(crate) struct OrchGraphView {
@@ -79,10 +82,44 @@ pub(crate) fn worker_steps_text(worker: Option<&OrchWorkerStatus>) -> String {
         .unwrap_or_default()
 }
 
-pub(crate) fn load_orch_graph_view(cwd: &str, width: usize) -> OrchGraphView {
-    if cwd.is_empty() {
-        return OrchGraphView::text_only("Select a project or session with a live orch run.".into());
+/// Graph for `target`; `pick` (Graph view `Tab`) cycles a session's runs, newest first.
+pub(crate) fn load_orch_graph_view(target: &GraphTarget, pick: usize, width: usize) -> OrchGraphView {
+    match target {
+        GraphTarget::Latest(cwd) if !cwd.is_empty() => load_latest_view(cwd, width),
+        GraphTarget::Runs { cwd, runs } if !runs.is_empty() => {
+            let run = &runs[pick % runs.len()];
+            let Some(path) = find_orch_run_from_cwd(cwd, run) else {
+                return OrchGraphView::text_only(format!("(run {run} not found under .orch/graph)"));
+            };
+            match load_orch_graph_at(&path) {
+                Ok((g, age)) => {
+                    let mut header = orch_graph_header(&g, age).join(" · ");
+                    if runs.len() > 1 {
+                        header.push_str(&format!(" · {}/{} (Tab next run)", pick % runs.len() + 1, runs.len()));
+                    }
+                    OrchGraphView {
+                        text: format_orch_graph_panel_ex(&g, width, age),
+                        stale: orch_graph_is_stale(&g, age),
+                        header,
+                        // status.json describes one run; pre-#178 files carry no run id.
+                        workers: find_orch_run_status_from_cwd(cwd)
+                            .filter(|st| st.run_id.as_deref().is_none_or(|id| id == g.run_id))
+                            .map(|st| st.workers)
+                            .unwrap_or_default(),
+                        graph: Some(g),
+                    }
+                }
+                Err(e) => OrchGraphView::text_only(e.to_string()),
+            }
+        }
+        GraphTarget::NoRun => OrchGraphView::text_only(
+            "(no orch run started from this session)\n\nRuns nest under the session that started them; the project row shows the latest run.".into(),
+        ),
+        _ => OrchGraphView::text_only("Select a project or session with a live orch run.".into()),
     }
+}
+
+fn load_latest_view(cwd: &str, width: usize) -> OrchGraphView {
     match find_orch_graph_from_cwd(cwd) {
         Ok((g, age)) => OrchGraphView {
             text: format_orch_graph_panel_with_history(&g, width, age, Path::new(cwd)),

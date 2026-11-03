@@ -94,7 +94,7 @@ pub const FLEET_KEYMAP: &[Binding] = &[
     b(&[K::Tab], "Tab", A::CycleSideTab, "next sidecar tab", None, G::View),
     b(&[], "PgUp PgDn [ ]", A::None, "scroll preview", None, G::View),
     b(&[K::Char('w')], "w", A::ToggleWaitingFilter, "waiting filter (◆)", None, G::View),
-    b(&[K::Char('g')], "g", A::GraphView, "Graph view", Some("g graph"), G::View),
+    b(&[K::Char('g')], "g", A::GraphView, "Graph view (Tab: run)", Some("g graph"), G::View),
     b(&[K::Char('G')], "G", A::CycleGroupBy, "cycle group_by", None, G::View),
     b(&[], "1-5", A::None, "app tabs", Some("1-5 tabs"), G::App),
     b(&[K::Char('?')], "?", A::ToggleHelp, "this help", Some("? help"), G::App),

@@ -8,8 +8,9 @@ use crate::fleet_draw::{
 use crate::graph_view::{load_orch_graph_view, node_session, worker_steps_text};
 use crate::fleet_tree::{
     clamp_selection, default_expanded, fleet_attention_hint, flatten_tree, focus_session_in_tree,
-    issue_at_row, move_selection, orch_repo_at_row, reanchor_selection, session_at_row, toggle_fold_all,
-    set_row_fold, toggle_row_fold, TreeRow,
+    graph_target_at_row, issue_at_row, move_selection, orch_repo_at_row, project_runs_text,
+    reanchor_selection, session_at_row, toggle_fold_all, set_row_fold, toggle_row_fold, GraphTarget,
+    TreeRow,
 };
 use crate::keymap::{map_key_event, DashboardAction};
 use crate::refresh::{sidecar_step, Interval, Sidecar, StatusCache};
@@ -179,8 +180,11 @@ pub fn run_dashboard() -> ExitCode {
     let mut session_chrome: Option<SessionChrome> = None;
     let mut notes_text = String::new();
     let mut notes_for_session: Option<String> = None;
-    let mut orch_graph = load_orch_graph_view("", 72);
+    let mut orch_graph = load_orch_graph_view(&GraphTarget::None, 0, 72);
     let mut orch_graph_for_session: Option<String> = None;
+    // Graph view `Tab`: which of the selected session's runs; reset when the target changes.
+    let mut run_pick = 0usize;
+    let mut graph_target_key = String::new();
     // Full-screen Graph view (`g`): selected node index in navigation order.
     let mut graph_view: Option<usize> = None;
     let mut status_line = String::new();
@@ -222,6 +226,8 @@ pub fn run_dashboard() -> ExitCode {
         let mut anchor: Option<String> = None;
         let repos = cached_tree.nodes.iter().map(|n| n.project.path.as_path());
         needs_draw |= status.refresh(repos, now);
+        let repos = cached_tree.nodes.iter().map(|n| n.project.path.as_path());
+        needs_draw |= status.refresh_runs(repos, now);
         let names = cached_tree
             .nodes
             .iter()
@@ -299,16 +305,6 @@ pub fn run_dashboard() -> ExitCode {
                 notes_text = crate::note_text_for_session_cwd(&cfg, &s.path);
                 notes_for_session = Some(s.name.clone());
             }
-            let graph_key = format!("sess:{}:{}", s.name, s.path);
-            if orch_graph_for_session.as_deref() != Some(graph_key.as_str())
-                || ((side_tab == SideTab::OrchGraph || graph_view.is_some()) && graph_iv.due(now))
-            {
-                graph_iv.mark(now);
-                let view = load_orch_graph_view(&s.path, 72);
-                needs_draw |= view.differs(&orch_graph);
-                orch_graph = view;
-                orch_graph_for_session = Some(graph_key);
-            }
         } else if let Some(repo) = orch_repo_at_row(&rows, selected_row) {
             session_chrome = None;
             match rows.get(selected_row) {
@@ -319,7 +315,12 @@ pub fn run_dashboard() -> ExitCode {
                     if changed {
                         preview_scroll = 0;
                     }
-                    let text = if row.preview == PreviewSource::None && row.kind == ChildKind::Subagent {
+                    let text = if row.kind == ChildKind::Run {
+                        Some(format!(
+                            "orch run {}\nstatus {}\n\nOrch graph tab and g show this run.",
+                            row.id, row.label
+                        ))
+                    } else if row.preview == PreviewSource::None && row.kind == ChildKind::Subagent {
                         Some(format!("sub-agent {}\n\n(no transcript yet)", row.label))
                     } else if row.preview == PreviewSource::None {
                         // StatusCache (refresh scheduler) already holds status.json: no I/O per tick.
@@ -352,6 +353,7 @@ pub fn run_dashboard() -> ExitCode {
                 }
                 Some(TreeRow::Project {
                     name,
+                    path,
                     worker_count,
                     session_count,
                     ..
@@ -359,7 +361,8 @@ pub fn run_dashboard() -> ExitCode {
                     preview_for_session = None;
                     preview_scroll = 0;
                     preview_text = format!(
-                        "project {name}\nsessions: {session_count} · orch workers: {worker_count}\n\nExpand for workers/sessions; Orch graph tab reads this repo."
+                        "project {name}\nsessions: {session_count} · orch workers: {worker_count}\n\nExpand for runs/workers/sessions; Orch graph tab shows the latest run.{}",
+                        project_runs_text(&status, path)
                     );
                 }
                 _ => {
@@ -372,16 +375,6 @@ pub fn run_dashboard() -> ExitCode {
                 notes_text = crate::note_text_for_session_cwd(&cfg, &repo);
                 notes_for_session = Some(repo.clone());
             }
-            let graph_key = format!("repo:{repo}");
-            if orch_graph_for_session.as_deref() != Some(graph_key.as_str())
-                || ((side_tab == SideTab::OrchGraph || graph_view.is_some()) && graph_iv.due(now))
-            {
-                graph_iv.mark(now);
-                let view = load_orch_graph_view(&repo, 72);
-                needs_draw |= view.differs(&orch_graph);
-                orch_graph = view;
-                orch_graph_for_session = Some(graph_key);
-            }
         } else {
             preview_for_session = None;
             session_chrome = None;
@@ -389,8 +382,22 @@ pub fn run_dashboard() -> ExitCode {
             preview_text = "(select a session for preview)".to_string();
             notes_for_session = None;
             notes_text = "Select a session to view project notes.".to_string();
-            orch_graph_for_session = None;
-            orch_graph = load_orch_graph_view("", 72);
+        }
+        let target = graph_target_at_row(&rows, selected_row, tree, &status);
+        let target_key = format!("{target:?}");
+        if target_key != graph_target_key {
+            run_pick = 0;
+            graph_target_key = target_key;
+        }
+        let graph_key = format!("{graph_target_key}#{run_pick}");
+        if orch_graph_for_session.as_deref() != Some(graph_key.as_str())
+            || ((side_tab == SideTab::OrchGraph || graph_view.is_some()) && graph_iv.due(now))
+        {
+            graph_iv.mark(now);
+            let view = load_orch_graph_view(&target, run_pick, 72);
+            needs_draw |= view.differs(&orch_graph);
+            orch_graph = view;
+            orch_graph_for_session = Some(graph_key);
         }
         let review_text = review_sidecar_hint(session);
 
@@ -681,6 +688,11 @@ pub fn run_dashboard() -> ExitCode {
                 if let Some(sel) = graph_view.as_mut() {
                     match key.code {
                         KeyCode::Esc | KeyCode::Char('g') => graph_view = None,
+                        // Next run of the same session (the loop reloads on the new key).
+                        KeyCode::Tab => {
+                            run_pick += 1;
+                            *sel = 0;
+                        }
                         KeyCode::Down | KeyCode::Right | KeyCode::Char('j') | KeyCode::Char('l') => {
                             *sel = (*sel + 1).min(orch_graph.node_count().saturating_sub(1));
                         }

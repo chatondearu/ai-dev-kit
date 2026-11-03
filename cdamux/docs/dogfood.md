@@ -111,7 +111,8 @@ Diff source: `git diff` plus `git diff --cached` in the resolved repo directory.
 - [ ] `w` waiting filter; `F` fold/unfold all; `G` cycle `group_by` (tree layout); `?` help overlay
 - [ ] Fork a session (`f`): the fork nests under its source (`h`/`l` fold); `ORCH_TMUX=1 orch.sh ...` on a throwaway repo: worker session `orch-<run>-<id>` appears, pane preview is live (throwaway tmux server only)
 - [ ] `./install.sh --cdamux-hooks` (temp HOME), start a Claude sub-agent inside tmux: a sub-agent row appears under its session ([subagents.md](subagents.md))
-- [ ] `g` full-screen Graph view: drawn DAG, `j`/`k` select node, detail panel, Enter jumps to a session named like the node, `g`/Esc back
+- [ ] `g` full-screen Graph view: drawn DAG, `j`/`k` select node, detail panel, Enter jumps to a session named like the node, `Tab` next run of the same session (header `i/n`), `g`/Esc back
+- [ ] Two sessions in one repo each run `graph-node.sh init` (plus one `orch.sh` outside tmux): each `◈ run` row sits under its own session, the headless one under the project; selecting each session shows its own graph; the project sidecar lists the live runs and recent ones
 - [ ] Fleet footer shows `m` rename / `f` fork / `x` kill; `?` lists the same keys grouped
 - [ ] Below 100 columns the sidecar stacks under the tree; the footer drops items to fit but keeps `? help · q quit`; status messages sit on the row under it
 - [ ] Fleet session rows show agent tag (`@cdamux_agent`); missing option shows `—` (same as Preview chrome)
@@ -144,7 +145,7 @@ Form pieces (Select, Toggle, TextInput, FieldList, text modal) live in
 | `x` | Kill selected session |
 | `w` | Toggle waiting-for-input (◆) filter on Fleet tree |
 | `F` | Expand or collapse all Fleet groups |
-| `g` | Full-screen Graph view of the selected row's orch run (drawn DAG + node detail) |
+| `g` | Full-screen Graph view of the selected row's orch run (drawn DAG + node detail); inside it `Tab` cycles the session's runs, newest first |
 | `G` | Cycle `sessions.group_by` (differs from agent-manager group tree) |
 | `?` | Keyboard help (Esc to close) |
 | `1`–`5` | Fleet / Projects / Sessions / Agents / Settings |

@@ -73,11 +73,11 @@ bash ~/.cursor/skills/cda-graph/scripts/graph-plan-validate.sh my-plan.json
 
 | Surface | How |
 | ------- | --- |
-| **cdamux TUI** | Fleet → select **project** or session → sidecar **Orch graph**; expand project for `⚙ #id` workers from `.orch/run/status.json`; `g` opens the full-screen drawn DAG with a steps bar (implement / verify / review / CI / PR) for the selected worker |
+| **cdamux TUI** | Fleet → select **project** or session → sidecar **Orch graph**; each live run is a `◈ run <id>` row under the session that started it (headless runs under the project), with its `⚙ #id` workers (`.orch/run/status.json` with the same `run_id`) and worker sessions; a session shows its own newest run (else its `@cdamux_run`), a project the latest; `g` opens the full-screen drawn DAG with a steps bar (implement / verify / review / CI / PR) for the selected worker, `Tab` there cycles a session's runs |
 | **cdamux sessions** | `ORCH_TMUX=1` workers are tmux sessions linked by `@cdamux_parent` / `@cdamux_run` / `@cdamux_role`; CLI sub-agents show as child rows (`cdamux/docs/subagents.md`, hooks via `./install.sh --cdamux-hooks`) |
 | **cdamuxd web** | Tailnet dashboard → session → **Orch graph** (canvas, polls API) |
 | **API** | `GET /v1/sessions/{tmux-name}/orch-graph` |
-| **API (project)** | `GET /v1/orch-graph?repo=` · `GET /v1/orch-status?repo=` · `GET /v1/orch-runs?repo=` (archived finishes under `.orch/graph/runs/`) |
+| **API (project)** | `GET /v1/orch-graph?repo=[&run=]` (default: latest run) · `GET /v1/orch-status?repo=` · `GET /v1/orch-runs?repo=` (live runs with `session`, then archived finishes under `.orch/graph/runs/`; `live` flag) |
 | **Session hooks** | `tmux set-option -t SESSION @cdamux_state running\|waiting\|done\|error` — cdamux Fleet prefers this over pane heuristics (set automatically with `ORCH_TMUX=1`) |
 | **GitHub issue** | Fleet `o` opens `gh issue view N --web` when branch is `feat/<n>-*` or worker id is numeric |
 

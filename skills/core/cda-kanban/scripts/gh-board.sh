@@ -28,6 +28,9 @@
 # Requires: gh (with `project` scope), jq.
 set -euo pipefail
 
+# "No limit" for commands that must see every board item (list-ready, item-id, events).
+LIMIT_ALL=1000000
+
 err() { printf 'gh-board: %s\n' "$*" >&2; }
 die() { err "$*"; exit 1; }
 
@@ -142,15 +145,19 @@ cmd_item_id() {
   local issue="${1:?usage: gh-board.sh item-id <ISSUE_NUMBER>}"
   resolve_repo
   resolve_project_number
-  gh project item-list "$PROJECT_NUMBER" --owner "$OWNER" --format json --limit 200 \
-    | jq -r --argjson n "$issue" \
-        '.items[] | select(.content.number == $n) | .id'
+  PROJECT_ID="$(gh project view "$PROJECT_NUMBER" --owner "$OWNER" --format json --jq '.id')" \
+    || die "cannot view project #$PROJECT_NUMBER"
+  # Full pagination, filtered to this repo (a multi-repo project reuses numbers).
+  LIMIT="${LIMIT:-$LIMIT_ALL}"
+  list_project_items_graphql | jq -r --argjson n "$issue" \
+    '.[] | select(.number == $n) | .itemId'
 }
 
 # Print Ready-column open Issues (one number per line, or JSON with --json).
 cmd_list_ready() {
   need gh; need jq
   resolve_status_board
+  LIMIT="${LIMIT:-$LIMIT_ALL}"
   local ready_line ready_name items
   ready_line="$(closest_status_option "Ready" "$STATUS_OPTIONS")"
   [ -n "$ready_line" ] || die "no Status option matching Ready"
@@ -218,12 +225,12 @@ resolve_base_ref() {
   BASE_REF="$def"
 }
 
-# Strong local signal: commit on BASE_REF mentions #N / Closes #N / Fixes #N.
+# Strong local signal: a commit on BASE_REF closes #N. Bare "#N" and "Refs #N"
+# are NOT proof (they only mention the issue).
 git_mentions_issue() {
   local n="$1" hit
   hit="$(git log "$BASE_REF" --extended-regexp -i \
-    --grep="(Closes|Fixes|Resolves|Refs)[[:space:]]+#${n}([^0-9]|$)" \
-    --grep="#${n}([^0-9]|$)" \
+    --grep="(Closes|Fixes|Resolves)[[:space:]]+#${n}([^0-9]|$)" \
     --pretty=format:'%h' -n 1 2>/dev/null || true)"
   [ -n "$hit" ]
 }
@@ -389,7 +396,7 @@ Options:
 
 Done heuristics (ANY strong signal → move to Done; else skip):
   - issue/PR state == CLOSED
-  - git log <base> mentions #N / Closes #N / Fixes #N / Resolves #N / Refs #N
+  - git log <base> has "Closes|Fixes|Resolves #N" (bare #N and Refs #N do not count)
   - PR content with merged==true already in the list payload (no per-issue REST)
 
 API shape (minimize HTTP calls):
@@ -424,6 +431,7 @@ cmd_reconcile_backlog() {
   done < <(printf '%s\n' "$want_status" | tr ',' '\n')
   [ "${#target_names[@]}" -gt 0 ] || die "no --status columns resolved"
 
+  LIMIT="${LIMIT:-100}"
   err "listing project #$PROJECT_NUMBER items (limit=$LIMIT, base=$BASE_REF, status=${target_names[*]})"
   local items
   items="$(list_project_items_graphql)"
@@ -524,7 +532,7 @@ emit_timeline() {
   gh api --paginate "repos/$OWNER/$REPO/issues/$n/timeline?per_page=100" 2>/dev/null \
     | jq -c --arg since "$SINCE" --argjson n "$n" --arg title "$title" --arg url "$url" '
         .[]
-        | select(.created_at != null and .created_at >= $since)
+        | select((.created_at // .submitted_at) != null and (.created_at // .submitted_at) >= $since)
         | . as $e
         | (
             if .event=="commented" then
@@ -545,7 +553,7 @@ emit_timeline() {
               {type:"closed", actor:(.actor.login // "?"), detail:"closed", url:$url}
             else empty end
           )
-        | . + {ts:$e.created_at, number:$n, title:$title}
+        | . + {ts:($e.created_at // $e.submitted_at), number:$n, title:$title}
       '
 }
 
@@ -591,6 +599,7 @@ cmd_events() {
   fi
 
   local run_start; run_start="$(now_iso)"
+  LIMIT="${LIMIT:-$LIMIT_ALL}"
 
   # Board items in THIS repo (number, title, url, status).
   local items_file events_file
@@ -605,14 +614,15 @@ cmd_events() {
            url:.content.url, status:(.status // "")}' \
     > "$items_file" || die "cannot list project items"
 
-  # Timeline events per item.
+  # Timeline events per item. A failed fetch must not advance the cursor.
+  local failed=0
   while IFS= read -r line; do
     [ -z "$line" ] && continue
     local n title url
     n="$(printf '%s' "$line" | jq -r '.number')"
     title="$(printf '%s' "$line" | jq -r '.title')"
     url="$(printf '%s' "$line" | jq -r '.url')"
-    emit_timeline "$n" "$title" "$url" >> "$events_file" || true
+    emit_timeline "$n" "$title" "$url" >> "$events_file" || failed=1
   done < "$items_file"
 
   # Status column changes (snapshot diff).
@@ -631,7 +641,11 @@ cmd_events() {
     fi
   fi
 
-  # Advance the cursor so the next run only sees newer events.
+  # Advance the cursor so the next run only sees newer events (not after a failure).
+  if [ "$failed" = "1" ]; then
+    err "timeline fetch failed for some items; cursor not advanced"
+    return 1
+  fi
   if [ "$use_cursor" = "1" ]; then printf '%s\n' "$run_start" > "$since_file"; fi
 }
 
@@ -650,7 +664,7 @@ main() {
   OVR_OWNER=""; OVR_REPO=""; OVR_PNUM=""
   OVR_SINCE=""; OVR_SINCEFILE=""; OVR_INTERVAL=""
   OVR_BASE=""; OVR_STATUS=""; OVR_APPLY=0; OVR_CHUNK=40
-  OUT_JSON=0; LIMIT=100; WANT_HELP=0
+  OUT_JSON=0; LIMIT=""; WANT_HELP=0
   local positional=()
   while [ $# -gt 0 ]; do
     case "$1" in

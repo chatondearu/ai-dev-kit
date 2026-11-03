@@ -19,6 +19,19 @@ pub fn cycle<T: Copy + PartialEq>(all: &[T], cur: T, delta: i32) -> T {
     all[(pos + delta).rem_euclid(all.len() as i32) as usize]
 }
 
+/// Mouse wheel: move `cur` by `delta` rows, clamped to `0..len`.
+pub fn wheel_step(cur: usize, delta: isize, len: usize) -> usize {
+    cur.saturating_add_signed(delta).min(len.saturating_sub(1))
+}
+
+/// Render `list` keeping `selected` in view: the list scrolls only when the
+/// cursor reaches an edge. `offset` persists the scroll position across frames.
+pub fn draw_scrolled_list(f: &mut Frame, area: Rect, list: List, selected: usize, offset: &mut usize) {
+    let mut state = ListState::default().with_offset(*offset).with_selected(Some(selected));
+    f.render_stateful_widget(list, area, &mut state);
+    *offset = state.offset();
+}
+
 /// Toggle: display text for a bool field.
 pub fn toggle_text(on: bool) -> &'static str {
     if on { "on" } else { "off" }
@@ -128,6 +141,14 @@ mod tests {
 
     fn key(code: KeyCode, mods: KeyModifiers) -> KeyEvent {
         KeyEvent::new(code, mods)
+    }
+
+    #[test]
+    fn wheel_step_clamps() {
+        assert_eq!(wheel_step(1, -3, 10), 0);
+        assert_eq!(wheel_step(8, 3, 10), 9);
+        assert_eq!(wheel_step(4, 3, 10), 7);
+        assert_eq!(wheel_step(0, 3, 0), 0);
     }
 
     #[test]

@@ -2,6 +2,7 @@
 
 use crate::keymap::fleet_footer;
 use crate::settings_form::SETTINGS_FOOTER;
+use crate::widgets::draw_scrolled_list;
 use cdamux_core::{
     Config, EnrichedSession, GroupBy, Project, enrich_sessions, list_tmux_sessions,
 };
@@ -124,7 +125,7 @@ pub fn draw_projects(
     area: ratatui::layout::Rect,
     cfg: &Config,
     discovered: &[Project],
-    scroll: usize,
+    scroll: &mut usize,
     status: &str,
 ) {
     let chunks = Layout::default()
@@ -162,8 +163,11 @@ pub fn draw_projects(
         chunks[0],
     );
 
-    let visible = discovered.len().min(chunks[1].height as usize);
-    let start = scroll.min(discovered.len().saturating_sub(visible.max(1)));
+    // Minus the 2 border rows, or the last projects stay unreachable.
+    let visible = discovered.len().min(chunks[1].height.saturating_sub(2) as usize);
+    let start = (*scroll).min(discovered.len().saturating_sub(visible.max(1)));
+    // Write the clamp back so `k` reacts at once after overshooting with `j`.
+    *scroll = start;
     let items: Vec<ListItem> = discovered
         .iter()
         .skip(start)
@@ -197,20 +201,14 @@ pub fn draw_sessions_list(
     f: &mut Frame,
     area: ratatui::layout::Rect,
     sessions: &[EnrichedSession],
-    scroll: usize,
+    scroll: &mut usize,
     selected: usize,
 ) {
-    let visible = area.height.saturating_sub(2) as usize;
-    let start = scroll.min(sessions.len().saturating_sub(visible.max(1)));
     let items: Vec<ListItem> = sessions
         .iter()
         .enumerate()
-        .skip(start)
-        .take(visible.max(1))
         .map(|(i, s)| {
-            let global = start + i;
-            let sel = global == selected;
-            let style = if sel {
+            let style = if i == selected {
                 Style::default()
                     .bg(CLR_SEL_BG)
                     .fg(CLR_TEXT)
@@ -224,14 +222,12 @@ pub fn draw_sessions_list(
             ]))
         })
         .collect();
-    f.render_widget(
-        List::new(if items.is_empty() {
-            vec![ListItem::new("(no tmux sessions)")]
-        } else {
-            items
-        }).block(screen_block(&format!("tmux sessions ({})", sessions.len()))),
-        area,
-    );
+    let block = screen_block(&format!("tmux sessions ({})", sessions.len()));
+    if items.is_empty() {
+        f.render_widget(List::new(vec![ListItem::new("(no tmux sessions)")]).block(block), area);
+    } else {
+        draw_scrolled_list(f, area, List::new(items).block(block), selected, scroll);
+    }
 }
 
 pub fn draw_agents(f: &mut Frame, area: ratatui::layout::Rect, lines: &[String]) {
@@ -296,6 +292,67 @@ mod tests {
     fn tab_digits() {
         assert_eq!(AppTab::from_digit('3'), Some(AppTab::Sessions));
         assert_eq!(AppTab::from_digit('9'), None);
+    }
+
+    fn buffer_lines(term: &ratatui::Terminal<ratatui::backend::TestBackend>) -> Vec<String> {
+        let buf = term.backend().buffer();
+        (0..buf.area.height)
+            .map(|y| (0..buf.area.width).map(|x| buf[(x, y)].symbol()).collect())
+            .collect()
+    }
+
+    #[test]
+    fn sessions_list_follows_cursor_both_ways() {
+        let sessions: Vec<EnrichedSession> = (0..30)
+            .map(|i| EnrichedSession {
+                name: format!("s{i:02}"),
+                path: String::new(),
+                group_key: String::new(),
+                state: cdamux_core::SessionState::Idle,
+                agent: String::new(),
+                issue: None,
+            })
+            .collect();
+        // 12 rows = 10 list rows + 2 borders.
+        let mut term =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(30, 12)).unwrap();
+        let mut scroll = 0;
+        let mut draw = |selected: usize, scroll: &mut usize| {
+            term.draw(|f| draw_sessions_list(f, f.area(), &sessions, scroll, selected)).unwrap();
+            let lines = buffer_lines(&term);
+            let row = lines.iter().position(|l| l.contains(&format!("s{selected:02}"))).unwrap();
+            let cell = &term.backend().buffer()[(1, row as u16)];
+            assert_eq!(cell.bg, CLR_SEL_BG, "s{selected:02} not highlighted");
+            lines
+        };
+        let lines = draw(25, &mut scroll);
+        assert!(!lines.iter().any(|l| l.contains("s00")));
+        assert_eq!(scroll, 16);
+        // Moving up inside the viewport keeps the offset (no pinning to the top row).
+        draw(20, &mut scroll);
+        assert_eq!(scroll, 16);
+        // Past the top edge the list scrolls back up.
+        draw(3, &mut scroll);
+        assert_eq!(scroll, 3);
+    }
+
+    #[test]
+    fn projects_last_row_reachable() {
+        let projects: Vec<Project> = (0..30)
+            .map(|i| Project {
+                name: format!("p{i:02}"),
+                path: format!("/src/p{i:02}").into(),
+                root_label: String::new(),
+            })
+            .collect();
+        let mut term =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(40, 18)).unwrap();
+        let mut scroll = usize::MAX;
+        term.draw(|f| draw_projects(f, f.area(), &Config::default(), &projects, &mut scroll, ""))
+            .unwrap();
+        assert!(buffer_lines(&term).iter().any(|l| l.contains("p29")));
+        // The overshoot is clamped so `k` scrolls back at once.
+        assert_eq!(scroll, 30 - (18 - 4 - 2));
     }
 
     #[test]

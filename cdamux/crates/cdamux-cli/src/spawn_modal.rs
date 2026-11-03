@@ -13,9 +13,10 @@ use ratatui::{
     layout::{Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph},
+    widgets::{Block, Borders, List, ListItem, Paragraph},
     Frame,
 };
+use crate::widgets::{draw_scrolled_list, wheel_step};
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -48,6 +49,7 @@ pub(crate) struct ModalState {
     running: Vec<(String, PathBuf)>,
     discovered: Vec<PathBuf>,
     pick_index: usize,
+    list_offset: usize,
     custom_path: String,
     shell_only: bool,
     agent_index: usize,
@@ -85,6 +87,7 @@ impl ModalState {
             running,
             discovered,
             pick_index: 0,
+            list_offset: 0,
             custom_path: String::new(),
             shell_only: false,
             agent_index,
@@ -129,6 +132,18 @@ impl ModalState {
             PathMode::Running => self.running.len(),
             PathMode::Discovered => self.discovered.len(),
             PathMode::Custom => 0,
+        }
+    }
+
+    /// Mouse wheel: move the pick by `delta` rows (clamped), like j/k.
+    pub(crate) fn scroll_pick(&mut self, delta: isize) {
+        if self.editing_custom || self.editing_new_branch {
+            return;
+        }
+        let next = wheel_step(self.pick_index, delta, self.list_len());
+        if next != self.pick_index {
+            self.pick_index = next;
+            self.sync_git_fields();
         }
     }
 
@@ -366,7 +381,7 @@ pub(crate) fn draw_overlay_scrim(f: &mut Frame) {
     );
 }
 
-pub(crate) fn draw_modal(f: &mut Frame, state: &ModalState) {
+pub(crate) fn draw_modal(f: &mut Frame, state: &mut ModalState) {
     let area = centered_rect(70, 70, f.area());
     let block = Block::default()
         .title(" New session ")
@@ -404,58 +419,47 @@ pub(crate) fn draw_modal(f: &mut Frame, state: &ModalState) {
         chunks[0],
     );
 
-    let list_body = match state.path_mode {
-        PathMode::Running => {
-            if state.running.is_empty() {
-                "(no sessions with cwd)".to_string()
-            } else {
-                state
-                    .running
-                    .iter()
-                    .enumerate()
-                    .map(|(i, (name, p))| {
-                        let mark = if i == state.pick_index { "›" } else { " " };
-                        format!("{} {}  {}", mark, name, p.display())
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            }
-        }
-        PathMode::Discovered => {
-            if state.discovered.is_empty() {
-                "(no discovered repos)".to_string()
-            } else {
-                state
-                    .discovered
-                    .iter()
-                    .enumerate()
-                    .map(|(i, p)| {
-                        let mark = if i == state.pick_index { "›" } else { " " };
-                        format!("{} {}", mark, p.display())
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            }
-        }
-        PathMode::Custom => {
-            if state.editing_custom {
-                format!("path: {}█", state.custom_path)
-            } else {
-                format!(
-                    "path: {}\n(c) edit custom path",
-                    if state.custom_path.is_empty() {
-                        "<empty>"
-                    } else {
-                        state.custom_path.as_str()
-                    }
-                )
-            }
-        }
+    let modal_style = Style::default().bg(MODAL_BG).fg(MODAL_FG);
+    let mark = |i: usize| if i == state.pick_index { "›" } else { " " };
+    let items: Vec<ListItem> = match state.path_mode {
+        PathMode::Running => state
+            .running
+            .iter()
+            .enumerate()
+            .map(|(i, (name, p))| ListItem::new(format!("{} {}  {}", mark(i), name, p.display())))
+            .collect(),
+        PathMode::Discovered => state
+            .discovered
+            .iter()
+            .enumerate()
+            .map(|(i, p)| ListItem::new(format!("{} {}", mark(i), p.display())))
+            .collect(),
+        PathMode::Custom => Vec::new(),
     };
-    f.render_widget(
-        Paragraph::new(list_body).style(Style::default().bg(MODAL_BG).fg(MODAL_FG)),
-        chunks[1],
-    );
+    if items.is_empty() {
+        let list_body = match state.path_mode {
+            PathMode::Running => "(no sessions with cwd)".to_string(),
+            PathMode::Discovered => "(no discovered repos)".to_string(),
+            PathMode::Custom => {
+                if state.editing_custom {
+                    format!("path: {}█", state.custom_path)
+                } else {
+                    format!(
+                        "path: {}\n(c) edit custom path",
+                        if state.custom_path.is_empty() {
+                            "<empty>"
+                        } else {
+                            state.custom_path.as_str()
+                        }
+                    )
+                }
+            }
+        };
+        f.render_widget(Paragraph::new(list_body).style(modal_style), chunks[1]);
+    } else {
+        let selected = state.pick_index;
+        draw_scrolled_list(f, chunks[1], List::new(items).style(modal_style), selected, &mut state.list_offset);
+    }
 
     let git_line = if state.branches.is_empty() {
         "git: (no repo at path)".to_string()
@@ -543,4 +547,63 @@ pub(crate) fn centered_rect(percent_x: u16, percent_y: u16, r: ratatui::layout::
             Constraint::Percentage((100 - percent_x) / 2),
         ])
         .split(popup_layout[1])[1]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn modal(discovered: Vec<PathBuf>) -> ModalState {
+        ModalState {
+            path_mode: PathMode::Discovered,
+            running: Vec::new(),
+            discovered,
+            pick_index: 0,
+            list_offset: 0,
+            custom_path: String::new(),
+            shell_only: false,
+            agent_index: 0,
+            agents: Vec::new(),
+            layout: PaneLayout::Single,
+            editing_custom: false,
+            editing_new_branch: false,
+            branches: Vec::new(),
+            branch_index: 0,
+            worktree_mode: false,
+            new_branch: String::new(),
+            message: String::new(),
+        }
+    }
+
+    fn rendered(term: &ratatui::Terminal<ratatui::backend::TestBackend>) -> Vec<String> {
+        let buf = term.backend().buffer();
+        (0..buf.area.height)
+            .map(|y| (0..buf.area.width).map(|x| buf[(x, y)].symbol()).collect())
+            .collect()
+    }
+
+    #[test]
+    fn modal_list_follows_pick() {
+        // Paths that do not exist: sync_git_fields finds no repo and stays offline.
+        let paths = (0..30).map(|i| PathBuf::from(format!("/nonexistent/p{i:02}"))).collect();
+        let mut state = modal(paths);
+        // 80x34 leaves a 10-row path list inside the modal.
+        let mut term = ratatui::Terminal::new(ratatui::backend::TestBackend::new(80, 34)).unwrap();
+        state.pick_index = 25;
+        term.draw(|f| draw_modal(f, &mut state)).unwrap();
+        let lines = rendered(&term);
+        assert!(lines.iter().any(|l| l.contains("› /nonexistent/p25")));
+        assert!(!lines.iter().any(|l| l.contains("/nonexistent/p00")));
+        assert_eq!(lines.iter().filter(|l| l.contains("/nonexistent/p")).count(), 10);
+
+        // Wheel moves the pick by 3, clamped to the list.
+        state.scroll_pick(3);
+        assert_eq!(state.pick_index, 28);
+        state.scroll_pick(3);
+        assert_eq!(state.pick_index, 29);
+        state.scroll_pick(-3);
+        assert_eq!(state.pick_index, 26);
+        term.draw(|f| draw_modal(f, &mut state)).unwrap();
+        assert!(rendered(&term).iter().any(|l| l.contains("› /nonexistent/p26")));
+    }
 }

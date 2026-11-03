@@ -20,9 +20,6 @@ bash "$SKILL/scripts/orch.sh" --repo "$REPO" --mode ready-pickup --issue 12 --is
 bash ~/.cursor/skills/cda-graph/scripts/graph-plan-validate.sh ./plans/graph/issue-42.json
 bash "$SKILL/scripts/orch.sh" --repo "$REPO" --mode ready-pickup --issue 42 \
   --graph-plan ./plans/graph/issue-42.json
-
-# Foam export for agents without VS Code Foam
-bash ~/.cursor/skills/cda-graph/scripts/foam-graph-export.sh --repo "$REPO" --merge-orch
 ```
 
 ## Runtime artifact
@@ -30,7 +27,6 @@ bash ~/.cursor/skills/cda-graph/scripts/foam-graph-export.sh --repo "$REPO" --me
 | Path | Content |
 | ---- | ------- |
 | `.orch/graph/current.json` | Live DAG: workers, implement/verify nodes, integrator |
-| `foam/graph/export.json` | Wikilink graph + optional orch overlay (generated) |
 | `.orch/integrator-report.md` | Human-readable synthesis after multi-worker runs |
 
 ## Environment variables

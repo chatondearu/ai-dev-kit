@@ -20,7 +20,6 @@ ISSUE=""
 SLUG=""
 
 log() { printf '%s\n' "$*"; }
-run() { if [ "$DRY" = 1 ]; then printf 'DRY  %s\n' "$*"; else eval "$*"; fi; }
 die() { printf 'new-prd.sh: %s\n' "$*" >&2; exit 1; }
 
 usage() {
@@ -31,12 +30,14 @@ usage() {
 prefill_from_issue() {
   local dest="$1" title="$2" url="$3" body="$4" num="$5" slug="$6" st="$7"
   local problem
-  problem="$(printf '%s' "$body" | sed -n '/^## Goal/,/^## /p' | sed '$d' | tail -n +2)"
+  problem="$(printf '%s' "$body" | awk '/^## Goal/{f=1;next} f&&/^## /{exit} f')"
   [ -n "$problem" ] || problem="$(printf '%s' "$body" | head -n 20)"
 
-  PRD_PROBLEM="$problem" awk -v title="$title" -v url="$url" -v num="$num" -v slug="$slug" \
-      -v date="$(today)" -v st="$st" '
-    BEGIN { n=0; problem = ENVIRON["PRD_PROBLEM"] }  # via env: BSD awk rejects newlines in -v
+  # Free text goes via env: awk -v interprets backslashes and BSD awk rejects newlines.
+  PRD_PROBLEM="$problem" PRD_TITLE="$title" PRD_URL="$url" PRD_ST="$st" \
+    awk -v num="$num" -v slug="$slug" -v date="$(today)" '
+    BEGIN { problem = ENVIRON["PRD_PROBLEM"]; title = ENVIRON["PRD_TITLE"]
+            url = ENVIRON["PRD_URL"]; st = ENVIRON["PRD_ST"] }
     /^# PRD-XXX/ { print "# PRD-" num " — " title; next }
     /^- \*\*Status\*\*/ { print "- **Status**: " st; next }
     /^- \*\*GitHub\*\*/ { print "- **GitHub**: [#" num "](" url ")"; next }
@@ -99,7 +100,7 @@ main() {
     exit 0
   fi
 
-  run "cp \"$TEMPLATE\" \"$DEST\""
+  cp "$TEMPLATE" "$DEST"
   prefill_from_issue "$DEST" "$TITLE" "$URL" "$BODY" "$ISSUE" "$SLUG" "$STATUS"
   append_prd_index_row "$ROOT" "$DEST" "$STATUS"
   log "add  $DEST"

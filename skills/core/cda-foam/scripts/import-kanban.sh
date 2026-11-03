@@ -75,7 +75,7 @@ main() {
   log ""
 
   ISSUES_JSON="$(gh issue list --state all --limit "$LIMIT" \
-    --json number,title,state,labels,closedAt 2>/dev/null)" \
+    --json number,title,state,stateReason,labels,closedAt 2>/dev/null)" \
     || die "gh issue list failed"
 
   COUNT="$(printf '%s' "$ISSUES_JSON" | jq 'length')"
@@ -101,7 +101,7 @@ important items into PRDs and ADRs manually._
   SHIPPED="${SHIPPED}| [#${num}](https://github.com/${SLUG}/issues/${num}) | ${title} |
 "
   done < <(printf '%s' "$ISSUES_JSON" | jq -r '
-    [.[] | select(.state == "CLOSED")] | sort_by(.number) |
+    [.[] | select(.state == "CLOSED" and .stateReason == "COMPLETED")] | sort_by(.number) |
     .[] | "\(.number)\t\(.title | gsub("\n"; " ") | gsub("[|]"; "/"))"
   ')
 

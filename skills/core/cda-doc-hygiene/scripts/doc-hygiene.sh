@@ -158,12 +158,13 @@ check_gh_archive_candidates() {
 
 fix_plan_links_in_file() {
   local f="$1"
-  sed -i \
+  # -i.bak works on both GNU and BSD sed (bare -i / -i '' do not)
+  sed -i.bak \
     -e 's|\[\[../prd/|[[../../prd/|g' \
     -e 's|\[\[../foam/|[[../../foam/|g' \
     -e 's|](../prd/|](../../prd/|g' \
     -e 's|](../foam/|](../../foam/|g' \
-    "$f"
+    "$f" && rm -f "$f.bak"
 }
 
 run_archive_done() {

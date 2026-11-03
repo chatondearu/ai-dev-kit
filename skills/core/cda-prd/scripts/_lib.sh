@@ -16,10 +16,6 @@ repo_root() {
   pwd
 }
 
-gh_repo_url() {
-  gh repo view --json url -q .url 2>/dev/null || printf 'https://github.com/OWNER/REPO'
-}
-
 today() { date +%Y-%m-%d; }
 
 issue_json() {
@@ -40,28 +36,19 @@ find_plan_for_issue() {
 append_prd_index_row() {
   local root="$1" prd_file="$2" status="${3:-draft}"
   local index="$root/foam/index.md"
-  local base
+  local base row
   base="$(basename "$prd_file" .md)"
   [ -f "$index" ] || return 0
-  if grep -qF "| $base |" "$index" 2>/dev/null; then
-    return 0
-  fi
-  if grep -q '_| _(none yet)_' "$index" 2>/dev/null; then
-    sed -i "s/| _(none yet)_ |.*/| [[../prd\/$base|$base]] | $status |/" "$index"
-  else
-    printf '| [[../prd/%s|%s]] | %s |\n' "$base" "$base" "$status" >> "$index"
-  fi
-}
-
-append_plan_index_hint() {
-  local root="$1" plan_file="$2"
-  local index="$root/foam/index.md"
-  local base
-  base="$(basename "$plan_file" .md)"
-  [ -f "$index" ] || return 0
-  grep -qF "$base" "$index" 2>/dev/null && return 0
-  # Append under PRDs & plans section if a plans list is added later
-  return 0
+  grep -qF "[[../prd/$base|" "$index" 2>/dev/null && return 0
+  row="$(printf '| [[../prd/%s|%s]] | %s |' "$base" "$base" "$status")"
+  # Insert right after the "| PRD |" table separator; drop the scaffold placeholder row.
+  PRD_ROW="$row" awk '
+    /^\| PRD \|/ { hdr=1 }
+    /_\(none yet\)_/ && done { next }
+    { print }
+    hdr && !done && /^\| *-/ { print ENVIRON["PRD_ROW"]; done=1 }
+  ' "$index" > "$index.tmp" && mv "$index.tmp" "$index"
+  grep -qF "[[../prd/$base|" "$index" || printf '%s\n' "$row" >> "$index"
 }
 
 search_related_adrs() {

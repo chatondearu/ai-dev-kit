@@ -18,8 +18,8 @@ runtime graph or integrator/verifier nodes.
    `worker-result.json`, integrator synthesize, optional foam-grounded verifier.
 2. **`orch.sh`** writes live state to `<repo>/.orch/graph/current.json` by default
    (`ORCH_GRAPH=1`). Integrator runs automatically when dispatching **2+** issues.
-3. **Foam machine export** via `foam-graph-export.sh` → `foam/graph/export.json`
-   (wikilinks + optional orch overlay). No new graph database in the kit.
+3. ~~Foam machine export (`foam-graph-export.sh`)~~ — removed (#134): broken and
+   unread by any consumer. No new graph database in the kit.
 4. **cdamux** displays the live orch graph in Fleet (read-only); execution stays in bash harness.
 5. **OpenClaw** remains external (ADR-001); document pattern mapping only.
 6. **Loops** remain for CI, TDD, headless one-shot — implemented as **short graph nodes**

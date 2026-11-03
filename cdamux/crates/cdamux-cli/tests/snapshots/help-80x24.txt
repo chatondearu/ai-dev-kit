@@ -1,0 +1,24 @@
+┌keyboard help (? / Esc close)─────────────────────────────────────────────────┐
+│Navigate                               View                                   │
+│  j ↓            next row                Tab            next sidecar tab      │
+│  k ↑            previous row            PgUp PgDn [ ]  scroll preview        │
+│  h ←            collapse row            w              waiting filter (◆)    │
+│  l →            expand row              g              Graph view            │
+│  F              fold/unfold all groups  G              cycle group_by        │
+│  click          select row                                                   │
+│                                       App                                    │
+│Sessions                                 1-5            app tabs              │
+│  Enter          attach / review         ?              this help             │
+│  n              new session             q              quit                  │
+│  m              rename session          Ctrl+C         quit                  │
+│  f              fork session                                                 │
+│  x              kill session                                                 │
+│  o              open GitHub issue                                            │
+│  Space          send text                                                    │
+│  Ctrl+R         hunk review TUI                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘

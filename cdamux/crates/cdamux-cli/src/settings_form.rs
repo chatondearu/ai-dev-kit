@@ -32,7 +32,7 @@ const DISCOVER_MODES: [DiscoverMode; 3] =
     [DiscoverMode::Flat, DiscoverMode::GitOnly, DiscoverMode::Depth];
 
 pub const SETTINGS_FOOTER: &str =
-    "j/k move · ←→/Enter change · Space toggle · a add root · d delete root · S save · 1-5 tabs · q quit";
+    "j/k move · ←→/Enter change · S save · Space toggle · a add root · d delete root · 1-5 tabs · q quit";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Field {

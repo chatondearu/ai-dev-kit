@@ -10,7 +10,8 @@ pub enum DashboardAction {
     Spawn,
     SelectNext,
     SelectPrev,
-    ToggleExpand,
+    Collapse,
+    Expand,
     FocusComposer,
     CycleSideTab,
     StartReview,
@@ -78,22 +79,23 @@ use KeyCode as K;
 pub const FLEET_KEYMAP: &[Binding] = &[
     b(&[K::Down, K::Char('j')], "j ↓", A::SelectNext, "next row", Some("j/k nav"), G::Navigate),
     b(&[K::Up, K::Char('k')], "k ↑", A::SelectPrev, "previous row", None, G::Navigate),
-    b(&[], "click", A::None, "select row in tree", None, G::Navigate),
-    b(&[K::Left, K::Right, K::Char('h'), K::Char('l')], "h/l ←→", A::ToggleExpand, "expand/collapse project or parent session", None, G::Navigate),
+    b(&[K::Left, K::Char('h')], "h ←", A::Collapse, "collapse row", None, G::Navigate),
+    b(&[K::Right, K::Char('l')], "l →", A::Expand, "expand row", None, G::Navigate),
     b(&[K::Char('F')], "F", A::FoldAll, "fold/unfold all groups", None, G::Navigate),
-    b(&[K::Enter], "Enter", A::Attach, "attach session (or review tab)", Some("Enter attach"), G::Session),
-    b(&[K::Char('n')], "n", A::Spawn, "new session modal", Some("n new"), G::Session),
+    b(&[], "click", A::None, "select row", None, G::Navigate),
+    b(&[K::Enter], "Enter", A::Attach, "attach / review", Some("Enter attach"), G::Session),
+    b(&[K::Char('n')], "n", A::Spawn, "new session", Some("n new"), G::Session),
     b(&[K::Char('m')], "m", A::RenameSession, "rename session", Some("m rename"), G::Session),
-    b(&[K::Char('f')], "f", A::ForkSession, "fork session (same cwd, new name)", Some("f fork"), G::Session),
+    b(&[K::Char('f')], "f", A::ForkSession, "fork session", Some("f fork"), G::Session),
     b(&[K::Char('x')], "x", A::KillSession, "kill session", Some("x kill"), G::Session),
-    b(&[K::Char('o')], "o", A::OpenIssue, "open GitHub issue from branch/worktree", Some("o issue"), G::Session),
-    b(&[K::Char(' ')], "Space", A::FocusComposer, "composer (Preview tab)", Some("Space send"), G::Session),
+    b(&[K::Char('o')], "o", A::OpenIssue, "open GitHub issue", Some("o issue"), G::Session),
+    b(&[K::Char(' ')], "Space", A::FocusComposer, "send text", Some("Space send"), G::Session),
     Binding { codes: &[K::Char('r')], ctrl: true, label: "Ctrl+R", action: A::StartReview, help: "hunk review TUI", footer: None, group: G::Session },
-    b(&[K::Tab], "Tab", A::CycleSideTab, "Preview / Notes / Review / Orch graph", None, G::View),
-    b(&[], "[/] PgUp/PgDn", A::None, "scroll preview", None, G::View),
-    b(&[K::Char('w')], "w", A::ToggleWaitingFilter, "waiting-for-input filter (◆)", None, G::View),
-    b(&[K::Char('g')], "g", A::GraphView, "Graph view (drawn orch DAG, full screen)", Some("g graph"), G::View),
-    b(&[K::Char('G')], "G", A::CycleGroupBy, "cycle group_by (project/cwd/agent/…)", None, G::View),
+    b(&[K::Tab], "Tab", A::CycleSideTab, "next sidecar tab", None, G::View),
+    b(&[], "PgUp PgDn [ ]", A::None, "scroll preview", None, G::View),
+    b(&[K::Char('w')], "w", A::ToggleWaitingFilter, "waiting filter (◆)", None, G::View),
+    b(&[K::Char('g')], "g", A::GraphView, "Graph view", Some("g graph"), G::View),
+    b(&[K::Char('G')], "G", A::CycleGroupBy, "cycle group_by", None, G::View),
     b(&[], "1-5", A::None, "app tabs", Some("1-5 tabs"), G::App),
     b(&[K::Char('?')], "?", A::ToggleHelp, "this help", Some("? help"), G::App),
     b(&[K::Char('q')], "q", A::Quit, "quit", Some("q quit"), G::App),
@@ -116,17 +118,38 @@ pub fn fleet_footer() -> String {
         .join(" · ")
 }
 
-pub fn fleet_help_text() -> String {
+/// Help rows for `groups`; the `?` overlay splits the groups into two columns when short.
+pub fn fleet_help_groups(groups: &[Group]) -> String {
     let mut out = String::new();
-    for group in Group::ALL {
+    for group in groups {
+        if !out.is_empty() {
+            out.push('\n');
+        }
         out.push_str(group.title());
         out.push('\n');
-        for bind in FLEET_KEYMAP.iter().filter(|bind| bind.group == group) {
+        for bind in FLEET_KEYMAP.iter().filter(|bind| bind.group == *group) {
             out.push_str(&format!("  {:<14} {}\n", bind.label, bind.help));
         }
     }
-    out.push_str("\nNote: agent-manager `g` is group tree; here `G` cycles list grouping.");
     out
+}
+
+pub const HELP_LEFT: [Group; 2] = [Group::Navigate, Group::Session];
+pub const HELP_RIGHT: [Group; 2] = [Group::View, Group::App];
+
+pub fn fleet_help_text() -> String {
+    fleet_help_groups(&Group::ALL)
+}
+
+/// Keep the footer on one row: drop items (right to left) before the last two
+/// (`? help · q quit`), so the way out stays visible on narrow terminals.
+pub fn fit_footer(footer: &str, width: usize) -> String {
+    let mut items: Vec<&str> = footer.split(" · ").collect();
+    let len = |items: &[&str]| items.join(" · ").chars().count();
+    while len(&items) > width && items.len() > 2 {
+        items.remove(items.len() - 3);
+    }
+    items.join(" · ")
 }
 
 #[cfg(test)]
@@ -157,6 +180,24 @@ mod tests {
         for part in ["g graph", "m rename", "f fork", "x kill", "o issue", "Enter attach", "? help"] {
             assert!(footer.contains(part), "{footer}");
         }
+    }
+
+    #[test]
+    fn h_collapses_l_expands() {
+        assert_eq!(map_key_event(key(K::Char('h'))), A::Collapse);
+        assert_eq!(map_key_event(key(K::Left)), A::Collapse);
+        assert_eq!(map_key_event(key(K::Char('l'))), A::Expand);
+        assert_eq!(map_key_event(key(K::Right)), A::Expand);
+    }
+
+    #[test]
+    fn footer_fits_width_and_keeps_quit() {
+        let footer = fleet_footer();
+        assert_eq!(fit_footer(&footer, 500), footer);
+        let short = fit_footer(&footer, 40);
+        assert!(short.chars().count() <= 40, "{short}");
+        assert!(short.starts_with("j/k nav") && short.ends_with("? help · q quit"), "{short}");
+        assert_eq!(fit_footer("a · b · c", 1), "b · c");
     }
 
     #[test]

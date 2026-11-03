@@ -2,14 +2,14 @@
 
 use crate::app_tabs::{flat_sessions, AppTab, cycle_group_by};
 use crate::fleet_draw::{
-    draw_app_screen, draw_rename_modal, review_sidecar_hint, DrawState, row_index_from_mouse,
-    FocusArea, RenameState, SideTab,
+    draw_app_screen, draw_rename_modal, review_sidecar_hint, row_index_from_mouse,
+    scroll_preview, DrawState, FocusArea, RenameState, SideTab,
 };
 use crate::graph_view::{load_orch_graph_view, node_session, worker_steps_text};
 use crate::fleet_tree::{
     clamp_selection, default_expanded, fleet_attention_hint, flatten_tree, focus_session_in_tree,
     issue_at_row, move_selection, orch_repo_at_row, reanchor_selection, session_at_row, toggle_fold_all,
-    toggle_row_fold, TreeRow,
+    set_row_fold, toggle_row_fold, TreeRow,
 };
 use crate::keymap::{map_key_event, DashboardAction};
 use crate::refresh::{sidecar_step, Interval, Sidecar, StatusCache};
@@ -510,13 +510,13 @@ pub fn run_dashboard() -> ExitCode {
                                     && m.row >= area.y
                                     && m.row < area.y + area.height
                                 {
-                                    match m.kind {
-                                        MouseEventKind::ScrollUp => {
-                                            preview_scroll = preview_scroll.saturating_sub(3);
-                                        }
-                                        MouseEventKind::ScrollDown => preview_scroll += 3,
-                                        _ => {}
-                                    }
+                                    // Wheel up = older lines (scroll counts up from the tail).
+                                    preview_scroll = scroll_preview(
+                                        preview_scroll,
+                                        -wheel,
+                                        preview_text.lines().count(),
+                                        area.height,
+                                    );
                                 }
                             }
                         }
@@ -706,39 +706,20 @@ pub fn run_dashboard() -> ExitCode {
                     continue;
                 }
 
-                if focus == FocusArea::PreviewScroll {
-                    if key.code == KeyCode::Esc {
-                        focus = FocusArea::Tree;
+                if side_tab == SideTab::Preview && focus == FocusArea::Tree {
+                    let view = sidecar_preview_rect.map_or(1, |r| r.height);
+                    let delta = match key.code {
+                        KeyCode::PageUp => view.saturating_sub(1).max(1) as isize,
+                        KeyCode::PageDown => -(view.saturating_sub(1).max(1) as isize),
+                        KeyCode::Char('[') => 3,
+                        KeyCode::Char(']') => -3,
+                        _ => 0,
+                    };
+                    if delta != 0 {
+                        preview_scroll =
+                            scroll_preview(preview_scroll, delta, preview_text.lines().count(), view);
                         continue;
                     }
-                    match key.code {
-                        KeyCode::Char(']') | KeyCode::PageDown | KeyCode::Char('j') => {
-                            preview_scroll += 3;
-                            continue;
-                        }
-                        KeyCode::Char('[') | KeyCode::PageUp | KeyCode::Char('k') => {
-                            preview_scroll = preview_scroll.saturating_sub(3);
-                            continue;
-                        }
-                        _ => {}
-                    }
-                }
-
-                if side_tab == SideTab::Preview
-                    && focus == FocusArea::Tree
-                    && matches!(
-                        key.code,
-                        KeyCode::Char(']') | KeyCode::PageDown | KeyCode::Char('[') | KeyCode::PageUp
-                    )
-                {
-                    match key.code {
-                        KeyCode::Char(']') | KeyCode::PageDown => preview_scroll += 3,
-                        KeyCode::Char('[') | KeyCode::PageUp => {
-                            preview_scroll = preview_scroll.saturating_sub(3);
-                        }
-                        _ => {}
-                    }
-                    continue;
                 }
 
                 match map_key_event(key) {
@@ -759,8 +740,11 @@ pub fn run_dashboard() -> ExitCode {
                         preview_for_session = None;
                         notes_for_session = None;
                     }
-                    DashboardAction::ToggleExpand => {
-                        toggle_row_fold(&rows, selected_row, &mut expanded);
+                    DashboardAction::Collapse => {
+                        set_row_fold(&rows, selected_row, &mut expanded, false);
+                    }
+                    DashboardAction::Expand => {
+                        set_row_fold(&rows, selected_row, &mut expanded, true);
                     }
                     DashboardAction::StartReview => {
                         if let Some(s) = session_at_row(&rows, selected_row) {
@@ -988,7 +972,7 @@ mod tests {
         assert_eq!(map_key_event(key(KeyCode::Char('q'))), DashboardAction::Quit);
         assert_eq!(map_key_event(key(KeyCode::Char('j'))), DashboardAction::SelectNext);
         assert_eq!(map_key_event(key(KeyCode::Enter)), DashboardAction::Attach);
-        assert_eq!(map_key_event(key(KeyCode::Right)), DashboardAction::ToggleExpand);
+        assert_eq!(map_key_event(key(KeyCode::Right)), DashboardAction::Expand);
         assert_eq!(map_key_event(key(KeyCode::Char(' '))), DashboardAction::FocusComposer);
         assert_eq!(map_key_event(key(KeyCode::Tab)), DashboardAction::CycleSideTab);
     }

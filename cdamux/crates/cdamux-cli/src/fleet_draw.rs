@@ -5,9 +5,9 @@ use crate::app_tabs::{
 };
 use crate::fleet_tree::TreeRow;
 use crate::graph_view::{draw_graph_screen, draw_orch_graph_panel, OrchGraphView, GRAPH_FOOTER};
-use crate::keymap::fleet_help_text;
+use crate::keymap::{fit_footer, fleet_help_groups, fleet_help_text, HELP_LEFT, HELP_RIGHT};
 use crate::settings_form::{draw_settings, SettingsForm};
-use crate::spawn_modal::centered_rect;
+use crate::widgets::draw_text_modal;
 use ansi_to_tui::IntoText as _;
 use cdamux_core::{
     state_icon, ChildKind, Config, EnrichedSession, GroupBy, NodeState, SessionChrome,
@@ -17,7 +17,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
-    widgets::{Block, Borders, List, ListItem, ListState, Paragraph, StatefulWidget, Wrap},
+    widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, StatefulWidget, Wrap},
     Frame,
 };
 
@@ -38,7 +38,6 @@ pub(crate) const CLR_ERR: Color = Color::Rgb(240, 113, 120);
 pub(crate) enum FocusArea {
     Tree,
     Composer,
-    PreviewScroll,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -74,27 +73,10 @@ pub(crate) struct RenameState {
     pub(crate) input: String,
 }
 
+/// Rename uses the shared 5-row text modal so its hint line survives short terminals.
 pub(crate) fn draw_rename_modal(f: &mut Frame, state: &RenameState) {
-    const MODAL_BG: Color = Color::Rgb(22, 26, 34);
-    const MODAL_FG: Color = Color::Rgb(230, 234, 240);
-    let area = centered_rect(60, 25, f.area());
-    let block = Block::default()
-        .title(" Rename session ")
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Cyan))
-        .style(Style::default().bg(MODAL_BG).fg(MODAL_FG));
-    let inner = block.inner(area);
-    f.render_widget(block, area);
-    f.render_widget(Block::default().style(Style::default().bg(MODAL_BG)), inner);
-    let body = format!(
-        "from: {}\nnew name: {}█\nEnter save · Esc cancel",
-        state.old_name,
-        state.input
-    );
-    f.render_widget(
-        Paragraph::new(body).style(Style::default().bg(MODAL_BG).fg(MODAL_FG)),
-        inner,
-    );
+    let body = format!("from: {}\nnew name: {}█\nEnter save · Esc cancel", state.old_name, state.input);
+    draw_text_modal(f, f.area(), " Rename session ".into(), body);
 }
 
 /// `scroll_from_bottom`: 0 = tail of capture; higher = scroll up into older lines.
@@ -114,6 +96,12 @@ pub(crate) fn preview_display_lines(
         return Vec::new();
     }
     text.lines[start..end].to_vec()
+}
+
+/// Preview scroll: `delta` > 0 goes up into older lines; clamped so the top of
+/// the capture is the furthest you can go (`total` lines, `view` visible rows).
+pub(crate) fn scroll_preview(cur: usize, delta: isize, total: usize, view: u16) -> usize {
+    cur.saturating_add_signed(delta).min(total.saturating_sub(view as usize))
 }
 
 pub(crate) fn sidecar_plain_body(tab: SideTab, notes: &str, review: &str, orch_graph: &str) -> String {
@@ -176,9 +164,16 @@ pub(crate) fn session_state_color(state: SessionState) -> Color {
     })
 }
 
-fn tree_list_block() -> Block<'static> {
+/// Below this width the sidecar stacks under the tree instead of beside it.
+pub(crate) const STACK_BELOW_COLS: u16 = 100;
+/// Session chrome box: two info lines inside borders.
+const CHROME_H: u16 = 4;
+/// Sidecar rows needed to show it (tabs 1 + chrome 4 + body 4 + composer 2).
+const SIDECAR_CHROME_MIN_H: u16 = 11;
+
+fn tree_list_block(stacked: bool) -> Block<'static> {
     Block::default()
-        .borders(Borders::RIGHT)
+        .borders(if stacked { Borders::BOTTOM } else { Borders::RIGHT })
         .border_style(Style::default().fg(CLR_MUTED))
         .title(Span::styled(
             " projects → sessions ",
@@ -186,14 +181,14 @@ fn tree_list_block() -> Block<'static> {
         ))
 }
 
+/// `inner`: the tree list rows (inside its block), as stored by [`draw_fleet_body`].
 pub(crate) fn row_index_from_mouse(
-    area: ratatui::layout::Rect,
+    inner: ratatui::layout::Rect,
     column: u16,
     row: u16,
     row_count: usize,
     selected_row: usize,
 ) -> Option<usize> {
-    let inner = tree_list_block().inner(area);
     if column < inner.x || column >= inner.x + inner.width {
         return None;
     }
@@ -275,12 +270,15 @@ pub(crate) fn draw_app_screen(
     } else {
         help_for_tab(app_tab, settings.dirty)
     };
-    let help_line = if state.status_line.is_empty() {
-        help
-    } else {
-        format!("{}  |  {}", help, state.status_line)
-    };
-    f.render_widget(Paragraph::new(help_line), root[2]);
+    // Row 1: keys, trimmed to fit; row 2: status (never pushes the keys off screen).
+    let help_line = fit_footer(&help, root[2].width as usize);
+    f.render_widget(
+        Paragraph::new(vec![
+            Line::raw(help_line),
+            Line::raw(state.status_line),
+        ]),
+        root[2],
+    );
 
     if show_help {
         draw_help_overlay(f, f.area());
@@ -293,11 +291,22 @@ pub(crate) fn draw_help_overlay(f: &mut Frame, area: ratatui::layout::Rect) {
         .border_style(Style::default().fg(Color::Cyan))
         .title("keyboard help (? / Esc close)");
     let inner = block.inner(area);
+    // The Fleet screen is drawn underneath: wipe it so it cannot show between columns.
+    f.render_widget(Clear, area);
     f.render_widget(block, area);
-    f.render_widget(
-        Paragraph::new(fleet_help_text()).wrap(Wrap { trim: false }),
-        inner,
-    );
+    let text = fleet_help_text();
+    if text.lines().count() <= inner.height as usize {
+        f.render_widget(Paragraph::new(text).wrap(Wrap { trim: false }), inner);
+        return;
+    }
+    // Short terminal: two columns, Navigate + Sessions | View + App.
+    let cols = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .split(inner);
+    for (groups, col) in [(&HELP_LEFT, cols[0]), (&HELP_RIGHT, cols[1])] {
+        f.render_widget(Paragraph::new(fleet_help_groups(groups)).wrap(Wrap { trim: false }), col);
+    }
 }
 
 pub(crate) fn draw_fleet_body(
@@ -319,7 +328,9 @@ pub(crate) fn draw_fleet_body(
         Span::styled(" — fleet", Style::default().fg(CLR_TEXT)),
         Span::styled("  ○ idle ", Style::default().fg(CLR_IDLE)),
         Span::styled("● active ", Style::default().fg(CLR_OK)),
-        Span::styled("◆ needs", Style::default().fg(CLR_WARN)),
+        Span::styled("◆ needs ", Style::default().fg(CLR_WARN)),
+        Span::styled("⊘ blocked ", Style::default().fg(node_state_color(NodeState::Blocked))),
+        Span::styled("✓ done", Style::default().fg(node_state_color(NodeState::Done))),
     ];
     if waiting_only {
         title_parts.push(Span::styled("  [waiting]", Style::default().fg(CLR_WARN)));
@@ -333,17 +344,33 @@ pub(crate) fn draw_fleet_body(
     let title = Paragraph::new(Line::from(title_parts)).block(Block::default().borders(Borders::BOTTOM));
     f.render_widget(title, inner[0]);
 
-    let columns = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(38), Constraint::Percentage(62)])
-        .split(inner[1]);
+    let stacked = area.width < STACK_BELOW_COLS;
+    let columns = if stacked {
+        // Tree takes the rows it needs (title + rows + border), at most 45% of the body.
+        let tree_h = (state.rows.len().max(1) as u16 + 2).min(inner[1].height * 45 / 100).max(3);
+        Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(tree_h), Constraint::Min(0)])
+            .split(inner[1])
+    } else {
+        Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(38), Constraint::Percentage(62)])
+            .split(inner[1])
+    };
 
-    *tree_rect = Some(columns[0]);
-    draw_tree_column(f, columns[0], state.rows, state.selected_row);
+    *tree_rect = Some(tree_list_block(stacked).inner(columns[0]));
+    draw_tree_column(f, columns[0], state.rows, state.selected_row, stacked);
     draw_sidecar(f, columns[1], state, preview_rect);
 }
 
-pub(crate) fn draw_tree_column(f: &mut Frame, area: ratatui::layout::Rect, rows: &[TreeRow], selected_row: usize) {
+pub(crate) fn draw_tree_column(
+    f: &mut Frame,
+    area: ratatui::layout::Rect,
+    rows: &[TreeRow],
+    selected_row: usize,
+    stacked: bool,
+) {
     let items: Vec<ListItem> = if rows.is_empty() {
         vec![ListItem::new(Span::styled(
             "(no projects or sessions)",
@@ -360,7 +387,7 @@ pub(crate) fn draw_tree_column(f: &mut Frame, area: ratatui::layout::Rect, rows:
                 .fg(CLR_TEXT)
                 .add_modifier(Modifier::BOLD),
         )
-        .block(tree_list_block());
+        .block(tree_list_block(stacked));
     let mut list_state = ListState::default();
     list_state.select(Some(selected_row.min(rows.len().saturating_sub(1))));
     StatefulWidget::render(list, area, f.buffer_mut(), &mut list_state);
@@ -405,16 +432,15 @@ pub(crate) fn tree_row_item(row: &TreeRow) -> ListItem<'_> {
             ]))
         }
         TreeRow::Child { row, depth, .. } => {
-            // Workers keep their gear while running so they read apart from sessions.
-            let icon = match (row.kind, row.state) {
-                (ChildKind::Worker, SessionState::Active) => '⚙',
-                (ChildKind::Worker, SessionState::Idle) => '·',
-                (_, st) => state_icon(st),
-            };
-            let color = match row.state {
-                SessionState::Error => CLR_WARN,
-                SessionState::Done => CLR_ACCENT,
-                _ => CLR_MUTED,
+            // Workers keep their gear while running so they read apart from sessions;
+            // a blocked worker (state Error) uses the Graph / Steps blocked glyph and colour.
+            let (icon, color) = match (row.kind, row.state) {
+                (ChildKind::Worker, SessionState::Active) => ('⚙', CLR_OK),
+                (ChildKind::Worker, SessionState::Idle) => ('·', CLR_IDLE),
+                (ChildKind::Worker, SessionState::Error) => {
+                    (NodeState::Blocked.icon(), node_state_color(NodeState::Blocked))
+                }
+                (_, st) => (state_icon(st), session_state_color(st)),
             };
             // (bold, muted): workers lead with their issue id, sub-agents with their name.
             let (head, tail) = match row.kind {
@@ -480,16 +506,21 @@ pub(crate) fn draw_sidecar(
     state: &DrawState,
     preview_rect: &mut Option<ratatui::layout::Rect>,
 ) {
-    let show_composer = state.side_tab == SideTab::Preview;
-    let show_chrome = state.side_tab == SideTab::Preview && state.session_chrome.is_some();
+    // Only a session row can receive text: projects / workers get the rows back.
+    let show_composer = state.side_tab == SideTab::Preview && state.composer_session.is_some();
+    // The chrome box needs tabs + chrome + a 4-row body + composer; drop it on short panes.
+    let show_chrome = state.side_tab == SideTab::Preview
+        && state.session_chrome.is_some()
+        && area.height >= SIDECAR_CHROME_MIN_H;
     let vertical = if show_composer {
         Layout::default()
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Length(1),
-                Constraint::Length(if show_chrome { 3 } else { 0 }),
-                Constraint::Min(4),
-                Constraint::Length(3),
+                Constraint::Length(if show_chrome { CHROME_H } else { 0 }),
+                Constraint::Min(1),
+                // Top border (with the label) + one input row.
+                Constraint::Length(2),
             ])
             .split(area)
     } else {
@@ -497,8 +528,8 @@ pub(crate) fn draw_sidecar(
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Length(1),
-                Constraint::Length(if show_chrome { 3 } else { 0 }),
-                Constraint::Min(4),
+                Constraint::Length(if show_chrome { CHROME_H } else { 0 }),
+                Constraint::Min(1),
             ])
             .split(area)
     };
@@ -552,20 +583,21 @@ pub(crate) fn draw_sidecar(
     }
 
     *preview_rect = Some(vertical[preview_idx]);
-    let body_block = Block::default().borders(Borders::NONE).title(" ");
     let view_rows = vertical[preview_idx].height;
     if state.side_tab == SideTab::OrchGraph {
         draw_orch_graph_panel(f, vertical[preview_idx], state.orch_graph, None);
         return;
     }
     let body = if state.side_tab == SideTab::Preview {
-        Paragraph::new(preview_display_lines(
+        let para = Paragraph::new(preview_display_lines(
             state.preview_text,
             state.preview_scroll,
             view_rows,
         ))
-            .wrap(Wrap { trim: false })
-            .block(body_block)
+            .wrap(Wrap { trim: false });
+        // Wrapped lines take more rows than the window holds: keep the newest at the bottom.
+        let overflow = para.line_count(vertical[preview_idx].width).saturating_sub(view_rows as usize);
+        para.scroll((overflow as u16, 0))
     } else {
         Paragraph::new(sidecar_plain_body(
             state.side_tab,
@@ -575,7 +607,6 @@ pub(crate) fn draw_sidecar(
         ))
             .style(Style::default().fg(CLR_TEXT))
             .wrap(Wrap { trim: false })
-            .block(body_block)
     };
     f.render_widget(body, vertical[preview_idx]);
 
@@ -612,14 +643,25 @@ mod tests {
     #[test]
     fn mouse_click_accounts_for_scroll_offset() {
         let area = ratatui::layout::Rect::new(0, 0, 40, 20);
-        let inner = tree_list_block().inner(area);
+        let inner = tree_list_block(false).inner(area);
         let h = inner.height as usize;
         // Not scrolled: first visible row is row 0.
-        assert_eq!(row_index_from_mouse(area, inner.x, inner.y, 30, 0), Some(0));
+        assert_eq!(row_index_from_mouse(inner, inner.x, inner.y, 30, 0), Some(0));
         // Row `h + 4` selected: offset is 5, so the top visible row is row 5.
-        assert_eq!(row_index_from_mouse(area, inner.x, inner.y, 30, h + 4), Some(5));
-        // Click past the last row.
-        assert_eq!(row_index_from_mouse(area, inner.x, inner.y + 2, 2, 0), None);
+        assert_eq!(row_index_from_mouse(inner, inner.x, inner.y, 30, h + 4), Some(5));
+        // Click past the last row, or on the border column.
+        assert_eq!(row_index_from_mouse(inner, inner.x, inner.y + 2, 2, 0), None);
+        assert_eq!(row_index_from_mouse(inner, area.width - 1, inner.y, 30, 0), None);
+    }
+
+    #[test]
+    fn preview_scroll_is_clamped_both_ways() {
+        // 10 lines, 4 visible: from the tail (0) up to the first line (6).
+        assert_eq!(scroll_preview(0, 3, 10, 4), 3);
+        assert_eq!(scroll_preview(5, 3, 10, 4), 6);
+        assert_eq!(scroll_preview(2, -3, 10, 4), 0);
+        // Capture shorter than the view: never scrolls.
+        assert_eq!(scroll_preview(0, 3, 2, 4), 0);
     }
 
     #[test]

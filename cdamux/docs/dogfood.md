@@ -113,6 +113,7 @@ Diff source: `git diff` plus `git diff --cached` in the resolved repo directory.
 - [ ] `./install.sh --cdamux-hooks` (temp HOME), start a Claude sub-agent inside tmux: a sub-agent row appears under its session ([subagents.md](subagents.md))
 - [ ] `g` full-screen Graph view: drawn DAG, `j`/`k` select node, detail panel, Enter jumps to a session named like the node, `g`/Esc back
 - [ ] Fleet footer shows `m` rename / `f` fork / `x` kill; `?` lists the same keys grouped
+- [ ] Below 100 columns the sidecar stacks under the tree; the footer drops items to fit but keeps `? help · q quit`; status messages sit on the row under it
 - [ ] Fleet session rows show agent tag (`@cdamux_agent`); missing option shows `—` (same as Preview chrome)
 
 ### Settings tab (`5`)
@@ -132,7 +133,10 @@ Form pieces (Select, Toggle, TextInput, FieldList, text modal) live in
 
 | Key | Action |
 | --- | --- |
+| `j`/`k` (`↓`/`↑`) | Move the selection (always, whatever the sidecar tab) |
+| `l`/`→` · `h`/`←` | Expand · collapse the selected project or parent session |
 | `Tab` | Cycle Preview / Notes / Review / Orch graph |
+| `PgUp`/`PgDn` · `[`/`]` | Scroll the preview into older / newer lines (page · 3 lines), clamped to the capture |
 | `Ctrl+R` | Open review TUI |
 | `n` | Spawn modal |
 | `m` | Rename selected session |

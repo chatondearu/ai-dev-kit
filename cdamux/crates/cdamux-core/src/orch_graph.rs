@@ -330,12 +330,8 @@ fn render_node_tree(
 
 fn push_node_line(n: &OrchGraphNode, depth: usize, width: usize, lines: &mut Vec<String>) {
     let indent = "  ".repeat(depth);
-    let icon = match n.status.as_str() {
-        "done" | "ok" | "skipped" => "✓",
-        "failed" | "blocked" => "✗",
-        "running" => "◎",
-        _ => "·",
-    };
+    // Same glyphs as the drawn graph and the step bar.
+    let icon = crate::NodeState::from_status(&n.status, false).icon();
     let head = format!(
         "{}{} {} [{}|{}] {}",
         indent,
@@ -348,8 +344,9 @@ fn push_node_line(n: &OrchGraphNode, depth: usize, width: usize, lines: &mut Vec
     lines.push(truncate(&head, width));
 }
 
+/// Truncate to `max` chars (not bytes: ids and messages may be non-ASCII).
 fn truncate(s: &str, max: usize) -> String {
-    if s.len() <= max {
+    if s.chars().count() <= max {
         return s.to_string();
     }
     format!("{}…", s.chars().take(max.saturating_sub(1)).collect::<String>())
@@ -382,6 +379,12 @@ mod tests {
         assert!(out.contains("run r1"));
         assert!(out.contains("integrator"));
         assert!(out.contains("status running"));
+    }
+
+    #[test]
+    fn truncate_counts_chars_not_bytes() {
+        assert_eq!(truncate("épée", 4), "épée");
+        assert_eq!(truncate("épées", 4), "épé…");
     }
 
     #[test]

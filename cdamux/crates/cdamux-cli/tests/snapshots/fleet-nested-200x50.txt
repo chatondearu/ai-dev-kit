@@ -1,18 +1,19 @@
  1:Fleet   2:Projects   3:Sessions   4:Agents   5:Settings
-cdamux — fleet  ○ idle ● active ◆ needs
+cdamux — fleet  ○ idle ● active ◆ needs ⊘ blocked ✓ done
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
  projects → sessions                                                       │ Preview  Notes  Review  Orch graph
   ▼ ◇ alpha (5) /src/alpha                                                 │┌ session ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
 ▸   ▼ ● alpha-main  claude  /src/alpha                                     ││repo: alpha  │  worktree: main  │  branch: main                                                                           │
-    └ ▼ ◆ alpha-fork  #42  claude  /src/alpha                              │└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
-      └ ○ alpha-fork-2  cursor  /src/alpha                                 │
+    └ ▼ ◆ alpha-fork  #42  claude  /src/alpha                              ││agent: claude  │  up: 12m  │  context: 40%  │  tasks: 2/5                                                                 │
+      └ ○ alpha-fork-2  cursor  /src/alpha                                 │└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
     ▶ ✓ alpha-side  claude  /src/alpha                                     │$ cargo test
                                                                            │   Compiling alpha v0.1.0
                                                                            │running 3 tests
                                                                            │test parse ... ok
                                                                            │test render ... ok
                                                                            │test send ... ok
-                                                                           │
+                                                                           │warning: unused import `std::collections::HashMap` in src/parser.rs, remove it or prefix with an underscore to silence this
+                                                                           │lint
                                                                            │test result: ok. 3 passed
                                                                            │
                                                                            │
@@ -45,6 +46,5 @@ cdamux — fleet  ○ idle ● active ◆ needs
                                                                            │
                                                                            │send────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
                                                                            │→ alpha-main _
-                                                                           │
 j/k nav · Enter attach · n new · m rename · f fork · x kill · o issue · Space send · g graph · 1-5 tabs · ? help · q quit
 

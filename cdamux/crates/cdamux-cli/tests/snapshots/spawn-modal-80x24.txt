@@ -1,24 +1,24 @@
 
-
-
-
-            ┌ New session ─────────────────────────────────────────┐
-            │Path source: discovered repo  (Tab cycle)             │
-            │                                                      │
-            │› /src/alpha                                          │
-            │  /src/beta                                           │
-            │  /src/gamma                                          │
-            │                                                      │
-            │                                                      │
-            │                                                      │
-            │git: (no repo at path)                                │
-            │                                                      │
-            │agent: claude  (a cycle)  |  shell only: no  (s toggle│
-            │layout: single  (p cycle)                             │
-            │Enter create · Esc cancel · j/k pick · Tab mode · b br│
-            │                                                      │
-            └──────────────────────────────────────────────────────┘
-
-
-
+    ┌ New session ─────────────────────────────────────────────────────────┐
+    │Path source: discovered repo  (Tab cycle)                             │
+    │                                                                      │
+    │› /src/alpha                                                          │
+    │  /src/beta                                                           │
+    │  /src/gamma                                                          │
+    │                                                                      │
+    │                                                                      │
+    │                                                                      │
+    │                                                                      │
+    │                                                                      │
+    │git: (no repo at path)                                                │
+    │                                                                      │
+    │                                                                      │
+    │agent: claude  (a cycle)  |  shell only: no  (s toggle)               │
+    │layout: single  (p cycle)                                             │
+    │secondary pane: shell when split                                      │
+    │                                                                      │
+    │                                                                      │
+    │Enter create · Esc cancel · j/k pick · Tab mode · b branch · w        │
+    │worktree · s shell · a agent · p layout                               │
+    └──────────────────────────────────────────────────────────────────────┘
 

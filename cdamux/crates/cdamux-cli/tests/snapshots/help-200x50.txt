@@ -1,0 +1,50 @@
+┌keyboard help (? / Esc close)─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│Navigate                                                                                                                                                                                              │
+│  j ↓            next row                                                                                                                                                                             │
+│  k ↑            previous row                                                                                                                                                                         │
+│  h ←            collapse row                                                                                                                                                                         │
+│  l →            expand row                                                                                                                                                                           │
+│  F              fold/unfold all groups                                                                                                                                                               │
+│  click          select row                                                                                                                                                                           │
+│                                                                                                                                                                                                      │
+│Sessions                                                                                                                                                                                              │
+│  Enter          attach / review                                                                                                                                                                      │
+│  n              new session                                                                                                                                                                          │
+│  m              rename session                                                                                                                                                                       │
+│  f              fork session                                                                                                                                                                         │
+│  x              kill session                                                                                                                                                                         │
+│  o              open GitHub issue                                                                                                                                                                    │
+│  Space          send text                                                                                                                                                                            │
+│  Ctrl+R         hunk review TUI                                                                                                                                                                      │
+│                                                                                                                                                                                                      │
+│View                                                                                                                                                                                                  │
+│  Tab            next sidecar tab                                                                                                                                                                     │
+│  PgUp PgDn [ ]  scroll preview                                                                                                                                                                       │
+│  w              waiting filter (◆)                                                                                                                                                                   │
+│  g              Graph view                                                                                                                                                                           │
+│  G              cycle group_by                                                                                                                                                                       │
+│                                                                                                                                                                                                      │
+│App                                                                                                                                                                                                   │
+│  1-5            app tabs                                                                                                                                                                             │
+│  ?              this help                                                                                                                                                                            │
+│  q              quit                                                                                                                                                                                 │
+│  Ctrl+C         quit                                                                                                                                                                                 │
+│                                                                                                                                                                                                      │
+│                                                                                                                                                                                                      │
+│                                                                                                                                                                                                      │
+│                                                                                                                                                                                                      │
+│                                                                                                                                                                                                      │
+│                                                                                                                                                                                                      │
+│                                                                                                                                                                                                      │
+│                                                                                                                                                                                                      │
+│                                                                                                                                                                                                      │
+│                                                                                                                                                                                                      │
+│                                                                                                                                                                                                      │
+│                                                                                                                                                                                                      │
+│                                                                                                                                                                                                      │
+│                                                                                                                                                                                                      │
+│                                                                                                                                                                                                      │
+│                                                                                                                                                                                                      │
+│                                                                                                                                                                                                      │
+│                                                                                                                                                                                                      │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘

@@ -20,5 +20,5 @@
 │  root = src → /src                                                           │
 │  + add root                                                                  │
 └──────────────────────────────────────────────────────────────────────────────┘
-j/k move · ←→/Enter change · Space toggle · a add root · d delete root · S save
+j/k move · ←→/Enter change · S save · Space toggle · 1-5 tabs · q quit
 

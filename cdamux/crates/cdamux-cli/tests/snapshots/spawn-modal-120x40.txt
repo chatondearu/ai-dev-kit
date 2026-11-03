@@ -30,7 +30,7 @@
                   │                                                                                  │
                   │                                                                                  │
                   │Enter create · Esc cancel · j/k pick · Tab mode · b branch · w worktree · s shell │
-                  │                                                                                  │
+                  │· a agent · p layout                                                              │
                   └──────────────────────────────────────────────────────────────────────────────────┘
 
 

@@ -13,7 +13,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, Paragraph},
+    widgets::{Block, Borders, List, ListItem, Paragraph, Wrap},
     Frame,
 };
 use crate::widgets::{draw_scrolled_list, wheel_step};
@@ -383,7 +383,13 @@ pub(crate) fn draw_overlay_scrim(f: &mut Frame) {
 }
 
 pub(crate) fn draw_modal(f: &mut Frame, state: &mut ModalState) {
-    let area = centered_rect(70, 70, f.area());
+    let full = f.area();
+    // Small terminals: give the modal nearly all the room so no option line is squeezed out.
+    let area = centered_rect(
+        if full.width < 100 { 90 } else { 70 },
+        if full.height < 30 { 90 } else { 70 },
+        full,
+    );
     let block = Block::default()
         .title(" New session ")
         .borders(Borders::ALL)
@@ -500,7 +506,9 @@ pub(crate) fn draw_modal(f: &mut Frame, state: &mut ModalState) {
         }
     };
     f.render_widget(
-        Paragraph::new(git_line).style(Style::default().bg(MODAL_BG).fg(MODAL_FG)),
+        Paragraph::new(git_line)
+            .style(Style::default().bg(MODAL_BG).fg(MODAL_FG))
+            .wrap(Wrap { trim: true }),
         chunks[2],
     );
 
@@ -522,7 +530,9 @@ pub(crate) fn draw_modal(f: &mut Frame, state: &mut ModalState) {
         )
     };
     f.render_widget(
-        Paragraph::new(opts).style(Style::default().bg(MODAL_BG).fg(MODAL_FG)),
+        Paragraph::new(opts)
+            .style(Style::default().bg(MODAL_BG).fg(MODAL_FG))
+            .wrap(Wrap { trim: true }),
         chunks[3],
     );
 
@@ -532,7 +542,9 @@ pub(crate) fn draw_modal(f: &mut Frame, state: &mut ModalState) {
         state.message.as_str()
     };
     f.render_widget(
-        Paragraph::new(help).style(Style::default().bg(MODAL_BG).fg(MODAL_FG)),
+        Paragraph::new(help)
+            .style(Style::default().bg(MODAL_BG).fg(MODAL_FG))
+            .wrap(Wrap { trim: true }),
         chunks[4],
     );
 }

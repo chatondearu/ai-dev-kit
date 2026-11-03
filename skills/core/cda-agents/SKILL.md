@@ -77,7 +77,9 @@ projects (`--force`).
 
 When you learn durable facts (versions, URLs, env quirks, required skills),
 append or edit **§ Project-specific notes** — outside the managed block so
-`setup-agents.sh --force` does not erase them.
+`setup-agents.sh --force` does not erase them. `--force` only rewrites
+AGENTS.md; with `--init-foam` it never touches an existing `foam/`, `prd/`,
+`plans/` or `.cursor/` (bootstrap never deletes project memory).
 
 When workflow or skill lists change in ai-dev-kit, re-run:
 

@@ -8,7 +8,8 @@ for t in skills/core/cda-dev/scripts/tests/test_*.sh \
   scripts/tests/test_doctor.sh \
   skills/core/cda-kanban/scripts/tests/test_closest_status.sh \
   skills/quality/cda-kiss/hooks/test-install.sh \
-  skills/core/cda-doc-hygiene/scripts/tests/test_doc_hygiene.sh; do
+  skills/core/cda-doc-hygiene/scripts/tests/test_doc_hygiene.sh \
+  skills/core/cda-agents/scripts/tests/test_setup_agents.sh; do
   bash "$t"
 done
 bash skills/core/cda-doc-hygiene/scripts/doc-hygiene.sh --check

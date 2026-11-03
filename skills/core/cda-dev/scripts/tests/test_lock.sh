@@ -24,7 +24,8 @@ if command -v flock >/dev/null 2>&1; then
   IFS=: read -ra dirs <<<"$PATH"
   for d in "${dirs[@]}"; do
     for f in "$d"/*; do
-      [ -x "$f" ] && [ "${f##*/}" != flock ] && ln -sf "$f" "$NOFLOCK/${f##*/}"
+      # First match wins, like PATH lookup (a later xcrun `git` shim must not shadow nix git).
+      [ -x "$f" ] && [ "${f##*/}" != flock ] && [ ! -e "$NOFLOCK/${f##*/}" ] && ln -s "$f" "$NOFLOCK/${f##*/}"
     done
   done
   PATH="$NOFLOCK"

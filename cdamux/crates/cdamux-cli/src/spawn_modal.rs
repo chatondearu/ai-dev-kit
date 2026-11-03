@@ -556,12 +556,11 @@ pub(crate) fn centered_rect(percent_x: u16, percent_y: u16, r: ratatui::layout::
         .split(popup_layout[1])[1]
 }
 
+/// Offline constructor for tests: no tmux, no discovery, no git lookups.
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn modal(discovered: Vec<PathBuf>) -> ModalState {
-        ModalState {
+impl ModalState {
+    pub(crate) fn fixture(discovered: Vec<PathBuf>, agents: Vec<String>) -> Self {
+        Self {
             path_mode: PathMode::Discovered,
             running: Vec::new(),
             discovered,
@@ -570,7 +569,7 @@ mod tests {
             custom_path: String::new(),
             shell_only: false,
             agent_index: 0,
-            agents: Vec::new(),
+            agents,
             layout: PaneLayout::Single,
             editing_custom: false,
             editing_new_branch: false,
@@ -581,12 +580,18 @@ mod tests {
             message: String::new(),
         }
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn modal(discovered: Vec<PathBuf>) -> ModalState {
+        ModalState::fixture(discovered, Vec::new())
+    }
 
     fn rendered(term: &ratatui::Terminal<ratatui::backend::TestBackend>) -> Vec<String> {
-        let buf = term.backend().buffer();
-        (0..buf.area.height)
-            .map(|y| (0..buf.area.width).map(|x| buf[(x, y)].symbol()).collect())
-            .collect()
+        crate::test_render::buffer_lines(term)
     }
 
     #[test]

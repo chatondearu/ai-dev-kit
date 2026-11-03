@@ -7,6 +7,8 @@ mod keymap;
 mod review_tui;
 mod settings_form;
 mod spawn_modal;
+#[cfg(test)]
+mod test_render;
 mod tui;
 mod widgets;
 

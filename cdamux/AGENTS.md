@@ -41,6 +41,8 @@ cargo test
 cargo run -p cdamux-cli -- doctor
 ```
 
+Golden TUI snapshots live in `crates/cdamux-cli/tests/snapshots/`; after an intended render change run `CDAMUX_UPDATE_SNAPSHOTS=1 cargo test` and commit the diff.
+
 Use `nix develop` at ai-dev-kit root if Rust toolchain comes from the flake.
 
 ## Testing against tmux

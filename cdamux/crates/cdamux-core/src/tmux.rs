@@ -3,7 +3,8 @@
 use crate::session::SessionState;
 use serde::Serialize;
 use std::collections::HashMap;
-use std::process::Command;
+use std::io::Write;
+use std::process::{Command, Stdio};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -130,11 +131,17 @@ pub(crate) fn user_option_display_format(option: &str) -> String {
     }
 }
 
+/// Pane target for a session name: `=` forces an exact session match and the trailing
+/// `:` stops tmux from resolving the bare name as a window in the current session.
+pub(crate) fn pane_target(session_name: &str) -> String {
+    format!("={session_name}:")
+}
+
 /// Read a tmux user option (e.g. `@cdamux_state`) for a session.
 pub fn tmux_user_option(session_name: &str, option: &str) -> Option<String> {
     let format = user_option_display_format(option);
     let out = Command::new("tmux")
-        .args(["display-message", "-p", "-t", session_name, &format])
+        .args(["display-message", "-p", "-t", &pane_target(session_name), &format])
         .output()
         .ok()?;
     if !out.status.success() {
@@ -196,7 +203,7 @@ fn pane_tail_looks_like_input(tail: &str) -> bool {
 /// Plain (no escapes) tail of the active pane for the prompt heuristics.
 pub fn pane_tail(session_name: &str) -> Option<String> {
     let capture = Command::new("tmux")
-        .args(["capture-pane", "-p", "-t", session_name, "-S", "-30"])
+        .args(["capture-pane", "-p", "-t", &pane_target(session_name), "-S", "-30"])
         .output()
         .ok()?;
     if !capture.status.success() {
@@ -213,7 +220,7 @@ fn capture_pane_args(session_name: &str, max_lines: i32) -> Vec<String> {
         "-p".into(),
         "-e".into(),
         "-t".into(),
-        session_name.into(),
+        pane_target(session_name),
         "-S".into(),
         start,
     ]
@@ -241,35 +248,47 @@ pub fn capture_pane_text(session_name: &str, max_lines: i32) -> Result<String, T
 /// tmux argv per invocation needed to type `line` (and optionally submit it).
 ///
 /// `-l` disables key-name lookup for every arg, so `Enter` must be a separate call.
+/// Multi-line text goes through a bracketed paste (`load-buffer -` reads stdin) so the
+/// receiving shell or agent does not execute each line as it arrives.
 fn send_line_argvs(session_name: &str, line: &str, enter: bool) -> Vec<Vec<String>> {
-    let argv = |tail: &[&str]| -> Vec<String> {
-        ["send-keys", "-t", session_name]
-            .iter()
-            .chain(tail)
-            .map(|s| s.to_string())
-            .collect()
-    };
+    let target = pane_target(session_name);
+    let argv = |args: &[&str]| -> Vec<String> { args.iter().map(|s| s.to_string()).collect() };
     let mut out = Vec::new();
-    if !line.is_empty() {
-        out.push(argv(&["-l", "--", line]));
+    if line.contains('\n') {
+        out.push(argv(&["load-buffer", "-b", PASTE_BUFFER, "-"]));
+        out.push(argv(&["paste-buffer", "-p", "-d", "-b", PASTE_BUFFER, "-t", &target]));
+    } else if !line.is_empty() {
+        out.push(argv(&["send-keys", "-t", &target, "-l", "--", line]));
     }
     if enter {
-        out.push(argv(&["Enter"]));
+        out.push(argv(&["send-keys", "-t", &target, "Enter"]));
     }
     out
 }
 
+const PASTE_BUFFER: &str = "cdamux-send";
+
 /// Send a literal line to the session's active pane; optional Enter keypress.
 pub fn send_line_to_session(session_name: &str, line: &str, enter: bool) -> Result<(), TmuxError> {
+    let map_err = |e: std::io::Error| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            TmuxError::NotFound
+        } else {
+            TmuxError::ListFailed
+        }
+    };
     for argv in send_line_argvs(session_name, line, enter) {
-        let status = Command::new("tmux").args(&argv).status().map_err(|e| {
-            if e.kind() == std::io::ErrorKind::NotFound {
-                TmuxError::NotFound
-            } else {
-                TmuxError::ListFailed
-            }
-        })?;
-        if !status.success() {
+        let mut cmd = Command::new("tmux");
+        cmd.args(&argv);
+        let ok = if argv[0] == "load-buffer" {
+            let mut child = cmd.stdin(Stdio::piped()).spawn().map_err(map_err)?;
+            // Dropping stdin after the write closes the pipe so load-buffer sees EOF.
+            let wrote = child.stdin.take().map(|mut i| i.write_all(line.as_bytes()).is_ok());
+            child.wait().map_err(map_err)?.success() && wrote == Some(true)
+        } else {
+            cmd.status().map_err(map_err)?.success()
+        };
+        if !ok {
             return Err(TmuxError::ListFailed);
         }
     }
@@ -285,12 +304,25 @@ mod tests {
         assert_eq!(
             send_line_argvs("c-bar", "echo hi", true),
             vec![
-                vec!["send-keys", "-t", "c-bar", "-l", "--", "echo hi"],
-                vec!["send-keys", "-t", "c-bar", "Enter"],
+                vec!["send-keys", "-t", "=c-bar:", "-l", "--", "echo hi"],
+                vec!["send-keys", "-t", "=c-bar:", "Enter"],
             ]
         );
         assert_eq!(send_line_argvs("c-bar", "y", false).len(), 1);
         assert_eq!(send_line_argvs("c-bar", "", true).len(), 1); // Enter only
+    }
+
+    #[test]
+    fn multiline_send_uses_bracketed_paste() {
+        assert_eq!(
+            send_line_argvs("c-bar", "a\nb", true),
+            vec![
+                vec!["load-buffer", "-b", "cdamux-send", "-"],
+                vec!["paste-buffer", "-p", "-d", "-b", "cdamux-send", "-t", "=c-bar:"],
+                vec!["send-keys", "-t", "=c-bar:", "Enter"],
+            ]
+        );
+        assert_eq!(send_line_argvs("c-bar", "a\nb", false).len(), 2);
     }
 
     #[test]

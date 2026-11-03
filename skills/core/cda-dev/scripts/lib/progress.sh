@@ -20,7 +20,7 @@ orch_progress_enabled() {
 # Machine-readable status for waiting agents (poll `.orch/run/status.json`).
 orch_progress_write_json() {
   local id="$1" phase="$2" msg="$3"
-  local dir ts json_file agg tmp
+  local dir ts json_file agg tmp prev
   dir="$(orch_progress_dir)"
   mkdir -p "$dir"
   ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date -u)"
@@ -29,12 +29,21 @@ orch_progress_write_json() {
   # so a concurrent `jq -s` never reads a half-written file. $BASHPID: subshell-unique.
   tmp="$json_file.tmp.$BASHPID"
   if command -v jq >/dev/null 2>&1; then
+    # `phases`: one {phase, started_at (epoch s)} entry per phase change, so durations
+    # are real. Older files lack it; `pending` starts a new run and resets it.
+    prev="$(jq -c '.phases // []' "$json_file" 2>/dev/null || true)"
+    [ -n "$prev" ] || prev='[]'
     jq -n \
       --arg id "$id" \
       --arg phase "$phase" \
       --arg message "$msg" \
       --arg updated_at "$ts" \
-      '{id:$id, phase:$phase, message:$message, updated_at:$updated_at}' \
+      --argjson prev "$prev" \
+      --argjson now "$(date +%s)" \
+      '{id:$id, phase:$phase, message:$message, updated_at:$updated_at,
+        phases: (if $phase == "pending" then [{phase:$phase, started_at:$now}]
+                 elif ($prev | length) > 0 and $prev[-1].phase == $phase then $prev
+                 else ($prev + [{phase:$phase, started_at:$now}])[-40:] end)}' \
       >"$tmp" && mv "$tmp" "$json_file"
     # Aggregate all workers into one file agents can poll.
     agg="$dir/status.json"

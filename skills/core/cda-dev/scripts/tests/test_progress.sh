@@ -49,4 +49,19 @@ if command -v jq >/dev/null 2>&1; then
   assert_eq "$(find "$TMP/.orch/run" -name '*.tmp.*' | wc -l | tr -d ' ')" "0" "no temp files left behind"
 fi
 
+# Phase history: one entry per phase change (repeated phase keeps its start), pending resets.
+if command -v jq >/dev/null 2>&1; then
+  rm -rf "$TMP/.orch"
+  mkdir -p "$TMP/.orch/run"
+  printf '{"id":"7","phase":"agent","message":"old","updated_at":"t"}\n' >"$TMP/.orch/run/7.json"
+  orch_progress_set 7 agent "legacy file without phases" 2>/dev/null
+  orch_progress_set 7 agent "iter 2" 2>/dev/null
+  orch_progress_set 7 verify "make test" 2>/dev/null
+  assert_eq "$(jq -c '[.phases[].phase]' "$TMP/.orch/run/7.json")" '["agent","verify"]' "one history entry per phase change"
+  assert_eq "$(jq -r '.phases[0].started_at | type' "$TMP/.orch/run/7.json")" "number" "started_at is epoch seconds"
+  assert_eq "$(jq '.workers[0].phases | length' "$TMP/.orch/run/status.json")" "2" "history aggregated into status.json"
+  orch_progress_set 7 pending "queued" 2>/dev/null
+  assert_eq "$(jq -c '[.phases[].phase]' "$TMP/.orch/run/7.json")" '["pending"]' "pending resets the history"
+fi
+
 summary

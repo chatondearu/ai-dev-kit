@@ -120,6 +120,34 @@ pub(crate) fn fixture_graph() -> OrchGraphView {
         header: "run run-001 · running".into(),
         stale: false,
         graph: Some(graph),
+        workers: Vec::new(),
+    }
+}
+
+/// Graph with a `worker-7` node tied to a status.json worker, for the step bar.
+/// The worker is blocked so no step is still running: durations never read the clock.
+pub(crate) fn fixture_steps_graph() -> OrchGraphView {
+    let graph: OrchGraphFile = serde_json::from_str(
+        r#"{"run_id":"run-002","repo":"/src/alpha","updated_at":"2026-01-01T00:00:00Z",
+        "status":"running",
+        "nodes":[
+          {"id":"worker-7","kind":"worker","phase":"ci","status":"blocked","message":"CI red on lint"},
+          {"id":"worker-7-grounding","kind":"verifier","phase":"grounding","status":"done","message":"ok","parent":"worker-7"}],
+        "edges":[]}"#,
+    )
+    .unwrap();
+    let worker = serde_json::from_str(
+        r#"{"id":"7","phase":"blocked","message":"CI red on lint","updated_at":"t","phases":[
+          {"phase":"agent","started_at":100},{"phase":"verify","started_at":220},
+          {"phase":"ci","started_at":230},{"phase":"blocked","started_at":290}]}"#,
+    )
+    .unwrap();
+    OrchGraphView {
+        text: cdamux_core::format_orch_graph_panel_ex(&graph, 80, Some(5)),
+        header: "run run-002 · running".into(),
+        stale: false,
+        graph: Some(graph),
+        workers: vec![worker],
     }
 }
 
@@ -127,19 +155,19 @@ const PREVIEW: &str = "$ cargo test\n   Compiling alpha v0.1.0\nrunning 3 tests\
 
 /// Full-screen render of `tab` (Fleet side panel = `side_tab`) with the fixed fixtures.
 pub(crate) fn render_app(w: u16, h: u16, tab: AppTab, side_tab: SideTab) -> Vec<String> {
-    render_app_ex(w, h, tab, side_tab, None)
+    render_app_ex(w, h, tab, side_tab, fixture_graph(), None)
 }
 
-/// [`render_app`] with the full-screen Graph view open on node `graph_view`.
+/// [`render_app`] with `graph` and the full-screen Graph view open on node `graph_view`.
 pub(crate) fn render_app_ex(
     w: u16,
     h: u16,
     tab: AppTab,
     side_tab: SideTab,
+    graph: OrchGraphView,
     graph_view: Option<usize>,
 ) -> Vec<String> {
     let rows = fixture_rows();
-    let graph = fixture_graph();
     let chrome = SessionChrome {
         repo: "alpha".into(),
         worktree: "main".into(),
@@ -206,7 +234,11 @@ fn golden_screens() {
         let screens = [
             ("fleet", render_app(w, h, AppTab::Fleet, SideTab::Preview)),
             ("fleet-orch-graph", render_app(w, h, AppTab::Fleet, SideTab::OrchGraph)),
-            ("graph-view", render_app_ex(w, h, AppTab::Fleet, SideTab::Preview, Some(1))),
+            ("graph-view", render_app_ex(w, h, AppTab::Fleet, SideTab::Preview, fixture_graph(), Some(1))),
+            (
+                "graph-steps",
+                render_app_ex(w, h, AppTab::Fleet, SideTab::Preview, fixture_steps_graph(), Some(0)),
+            ),
             ("spawn-modal", render_spawn_modal(w, h)),
             ("settings", render_app(w, h, AppTab::Settings, SideTab::Preview)),
         ];

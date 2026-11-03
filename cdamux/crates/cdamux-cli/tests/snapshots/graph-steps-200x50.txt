@@ -1,0 +1,50 @@
+ 1:Fleet   2:Projects   3:Sessions   4:Agents   5:Settings
+run run-002 · running
+
+╭worker──────────────╮    ╭verifier────────────╮
+│⊘ worker-7          │───▶│✓ worker-7-grounding│
+╰────────────────────╯    ╰────────────────────╯
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ node ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+⊘ worker-7 · worker · status blocked · phase ci
+CI red on lint
+
+
+
+✓ implement 2m00s → ✓ verify 10s → ✓ verifier → · review → ⊘ CI 1m00s → · PR
+j/k ↑↓ select node · Enter jump to session · g/Esc back · q quit
+

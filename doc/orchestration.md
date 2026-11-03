@@ -27,7 +27,12 @@ bash "$SKILL/scripts/orch.sh" --mode pr-fix --pr 88
 ```
 
 Requires `gh`, a detected agent CLI, and (for fast-lane) an agent brief on the
-issue when no `plans/PLAN-<id>-*` exists.
+issue when no `plans/PLAN-<id>-*` exists. Only brief comments by an
+`OWNER`/`MEMBER`/`COLLABORATOR` count; anyone else's brief is ignored.
+
+`pr-fix` only works on same-repo PRs: a cross-repository (fork) PR, a PR whose
+head branch is the default branch, or unreadable PR metadata ends `blocked`
+before any agent run.
 
 Per issue the harness runs: worker loop (agent → verify, retry prompt carries
 the failed verify output) → PR exists → **independent review** (fresh
@@ -41,7 +46,8 @@ heading of `AGENTS.md` over a `verify:` line. When no verify command can be
 found at all, the issue ends `blocked` with
 `verify: no command (add 'orch: allow-no-verify' to the issue body to skip)`.
 Put the literal `orch: allow-no-verify` in the issue body to accept `true` for
-that issue (e.g. docs-only repos), or set `ORCH_VERIFY` to a command.
+that issue (e.g. docs-only repos), or set `ORCH_VERIFY` to a command. The marker
+is ignored when the issue author is not `OWNER`/`MEMBER`/`COLLABORATOR`.
 
 ### Watch progress (agents / humans)
 
@@ -61,7 +67,8 @@ exits immediately with status `none` (does not wait for CI that will never start
 
 Discovers open Issues in board Status **Ready**, skips
 `triage:ready-for-human` and issues that already have an open PR on
-`feat/<id>-issue-<id>`, then runs `orch.sh --mode ready-pickup`.
+`feat/<id>-issue-<id>`, then runs `orch.sh --mode ready-pickup`. If a label or
+PR lookup fails (rate limit, network), the issue is skipped (fail closed).
 
 ```bash
 bash "$SKILL/scripts/orch-auto.sh" --repo /path/to/repo --once --dry-run

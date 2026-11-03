@@ -41,7 +41,9 @@ Else → `fast` (triage agent brief required). See foam ADR-002.
 Intake Q&A: [prompts/intake.md](prompts/intake.md) — questioning policy is
 `cda-grill`: **one** frontier round (every question whose answer changes the
 breakdown, each with a recommended answer; "ok" accepts them all), then GO.
-PR repair: [prompts/pr-fix.md](prompts/pr-fix.md).
+PR repair: [prompts/pr-fix.md](prompts/pr-fix.md) — same-repo PRs only; a fork PR or a
+head on the default branch is `blocked` before any agent run. Fast-lane briefs and
+`orch: allow-no-verify` count only from `OWNER`/`MEMBER`/`COLLABORATOR` authors.
 Epic table: [templates/epic-breakdown.md](templates/epic-breakdown.md).
 
 ## Hard rules

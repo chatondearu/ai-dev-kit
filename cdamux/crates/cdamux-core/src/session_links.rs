@@ -5,7 +5,9 @@
 use crate::orch_status::OrchWorkerStatus;
 use crate::session::{EnrichedSession, SessionState};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::fs::File;
+use std::io::{Read, Seek, SeekFrom};
+use std::path::{Path, PathBuf};
 
 /// Where a child row's preview text comes from.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -34,7 +36,9 @@ pub struct ChildRow {
 }
 
 impl ChildRow {
-    pub fn from_orch_worker(w: &OrchWorkerStatus) -> Self {
+    /// `session_live`: whether `w.tmux_session` is a live tmux session. Preview is
+    /// that pane while it lives, else the tail of the worker log.
+    pub fn from_orch_worker(w: &OrchWorkerStatus, session_live: bool) -> Self {
         let state = match w.phase.as_str() {
             "done" => SessionState::Done,
             "blocked" => SessionState::Error,
@@ -51,9 +55,33 @@ impl ChildRow {
             label,
             kind: ChildKind::Worker,
             state,
-            preview: PreviewSource::None,
+            preview: match (&w.tmux_session, &w.log) {
+                (Some(s), _) if session_live => PreviewSource::Pane(s.clone()),
+                (_, Some(log)) => PreviewSource::FileTail(PathBuf::from(log)),
+                _ => PreviewSource::None,
+            },
         }
     }
+}
+
+/// Last `max_lines` lines of a log or transcript file, reading at most the final
+/// 64 KiB so a huge file never lands in memory.
+pub fn tail_lines(path: &Path, max_lines: usize) -> std::io::Result<String> {
+    const MAX_BYTES: u64 = 64 * 1024;
+    let mut f = File::open(path)?;
+    let len = f.metadata()?.len();
+    let start = len.saturating_sub(MAX_BYTES);
+    f.seek(SeekFrom::Start(start))?;
+    let mut buf = Vec::new();
+    f.take(MAX_BYTES).read_to_end(&mut buf)?;
+    let text = String::from_utf8_lossy(&buf);
+    let mut lines: Vec<&str> = text.lines().collect();
+    if start > 0 && !lines.is_empty() {
+        // The window starts mid-line: drop the partial first line.
+        lines.remove(0);
+    }
+    let from = lines.len().saturating_sub(max_lines);
+    Ok(lines[from..].join("\n"))
 }
 
 /// Sessions arranged by `@cdamux_parent`: indices into the input slice.
@@ -145,12 +173,40 @@ mod tests {
             id: "8".into(),
             phase: "blocked".into(),
             message: "waiting on review".into(),
-            updated_at: String::new(),
-            phases: Vec::new(),
+            ..Default::default()
         };
-        let row = ChildRow::from_orch_worker(&w);
+        let row = ChildRow::from_orch_worker(&w, false);
         assert_eq!(row.state, SessionState::Error);
         assert_eq!(row.label, "blocked  waiting on review");
         assert_eq!(row.preview, PreviewSource::None);
+    }
+
+    #[test]
+    fn worker_preview_pane_while_live_else_log() {
+        let w = OrchWorkerStatus {
+            id: "8".into(),
+            tmux_session: Some("orch-r-8".into()),
+            log: Some("/r/.orch/run/8.log".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            ChildRow::from_orch_worker(&w, true).preview,
+            PreviewSource::Pane("orch-r-8".into())
+        );
+        assert_eq!(
+            ChildRow::from_orch_worker(&w, false).preview,
+            PreviewSource::FileTail("/r/.orch/run/8.log".into())
+        );
+    }
+
+    #[test]
+    fn tail_lines_reads_only_the_end() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("big.log");
+        let body: String = (0..20_000).map(|i| format!("line {i}\n")).collect();
+        std::fs::write(&p, body).unwrap();
+        assert_eq!(tail_lines(&p, 2).unwrap(), "line 19998\nline 19999");
+        std::fs::write(&p, "a\nb\n").unwrap();
+        assert_eq!(tail_lines(&p, 10).unwrap(), "a\nb");
     }
 }

@@ -22,8 +22,8 @@ use cdamux_core::{
     build_project_session_tree, capture_pane_text, config_path, discover_projects,
     kill_tmux_session, load_config, preferred_spawn_agent, rename_tmux_session,
     resolve_agent_command, send_to_session, session_name_for_path, spawn_tmux_session_with_layout,
-    switch_client_to_session, unique_session_name, Config, EnrichedSession, GroupBy, PaneLayout, SessionChrome,
-    ProjectSessionTree, SpawnOutcome,
+    switch_client_to_session, tail_lines, unique_session_name, Config, EnrichedSession, GroupBy,
+    PaneLayout, PreviewSource, ProjectSessionTree, SessionChrome, SpawnOutcome,
 };
 use crossterm::event::{
     self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers,
@@ -95,6 +95,21 @@ fn fetch_preview(session_name: &str, max_lines: u32) -> String {
         Ok(t) if t.trim().is_empty() => "(empty pane)".to_string(),
         Ok(t) => t,
         Err(_) => "(preview unavailable)".to_string(),
+    }
+}
+
+/// Preview text for a child row source; `None` when the row has no source.
+fn preview_source_text(src: &PreviewSource, max_lines: u32) -> Option<String> {
+    match src {
+        PreviewSource::Pane(name) => Some(fetch_preview(name, max_lines)),
+        PreviewSource::FileTail(path) => Some(
+            match tail_lines(path, max_lines.clamp(10, 500) as usize) {
+                Ok(t) if t.trim().is_empty() => format!("(empty file {})", path.display()),
+                Ok(t) => t,
+                Err(e) => format!("(cannot read {}: {e})", path.display()),
+            },
+        ),
+        PreviewSource::None => None,
     }
 }
 
@@ -286,25 +301,43 @@ pub fn run_dashboard() -> ExitCode {
                 orch_graph_for_session = Some(graph_key);
             }
         } else if let Some(repo) = orch_repo_at_row(&rows, selected_row) {
-            preview_for_session = None;
             session_chrome = None;
-            preview_scroll = 0;
             match rows.get(selected_row) {
                 Some(TreeRow::Child { row, project_path, .. }) => {
-                    // StatusCache (refresh scheduler) already holds status.json: no I/O per tick.
-                    let worker = status
-                        .workers(std::path::Path::new(project_path))
-                        .iter()
-                        .find(|w| w.id == row.id);
-                    let text = format!(
-                        "orch worker #{}\n{}\n\n{}\n\n(no tmux pane — headless orch)",
-                        row.id,
-                        row.label,
-                        worker_steps_text(worker)
-                    );
-                    // Step durations tick: redraw only when the text moved.
-                    needs_draw |= text != preview_text;
-                    preview_text = text;
+                    // Session names cannot contain ':', so this key never matches a session.
+                    let key = format!("child:{}:{:?}", row.id, row.preview);
+                    let changed = preview_for_session.as_deref() != Some(key.as_str());
+                    if changed {
+                        preview_scroll = 0;
+                    }
+                    let text = if row.preview == PreviewSource::None {
+                        // StatusCache (refresh scheduler) already holds status.json: no I/O per tick.
+                        let worker = status
+                            .workers(std::path::Path::new(project_path))
+                            .iter()
+                            .find(|w| w.id == row.id);
+                        Some(format!(
+                            "orch worker #{}\n{}\n\n{}\n\n(no tmux pane — headless orch)",
+                            row.id,
+                            row.label,
+                            worker_steps_text(worker)
+                        ))
+                    } else {
+                        // Pane / file tail: tmux or disk I/O, so only on the preview interval.
+                        let visible = side_tab == SideTab::Preview && graph_view.is_none();
+                        match sidecar_step(true, changed, visible, &mut preview_iv, now) {
+                            Sidecar::Idle => None,
+                            Sidecar::Load | Sidecar::Poll => {
+                                preview_source_text(&row.preview, preview_max)
+                            }
+                        }
+                    };
+                    if let Some(text) = text {
+                        // Step durations tick: redraw only when the text moved.
+                        needs_draw |= text != preview_text;
+                        preview_text = text;
+                    }
+                    preview_for_session = Some(key);
                 }
                 Some(TreeRow::Project {
                     name,
@@ -312,11 +345,15 @@ pub fn run_dashboard() -> ExitCode {
                     session_count,
                     ..
                 }) => {
+                    preview_for_session = None;
+                    preview_scroll = 0;
                     preview_text = format!(
                         "project {name}\nsessions: {session_count} · orch workers: {worker_count}\n\nExpand for workers/sessions; Orch graph tab reads this repo."
                     );
                 }
                 _ => {
+                    preview_for_session = None;
+                    preview_scroll = 0;
                     preview_text = "(select a session for preview)".to_string();
                 }
             }

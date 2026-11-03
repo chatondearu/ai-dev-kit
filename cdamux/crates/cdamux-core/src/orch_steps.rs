@@ -117,6 +117,7 @@ mod tests {
             message: String::new(),
             updated_at: String::new(),
             phases: marks.iter().map(|(p, t)| PhaseMark { phase: (*p).into(), started_at: *t }).collect(),
+            ..Default::default()
         }
     }
 

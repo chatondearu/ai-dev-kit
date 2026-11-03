@@ -92,6 +92,14 @@ pub(crate) fn flatten_tree(
     status: &StatusCache,
 ) -> Vec<TreeRow> {
     let mut rows = Vec::new();
+    // Live tmux sessions, so worker rows preview the pane only while it exists.
+    let live: HashSet<&str> = tree
+        .nodes
+        .iter()
+        .flat_map(|n| &n.sessions)
+        .chain(&tree.unassigned)
+        .map(|s| s.name.as_str())
+        .collect();
     for node in &tree.nodes {
         let visible: Vec<EnrichedSession> = node
             .sessions
@@ -102,7 +110,10 @@ pub(crate) fn flatten_tree(
         let visible_workers: Vec<ChildRow> = status
             .workers(&node.project.path)
             .iter()
-            .map(ChildRow::from_orch_worker)
+            .map(|w| {
+                let live = w.tmux_session.as_deref().is_some_and(|s| live.contains(s));
+                ChildRow::from_orch_worker(w, live)
+            })
             .filter(|w| !waiting_only || w.state == SessionState::Error)
             .collect();
         if waiting_only && visible.is_empty() && visible_workers.is_empty() {

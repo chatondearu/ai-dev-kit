@@ -84,13 +84,24 @@ See `config/cdamux.example.toml`. Highlights:
 v0: follow skzv convention optionally (`c-<project-basename>`) for interoperability
 with existing sessions; document collision rules when same basename under different roots.
 
+## Home session
+
+Dashboard mode (`cdamux` with no subcommand) launched **outside** tmux runs
+`tmux new-session -A -s cdamux cdamux`. That starts the server (so continuum can
+restore when configured) and keeps a full-screen dashboard session that never
+appears in Fleet / Sessions / `list_tmux_sessions`. Killing the last real session
+the client is attached to ensures this home session exists first; the kit
+template sets `detach-on-destroy next` (tmux ≥ 3.4) so the client lands there
+instead of being kicked out of tmux.
+
 ## Nested tmux
 
 When `$TMUX` is set (popup or inner session):
 
 - Use `tmux switch-client -t <session>`.
 - **`--pick`**: exit CLI with code 0 immediately after successful switch.
-- Full dashboard TUI: stay running (future `cdamux` without `--pick`).
+- Full dashboard TUI: stay running (popup `M-p` unchanged; outside-tmux entry
+  uses the home session above).
 
 ## API sketch (v0.2)
 

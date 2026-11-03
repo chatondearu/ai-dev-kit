@@ -17,8 +17,8 @@ mod widgets;
 use cdamux_core::{
     command_on_path, config_path, configured_agent_ids, default_agent_name, discover_projects,
     ensure_note_file,
-    grouped_for_list, git_diff_unified, git_toplevel, list_tmux_sessions, list_worktrees,
-    load_config, note_refs_for_projects,
+    grouped_for_list, git_diff_unified, git_toplevel, home_session_new_argv, list_tmux_sessions,
+    list_worktrees, load_config, note_refs_for_projects,
     parse_unified_diff, resolve_agent_command, resolve_note_path, send_to_session,
     session_name_for_path, spawn_tmux_session_with_layout, unique_session_name, AttachMode, DiffError,
     GroupBy, SendError,
@@ -27,6 +27,7 @@ use cdamux_core::{
 use clap::{Parser, Subcommand};
 use skim::prelude::*;
 use std::io::{self, BufRead, Cursor, Write};
+use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::process::{Command, ExitCode, Stdio};
 
@@ -170,6 +171,8 @@ fn main() -> ExitCode {
     }
 
     match cli.command {
+        // Outside tmux: enter the home session (starts server → continuum can restore).
+        None if std::env::var_os("TMUX").is_none() => enter_home_session(),
         None => tui::run_dashboard(),
         Some(Commands::Doctor) => cmd_doctor(),
         Some(Commands::List { json, group_by }) => cmd_list(json, group_by.into()),
@@ -372,6 +375,13 @@ fn format_state(state: cdamux_core::SessionState) -> &'static str {
         SessionState::Done => "done",
         SessionState::Error => "error",
     }
+}
+
+/// Replace this process with `tmux new-session -A -s cdamux cdamux`.
+fn enter_home_session() -> ExitCode {
+    let err = Command::new("tmux").args(home_session_new_argv()).exec();
+    eprintln!("cdamux: failed to enter home session: {err}");
+    ExitCode::from(1)
 }
 
 fn cmd_pick() -> ExitCode {

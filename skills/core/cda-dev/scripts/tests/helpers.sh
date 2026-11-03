@@ -2,6 +2,13 @@
 # shellcheck shell=bash
 set -euo pipefail
 
+# Hermetic: drop harness-exported ORCH_* so unit tests see a clean process.
+# Individual tests re-export what they need (ORCH_TMUX, ORCH_ALLOW_NO_CHECKS, …).
+while IFS= read -r _orch_k; do
+  unset "$_orch_k" 2>/dev/null || true
+done < <(env | awk -F= '/^ORCH_/ { print $1 }')
+unset _orch_k
+
 FAILS=0
 PASSES=0
 

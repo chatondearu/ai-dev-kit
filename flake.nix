@@ -30,6 +30,13 @@
         cdamux = pkgs.callPackage ./cdamux/nix/package.nix {};
       });
 
+      devShells = forAllSystems (pkgs: {
+        # Tooling for scripts/verify.sh (util-linux: setsid, absent on macOS).
+        default = pkgs.mkShell {
+          packages = with pkgs; [bash jq gh git cargo rustc tmux flock nodejs util-linux];
+        };
+      });
+
       nixosModules.default = {config, lib, ...}: let
         cfg = config.aiDevKit;
       in {

@@ -8,7 +8,7 @@ source "$TROOT/helpers.sh"
 source "$TROOT/../lib/verify.sh"
 source "$TROOT/../lib/worktree.sh"
 
-TMP="$(mktemp -d)"
+TMP="$(cd "$(mktemp -d)" && pwd -P)" # physical path: macOS /var -> /private/var
 STUB_BIN="$(mktemp -d)"
 _ORIG_PATH="$PATH"
 cleanup() {

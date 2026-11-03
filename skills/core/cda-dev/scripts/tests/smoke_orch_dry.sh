@@ -7,7 +7,7 @@ source "$TROOT/helpers.sh"
 # shellcheck source=../lib/worktree.sh
 source "$TROOT/../lib/worktree.sh"
 
-TMP="$(mktemp -d)"
+TMP="$(cd "$(mktemp -d)" && pwd -P)" # physical path: macOS /tmp, /var symlinks
 _ORIG_PATH="$PATH"
 STUB_BIN="$(mktemp -d)"
 
@@ -122,9 +122,6 @@ chmod +x "$STUB_BIN/gh"
 export PATH="$STUB_BIN:$PATH"
 export ORCH_AGENT="$STUB_BIN/stub-agent"
 export ORCH_PROGRESS=0
-
-echo "# run-tests.sh"
-bash "$TROOT/run-tests.sh"
 
 echo "# orch dry-run queues all issues beyond MAX_P (issues 1, 2, 3 with MAX_P=2)"
 out_dry="$(bash "$SCRIPTS/orch.sh" --repo "$TMP" --mode ready-pickup --issue 1 --issue 2 --issue 3 --max-parallel 2 --dry-run)"

@@ -3,16 +3,7 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # shellcheck source=../gh-board.sh
-# Extract only the function by sourcing is heavy (needs gh); redefine locally
-# to match gh-board.sh contract.
-closest_status_option() {
-  local want="$1" options_json="$2"
-  printf '%s' "$options_json" | jq -r --arg w "$want" '
-    ($w | ascii_downcase) as $needle
-    | (map(select((.name | ascii_downcase) == $needle)) | .[0]) as $exact
-    | if $exact then "\($exact.id)\t\($exact.name)" else empty end
-  '
-}
+source "$ROOT/gh-board.sh"
 
 FAILS=0
 assert_eq() {

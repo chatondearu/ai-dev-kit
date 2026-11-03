@@ -68,6 +68,15 @@ set -e
 assert_eq "$rc2" "0" "doctor OK with claude stub"
 assert_contains "$out2" "ok   claude" "reports claude"
 assert_contains "$out2" "recommended tools" "points at recommended.md"
+assert_contains "$out2" "Host tools" "reports host tools section"
+assert_contains "$out2" "jq" "reports jq"
+assert_contains "$out2" "flock" "reports flock"
+
+# Stock bash < 4 (macOS /bin/bash 3.2): doctor itself must run and warn that orch needs 4+
+if [ -x /bin/bash ] && [ "$(/bin/bash -c 'echo ${BASH_VERSINFO[0]}')" -lt 4 ]; then
+  out3="$(PATH="$DPATH" HOME="$FAKE/home" CURSOR_HOME="$FAKE/home/.cursor" /bin/bash "$ROOT/scripts/doctor.sh" 2>&1)"
+  assert_contains "$out3" "orch.sh needs bash 4+" "warns on bash < 4"
+fi
 
 if [ "$FAILS" -gt 0 ]; then
   echo "FAILS=$FAILS" >&2

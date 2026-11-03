@@ -35,6 +35,16 @@ else
   warn 'gh (Kanban / CI watch needs it)'
 fi
 
+printf '\nHost tools (jq / bash / flock)\n'
+if have jq; then ok 'jq'; else warn 'jq (kiss hooks wiring + orch status need it)'; fi
+# orch's lib/graph.sh uses mapfile (bash 4+); install.sh and seed-design.sh run on 3.2.
+if [ "${BASH_VERSINFO[0]:-0}" -ge 4 ]; then
+  ok "bash ${BASH_VERSION%%[(]*}"
+else
+  warn "bash ${BASH_VERSION%%[(]*} < 4: orch.sh needs bash 4+ (install.sh and seed-design.sh are fine)"
+fi
+if have flock; then ok 'flock'; else warn 'flock (optional: mkdir lock fallback is used)'; fi
+
 printf '\nAgent CLIs (need ≥1)\n'
 AGENT_HIT=0
 for c in agent cursor-agent claude opencode; do

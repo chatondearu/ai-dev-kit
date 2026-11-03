@@ -4,14 +4,6 @@ set -euo pipefail
 SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BRANDS_DIR="$SKILL_DIR/../cda-design-md/brands"
 
-declare -A BRAND_DIR=(
-  [linear]=linear.app
-  [notion]=notion
-  [cal]=cal
-  [raycast]=raycast
-  [cursor]=cursor
-  [resend]=resend
-)
 KNOWN_BRANDS=(linear notion cal raycast cursor resend)
 
 TARGET=""
@@ -25,10 +17,14 @@ usage() {
   exit 1
 }
 
+lower() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }  # bash 3.2: no ${,,}
+
 brand_dir_for() {
-  local key="${1,,}"
-  [[ -n "${BRAND_DIR[$key]:-}" ]] || return 1
-  echo "${BRAND_DIR[$key]}"
+  case "$(lower "$1")" in
+    linear) echo linear.app;;
+    notion|cal|raycast|cursor|resend) lower "$1";;
+    *) return 1;;
+  esac
 }
 
 # Brand tokens: -qiw for long names; linear/cal/cursor need explicit headers or capitalized product names (avoids linear-gradient, cursor: pointer).
@@ -111,11 +107,11 @@ copy_brand_brief() {
   local src="$BRANDS_DIR/$dir/DESIGN.md"
   [[ -f "$src" ]] || return 1
   cp "$src" "$TARGET/DESIGN.md"
-  written+=("DESIGN.md (brand: ${name,,})")
+  written+=("DESIGN.md (brand: $(lower "$name"))")
 }
 
 if [[ -n "$BRAND" ]]; then
-  bkey="${BRAND,,}"
+  bkey="$(lower "$BRAND")"
   if ! brand_dir_for "$bkey" >/dev/null; then
     echo "seed-design: invalid brand: $BRAND" >&2
     exit 1

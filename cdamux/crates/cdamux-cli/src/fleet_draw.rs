@@ -7,7 +7,7 @@ use crate::fleet_tree::TreeRow;
 use crate::graph_view::{draw_graph_screen, draw_orch_graph_panel, OrchGraphView, GRAPH_FOOTER};
 use crate::keymap::{fit_footer, fleet_help_groups, fleet_help_text, HELP_LEFT, HELP_RIGHT};
 use crate::settings_form::{draw_settings, SettingsForm};
-use crate::spawn_modal::centered_rect;
+use crate::widgets::draw_text_modal;
 use ansi_to_tui::IntoText as _;
 use cdamux_core::{
     state_icon, ChildKind, Config, EnrichedSession, GroupBy, NodeState, SessionChrome,
@@ -73,27 +73,10 @@ pub(crate) struct RenameState {
     pub(crate) input: String,
 }
 
+/// Rename uses the shared 5-row text modal so its hint line survives short terminals.
 pub(crate) fn draw_rename_modal(f: &mut Frame, state: &RenameState) {
-    const MODAL_BG: Color = Color::Rgb(22, 26, 34);
-    const MODAL_FG: Color = Color::Rgb(230, 234, 240);
-    let area = centered_rect(60, 25, f.area());
-    let block = Block::default()
-        .title(" Rename session ")
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Cyan))
-        .style(Style::default().bg(MODAL_BG).fg(MODAL_FG));
-    let inner = block.inner(area);
-    f.render_widget(block, area);
-    f.render_widget(Block::default().style(Style::default().bg(MODAL_BG)), inner);
-    let body = format!(
-        "from: {}\nnew name: {}█\nEnter save · Esc cancel",
-        state.old_name,
-        state.input
-    );
-    f.render_widget(
-        Paragraph::new(body).style(Style::default().bg(MODAL_BG).fg(MODAL_FG)),
-        inner,
-    );
+    let body = format!("from: {}\nnew name: {}█\nEnter save · Esc cancel", state.old_name, state.input);
+    draw_text_modal(f, f.area(), " Rename session ".into(), body);
 }
 
 /// `scroll_from_bottom`: 0 = tail of capture; higher = scroll up into older lines.
@@ -183,6 +166,8 @@ pub(crate) fn session_state_color(state: SessionState) -> Color {
 
 /// Below this width the sidecar stacks under the tree instead of beside it.
 pub(crate) const STACK_BELOW_COLS: u16 = 100;
+/// Sidecar rows needed to show the session chrome box (tabs 1 + chrome 3 + body 4 + composer 2).
+const SIDECAR_CHROME_MIN_H: u16 = 10;
 
 fn tree_list_block(stacked: bool) -> Block<'static> {
     Block::default()
@@ -521,14 +506,17 @@ pub(crate) fn draw_sidecar(
 ) {
     // Only a session row can receive text: projects / workers get the rows back.
     let show_composer = state.side_tab == SideTab::Preview && state.composer_session.is_some();
-    let show_chrome = state.side_tab == SideTab::Preview && state.session_chrome.is_some();
+    // The chrome box needs tabs + 3 + a 4-row body + composer; drop it on short panes.
+    let show_chrome = state.side_tab == SideTab::Preview
+        && state.session_chrome.is_some()
+        && area.height >= SIDECAR_CHROME_MIN_H;
     let vertical = if show_composer {
         Layout::default()
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Length(1),
                 Constraint::Length(if show_chrome { 3 } else { 0 }),
-                Constraint::Min(4),
+                Constraint::Min(1),
                 // Top border (with the label) + one input row.
                 Constraint::Length(2),
             ])
@@ -539,7 +527,7 @@ pub(crate) fn draw_sidecar(
             .constraints([
                 Constraint::Length(1),
                 Constraint::Length(if show_chrome { 3 } else { 0 }),
-                Constraint::Min(4),
+                Constraint::Min(1),
             ])
             .split(area)
     };

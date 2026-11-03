@@ -1,11 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "CDA live orch graph (.orch/graph/current.json)",
+  "title": "CDA live orch graph (.orch/graph/live/<run_id>.json; current.json points at the latest)",
   "type": "object",
   "required": ["run_id"],
   "properties": {
     "run_id": { "type": "string", "minLength": 1 },
     "repo": { "type": "string" },
+    "session": { "type": "string", "description": "tmux session (#S) that created the run; absent outside tmux" },
+    "pid": { "type": "integer", "description": "pid of the creating process (stale check)" },
     "updated_at": { "type": "string" },
     "status": {
       "type": "string",

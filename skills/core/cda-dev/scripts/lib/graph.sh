@@ -1,9 +1,18 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
-# Live orchestration graph under $ORCH_REPO/.orch/graph/current.json (cdamux + foam-graph read this).
+# Live orchestration graph, one file per run: $ORCH_REPO/.orch/graph/live/<run_id>.json
+# (cdamux + foam-graph read it). current.json is a symlink to the latest run, for readers
+# that only know that name; finished runs move to runs/<run_id>.json (ADR-007, #178).
 
+# The run's live file when ORCH_RUN_ID is set (orch_graph_init exports it), else the
+# current.json pointer (read-only use: writers below need a run id).
 orch_graph_file() {
-  printf '%s/.orch/graph/current.json\n' "${ORCH_REPO:-.}"
+  local g="${ORCH_REPO:-.}/.orch/graph"
+  if [ -n "${ORCH_RUN_ID:-}" ]; then
+    printf '%s/live/%s.json\n' "$g" "$(printf '%s' "$ORCH_RUN_ID" | tr -c 'A-Za-z0-9._-' '_')"
+  else
+    printf '%s/current.json\n' "$g"
+  fi
 }
 
 orch_graph_enabled() {
@@ -17,33 +26,82 @@ orch_graph_now() {
   date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u +%Y-%m-%dT%H:%M:%SZ
 }
 
-orch_graph_init() {
-  local run_id="${1:-run-$(date -u +%Y%m%dT%H%M%SZ)}"
-  local gf dir
-  gf="$(orch_graph_file)"
-  dir="$(dirname "$gf")"
-  mkdir -p "$dir"
-  if ! command -v jq >/dev/null 2>&1; then
-    printf '{"run_id":"%s","repo":"%s","nodes":[],"edges":[],"updated_at":"%s","status":"running"}\n' \
-      "$run_id" "${ORCH_REPO:-.}" "$(orch_graph_now)" >"$gf"
-    return 0
-  fi
-  jq -n \
-    --arg run_id "$run_id" \
-    --arg repo "${ORCH_REPO:-.}" \
-    --arg updated "$(orch_graph_now)" \
-    '{run_id:$run_id,repo:$repo,nodes:[],edges:[],updated_at:$updated,status:"running"}' >"$gf"
+# tmux session name of the caller when inside tmux; empty (fail-open) otherwise.
+orch_graph_session() {
+  [ -n "${TMUX:-}" ] || return 0
+  tmux display-message -p '#S' 2>/dev/null || true
 }
 
-# Serialize jq read-modify-write (parallel graph-plan / multi-worker).
+# Point current.json at $1 (relative to .orch/graph), atomically (symlink + rename).
+orch_graph_point_current() {
+  local g="${ORCH_REPO:-.}/.orch/graph" tmp
+  tmp="$g/.current.$BASHPID"
+  ln -sfn "$1" "$tmp" && mv -f "$tmp" "$g/current.json"
+}
+
+# Move live file $1 to runs/ (keep last 20); current.json follows it if it pointed there.
+orch_graph_archive() {
+  local f="$1" g="${ORCH_REPO:-.}/.orch/graph" name
+  name="$(basename "$f")"
+  mkdir -p "$g/runs"
+  mv -f "$f" "$g/runs/$name" 2>/dev/null || return 0
+  rm -f "$f.lock"
+  # shortcut: not locked against a concurrent init; that init re-points current.json anyway.
+  if [ "$(readlink "$g/current.json" 2>/dev/null)" = "live/$name" ]; then
+    orch_graph_point_current "runs/$name"
+  fi
+  # shellcheck disable=SC2012
+  ls -1t "$g/runs"/*.json 2>/dev/null | tail -n +21 | while read -r old; do
+    rm -f "$old"
+  done
+}
+
+# Archive live files of crashed runs: pid dead and no write for 24 h.
+orch_graph_archive_stale() {
+  local f pid
+  find "${ORCH_REPO:-.}/.orch/graph/live" -name '*.json' -mmin +1440 2>/dev/null | while IFS= read -r f; do
+    pid="$(jq -r '.pid // empty' "$f" 2>/dev/null || true)"
+    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+      continue
+    fi
+    orch_graph_archive "$f"
+  done
+}
+
+orch_graph_init() {
+  export ORCH_RUN_ID="${1:-${ORCH_RUN_ID:-run-$(date -u +%Y%m%dT%H%M%SZ)}}"
+  local gf session tmp
+  gf="$(orch_graph_file)"
+  mkdir -p "$(dirname "$gf")"
+  orch_graph_archive_stale
+  session="$(orch_graph_session)"
+  tmp="$(mktemp "$gf.tmp.XXXXXX")"
+  if ! command -v jq >/dev/null 2>&1; then
+    printf '{"run_id":"%s","repo":"%s","pid":%s,%s"nodes":[],"edges":[],"updated_at":"%s","status":"running"}\n' \
+      "$ORCH_RUN_ID" "${ORCH_REPO:-.}" "$$" "${session:+\"session\":\"$session\",}" "$(orch_graph_now)" >"$tmp"
+  else
+    jq -n \
+      --arg run_id "$ORCH_RUN_ID" \
+      --arg repo "${ORCH_REPO:-.}" \
+      --arg session "$session" \
+      --argjson pid "$$" \
+      --arg updated "$(orch_graph_now)" \
+      '{run_id:$run_id,repo:$repo,pid:$pid,nodes:[],edges:[],updated_at:$updated,status:"running"}
+       + (if $session == "" then {} else {session:$session} end)' >"$tmp"
+  fi
+  mv -f "$tmp" "$gf"
+  orch_graph_point_current "live/$(basename "$gf")"
+}
+
+# Serialize jq read-modify-write (parallel graph-plan / multi-worker). One lock and
+# same-dir temp file per run, so runs never block or clobber each other.
 # Usage: orch_graph_locked_jq --arg k v 'filter'
 orch_graph_locked_jq() {
-  local gf dir lock tmp rc=0
+  local gf lock tmp rc=0
   gf="$(orch_graph_file)"
-  dir="$(dirname "$gf")"
-  mkdir -p "$dir"
-  lock="$dir/.lock"
-  tmp="$(mktemp)"
+  mkdir -p "$(dirname "$gf")"
+  lock="$gf.lock"
+  tmp="$(mktemp "$gf.tmp.XXXXXX")"
   if command -v flock >/dev/null 2>&1; then
     (
       flock 200
@@ -63,41 +121,28 @@ orch_graph_locked_jq() {
   return "$rc"
 }
 
-# Mark run finished (ok|blocked). Sets .status and .ended_at for cdamux freshness.
+# Mark run finished (ok|blocked), set .status/.ended_at, then move it to runs/<run_id>.json.
 orch_graph_finish() {
   local outcome="${1:-ok}"
   local gf status
   if ! orch_graph_enabled; then
     return 0
   fi
+  [ -n "${ORCH_RUN_ID:-}" ] || return 0
   gf="$(orch_graph_file)"
   [ -f "$gf" ] || return 0
   case "$outcome" in
     ok|done|success) status="ok";;
     *) status="blocked";;
   esac
-  if ! command -v jq >/dev/null 2>&1; then
-    return 0
+  if command -v jq >/dev/null 2>&1; then
+    orch_graph_locked_jq \
+      --arg status "$status" \
+      --arg ended "$(orch_graph_now)" \
+      --arg updated "$(orch_graph_now)" \
+      '.status = $status | .ended_at = $ended | .updated_at = $updated'
   fi
-  orch_graph_locked_jq \
-    --arg status "$status" \
-    --arg ended "$(orch_graph_now)" \
-    --arg updated "$(orch_graph_now)" \
-    '.status = $status | .ended_at = $ended | .updated_at = $updated'
-
-  # Archive snapshot for cdamux recent-runs (keep last 20).
-  local runs_dir run_id dest safe
-  runs_dir="$(dirname "$gf")/runs"
-  mkdir -p "$runs_dir"
-  run_id="$(jq -r '.run_id // empty' "$gf" 2>/dev/null || true)"
-  [ -n "$run_id" ] || return 0
-  safe="$(printf '%s' "$run_id" | tr -c 'A-Za-z0-9._-' '_')"
-  dest="$runs_dir/${safe}.json"
-  cp "$gf" "$dest" 2>/dev/null || true
-  # shellcheck disable=SC2012
-  ls -1t "$runs_dir"/*.json 2>/dev/null | tail -n +21 | while read -r old; do
-    rm -f "$old"
-  done
+  orch_graph_archive "$gf"
 }
 
 # Warn when worker-result.json is missing or lacks required fields (issue/status/checks).
@@ -125,7 +170,7 @@ orch_graph_upsert_node() {
     return 0
   fi
   gf="$(orch_graph_file)"
-  [ -f "$gf" ] || orch_graph_init
+  [ -n "${ORCH_RUN_ID:-}" ] && [ -f "$gf" ] || orch_graph_init
   if ! command -v jq >/dev/null 2>&1; then
     return 0
   fi
@@ -157,7 +202,7 @@ orch_graph_upsert_node() {
 orch_graph_add_edge() {
   local from="$1" to="$2" etype="${3:-depends}"
   local gf
-  if ! orch_graph_enabled || ! command -v jq >/dev/null 2>&1; then
+  if ! orch_graph_enabled || ! command -v jq >/dev/null 2>&1 || [ -z "${ORCH_RUN_ID:-}" ]; then
     return 0
   fi
   gf="$(orch_graph_file)"
@@ -574,7 +619,7 @@ orch_graph_plan_run() {
     printf 'graph-plan: sequential dispatch (%s tasks)\n' "$n" >&2
   fi
 
-  orch_graph_init "graph-plan-${issue}-$(date -u +%Y%m%dT%H%M%SZ)"
+  orch_graph_init "${ORCH_RUN_ID:-graph-plan-${issue}-$(date -u +%Y%m%dT%H%M%SZ)}"
   orch_graph_upsert_node integrator integrator pending queued "graph plan tasks" ""
 
   path="$(orch_worktree_path "$ORCH_REPO" "$issue" "$slug")"

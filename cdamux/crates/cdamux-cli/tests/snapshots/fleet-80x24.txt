@@ -12,8 +12,8 @@ cdamux — fleet  ○ idle ● active ◆ needs ⊘ blocked ✓ done
  Preview  Notes  Review  Orch graph
 ┌ session ─────────────────────────────────────────────────────────────────────┐
 │repo: alpha  │  worktree: main  │  branch: main                               │
+│agent: claude  │  up: 12m  │  context: 40%  │  tasks: 2/5                     │
 └──────────────────────────────────────────────────────────────────────────────┘
-test render ... ok
 test send ... ok
 warning: unused import `std::collections::HashMap` in src/parser.rs, remove it
 or prefix with an underscore to silence this lint

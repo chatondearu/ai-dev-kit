@@ -4,17 +4,17 @@ cdamux — fleet  ○ idle ● active ◆ needs ⊘ blocked ✓ done
  projects → sessions                                                       │ Preview  Notes  Review  Orch graph
   ▼ ◇ alpha (2 sess · 2 orch) /src/alpha                                   │┌ session ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
 ▸   ● alpha-main  claude  /src/alpha                                       ││repo: alpha  │  worktree: main  │  branch: main                                                                           │
-    ◆ alpha-42  #42  cursor  /src/alpha                                    │└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
-    ⚙ #7 running  implementing parser                                      │$ cargo test
-    ⊘ #8 blocked  waiting on review                                        │   Compiling alpha v0.1.0
-  ▶ ◇ beta (0) /src/beta                                                   │running 3 tests
-  — unassigned sessions                                                    │test parse ... ok
-    ○ scratch  shell  /tmp/scratch                                         │test render ... ok
+    ◆ alpha-42  #42  cursor  /src/alpha                                    ││agent: claude  │  up: 12m  │  context: 40%  │  tasks: 2/5                                                                 │
+    ⚙ #7 running  implementing parser                                      │└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+    ⊘ #8 blocked  waiting on review                                        │$ cargo test
+  ▶ ◇ beta (0) /src/beta                                                   │   Compiling alpha v0.1.0
+  — unassigned sessions                                                    │running 3 tests
+    ○ scratch  shell  /tmp/scratch                                         │test parse ... ok
+                                                                           │test render ... ok
                                                                            │test send ... ok
                                                                            │warning: unused import `std::collections::HashMap` in src/parser.rs, remove it or prefix with an underscore to silence this
                                                                            │lint
                                                                            │test result: ok. 3 passed
-                                                                           │
                                                                            │
                                                                            │
                                                                            │

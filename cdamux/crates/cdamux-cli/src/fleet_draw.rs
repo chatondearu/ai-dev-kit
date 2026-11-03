@@ -166,8 +166,10 @@ pub(crate) fn session_state_color(state: SessionState) -> Color {
 
 /// Below this width the sidecar stacks under the tree instead of beside it.
 pub(crate) const STACK_BELOW_COLS: u16 = 100;
-/// Sidecar rows needed to show the session chrome box (tabs 1 + chrome 3 + body 4 + composer 2).
-const SIDECAR_CHROME_MIN_H: u16 = 10;
+/// Session chrome box: two info lines inside borders.
+const CHROME_H: u16 = 4;
+/// Sidecar rows needed to show it (tabs 1 + chrome 4 + body 4 + composer 2).
+const SIDECAR_CHROME_MIN_H: u16 = 11;
 
 fn tree_list_block(stacked: bool) -> Block<'static> {
     Block::default()
@@ -506,7 +508,7 @@ pub(crate) fn draw_sidecar(
 ) {
     // Only a session row can receive text: projects / workers get the rows back.
     let show_composer = state.side_tab == SideTab::Preview && state.composer_session.is_some();
-    // The chrome box needs tabs + 3 + a 4-row body + composer; drop it on short panes.
+    // The chrome box needs tabs + chrome + a 4-row body + composer; drop it on short panes.
     let show_chrome = state.side_tab == SideTab::Preview
         && state.session_chrome.is_some()
         && area.height >= SIDECAR_CHROME_MIN_H;
@@ -515,7 +517,7 @@ pub(crate) fn draw_sidecar(
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Length(1),
-                Constraint::Length(if show_chrome { 3 } else { 0 }),
+                Constraint::Length(if show_chrome { CHROME_H } else { 0 }),
                 Constraint::Min(1),
                 // Top border (with the label) + one input row.
                 Constraint::Length(2),
@@ -526,7 +528,7 @@ pub(crate) fn draw_sidecar(
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Length(1),
-                Constraint::Length(if show_chrome { 3 } else { 0 }),
+                Constraint::Length(if show_chrome { CHROME_H } else { 0 }),
                 Constraint::Min(1),
             ])
             .split(area)

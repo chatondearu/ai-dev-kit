@@ -4,9 +4,10 @@ cdamux — fleet  ○ idle ● active ◆ needs ⊘ blocked ✓ done
  projects → sessions                                                       │ Preview  Notes  Review  Orch graph
   ▼ ◇ alpha (1 sess · 1 orch) /src/alpha                                   │┌ session ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
 ▸   ⚙ #9 agent  iter 1/10                                                  ││repo: alpha  │  worktree: main  │  branch: main                                                                           │
-    ▼ ● alpha-main  claude  /src/alpha                                     │└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
-    └ ● Explore  a1b2c3d4                                                  │$ cargo test
-    └ ✓ cda-review  f6e5d4c3                                               │   Compiling alpha v0.1.0
+    ▼ ● alpha-main  claude  /src/alpha                                     ││agent: claude  │  up: 12m  │  context: 40%  │  tasks: 2/5                                                                 │
+    └ ● Explore  a1b2c3d4                                                  │└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+    └ ✓ cda-review  f6e5d4c3                                               │$ cargo test
+                                                                           │   Compiling alpha v0.1.0
                                                                            │running 3 tests
                                                                            │test parse ... ok
                                                                            │test render ... ok
@@ -14,7 +15,6 @@ cdamux — fleet  ○ idle ● active ◆ needs ⊘ blocked ✓ done
                                                                            │warning: unused import `std::collections::HashMap` in src/parser.rs, remove it or prefix with an underscore to silence this
                                                                            │lint
                                                                            │test result: ok. 3 passed
-                                                                           │
                                                                            │
                                                                            │
                                                                            │

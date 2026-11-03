@@ -146,7 +146,7 @@ landed on the integration branch, reconcile Status without per-item REST loops:
 ```
 
 Strong signals only (else `skip`): issue/PR `CLOSED`, PR `merged` in the list
-payload, or `git log <base>` mentioning `#N` / `Closes #N` / `Fixes #N`. Status
+payload, or `git log <base>` containing `Closes|Fixes|Resolves #N` (bare `#N` and `Refs #N` do not count). Status
 field only — never force-closes issues. Details: [reference.md](reference.md).
 
 ### F — Listen & react to board events

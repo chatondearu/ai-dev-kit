@@ -152,7 +152,7 @@ scripts/gh-board.sh reconcile-backlog --status "Backlog,Ready" --apply
 Done heuristics (any one → move; else `action: skip`):
 - Issue/PR `state == CLOSED`
 - PR `merged == true` already in the list payload (no per-issue timeline calls)
-- `git log <base> --grep` finds `#N` / `Closes #N` / `Fixes #N` / `Resolves #N` / `Refs #N`
+- `git log <base> --grep` finds `Closes #N` / `Fixes #N` / `Resolves #N` (a bare `#N` or `Refs #N` is not a done signal)
 
 Aliased mutation shape (chunked; shared `projectId` / `fieldId` / `doneId`):
 

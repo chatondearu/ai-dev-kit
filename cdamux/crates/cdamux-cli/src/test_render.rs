@@ -6,7 +6,7 @@
 //! Rewrite them with `CDAMUX_UPDATE_SNAPSHOTS=1 cargo test`.
 
 use crate::app_tabs::AppTab;
-use crate::fleet_draw::{draw_app_screen, DrawState, FocusArea, SideTab};
+use crate::fleet_draw::{draw_app_screen, draw_help_overlay, DrawState, FocusArea, SideTab};
 use crate::fleet_tree::TreeRow;
 use crate::graph_view::OrchGraphView;
 use crate::settings_form::SettingsForm;
@@ -324,6 +324,12 @@ fn golden_screens() {
             ),
             ("spawn-modal", render_spawn_modal(w, h)),
             ("settings", render_app(w, h, AppTab::Settings, SideTab::Preview)),
+            ("fleet-notes", render_app(w, h, AppTab::Fleet, SideTab::Notes)),
+            ("fleet-review", render_app(w, h, AppTab::Fleet, SideTab::Review)),
+            ("projects", render_app(w, h, AppTab::Projects, SideTab::Preview)),
+            ("sessions", render_app(w, h, AppTab::Sessions, SideTab::Preview)),
+            ("agents", render_app(w, h, AppTab::Agents, SideTab::Preview)),
+            ("help", render(w, h, |f| draw_help_overlay(f, f.area()))),
         ];
         for (name, lines) in screens {
             assert_snapshot(&format!("{name}-{w}x{h}"), &lines);

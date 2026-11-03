@@ -156,9 +156,7 @@ pub fn draw_field_list(
 
 /// Text modal: 5-row box near the top third of `area`, clipped on tiny terminals.
 pub fn draw_text_modal(f: &mut Frame, area: Rect, title: String, body: String) {
-    let w = area.width.saturating_sub(4).min(72);
-    let rect = Rect::new(area.x + (area.width - w) / 2, area.y + area.height / 3, w, 5)
-        .intersection(area);
+    let rect = text_modal_rect(area);
     let block = Block::default()
         .title(title)
         .borders(Borders::ALL)
@@ -166,6 +164,13 @@ pub fn draw_text_modal(f: &mut Frame, area: Rect, title: String, body: String) {
         .style(Style::default().bg(MODAL_BG).fg(CLR_TEXT));
     f.render_widget(Clear, rect);
     f.render_widget(Paragraph::new(body).block(block), rect);
+}
+
+/// Top third of the room left once the box fits, so short terminals keep the whole box.
+fn text_modal_rect(area: Rect) -> Rect {
+    let w = area.width.saturating_sub(4).min(72);
+    let y = area.y + area.height.saturating_sub(5) / 3;
+    Rect::new(area.x + (area.width - w) / 2, y, w, 5).intersection(area)
 }
 
 #[cfg(test)]
@@ -202,6 +207,13 @@ mod tests {
         assert_eq!(buf, "aB");
         edit_text(&mut buf, key(KeyCode::Backspace, KeyModifiers::NONE), |_| true);
         assert_eq!(buf, "a");
+    }
+
+    #[test]
+    fn text_modal_stays_inside_short_terminals() {
+        let area = Rect::new(0, 0, 80, 6);
+        assert_eq!(text_modal_rect(area), Rect::new(4, 0, 72, 5));
+        assert_eq!(text_modal_rect(Rect::new(0, 0, 80, 24)).y, 6);
     }
 
     #[test]

@@ -6,7 +6,7 @@ cdamux — fleet  ○ idle ● active ◆ needs
 ▸   ● alpha-main  claude  /src/alpha         │
     ◆ alpha-42  #42  cursor  /src/alpha      │╭worker──────╮
     ⚙ #7 running  implementing parser        ││✓ w1        │──┐
-    ✗ #8 blocked  waiting on review          │╰────────────╯  │ ╭integrator──╮
+    ⊘ #8 blocked  waiting on review          │╰────────────╯  │ ╭integrator──╮
   ▶ ◇ beta (0) /src/beta                     │                ├▶│· integrator│
   — unassigned sessions                      │╭worker──────╮  │ ╰────────────╯
     ○ scratch  shell  /tmp/scratch           ││◎ w2        │──┘
@@ -36,5 +36,5 @@ cdamux — fleet  ○ idle ● active ◆ needs
                                              │
                                              │
                                              │
-j/k nav · Enter attach · n new · m rename · f fork · x kill · o issue · Space send · g graph · 1-5 tabs · ? help · q qui
+j/k nav · Enter attach · n new · m rename · f fork · x kill · o issue · Space send · g graph · ? help · q quit
 

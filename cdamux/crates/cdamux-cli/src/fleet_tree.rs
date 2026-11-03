@@ -214,6 +214,18 @@ pub(crate) fn toggle_row_fold(rows: &[TreeRow], idx: usize, expanded: &mut HashS
     }
 }
 
+/// `h` / `l`: fold or unfold the row; no-op when it is already in that state or not foldable.
+pub(crate) fn set_row_fold(rows: &[TreeRow], idx: usize, expanded: &mut HashSet<String>, open: bool) {
+    let is_open = match rows.get(idx) {
+        Some(TreeRow::Project { expanded, .. }) => *expanded,
+        Some(TreeRow::Session { expanded: Some(o), .. }) => *o,
+        _ => return,
+    };
+    if is_open != open {
+        toggle_row_fold(rows, idx, expanded);
+    }
+}
+
 pub(crate) fn session_at_row(rows: &[TreeRow], idx: usize) -> Option<&EnrichedSession> {
     match rows.get(idx)? {
         TreeRow::Session { session, .. } => Some(session),
@@ -535,9 +547,14 @@ mod tests {
                 ("orphan".into(), 1, None),
             ]
         );
-        // Collapse `b`: `c` disappears, selection by name lands on `orphan`.
-        toggle_row_fold(&rows, 2, &mut exp);
+        // `l` on an open row is a no-op; `h` collapses `b`: `c` disappears,
+        // selection by name lands on `orphan`. `h` again stays collapsed.
+        set_row_fold(&rows, 2, &mut exp, true);
+        assert!(exp.is_empty());
+        set_row_fold(&rows, 2, &mut exp, false);
         let folded = flatten_tree(&tree, &exp, GroupBy::Project, false, &no_status());
+        set_row_fold(&folded, 2, &mut exp, false);
+        assert_eq!(flatten_tree(&tree, &exp, GroupBy::Project, false, &no_status()).len(), 4);
         assert_eq!(shape(&folded)[1], ("b".into(), 2, Some(false)));
         assert_eq!(folded.len(), 4);
         assert_eq!(reanchor_selection(&folded, 4, Some("orphan")), 3);

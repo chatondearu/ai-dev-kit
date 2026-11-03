@@ -13,7 +13,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, Paragraph},
+    widgets::{Block, Borders, List, ListItem, Paragraph, Wrap},
     Frame,
 };
 use crate::widgets::{draw_scrolled_list, wheel_step};
@@ -500,7 +500,9 @@ pub(crate) fn draw_modal(f: &mut Frame, state: &mut ModalState) {
         }
     };
     f.render_widget(
-        Paragraph::new(git_line).style(Style::default().bg(MODAL_BG).fg(MODAL_FG)),
+        Paragraph::new(git_line)
+            .style(Style::default().bg(MODAL_BG).fg(MODAL_FG))
+            .wrap(Wrap { trim: true }),
         chunks[2],
     );
 
@@ -522,7 +524,9 @@ pub(crate) fn draw_modal(f: &mut Frame, state: &mut ModalState) {
         )
     };
     f.render_widget(
-        Paragraph::new(opts).style(Style::default().bg(MODAL_BG).fg(MODAL_FG)),
+        Paragraph::new(opts)
+            .style(Style::default().bg(MODAL_BG).fg(MODAL_FG))
+            .wrap(Wrap { trim: true }),
         chunks[3],
     );
 
@@ -532,7 +536,9 @@ pub(crate) fn draw_modal(f: &mut Frame, state: &mut ModalState) {
         state.message.as_str()
     };
     f.render_widget(
-        Paragraph::new(help).style(Style::default().bg(MODAL_BG).fg(MODAL_FG)),
+        Paragraph::new(help)
+            .style(Style::default().bg(MODAL_BG).fg(MODAL_FG))
+            .wrap(Wrap { trim: true }),
         chunks[4],
     );
 }

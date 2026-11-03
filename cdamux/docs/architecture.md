@@ -56,7 +56,7 @@ See `config/cdamux.example.toml`. Highlights:
 - **Session links** — spawn sets `@cdamux_role` (`agent`/`shell`); fork also sets
   `@cdamux_parent` (source session). `@cdamux_run` carries an orch run id. All three come
   from the one `list-sessions -F` call. Fleet nests a session under its parent in the same
-  project (any depth, `h`/`l` or arrows expand / collapse); a dead parent or a parent cycle leaves it at
+  project (any depth, `l`/`→` expands, `h`/`←` collapses); a dead parent or a parent cycle leaves it at
   the top of its project. Non-session children (orch workers, CLI sub-agents) are
   `ChildRow`s with a `PreviewSource` (`Pane` / `FileTail` / `None`). Decision record:
   [ADR-007](../../foam/decisions/ADR-007-cdamux-session-hierarchy.md).

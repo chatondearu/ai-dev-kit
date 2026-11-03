@@ -13,10 +13,10 @@
             │                                                      │
             │git: (no repo at path)                                │
             │                                                      │
-            │agent: claude  (a cycle)  |  shell only: no  (s toggle│
-            │layout: single  (p cycle)                             │
-            │Enter create · Esc cancel · j/k pick · Tab mode · b br│
-            │                                                      │
+            │agent: claude  (a cycle)  |  shell only: no  (s       │
+            │toggle)                                               │
+            │Enter create · Esc cancel · j/k pick · Tab mode · b   │
+            │branch · w worktree · s shell · a agent · p layout    │
             └──────────────────────────────────────────────────────┘
 
 

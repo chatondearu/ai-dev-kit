@@ -16,9 +16,9 @@ use cdamux_core::{
     grouped_for_list, git_diff_unified, git_toplevel, list_tmux_sessions, list_worktrees,
     load_config, note_refs_for_projects,
     parse_unified_diff, resolve_agent_command, resolve_note_path, send_to_session,
-    session_name_for_path, spawn_tmux_session, unique_session_name, AttachMode, DiffError,
+    session_name_for_path, spawn_tmux_session_with_layout, unique_session_name, AttachMode, DiffError,
     GroupBy, SendError,
-    SpawnError, SpawnOutcome,
+    PaneLayout, SpawnError, SpawnOutcome,
 };
 use clap::{Parser, Subcommand};
 use skim::prelude::*;
@@ -633,17 +633,14 @@ fn spawn_with_path_and_agent(
     };
 
     let session_name = unique_session_name(&session_name_for_path(&path_buf));
-    match spawn_tmux_session(
+    match spawn_tmux_session_with_layout(
         &session_name,
         &path_buf,
         &command,
-        cfg.sessions.attach_mode,
+        PaneLayout::Single,
+        true,
         Some(agent_name.as_str()),
     ) {
-        Ok(SpawnOutcome::ReusedExisting) => {
-            println!("reusing existing session '{}'", session_name);
-            ExitCode::SUCCESS
-        }
         Ok(SpawnOutcome::Created) => {
             println!("spawned session '{}' in {}", session_name, path_buf.display());
             ExitCode::SUCCESS

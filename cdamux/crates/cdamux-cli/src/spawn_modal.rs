@@ -292,6 +292,18 @@ fn execute_spawn(
     path: PathBuf,
     switch_to_session: bool,
 ) -> Result<String, String> {
+    let command = if state.shell_only {
+        default_shell_command()
+    } else {
+        let agent = state
+            .agents
+            .get(state.agent_index)
+            .cloned()
+            .unwrap_or_else(|| default_agent_name(&cfg.agents));
+        resolve_agent_command(&cfg.agents, &agent)
+            .map_err(|e| e.to_string())?
+    };
+
     let spawn_path = if state.worktree_mode {
         let root = cfg
             .worktrees
@@ -317,18 +329,6 @@ fn execute_spawn(
         path
     };
 
-    let command = if state.shell_only {
-        default_shell_command()
-    } else {
-        let agent = state
-            .agents
-            .get(state.agent_index)
-            .cloned()
-            .unwrap_or_else(|| default_agent_name(&cfg.agents));
-        resolve_agent_command(&cfg.agents, &agent)
-            .map_err(|e| e.to_string())?
-    };
-
     let session_name = unique_session_name(&session_name_for_path(&spawn_path));
     let agent_label: Option<&str> = if state.shell_only {
         Some("shell")
@@ -341,11 +341,9 @@ fn execute_spawn(
         &spawn_path,
         &command,
         state.layout,
-        cfg.sessions.attach_mode,
         switch_to_session,
         agent_label,
     ) {
-        Ok(SpawnOutcome::ReusedExisting) => Ok(format!("reusing session '{}'", session_name)),
         Ok(SpawnOutcome::Created) => Ok(format!(
             "spawned '{}' in {} ({})",
             session_name,

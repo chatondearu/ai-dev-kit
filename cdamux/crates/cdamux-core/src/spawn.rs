@@ -1,8 +1,7 @@
 //! Spawn tmux sessions with configured agent commands.
 
-use crate::send::tmux_has_session;
 use crate::tmux::pane_target;
-use crate::{AgentEntry, AgentsConfig, AttachMode};
+use crate::{AgentEntry, AgentsConfig};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use thiserror::Error;
@@ -60,8 +59,6 @@ pub fn default_agent_name(agents: &AgentsConfig) -> String {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SpawnOutcome {
     Created,
-    /// Duplicate `c-<basename>`: attach/switch to existing session instead of creating another.
-    ReusedExisting,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -76,32 +73,12 @@ pub fn default_shell_command() -> String {
     std::env::var("SHELL").unwrap_or_else(|_| "bash".to_string())
 }
 
-/// Create detached tmux session in `path` running `agent_command`.
-pub fn spawn_tmux_session(
-    session_name: &str,
-    path: &Path,
-    agent_command: &str,
-    attach_mode: AttachMode,
-    agent_label: Option<&str>,
-) -> Result<SpawnOutcome, SpawnError> {
-    spawn_tmux_session_with_layout(
-        session_name,
-        path,
-        agent_command,
-        PaneLayout::Single,
-        attach_mode,
-        true,
-        agent_label,
-    )
-}
-
 /// Primary pane runs `primary_command`; optional split adds a second pane with a shell.
 pub fn spawn_tmux_session_with_layout(
     session_name: &str,
     path: &Path,
     primary_command: &str,
     layout: PaneLayout,
-    _attach_mode: AttachMode,
     switch_to_session: bool,
     agent_label: Option<&str>,
 ) -> Result<SpawnOutcome, SpawnError> {
@@ -110,15 +87,6 @@ pub fn spawn_tmux_session_with_layout(
     }
     if !path.is_dir() {
         return Err(SpawnError::NotDirectory(path.to_path_buf()));
-    }
-
-    if tmux_has_session(session_name).unwrap_or(false) {
-        if switch_to_session && std::env::var_os("TMUX").is_some() {
-            let _ = Command::new("tmux")
-                .args(["switch-client", "-t", session_name])
-                .status();
-        }
-        return Ok(SpawnOutcome::ReusedExisting);
     }
 
     let shell = default_shell_command();

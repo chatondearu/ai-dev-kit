@@ -7,7 +7,7 @@ use crate::fleet_draw::{
 };
 use crate::fleet_tree::{
     clamp_selection, default_expanded, fleet_attention_hint, flatten_tree, focus_session_in_tree,
-    issue_at_row, move_selection, orch_repo_at_row, session_at_row, toggle_fold_all, TreeRow,
+    issue_at_row, move_selection, orch_repo_at_row, reanchor_selection, session_at_row, toggle_fold_all, TreeRow,
 };
 use crate::keymap::{map_key_event, DashboardAction};
 use crate::settings_form::SettingsForm;
@@ -64,12 +64,10 @@ fn fork_selected_session(cfg: &Config, s: &EnrichedSession) -> Result<String, St
         &path,
         &cmd,
         PaneLayout::Single,
-        cfg.sessions.attach_mode,
         false,
         Some(agent.as_str()),
     ) {
         Ok(SpawnOutcome::Created) => Ok(format!("forked '{}' with {}", base, agent)),
-        Ok(SpawnOutcome::ReusedExisting) => Ok(format!("reusing '{}'", base)),
         Err(e) => Err(e.to_string()),
     }
 }
@@ -181,7 +179,11 @@ pub fn run_dashboard() -> ExitCode {
 
     while !should_quit && attach_name.is_none() && review_session.is_none() {
         let group_by = cfg.sessions.group_by;
+        let mut anchor: Option<String> = None;
         if tree_dirty || app_tab != cached_tab || last_tree_refresh.elapsed() >= TREE_REFRESH {
+            // Remember the selected session by name: rows shift when sessions come and go.
+            let old_rows = flatten_tree(&cached_tree, &expanded, group_by, waiting_only);
+            anchor = session_at_row(&old_rows, selected_row).map(|s| s.name.clone());
             cached_tree = build_project_session_tree(
                 &cfg.projects,
                 cfg.daemon.idle_seconds_for_needs_input,
@@ -208,7 +210,7 @@ pub fn run_dashboard() -> ExitCode {
         }
         let tree = &cached_tree;
         let rows = flatten_tree(tree, &expanded, group_by, waiting_only);
-        selected_row = clamp_selection(&rows, selected_row);
+        selected_row = reanchor_selection(&rows, selected_row, anchor.as_deref());
         if app_tab == AppTab::Sessions && sessions_selected >= flat.len() && !flat.is_empty() {
             sessions_selected = flat.len() - 1;
         }
@@ -376,7 +378,13 @@ pub fn run_dashboard() -> ExitCode {
                         {
                             if let Some(area) = fleet_tree_rect {
                                 if let Some(idx) =
-                                    row_index_from_mouse(area, m.column, m.row, rows.len())
+                                    row_index_from_mouse(
+                                        area,
+                                        m.column,
+                                        m.row,
+                                        rows.len(),
+                                        selected_row,
+                                    )
                                 {
                                     selected_row = clamp_selection(&rows, idx);
                                     preview_for_session = None;
@@ -450,9 +458,50 @@ pub fn run_dashboard() -> ExitCode {
                         }
                     }
                 }
-                // Settings modal is exclusive: digits, `q`, `n` go to its text input.
                 let ctrl_c = key.modifiers.contains(KeyModifiers::CONTROL)
                     && key.code == KeyCode::Char('c');
+                // The composer owns every key (n, q, digits) except Ctrl-C and Esc.
+                if focus == FocusArea::Composer && app_tab == AppTab::Fleet {
+                    if ctrl_c {
+                        should_quit = true;
+                        continue;
+                    }
+                    if key.code == KeyCode::Esc {
+                        focus = FocusArea::Tree;
+                        continue;
+                    }
+                    if key.code == KeyCode::Enter {
+                        if let Some(name) = composer_session {
+                            let text = composer_line.clone();
+                            match send_to_session(name, &text, true) {
+                                Ok(()) => {
+                                    status_line = format!("sent to {}", name);
+                                    composer_line.clear();
+                                    preview_text = fetch_preview(name, preview_max);
+                                    preview_for_session = Some(name.to_string());
+                                    last_preview_refresh = Instant::now();
+                                    tree_dirty = true;
+                                }
+                                Err(e) => status_line = e.to_string(),
+                            }
+                        }
+                        focus = FocusArea::Tree;
+                        continue;
+                    }
+                    if key.code == KeyCode::Backspace {
+                        composer_line.pop();
+                        continue;
+                    }
+                    if let KeyCode::Char(c) = key.code {
+                        if key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT {
+                            composer_line.push(c);
+                        }
+                        continue;
+                    }
+                    continue;
+                }
+
+                // Settings modal is exclusive: digits, `q`, `n` go to its text input.
                 if app_tab == AppTab::Settings && settings.modal.is_some() && !ctrl_c {
                     settings.handle_key(&mut cfg, key);
                     continue;
@@ -550,42 +599,6 @@ pub fn run_dashboard() -> ExitCode {
                             preview_scroll = preview_scroll.saturating_sub(3);
                         }
                         _ => {}
-                    }
-                    continue;
-                }
-
-                if focus == FocusArea::Composer {
-                    if key.code == KeyCode::Esc {
-                        focus = FocusArea::Tree;
-                        continue;
-                    }
-                    if key.code == KeyCode::Enter {
-                        if let Some(name) = composer_session {
-                            let text = composer_line.clone();
-                            match send_to_session(name, &text, true) {
-                                Ok(()) => {
-                                    status_line = format!("sent to {}", name);
-                                    composer_line.clear();
-                                    preview_text = fetch_preview(name, preview_max);
-                                    preview_for_session = Some(name.to_string());
-                                    last_preview_refresh = Instant::now();
-                                    tree_dirty = true;
-                                }
-                                Err(e) => status_line = e.to_string(),
-                            }
-                        }
-                        focus = FocusArea::Tree;
-                        continue;
-                    }
-                    if key.code == KeyCode::Backspace {
-                        composer_line.pop();
-                        continue;
-                    }
-                    if let KeyCode::Char(c) = key.code {
-                        if key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT {
-                            composer_line.push(c);
-                        }
-                        continue;
                     }
                     continue;
                 }

@@ -3,7 +3,7 @@ set -euo pipefail
 TROOT="$(cd "$(dirname "$0")" && pwd)"
 source "$TROOT/helpers.sh"
 
-TMP="$(mktemp -d)"
+TMP="$(cd "$(mktemp -d)" && pwd -P)" # physical path: macOS /tmp, /var symlinks
 trap 'rm -rf "$TMP"' EXIT
 
 git -C "$TMP" init -q

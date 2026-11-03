@@ -104,7 +104,7 @@
           description = "Moshi agent hook daemon (mobile push / approvals)";
           after = ["network-online.target" "moshi-hook-install.service" "moshi-hook-pair.service"];
           requires = ["moshi-hook-install.service"];
-          wants = ["network-online.target"];
+          wants = ["network-online.target" "moshi-hook-pair.service"];
           wantedBy = ["default.target"];
           serviceConfig = {
             ExecStart = "${moshiHookPkg}/bin/moshi-hook serve";

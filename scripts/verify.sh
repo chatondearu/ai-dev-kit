@@ -6,6 +6,8 @@ cd "$ROOT"
 for t in skills/core/cda-dev/scripts/tests/test_*.sh \
   skills/core/cda-dev/scripts/tests/smoke_orch_dry.sh \
   scripts/tests/test_doctor.sh \
+  skills/core/cda-kanban/scripts/tests/test_closest_status.sh \
+  skills/quality/cda-kiss/hooks/test-install.sh \
   skills/core/cda-doc-hygiene/scripts/tests/test_doc_hygiene.sh; do
   bash "$t"
 done

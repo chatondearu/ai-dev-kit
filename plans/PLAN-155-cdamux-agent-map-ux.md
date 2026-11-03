@@ -36,7 +36,7 @@ The full contract of each task is the child issue body.
 | U8 | #164 | TUI clean loop (≤ 5 rounds) | opus | U1–U7 |
 | U9 | #165 | ADR-007 + docs | sonnet | U2, U3 |
 
-Wave 1: U0. Wave 2: U1, U5, U7. Wave 3: U2, U3, U6. Wave 4: U4, U9. Wave 5: U8.
+Wave 1: U0, U5, U7 (U5/U7 add their snapshots once U0 lands). Wave 2: U1, U6. Wave 3: U2, U3. Wave 4: U4, U9. Wave 5: U8.
 
 - [ ] U0 · [ ] U1 · [ ] U2 · [ ] U3 · [ ] U4
 - [ ] U5 · [ ] U6 · [ ] U7 · [ ] U8 · [ ] U9

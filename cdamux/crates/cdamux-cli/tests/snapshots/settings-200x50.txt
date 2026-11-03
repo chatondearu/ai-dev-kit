@@ -1,0 +1,50 @@
+ 1:Fleet   2:Projects   3:Sessions   4:Agents   5:Settings
+┌ settings ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│config: /cfg/cdamux.toml                                                                                                                                                                              │
+│                                                                                                                                                                                                      │
+│[sessions]                                                                                                                                                                                            │
+│› attach_mode = mirror                                                                                                                                                                                │
+│  group_by = Project                                                                                                                                                                                  │
+│                                                                                                                                                                                                      │
+│[ui]                                                                                                                                                                                                  │
+│  preview_max_lines = 80                                                                                                                                                                              │
+│                                                                                                                                                                                                      │
+│[daemon]                                                                                                                                                                                              │
+│  listen_tailnet = off                                                                                                                                                                                │
+│  tailnet_port = 7480                                                                                                                                                                                 │
+│  idle_seconds_for_needs_input = 3                                                                                                                                                                    │
+│                                                                                                                                                                                                      │
+│[projects]                                                                                                                                                                                            │
+│  discover = GitOnly                                                                                                                                                                                  │
+│  max_depth = 6                                                                                                                                                                                       │
+│  root = src → /src                                                                                                                                                                                   │
+│  + add root                                                                                                                                                                                          │
+│                                                                                                                                                                                                      │
+│S: save to disk                                                                                                                                                                                       │
+│                                                                                                                                                                                                      │
+│                                                                                                                                                                                                      │
+│                                                                                                                                                                                                      │
+│                                                                                                                                                                                                      │
+│                                                                                                                                                                                                      │
+│                                                                                                                                                                                                      │
+│                                                                                                                                                                                                      │
+│                                                                                                                                                                                                      │
+│                                                                                                                                                                                                      │
+│                                                                                                                                                                                                      │
+│                                                                                                                                                                                                      │
+│                                                                                                                                                                                                      │
+│                                                                                                                                                                                                      │
+│                                                                                                                                                                                                      │
+│                                                                                                                                                                                                      │
+│                                                                                                                                                                                                      │
+│                                                                                                                                                                                                      │
+│                                                                                                                                                                                                      │
+│                                                                                                                                                                                                      │
+│                                                                                                                                                                                                      │
+│                                                                                                                                                                                                      │
+│                                                                                                                                                                                                      │
+│                                                                                                                                                                                                      │
+│                                                                                                                                                                                                      │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+j/k move · ←→/Enter change · Space toggle · a add root · d delete root · S save · 1-5 tabs · q quit
+

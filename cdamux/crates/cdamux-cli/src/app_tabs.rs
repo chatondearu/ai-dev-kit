@@ -295,12 +295,7 @@ mod tests {
         assert_eq!(AppTab::from_digit('9'), None);
     }
 
-    fn buffer_lines(term: &ratatui::Terminal<ratatui::backend::TestBackend>) -> Vec<String> {
-        let buf = term.backend().buffer();
-        (0..buf.area.height)
-            .map(|y| (0..buf.area.width).map(|x| buf[(x, y)].symbol()).collect())
-            .collect()
-    }
+    use crate::test_render::buffer_lines;
 
     fn sessions(n: usize) -> Vec<EnrichedSession> {
         (0..n)

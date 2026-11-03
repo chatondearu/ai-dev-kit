@@ -51,6 +51,7 @@ not wanted (Projects tab).
 - [x] Sessions tab: mouse wheel moves the selection
 - [x] Projects tab: border rows subtracted; last project reachable; wheel scrolls
 - [x] Test: 30 items, 10-row area, select 25 → row 25 rendered and highlighted (modal + Sessions)
+- [x] Follow-up (maintainer): vertical scrollbar (ratatui `Scrollbar`) on the right of the 3 lists, only when they overflow; tested with 30 vs 5 items
 
 ## Risks & mitigations
 

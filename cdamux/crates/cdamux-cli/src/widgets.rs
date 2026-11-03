@@ -1,13 +1,16 @@
 //! Small ratatui form widgets: Select (enum cycle), Toggle, TextInput,
 //! FieldList, and a text modal. Pure helpers so forms stay thin and testable.
 
-use crate::app_tabs::{screen_block, CLR_ACCENT, CLR_SEL_BG, CLR_TEXT, CLR_WARN};
+use crate::app_tabs::{screen_block, CLR_ACCENT, CLR_MUTED, CLR_SEL_BG, CLR_TEXT, CLR_WARN};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
-    layout::Rect,
+    layout::{Margin, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph},
+    widgets::{
+        Block, Borders, Clear, List, ListItem, ListState, Paragraph, Scrollbar,
+        ScrollbarOrientation, ScrollbarState,
+    },
     Frame,
 };
 
@@ -26,10 +29,40 @@ pub fn wheel_step(cur: usize, delta: isize, len: usize) -> usize {
 
 /// Render `list` keeping `selected` in view: the list scrolls only when the
 /// cursor reaches an edge. `offset` persists the scroll position across frames.
-pub fn draw_scrolled_list(f: &mut Frame, area: Rect, list: List, selected: usize, offset: &mut usize) {
+/// `bordered` lists get their scrollbar on the right border, inside the corners.
+pub fn draw_scrolled_list(
+    f: &mut Frame,
+    area: Rect,
+    list: List,
+    selected: usize,
+    offset: &mut usize,
+    bordered: bool,
+) {
+    let len = list.len();
     let mut state = ListState::default().with_offset(*offset).with_selected(Some(selected));
     f.render_stateful_widget(list, area, &mut state);
     *offset = state.offset();
+    let bar = if bordered { area.inner(Margin { vertical: 1, horizontal: 0 }) } else { area };
+    draw_scrollbar(f, bar, len, *offset);
+}
+
+/// Vertical scrollbar on the right column of `area` (one row per visible list
+/// row), drawn only when `len` rows overflow it; `offset` is the first visible row.
+pub fn draw_scrollbar(f: &mut Frame, area: Rect, len: usize, offset: usize) {
+    let visible = area.height as usize;
+    if len <= visible {
+        return;
+    }
+    // Content length = offsets + 1 so the thumb reaches the bottom at the last offset.
+    let mut state = ScrollbarState::new(len - visible + 1)
+        .position(offset)
+        .viewport_content_length(visible);
+    let bar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
+        .begin_symbol(None)
+        .end_symbol(None)
+        .track_style(Style::default().fg(CLR_MUTED))
+        .thumb_style(Style::default().fg(CLR_ACCENT));
+    f.render_stateful_widget(bar, area, &mut state);
 }
 
 /// Toggle: display text for a bool field.

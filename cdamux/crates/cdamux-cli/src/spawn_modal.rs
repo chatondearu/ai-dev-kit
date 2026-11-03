@@ -458,7 +458,14 @@ pub(crate) fn draw_modal(f: &mut Frame, state: &mut ModalState) {
         f.render_widget(Paragraph::new(list_body).style(modal_style), chunks[1]);
     } else {
         let selected = state.pick_index;
-        draw_scrolled_list(f, chunks[1], List::new(items).style(modal_style), selected, &mut state.list_offset);
+        draw_scrolled_list(
+            f,
+            chunks[1],
+            List::new(items).style(modal_style),
+            selected,
+            &mut state.list_offset,
+            false,
+        );
     }
 
     let git_line = if state.branches.is_empty() {
@@ -595,6 +602,7 @@ mod tests {
         assert!(lines.iter().any(|l| l.contains("› /nonexistent/p25")));
         assert!(!lines.iter().any(|l| l.contains("/nonexistent/p00")));
         assert_eq!(lines.iter().filter(|l| l.contains("/nonexistent/p")).count(), 10);
+        assert!(lines.iter().any(|l| l.contains('█')), "scrollbar thumb expected");
 
         // Wheel moves the pick by 3, clamped to the list.
         state.scroll_pick(3);
@@ -605,5 +613,13 @@ mod tests {
         assert_eq!(state.pick_index, 26);
         term.draw(|f| draw_modal(f, &mut state)).unwrap();
         assert!(rendered(&term).iter().any(|l| l.contains("› /nonexistent/p26")));
+    }
+
+    #[test]
+    fn modal_short_list_has_no_scrollbar() {
+        let mut state = modal((0..5).map(|i| PathBuf::from(format!("/nonexistent/p{i}"))).collect());
+        let mut term = ratatui::Terminal::new(ratatui::backend::TestBackend::new(80, 34)).unwrap();
+        term.draw(|f| draw_modal(f, &mut state)).unwrap();
+        assert!(!rendered(&term).iter().any(|l| l.contains('█') || l.contains('║')));
     }
 }

@@ -2,12 +2,12 @@
 
 use crate::keymap::fleet_footer;
 use crate::settings_form::SETTINGS_FOOTER;
-use crate::widgets::draw_scrolled_list;
+use crate::widgets::{draw_scrolled_list, draw_scrollbar};
 use cdamux_core::{
     Config, EnrichedSession, GroupBy, Project, enrich_sessions, list_tmux_sessions,
 };
 use ratatui::{
-    layout::{Constraint, Direction, Layout},
+    layout::{Constraint, Direction, Layout, Margin},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, List, ListItem, Paragraph, Wrap},
@@ -195,6 +195,7 @@ pub fn draw_projects(
         }).block(screen_block(&title)),
         chunks[1],
     );
+    draw_scrollbar(f, chunks[1].inner(Margin { vertical: 1, horizontal: 0 }), discovered.len(), start);
 }
 
 pub fn draw_sessions_list(
@@ -226,7 +227,7 @@ pub fn draw_sessions_list(
     if items.is_empty() {
         f.render_widget(List::new(vec![ListItem::new("(no tmux sessions)")]).block(block), area);
     } else {
-        draw_scrolled_list(f, area, List::new(items).block(block), selected, scroll);
+        draw_scrolled_list(f, area, List::new(items).block(block), selected, scroll, true);
     }
 }
 
@@ -301,9 +302,8 @@ mod tests {
             .collect()
     }
 
-    #[test]
-    fn sessions_list_follows_cursor_both_ways() {
-        let sessions: Vec<EnrichedSession> = (0..30)
+    fn sessions(n: usize) -> Vec<EnrichedSession> {
+        (0..n)
             .map(|i| EnrichedSession {
                 name: format!("s{i:02}"),
                 path: String::new(),
@@ -312,7 +312,31 @@ mod tests {
                 agent: String::new(),
                 issue: None,
             })
-            .collect();
+            .collect()
+    }
+
+    /// Right column, inside the top/bottom borders.
+    fn right_column(term: &ratatui::Terminal<ratatui::backend::TestBackend>) -> String {
+        let buf = term.backend().buffer();
+        let x = buf.area.width - 1;
+        (1..buf.area.height - 1).map(|y| buf[(x, y)].symbol()).collect()
+    }
+
+    #[test]
+    fn sessions_scrollbar_only_when_overflowing() {
+        let mut term =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(30, 12)).unwrap();
+        let mut scroll = 0;
+        term.draw(|f| draw_sessions_list(f, f.area(), &sessions(5), &mut scroll, 0)).unwrap();
+        assert!(right_column(&term).chars().all(|c| c == '│'), "no scrollbar expected");
+        term.draw(|f| draw_sessions_list(f, f.area(), &sessions(30), &mut scroll, 29)).unwrap();
+        // Last offset: thumb sits at the bottom of the track.
+        assert!(right_column(&term).ends_with('█'), "{}", right_column(&term));
+    }
+
+    #[test]
+    fn sessions_list_follows_cursor_both_ways() {
+        let sessions = sessions(30);
         // 12 rows = 10 list rows + 2 borders.
         let mut term =
             ratatui::Terminal::new(ratatui::backend::TestBackend::new(30, 12)).unwrap();
@@ -323,6 +347,7 @@ mod tests {
             let row = lines.iter().position(|l| l.contains(&format!("s{selected:02}"))).unwrap();
             let cell = &term.backend().buffer()[(1, row as u16)];
             assert_eq!(cell.bg, CLR_SEL_BG, "s{selected:02} not highlighted");
+            assert!(right_column(&term).contains('█'), "scrollbar thumb expected");
             lines
         };
         let lines = draw(25, &mut scroll);
@@ -351,6 +376,7 @@ mod tests {
         term.draw(|f| draw_projects(f, f.area(), &Config::default(), &projects, &mut scroll, ""))
             .unwrap();
         assert!(buffer_lines(&term).iter().any(|l| l.contains("p29")));
+        assert!(right_column(&term).ends_with('█'));
         // The overshoot is clamped so `k` scrolls back at once.
         assert_eq!(scroll, 30 - (18 - 4 - 2));
     }

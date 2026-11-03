@@ -52,6 +52,7 @@ Index: [[decisions/index|All ADRs]]
 | [[../prd/PRD-79-cdamux-widgets-extract|PRD-79]] cdamux widgets extract | approved |
 | [[../prd/PRD-83-cdamux-fleet-status-preview-agent|PRD-83]] cdamux Fleet status/preview/agent tag | approved |
 | [[../prd/PRD-90-kiss-audit-2026-11|PRD-90]] kiss-audit 2026-11 fixes (plan: [[archive/plans/PLAN-90-kiss-audit-2026-11|PLAN-90]]) | shipped |
+| [[../prd/PRD-129-kiss-audit-2026-11-03|PRD-129]] kiss-audit 2026-11-03 fixes (plan: [[../plans/PLAN-129-kiss-audit-2026-11-03|PLAN-129]]) | approved |
 
 - PRD template: `prd/template.md`
 - Plan template: `plans/template.md`

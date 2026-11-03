@@ -33,4 +33,9 @@ Mosh survives Wi‑Fi handoff; the browser UI is lighter for quick checks and se
 ## Security
 
 - Tailnet bind only — do not expose port `7480` on the public internet.
-- v0.2 has no app-level auth; trust your tailnet ACLs.
+- Optional shared token: set `CDAMUX_TAILNET_TOKEN` on the daemon and
+  `localStorage.setItem("cdamux_token", "<token>")` once in the phone browser.
+  Without it every tailnet peer can type into your sessions.
+- Open the dashboard by IP or MagicDNS name (`http://<tailscale-ip>:7480/`,
+  `http://<host>.<tailnet>.ts.net:7480/`): any other `Host` is refused (`421`), as are non-JSON `POST`s from other
+  origins. Details: [tailnet-api.md](tailnet-api.md#request-rules).

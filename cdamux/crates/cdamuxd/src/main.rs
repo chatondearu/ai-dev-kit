@@ -28,16 +28,15 @@ fn main() {
     }
 
     info!(roots = cfg.projects.roots.len(), "cdamuxd starting");
-    tailnet_server::spawn_tailnet_server(
+    // Serve on the main thread; a bind/tailscale failure exits non-zero so the unit restarts it.
+    if let Err(e) = tailnet_server::run_tailnet_server(
         cfg.daemon.tailnet_port,
         env!("CARGO_PKG_VERSION").to_string(),
         cfg.projects.clone(),
         cfg.sessions.clone(),
         cfg.daemon.idle_seconds_for_needs_input,
-    );
-
-    // The server runs on its own thread; keep the process alive.
-    loop {
-        std::thread::park();
+    ) {
+        eprintln!("cdamuxd: tailnet HTTP server: {e}");
+        std::process::exit(1);
     }
 }

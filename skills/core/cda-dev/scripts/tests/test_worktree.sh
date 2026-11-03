@@ -45,5 +45,35 @@ set -e
 assert_eq "$reuse_rc" "0" "reuse existing worktree returns 0"
 branch2="$(git -C "$TMP/.orch/worktrees/42-auth-fix" branch --show-current)"
 assert_eq "$branch2" "feat/42-auth-fix" "reuse keeps branch"
+# Detached HEAD (worker blocked mid-rebase) with uncommitted work: never deleted
+wt="$TMP/.orch/worktrees/42-auth-fix"
+git -C "$wt" checkout -q --detach
+echo precious >"$wt/uncommitted.txt"
+set +e
+orch_worktree_add "$TMP" 42 auth-fix "feat/42-auth-fix" main 2>/dev/null
+detached_rc=$?
+set -e
+assert_eq "$detached_rc" "1" "detached HEAD worktree is not replaced"
+assert_eq "$(cat "$wt/uncommitted.txt")" "precious" "uncommitted file survives a detached-HEAD reuse attempt"
+
+# Other branch + uncommitted file: also kept
+git -C "$wt" checkout -q -b other
+set +e
+orch_worktree_add "$TMP" 42 auth-fix "feat/42-auth-fix" main 2>/dev/null
+dirty_rc=$?
+set -e
+assert_eq "$dirty_rc" "1" "dirty worktree on another branch is not replaced"
+assert_file "$wt/uncommitted.txt" "uncommitted file survives a dirty replace attempt"
+
+# Other branch, clean tree: replaced without --force
+rm "$wt/uncommitted.txt" "$wt/.env"
+orch_worktree_add "$TMP" 42 auth-fix "feat/42-auth-fix" main 2>/dev/null
+assert_eq "$(git -C "$wt" branch --show-current)" "feat/42-auth-fix" "clean worktree on another branch is replaced"
+
+# Dir deleted by hand but still registered: next add must succeed (prune first)
+rm -rf "$wt"
+orch_worktree_add "$TMP" 42 auth-fix "feat/42-auth-fix" main 2>/dev/null
+assert_file "$wt/f" "worktree re-added after its dir was deleted"
+assert_eq "$(git -C "$wt" branch --show-current)" "feat/42-auth-fix" "re-added worktree on the branch"
 
 summary

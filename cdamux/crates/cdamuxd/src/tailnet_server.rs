@@ -35,15 +35,29 @@ pub fn run_tailnet_server(
         warn!("tailnet API without token: set CDAMUX_TAILNET_TOKEN to require {TAILNET_TOKEN_HEADER}");
     }
 
+    let mut allowed_hosts = vec![addr.to_string()];
+    match tailnet_dns_name() {
+        Some(name) => allowed_hosts.push(format!("{name}:{port}")),
+        None => warn!("no MagicDNS name from `tailscale status --json`: Host must be {addr}"),
+    }
+
     let backend = LiveTailnetBackend::new(version, projects, sessions, idle_seconds_for_needs_input);
-    serve(server, backend, token, addr.to_string());
+    serve(server, backend, token, allowed_hosts);
     Ok(())
 }
 
+/// This machine's MagicDNS name (`.Self.DNSName`, trailing dot stripped), read once at startup.
+fn tailnet_dns_name() -> Option<String> {
+    let out = std::process::Command::new("tailscale").args(["status", "--json"]).output().ok()?;
+    let status: serde_json::Value = serde_json::from_slice(&out.stdout).ok()?;
+    let name = status["Self"]["DNSName"].as_str()?.trim_end_matches('.');
+    (!name.is_empty()).then(|| name.to_string())
+}
+
 /// Accept loop; split from `run_tailnet_server` so tests can bind `127.0.0.1:0`.
-fn serve(server: Server, backend: LiveTailnetBackend, token: Option<String>, bind: String) {
+fn serve(server: Server, backend: LiveTailnetBackend, token: Option<String>, allowed_hosts: Vec<String>) {
     let backend = Arc::new(backend);
-    let ctx = Arc::new((token, bind));
+    let ctx = Arc::new((token, allowed_hosts));
     for request in server.incoming_requests() {
         let backend = Arc::clone(&backend);
         let ctx = Arc::clone(&ctx);
@@ -67,18 +81,19 @@ fn api_error(status: u16, message: &str) -> TailnetResponse {
     }
 }
 
-/// Header gate run before any body byte is read. `Host` must be the bind `ip:port` (a page on
-/// another name resolving here, i.e. DNS rebinding, is refused) and POST must be JSON: a foreign
-/// page can only send `text/plain` without a CORS preflight, and OPTIONS is 405.
+/// Header gate run before any body byte is read. `Host` must be one of `allowed_hosts` (bind
+/// `ip:port`, MagicDNS `name:port`): a page on another name resolving here, i.e. DNS rebinding,
+/// is refused. POST must be JSON: a foreign page can only send `text/plain` without a CORS
+/// preflight, and OPTIONS is 405.
 fn check_request_headers(
-    bind: &str,
+    allowed_hosts: &[String],
     host: Option<&str>,
     method: &str,
     content_type: Option<&str>,
     body_length: Option<usize>,
 ) -> Result<(), TailnetResponse> {
-    if host != Some(bind) {
-        return Err(api_error(421, &format!("Host header must be {bind}")));
+    if !host.is_some_and(|h| allowed_hosts.iter().any(|a| a.eq_ignore_ascii_case(h))) {
+        return Err(api_error(421, &format!("Host header must be {}", allowed_hosts.join(" or "))));
     }
     let mime = content_type.and_then(|c| c.split(';').next()).map(str::trim);
     if method == "POST" && !mime.is_some_and(|m| m.eq_ignore_ascii_case("application/json")) {
@@ -94,7 +109,7 @@ fn handle_one(
     mut request: tiny_http::Request,
     backend: Arc<LiveTailnetBackend>,
     token: Option<&str>,
-    bind: &str,
+    allowed_hosts: &[String],
 ) {
     let method = match request.method() {
         Method::Get => "GET",
@@ -120,7 +135,7 @@ fn handle_one(
 
     let gate = check_tailnet_token(token, header(&request, TAILNET_TOKEN_HEADER)).and_then(|()| {
         check_request_headers(
-            bind,
+            allowed_hosts,
             header(&request, "Host"),
             method,
             header(&request, "Content-Type"),
@@ -167,7 +182,7 @@ mod tests {
             60,
         );
         let token = token.map(str::to_string);
-        thread::spawn(move || serve(server, backend, token, addr.to_string()));
+        thread::spawn(move || serve(server, backend, token, vec![addr.to_string()]));
         addr
     }
 
@@ -201,8 +216,9 @@ mod tests {
     #[test]
     fn header_gate_rejects_host_content_type_and_size() {
         let bind = "127.0.0.1:7480";
+        let allowed = [bind.to_string()];
         let json = Some("application/json; charset=utf-8");
-        let check = |host, method, ct, len| check_request_headers(bind, host, method, ct, len);
+        let check = |host, method, ct, len| check_request_headers(&allowed, host, method, ct, len);
         assert_eq!(check(None, "GET", None, None).unwrap_err().status, 421);
         assert_eq!(check(Some("evil.example:7480"), "GET", None, None).unwrap_err().status, 421);
         assert_eq!(check(Some(bind), "POST", Some("text/plain"), Some(2)).unwrap_err().status, 415);
@@ -210,6 +226,16 @@ mod tests {
         assert_eq!(check(Some(bind), "POST", json, Some(MAX_BODY + 1)).unwrap_err().status, 413);
         assert!(check(Some(bind), "POST", json, Some(MAX_BODY)).is_ok());
         assert!(check(Some(bind), "GET", None, None).is_ok());
+    }
+
+    #[test]
+    fn header_gate_accepts_magicdns_host_case_insensitive() {
+        let allowed = ["100.64.0.7:7480".to_string(), "box.tail1234.ts.net:7480".to_string()];
+        let check = |host| check_request_headers(&allowed, Some(host), "GET", None, None);
+        assert!(check("100.64.0.7:7480").is_ok());
+        assert!(check("Box.Tail1234.ts.net:7480").is_ok());
+        assert_eq!(check("box.tail1234.ts.net:80").unwrap_err().status, 421);
+        assert_eq!(check("evil.example:7480").unwrap_err().status, 421);
     }
 
     #[test]

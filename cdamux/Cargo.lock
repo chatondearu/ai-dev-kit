@@ -200,6 +200,7 @@ version = "0.0.1"
 dependencies = [
  "cdamux-core",
  "include_dir",
+ "serde_json",
  "tiny_http",
  "tracing",
  "tracing-subscriber",

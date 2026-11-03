@@ -30,7 +30,7 @@ These apply to every `/v1/*` request, with or without a token:
 
 | Rule | Rejection |
 | ---- | --------- |
-| `Host` must equal the bind `ip:port` (open the dashboard by IP, e.g. `http://100.x.y.z:7480/`, not a MagicDNS name) | `421` |
+| `Host` must be the bind `ip:port` or the machine's MagicDNS `name:port` (case-insensitive; the name is read once at startup from `tailscale status --json` `.Self.DNSName`, IP-only with a log line if that fails) | `421` |
 | `POST` must send `Content-Type: application/json` | `415` |
 | Body at most 64 KiB | `413` |
 | `send` `line` must not contain control characters (newline, tab, escape, …): one line per request | `400` |

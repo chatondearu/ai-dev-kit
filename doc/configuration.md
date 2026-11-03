@@ -30,7 +30,7 @@ these (`./scripts/doctor.sh` only checks `PATH`).
 | `ORCH_GH_BOARD` | discovered | Path to `gh-board.sh` for orch-auto |
 | `ORCH_AUTO_ONCE` | off | Force one orch-auto cycle |
 | `CDA_DESIGN_LOOP` | off | Opt-in design loop for UI diffs |
-| `ORCH_GRAPH` | `1` | Live `.orch/graph/current.json` (`0` / `--no-graph` off) |
+| `ORCH_GRAPH` | `1` | Live `.orch/graph/current.json` (`0` / `--no-graph` off; the worker loop and verifier still run) |
 | `ORCH_GRAPH_VERIFY` | `1` | foam/plan verifier agent after local verify; `0` disables |
 | `ORCH_GRAPH_INTEGRATOR` | `auto` | Integrator after workers (`1` always, `0` never) |
 | `ORCH_GRAPH_PLAN_PARALLEL` | `auto` | Graph-plan tasks: `auto` / `parallel` / `sequential` |

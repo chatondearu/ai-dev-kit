@@ -7,6 +7,8 @@ You fix an existing PR until local verify and remote CI are green.
 - Worktree: {{WORKTREE}} (already checked out)
 - Head ref / upstream: {{HEAD_REF}}
 - Push hint: git push origin HEAD:{{HEAD_REF}} (push to PR head ref)
+- orch only runs this for same-repo PRs whose head is not the default branch. Never push
+  to any other ref (default branch, fork remote); if the push is rejected, stop BLOCKED.
 - Do not merge. Do not change unrelated files.
 
 ## Loop

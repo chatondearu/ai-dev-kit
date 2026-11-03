@@ -15,9 +15,13 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# No flock on the host (macOS): stub it so the dry-run filters still run; the
+# lock-contention case below needs the real one and is skipped.
+HAVE_FLOCK=1
 if ! command -v flock >/dev/null 2>&1; then
-  echo "SKIP test_orch_auto.sh (flock not installed)"
-  exit 0
+  HAVE_FLOCK=0
+  printf '#!/usr/bin/env bash\nexit 0\n' >"$STUB_BIN/flock"
+  chmod +x "$STUB_BIN/flock"
 fi
 if ! command -v jq >/dev/null 2>&1; then
   echo "SKIP test_orch_auto.sh (jq not installed)"
@@ -42,6 +46,13 @@ chmod +x "$STUB_BIN/fake-gh-board.sh"
 
 cat >"$STUB_BIN/gh" <<'EOF'
 #!/usr/bin/env bash
+case "$*" in
+  *"repo view"*) ;;
+  *"issue view"*)
+    [ "${GH_STUB_FAIL_LABELS:-0}" = 1 ] && { echo "API rate limit exceeded" >&2; exit 1; } ;;
+  *"pr list"*)
+    [ "${GH_STUB_FAIL_PRS:-0}" = 1 ] && { echo "network error" >&2; exit 1; } ;;
+esac
 case "$*" in
   *"repo view"*)
     printf '%s\n' '{"nameWithOwner":"owner/repo"}'
@@ -73,6 +84,22 @@ out="$(bash "$SCRIPTS/orch-auto.sh" --repo "$TMP" --once --dry-run 2>"$TMP/stder
 assert_eq "$out" "10" "only eligible #10 printed"
 assert_contains "$(cat "$TMP/stderr")" "skip #11" "logs skip human"
 assert_contains "$(cat "$TMP/stderr")" "skip #12" "logs skip open PR"
+
+echo "# orch-auto fails closed when gh lookups fail (rate limit / network)"
+out_fl="$(GH_STUB_FAIL_LABELS=1 bash "$SCRIPTS/orch-auto.sh" --repo "$TMP" --once --dry-run 2>"$TMP/stderr")"
+assert_eq "$out_fl" "" "labels lookup failure -> nothing dispatched"
+assert_contains "$(cat "$TMP/stderr")" "skip #11 (labels lookup failed; fail closed)" "logs labels failure skip"
+assert_contains "$(cat "$TMP/stderr")" "no eligible Ready issues" "no eligible when all lookups fail"
+out_fp="$(GH_STUB_FAIL_PRS=1 bash "$SCRIPTS/orch-auto.sh" --repo "$TMP" --once --dry-run 2>"$TMP/stderr")"
+assert_eq "$out_fp" "" "open-PR lookup failure -> nothing dispatched"
+assert_contains "$(cat "$TMP/stderr")" "skip #10 (open-PR lookup failed; fail closed)" "logs PR failure skip"
+assert_contains "$(cat "$TMP/stderr")" "skip #11 (ready-for-human)" "labels still checked first"
+
+if [ "$HAVE_FLOCK" = 0 ]; then
+  echo "SKIP flock contention case (flock not installed)"
+  summary
+  exit $?
+fi
 
 echo "# orch-auto flock second run exits 75 (EX_TEMPFAIL)"
 mkdir -p "$TMP/.orch"

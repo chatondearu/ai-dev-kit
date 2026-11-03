@@ -42,7 +42,7 @@ Autonomy stops at a **mergeable, CI-green PR**. No auto-merge.
 | Condition | Lane | Contract |
 | --------- | ---- | -------- |
 | `plans/PLAN-<id>-*.md` exists | `full` | Plan (+ epic PRD when present) |
-| No plan; triage comment contains `## Agent Brief` | `fast` | Agent brief only |
+| No plan; `OWNER`/`MEMBER`/`COLLABORATOR` comment contains `## Agent Brief` | `fast` | Agent brief only |
 | No plan and no brief | — | Worker blocked |
 
 Bugs / bounded scope may go Ready with brief alone. Fuzzy enhancements still

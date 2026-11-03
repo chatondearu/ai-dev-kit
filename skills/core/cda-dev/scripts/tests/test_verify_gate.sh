@@ -106,6 +106,7 @@ cat >"$STUB_BIN/gh" <<'EOF'
 #!/usr/bin/env bash
 case "$*" in
   *"issue view"*"--json body"*) printf '%s\n' "${GH_STUB_BODY:-Goal}" ;;
+  *"api repos/"*"/issues/"*) echo "${GH_STUB_AUTHOR_ASSOC:-OWNER}" ;;
   *"issue view"*) echo "Test Issue" ;;
   *"pr list"*) echo '[{"number":55}]' ;;
   *"pr checks"*) echo '[{"name":"ci","state":"SUCCESS","bucket":"pass"}]' ;;
@@ -203,5 +204,15 @@ rc_allow=$?
 set -e
 assert_eq "$rc_allow" "0" "allow-no-verify in body -> done"
 assert_contains "$out_allow" "done: issue 1 (PR 55" "done with allow-no-verify"
+
+echo "# 3e. allow-no-verify from a non-member issue author is ignored -> blocked"
+R6="$TMP/r6"; mkdir -p "$R6"; mk_repo "$R6" 0
+set +e
+out_untr="$(GH_STUB_AUTHOR_ASSOC=NONE GH_STUB_BODY=$'Goal\norch: allow-no-verify\n' bash "$SCRIPTS/orch.sh" --repo "$R6" --mode ready-pickup --issue 1 2>&1)"
+rc_untr=$?
+set -e
+assert_eq "$rc_untr" "1" "untrusted allow-no-verify -> exit nonzero"
+assert_contains "$out_untr" "ignoring \`orch: allow-no-verify\` on issue 1" "logs the ignored marker"
+assert_contains "$out_untr" "blocked: issue 1 verify: no command" "blocked as if no marker"
 
 summary

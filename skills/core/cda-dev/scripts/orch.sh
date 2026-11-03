@@ -99,7 +99,21 @@ orch_apply_agents_orch_flags() {
 }
 orch_apply_agents_orch_flags
 
+# GitHub author associations allowed to write the worker contract (brief, body markers).
+_orch_trusted_assoc() {
+  case "${1:-}" in OWNER|MEMBER|COLLABORATOR) return 0 ;; esac
+  return 1
+}
+
+# True if issue $1 was opened by a trusted author (fail closed on gh errors).
+orch_issue_author_trusted() {
+  local assoc
+  assoc="$(gh api "repos/{owner}/{repo}/issues/$1" -q .author_association 2>/dev/null || true)"
+  _orch_trusted_assoc "$assoc"
+}
+
 # Write the latest triage agent brief for issue $1 into $2. Returns 0 if found.
+# Only OWNER/MEMBER/COLLABORATOR comments count: anyone else could write the contract.
 orch_fetch_agent_brief() {
   local id="$1" dest="$2" body="" raw=""
   mkdir -p "$(dirname "$dest")"
@@ -110,7 +124,8 @@ orch_fetch_agent_brief() {
   raw="$(gh issue view "$id" --json comments 2>/dev/null || true)"
   [ -n "$raw" ] || return 1
   body="$(printf '%s' "$raw" | jq -r \
-    '[.comments[].body] | map(select(test("## Agent Brief"))) | last // empty' \
+    '[.comments[] | select(.authorAssociation | IN("OWNER","MEMBER","COLLABORATOR")) | .body]
+     | map(select(test("## Agent Brief"))) | last // empty' \
     2>/dev/null || true)"
   if [ -z "$body" ] || [ "$body" = "null" ]; then
     return 1
@@ -162,8 +177,13 @@ orch_ready_pickup_one() {
     body="$(gh issue view "$id" --json body -q .body 2>/dev/null || true)"
     # Escape hatch (ADR-006): `orch: allow-no-verify` in the body keeps verify=true
     # when no verify command exists; otherwise a missing command blocks.
+    # Honoured only when the issue author is trusted (OWNER/MEMBER/COLLABORATOR).
     if printf '%s' "$body" | grep -Fq 'orch: allow-no-verify'; then
-      allow_no_verify=1
+      if orch_issue_author_trusted "$id"; then
+        allow_no_verify=1
+      else
+        printf 'orch: ignoring `orch: allow-no-verify` on issue %s (author not OWNER/MEMBER/COLLABORATOR)\n' "$id" >&2
+      fi
     fi
   fi
   orch_resolve_context "$ORCH_REPO" "$id" "$body"
@@ -581,9 +601,25 @@ case "$MODE" in
         fi
       fi
 
+      # The agent pushes `origin HEAD:<head_ref>`: a fork PR's origin is the base repo,
+      # and a head equal to the default branch would push onto it. Block both.
       head_ref=""
       if command -v gh >/dev/null 2>&1; then
         head_ref="$(gh pr view "$num" --json headRefName -q .headRefName 2>/dev/null || true)"
+        cross="$(gh pr view "$num" --json isCrossRepository -q .isCrossRepository 2>/dev/null || true)"
+        default_branch="$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null || true)"
+        if [ -z "$head_ref" ] || [ -z "$cross" ] || [ -z "$default_branch" ]; then
+          printf 'blocked: PR %s metadata unreadable (head ref, fork flag or default branch); not running the agent\n' "$num" >&2
+          exit 1
+        fi
+        if [ "$cross" != false ]; then
+          printf 'blocked: PR %s is cross-repository (fork); pr-fix only pushes same-repo branches\n' "$num" >&2
+          exit 1
+        fi
+        if [ "$head_ref" = "$default_branch" ]; then
+          printf 'blocked: PR %s head branch is the default branch (%s); refusing to push onto it\n' "$num" "$default_branch" >&2
+          exit 1
+        fi
       fi
       [ -z "$head_ref" ] && head_ref="orch/pr-$num"
 

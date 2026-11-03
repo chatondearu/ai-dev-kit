@@ -25,7 +25,8 @@ orch-auto.sh — poll Ready cards → orch ready-pickup
   --max-parallel N   passed to orch (default: ORCH_MAX_PARALLEL or 1)
   -h|--help
 
-Skips: triage:ready-for-human, issues with an open PR on feat/<id>-issue-<id>.
+Skips: triage:ready-for-human, issues with an open PR on feat/<id>-issue-<id>,
+and (fail closed) any issue whose label or PR lookup fails.
 Uses flock on <repo>/.orch/auto.lock. Logs under <repo>/.orch/auto/.
 EOF
 }
@@ -78,27 +79,34 @@ log() {
   printf '%s\n' "$*" | tee -a "$LOG_FILE" >&2
 }
 
-# True if issue has label triage:ready-for-human.
-issue_ready_for_human() {
-  local id="$1"
-  local labels raw
-  raw="$(gh issue view "$id" --repo "$OWNER/$REPO_NAME" --json labels 2>/dev/null || true)"
-  labels="$(printf '%s' "${raw:-{\"labels\":[]}}" | jq -r '[.labels[].name] | join(",")' 2>/dev/null || true)"
-  [[ ",$labels," == *",triage:ready-for-human,"* ]]
-}
-
-# True if an open PR already targets the expected ready-pickup branch.
-issue_has_open_pr() {
-  local id="$1"
-  local branch="feat/${id}-issue-${id}"
-  local json
-  json="$(gh pr list --repo "$OWNER/$REPO_NAME" --head "$branch" --state open \
-    --json number 2>/dev/null || echo '[]')"
-  [ "$(printf '%s' "$json" | jq 'length')" -gt 0 ]
+# Print why issue $1 must be skipped and return 0; return 1 when eligible.
+# Fail closed: a gh/jq failure (rate limit, network) skips the issue, like frontier.
+issue_skip_reason() {
+  local id="$1" branch="feat/${1}-issue-${1}" raw labels n
+  if ! raw="$(gh issue view "$id" --repo "$OWNER/$REPO_NAME" --json labels 2>/dev/null)" ||
+    ! labels="$(printf '%s' "$raw" | jq -er '[.labels[].name] | join(",")' 2>/dev/null)"; then
+    echo "labels lookup failed; fail closed"
+    return 0
+  fi
+  if [[ ",$labels," == *",triage:ready-for-human,"* ]]; then
+    echo "ready-for-human"
+    return 0
+  fi
+  if ! raw="$(gh pr list --repo "$OWNER/$REPO_NAME" --head "$branch" --state open \
+      --json number 2>/dev/null)" ||
+    ! n="$(printf '%s' "$raw" | jq -e 'length' 2>/dev/null)"; then
+    echo "open-PR lookup failed; fail closed"
+    return 0
+  fi
+  if [ "$n" -gt 0 ]; then
+    echo "open PR on $branch"
+    return 0
+  fi
+  return 1
 }
 
 discover_eligible() {
-  local nums n
+  local nums n reason
   nums="$(bash "$GH_BOARD" list-ready --repo "$OWNER/$REPO_NAME" 2>/dev/null)" || {
     log "orch-auto: list-ready failed"
     return 1
@@ -106,12 +114,8 @@ discover_eligible() {
   ELIGIBLE=()
   while IFS= read -r n; do
     [ -n "$n" ] || continue
-    if issue_ready_for_human "$n"; then
-      log "skip #$n (ready-for-human)"
-      continue
-    fi
-    if issue_has_open_pr "$n"; then
-      log "skip #$n (open PR on feat/${n}-issue-${n})"
+    if reason="$(issue_skip_reason "$n")"; then
+      log "skip #$n ($reason)"
       continue
     fi
     ELIGIBLE+=("$n")

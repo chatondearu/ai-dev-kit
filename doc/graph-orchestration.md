@@ -26,14 +26,16 @@ bash "$SKILL/scripts/orch.sh" --repo "$REPO" --mode ready-pickup --issue 42 \
 
 | Path | Content |
 | ---- | ------- |
-| `.orch/graph/current.json` | Live DAG: workers, implement/verify nodes, integrator |
+| `.orch/graph/live/<run_id>.json` | Live DAG of one run: workers, implement/verify nodes, integrator; `session` (creator's tmux `#S`) and `pid` |
+| `.orch/graph/current.json` | Compatibility symlink to the latest run (`live/` while running, `runs/` once finished) |
+| `.orch/graph/runs/<run_id>.json` | Finished runs (last 20); `live/` files with a dead pid and no write for 24 h move here on the next init |
 | `.orch/integrator-report.md` | Human-readable synthesis after multi-worker runs |
 
 ## Environment variables
 
 | Variable | Default | Meaning |
 | -------- | ------- | ------- |
-| `ORCH_GRAPH` | `1` | Write `current.json`; `0` / `--no-graph` disables |
+| `ORCH_GRAPH` | `1` | Write the live graph; `0` / `--no-graph` disables |
 | `ORCH_GRAPH_VERIFY` | `1` | Verifier agent after local verify (plan/ADR grounding); `0` disables (ADR-006) |
 | `ORCH_GRAPH_INTEGRATOR` | `auto` | `auto` = integrator when 2+ issues; `1` = always; `0` = never |
 | `ORCH_GRAPH_PLAN_PARALLEL` | `auto` | `auto` = parallel tasks when paths disjoint; `parallel` = require disjoint; `sequential` = always serial |
@@ -81,15 +83,20 @@ bash ~/.cursor/skills/cda-graph/scripts/graph-plan-validate.sh my-plan.json
 
 ## Cursor-only (no harness)
 
-**Do not invent** `.orch/graph/current.json` by hand — cdamux requires `run_id` +
+**Do not invent** graph files by hand — cdamux requires `run_id` +
 `nodes`/`edges` ([orch-graph.schema.json](../skills/core/cda-graph/templates/orch-graph.schema.json)).
 
 ```bash
 G=~/.cursor/skills/cda-graph/scripts/graph-node.sh
-bash "$G" init --repo "$REPO"
+bash "$G" init --repo "$REPO"          # prints .orch/graph/live/<run_id>.json
 # update nodes as Tasks run; then:
 bash "$G" finish --outcome ok
 ```
+
+`init` always starts a new run. `node` / `edge` / `finish` write to `--run-id ID`,
+else `$ORCH_RUN_ID` (set inside orch workers), else the newest live run created from
+the current tmux session; otherwise they fail. Two sessions in the same repo, or a
+session and an orch run, each keep their own file.
 
 1. Split plan into disjoint file scopes; `graph-node.sh init`.
 2. Dispatch parallel subagents (one scope each); each returns JSON like `worker-result.schema.json` and updates a graph node.

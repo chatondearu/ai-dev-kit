@@ -64,9 +64,12 @@ orch_progress_write_json() {
       files+=("$f")
     done
     if [ "${#files[@]}" -eq 0 ]; then
-      jq -n --arg ts "$ts" '{updated_at:$ts, workers:[]}' >"$tmp" && mv "$tmp" "$agg"
+      jq -n --arg ts "$ts" --arg run "${ORCH_RUN_ID:-}" \
+        '{updated_at:$ts, workers:[]} + (if $run == "" then {} else {run_id:$run} end)' >"$tmp" && mv "$tmp" "$agg"
     else
-      jq -s --arg ts "$ts" '{updated_at:$ts, workers:.}' "${files[@]}" >"$tmp" && mv "$tmp" "$agg"
+      # run_id: same id as the graph file and the tmux @cdamux_run option.
+      jq -s --arg ts "$ts" --arg run "${ORCH_RUN_ID:-}" \
+        '{updated_at:$ts, workers:.} + (if $run == "" then {} else {run_id:$run} end)' "${files[@]}" >"$tmp" && mv "$tmp" "$agg"
     fi
   else
     printf '{"id":"%s","phase":"%s","message":"%s","updated_at":"%s"}\n' \

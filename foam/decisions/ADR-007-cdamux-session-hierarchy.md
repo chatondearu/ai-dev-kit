@@ -112,6 +112,18 @@ made autonomy opt-in. The hierarchy has to respect all three.
   with a real `$TMUX` client are covered by unit tests only; revisit when a live
   run is possible.
 
+## Amendments
+
+- **2026-11-03** ([#178](https://github.com/chatondearu/ai-dev-kit/issues/178)):
+  graphs are per run under `.orch/graph/live/<run_id>.json` (top-level `session`,
+  the creator's tmux `#S` when inside tmux, and `pid`); `current.json` is a
+  compatibility symlink to the latest run; `orch_graph_finish` moves the file to
+  `runs/<run_id>.json`; live files with a dead pid and no write for 24 h are
+  archived on the next init. `orch.sh` now exports `ORCH_RUN_ID` in every run, so
+  the graph file name, `status.json` `run_id` and `@cdamux_run` share one id.
+  `graph-node.sh` targets `--run-id`, else `$ORCH_RUN_ID`, else the newest live
+  run of the current tmux session.
+
 ## References
 
 - `cdamux/crates/cdamux-core/src/session_links.rs`, `tmux.rs`, `spawn.rs`,

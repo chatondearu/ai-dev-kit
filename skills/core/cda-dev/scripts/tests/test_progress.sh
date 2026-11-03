@@ -62,6 +62,10 @@ if command -v jq >/dev/null 2>&1; then
   assert_eq "$(jq '.workers[0].phases | length' "$TMP/.orch/run/status.json")" "2" "history aggregated into status.json"
   orch_progress_set 7 pending "queued" 2>/dev/null
   assert_eq "$(jq -c '[.phases[].phase]' "$TMP/.orch/run/7.json")" '["pending"]' "pending resets the history"
+  # run_id: same id as the graph file (ORCH_RUN_ID); absent outside a run.
+  assert_eq "$(jq -r '.run_id // "none"' "$TMP/.orch/run/status.json")" "none" "no run_id without ORCH_RUN_ID"
+  ORCH_RUN_ID=r9 orch_progress_set 7 agent "in run" 2>/dev/null
+  assert_eq "$(jq -r '.run_id' "$TMP/.orch/run/status.json")" "r9" "status.json carries run_id"
 fi
 
 summary

@@ -35,7 +35,8 @@ phase="$(jq -r '.nodes[] | select(.id=="worker-1") | .status' "$TMP/.orch/graph/
 assert_eq "$phase" "done" "upsert updates status"
 
 # Workers run under bash -c with exported functions (orch.sh). Regression for missing export -f.
-export -f orch_graph_enabled orch_graph_file orch_graph_now orch_graph_init
+export -f orch_graph_enabled orch_graph_file orch_graph_now orch_graph_init orch_graph_session
+export -f orch_graph_point_current orch_graph_archive orch_graph_archive_stale
 export -f orch_graph_locked_jq orch_graph_upsert_node orch_graph_add_edge orch_graph_finish
 bash -c 'orch_graph_upsert_node "worker-sub" worker agent running "from-subshell" ""'
 sub="$(jq -r '.nodes[] | select(.id=="worker-sub") | .message' "$TMP/.orch/graph/current.json")"
@@ -52,5 +53,6 @@ else
 fi
 
 assert_file "$TMP/.orch/graph/runs/test-run.json" "finish archives run snapshot"
+assert_eq "$(ls "$TMP/.orch/graph/live")" "" "finish moves the live file out of live/"
 
 summary

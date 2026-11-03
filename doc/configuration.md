@@ -31,7 +31,7 @@ these (`./scripts/doctor.sh` only checks `PATH`).
 | `ORCH_REPO` | cwd / `--repo` | Target git tree (required in systemd env) |
 | `ORCH_GH_BOARD` | discovered | Path to `gh-board.sh` for orch-auto |
 | `CDA_DESIGN_LOOP` | off | Opt-in design loop for UI diffs |
-| `ORCH_GRAPH` | `1` | Live `.orch/graph/current.json` (`0` / `--no-graph` off; the worker loop and verifier still run) |
+| `ORCH_GRAPH` | `1` | Live `.orch/graph/live/<run_id>.json` (`0` / `--no-graph` off; the worker loop and verifier still run) |
 | `ORCH_GRAPH_VERIFY` | `1` | foam/plan verifier agent after local verify; `0` disables |
 | `ORCH_GRAPH_INTEGRATOR` | `auto` | Integrator after workers (`1` always, `0` never) |
 | `ORCH_GRAPH_PLAN_PARALLEL` | `auto` | Graph-plan tasks: `auto` / `parallel` / `sequential` |
@@ -45,7 +45,7 @@ See [graph-orchestration.md](graph-orchestration.md).
 | ---- | ------- |
 | `.orch/worktrees/` | Per-issue worktrees |
 | `.orch/run/` | Worker exit codes / progress |
-| `.orch/graph/current.json` | Live orchestration graph (cdamux / foam export) |
+| `.orch/graph/live/<run_id>.json` | Live orchestration graph, one per run; `current.json` symlinks the latest (cdamux / foam export) |
 | `.orch/integrator-report.md` | Post-run synthesis (multi-worker) |
 | `.orch/headless/` | Headless prompt copy |
 | `.orch/auto.lock` | orch-auto mutex |

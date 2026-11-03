@@ -11,7 +11,7 @@
 #   --dry-run            (print plan: worktrees/branches; no agent invoke)
 #   --force-clean        (remove worktrees after — only with explicit flag)
 #   --graph-plan FILE    (intra-issue fan-out from JSON plan; opt-in)
-#   --no-graph           (disable .orch/graph/current.json updates)
+#   --no-graph           (disable live graph updates under .orch/graph/)
 #   -h|--help
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
@@ -48,7 +48,7 @@ orch.sh --mode ready-pickup|pr-fix|intake [options]
   --dry-run            (print plan: worktrees/branches; no agent invoke)
   --force-clean        (remove worktrees after — only with explicit flag)
   --no-progress        (disable TTY progress dashboard; ORCH_PROGRESS=0)
-  --no-graph           (disable .orch/graph/current.json updates)
+  --no-graph           (disable live graph updates under .orch/graph/)
   --graph-plan FILE    (intra-issue task fan-out JSON; opt-in)
   -h|--help
 EOF
@@ -90,9 +90,10 @@ export ORCH_REPO="$REPO"
 if [ "$NO_PROGRESS" = 1 ]; then
   export ORCH_PROGRESS=0
 fi
+# One run id for the graph file (.orch/graph/live/<run>.json), status.json and tmux
+# worker sessions (orch-<run>-<worker>), shared by every worker.
+export ORCH_RUN_ID="${ORCH_RUN_ID:-$(date -u +%Y%m%dT%H%M%SZ)}"
 if [ "${ORCH_TMUX:-0}" = 1 ]; then
-  # Run id in worker session names (orch-<run>-<worker>), shared by every worker.
-  export ORCH_RUN_ID="${ORCH_RUN_ID:-$(date -u +%Y%m%dT%H%M%SZ)}"
   [ "$SANDBOX" != 1 ] || echo "orch: ORCH_TMUX ignored with --sandbox (tmux runs agents outside bwrap)" >&2
 fi
 
@@ -453,7 +454,7 @@ case "$MODE" in
     mkdir -p "$REPO/.orch/run"
     rm -f "$REPO/.orch/run"/*.rc "$REPO/.orch/run"/*.status "$REPO/.orch/run"/*.json "$REPO/.orch/run"/*.log "$REPO/.orch/run"/.dashboard-stop 2>/dev/null || true
     if [ "$DRY" != 1 ]; then
-      orch_graph_init "ready-pickup-$(date -u +%Y%m%dT%H%M%SZ)"
+      orch_graph_init "$ORCH_RUN_ID"
       orch_graph_upsert_node integrator integrator pending queued "awaiting workers" ""
     fi
 

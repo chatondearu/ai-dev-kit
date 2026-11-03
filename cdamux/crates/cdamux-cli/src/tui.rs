@@ -11,7 +11,7 @@ use crate::fleet_tree::{
 };
 use crate::keymap::{map_key_event, DashboardAction};
 use crate::settings_form::SettingsForm;
-use crate::widgets::edit_text;
+use crate::widgets::{edit_text, wheel_step};
 use crate::spawn_modal::{
     draw_modal, draw_overlay_scrim, on_key as spawn_modal_on_key, ModalState, SpawnModalAction,
 };
@@ -320,7 +320,7 @@ pub fn run_dashboard() -> ExitCode {
             .draw(|f| {
                 if modal_open {
                     draw_overlay_scrim(f);
-                    if let Some(overlay) = &spawn_overlay {
+                    if let Some(overlay) = &mut spawn_overlay {
                         draw_modal(f, overlay);
                     }
                     if let Some(overlay) = &rename_overlay {
@@ -353,10 +353,10 @@ pub fn run_dashboard() -> ExitCode {
                         &settings,
                         &config_path_display,
                         &discovered,
-                        projects_scroll,
+                        &mut projects_scroll,
                         &flat,
                         sessions_selected,
-                        sessions_scroll,
+                        &mut sessions_scroll,
                         &agent_lines,
                         waiting_only,
                         show_help,
@@ -370,7 +370,19 @@ pub fn run_dashboard() -> ExitCode {
         if event::poll(Duration::from_millis(100)).unwrap_or(false) {
             match event::read() {
                 Ok(Event::Mouse(m)) => {
-                    if app_tab == AppTab::Fleet {
+                    let wheel = match m.kind {
+                        MouseEventKind::ScrollUp => -3,
+                        MouseEventKind::ScrollDown => 3,
+                        _ => 0,
+                    };
+                    // shortcut: wheel anywhere scrolls the modal / tab list (no hit test); add one if a tab gets a second list.
+                    if let Some(overlay) = spawn_overlay.as_mut() {
+                        overlay.scroll_pick(wheel);
+                    } else if app_tab == AppTab::Sessions {
+                        sessions_selected = wheel_step(sessions_selected, wheel, flat.len());
+                    } else if app_tab == AppTab::Projects {
+                        projects_scroll = wheel_step(projects_scroll, wheel, discovered.len());
+                    } else if app_tab == AppTab::Fleet {
                         if focus == FocusArea::Tree
                             && m.kind == MouseEventKind::Down(MouseButton::Left)
                         {
@@ -505,7 +517,6 @@ pub fn run_dashboard() -> ExitCode {
                         key,
                         &flat,
                         &mut sessions_selected,
-                        &mut sessions_scroll,
                         &tree,
                         &mut expanded,
                         &mut selected_row,
@@ -794,7 +805,6 @@ fn handle_sessions_keys(
     key: KeyEvent,
     flat: &[EnrichedSession],
     selected: &mut usize,
-    scroll: &mut usize,
     tree: &ProjectSessionTree,
     expanded: &mut HashSet<String>,
     fleet_row: &mut usize,
@@ -809,18 +819,12 @@ fn handle_sessions_keys(
             }
             if *selected + 1 < flat.len() {
                 *selected += 1;
-                if *selected >= *scroll + 1 {
-                    *scroll = *selected;
-                }
             }
             true
         }
         KeyCode::Up | KeyCode::Char('k') => {
             if *selected > 0 {
                 *selected -= 1;
-                if *selected < *scroll {
-                    *scroll = *selected;
-                }
             }
             true
         }

@@ -44,8 +44,9 @@ XDG="${XDG_CONFIG_HOME:-$HOME/.config}"
 CLAUDE_HOME="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 AGENTS_HOME="${AGENTS_HOME:-$HOME/.agents}"
 
-# tri-state per tool: "" = auto, 1 = on, 0 = off
-declare -A WANT=([cursor]="" [claude]="" [opencode]="" [agents]="")
+# tri-state per tool in WANT_<tool>: "" = auto, 1 = on, 0 = off (no `declare -A`: bash 3.2)
+WANT_cursor=""; WANT_claude=""; WANT_opencode=""; WANT_agents=""
+want_set() { printf -v "WANT_$1" '%s' "$2"; }
 
 log() { printf '%s\n' "$*"; }
 run() { if [ "$DRY" = 1 ]; then printf 'DRY  %s\n' "$*"; else eval "$*"; fi; }
@@ -138,7 +139,7 @@ wire_claude_hooks() {
   if [ "$DRY" = 1 ]; then log "DRY  wire kiss hooks → $f"; return 0; fi
   mkdir -p "$CLAUDE_HOME"; [ -f "$f" ] || printf '{}\n' > "$f"
   _kiss_jq_inplace "$f" '
-    def strip(ev): (.hooks[ev] // []) | map(select(any(.hooks[]?; .command | contains($dir)) | not));
+    def strip(ev): (.hooks[ev] // []) | map(select(any(.hooks[]?; (.command? // "") | contains($dir)) | not));
     .hooks //= {}
     | .hooks.SessionStart     = (strip("SessionStart")     + [{matcher:"startup|resume|clear|compact", hooks:[{type:"command", command:$act, timeout:5}]}])
     | .hooks.SubagentStart    = (strip("SubagentStart")    + [{hooks:[{type:"command", command:$sub, timeout:5}]}])
@@ -162,7 +163,7 @@ wire_cursor_hooks() {
   if [ "$DRY" = 1 ]; then log "DRY  wire kiss hooks → $f"; return 0; fi
   mkdir -p "$CURSOR_HOME"; [ -f "$f" ] || printf '{"version":1,"hooks":{}}\n' > "$f"
   _kiss_jq_inplace "$f" '
-    def strip(ev): (.hooks[ev] // []) | map(select(.command | contains($dir) | not));
+    def strip(ev): (.hooks[ev] // []) | map(select((.command? // "") | contains($dir) | not));
     .version //= 1 | .hooks //= {}
     | .hooks.sessionStart       = (strip("sessionStart")       + [{command:$act, timeout:5}])
     | .hooks.beforeSubmitPrompt = (strip("beforeSubmitPrompt") + [{command:$trk, timeout:5}])
@@ -179,7 +180,7 @@ unwire_hooks() { # strip kiss entries from a tool's hook file, drop now-empty ev
   _kiss_jq_inplace "$f" '
     .hooks //= {}
     | .hooks |= with_entries(.value |= map(select(
-        (.command? // "" | contains($dir)) or (any(.hooks[]?; .command | contains($dir))) | not)))
+        ((.command? // "") | contains($dir)) or (any(.hooks[]?; (.command? // "") | contains($dir))) | not)))
     | .hooks |= with_entries(select(.value | length > 0))
     | if (.statusLine.command? // "") | contains($dir) then del(.statusLine) else . end
   ' --arg dir "$dir" || return 0
@@ -188,7 +189,8 @@ unwire_hooks() { # strip kiss entries from a tool's hook file, drop now-empty ev
 
 is_enabled() {
   local tool="$1"
-  case "${WANT[$tool]}" in
+  local w="WANT_$tool"
+  case "${!w}" in
     1) return 0;; 0) return 1;;
   esac
   # auto
@@ -204,12 +206,11 @@ main() {
   while [ $# -gt 0 ]; do
     case "$1" in
       --dry-run) DRY=1;; --force) FORCE=1;; --uninstall) UNINSTALL=1;;
-      --cursor) WANT[cursor]=1;; --no-cursor) WANT[cursor]=0;;
-      --claude) WANT[claude]=1;; --no-claude) WANT[claude]=0;;
-      --opencode) WANT[opencode]=1;; --no-opencode) WANT[opencode]=0;;
-      --agents) WANT[agents]=1;; --no-agents) WANT[agents]=0;;
+      --cursor|--claude|--opencode|--agents) want_set "${1#--}" 1;;
+      --no-cursor|--no-claude|--no-opencode|--no-agents) want_set "${1#--no-}" 0;;
       --hooks) HOOKS=1;; --no-hooks) HOOKS=0;;
-      --cursor-home) CURSOR_HOME="$2"; shift;;
+      --cursor-home) [ $# -ge 2 ] || { log "--cursor-home needs a DIR"; exit 2; }
+        CURSOR_HOME="$2"; shift;;
       -h|--help) sed -n '2,/^[^#]/{/^#/p;}' "$0"; exit 0;;  # leading comment block
       *) log "unknown arg: $1"; exit 2;;
     esac
@@ -225,7 +226,7 @@ main() {
   log ""
 
   # Shared skills → every enabled tool (nested categories flattened)
-  for tool in "${enabled[@]}"; do
+  for tool in ${enabled[@]+"${enabled[@]}"}; do  # bash 3.2: empty array + set -u
     log "# skills → $tool"
     link_skill_tree "$REPO_DIR/skills" "$(skill_dir_for "$tool")"
   done
@@ -240,8 +241,12 @@ main() {
   # Claude Code — global instructions from rules/
   if is_enabled claude; then
     log "# claude CLAUDE.md (from rules/)"
-    assemble_claude_md
-    link_one "$REPO_DIR/claude/CLAUDE.md" "$CLAUDE_HOME/CLAUDE.md"
+    if [ "$UNINSTALL" = 1 ]; then
+      unlink_one "$REPO_DIR/claude/CLAUDE.md" "$CLAUDE_HOME/CLAUDE.md"
+    else
+      assemble_claude_md
+      link_one "$REPO_DIR/claude/CLAUDE.md" "$CLAUDE_HOME/CLAUDE.md"
+    fi
   fi
 
   # kiss code-attitude hooks → enabled tools (SessionStart inject + mode toggle)

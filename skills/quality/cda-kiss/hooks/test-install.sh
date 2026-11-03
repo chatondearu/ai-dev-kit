@@ -9,19 +9,22 @@ mkdir -p "$HOME" "$CLAUDE_CONFIG_DIR" "$CURSOR_HOME"
 S="$CLAUDE_CONFIG_DIR/settings.json" C="$CURSOR_HOME/hooks.json" K="$PWD/skills/quality/cda-kiss/hooks"
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
-inst() { ./install.sh --claude --cursor --no-opencode "$@" >"$tmp/out" 2>&1 || { cat "$tmp/out" >&2; fail "install.sh $*"; }; }
+SH=bash; [ -x /bin/bash ] && SH=/bin/bash  # stock bash (3.2 on macOS) must work
+inst() { "$SH" ./install.sh --claude --cursor --no-opencode "$@" >"$tmp/out" 2>&1 || { cat "$tmp/out" >&2; fail "install.sh $*"; }; }
 count() { jq --arg k "$K" "[$2 | select(contains(\$k))] | length" "$1"; }
-claude_cmds='.hooks[][].hooks[]?.command'
+claude_cmds='.hooks[][].hooks[]? | (.command // empty)'
 cursor_cmds='.hooks[][].command'
 
 # pre-existing user config: a key + a foreign hook in each file
-echo '{"model":"opus","hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"echo mine"}]}]}}' > "$S"
+# (the Stop hook is type "prompt": it has no .command)
+echo '{"model":"opus","hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"echo mine"}]}],"Stop":[{"hooks":[{"type":"prompt","prompt":"keep"}]}]}}' > "$S"
 echo '{"version":1,"hooks":{"sessionStart":[{"command":"echo mine"}]}}' > "$C"
 
 inst; inst   # second run must be a no-op
 [ "$(jq -r .model "$S")" = opus ] || fail "model key lost"
 jq -e '[.hooks.SessionStart[].hooks[].command] | index("echo mine")' "$S" >/dev/null || fail "foreign claude hook lost"
 jq -e '[.hooks.sessionStart[].command] | index("echo mine")' "$C" >/dev/null || fail "foreign cursor hook lost"
+jq -e '.hooks.Stop[0].hooks[0].prompt == "keep"' "$S" >/dev/null || fail "prompt-type hook lost"
 [ "$(count "$S" "$claude_cmds")" = 3 ] || fail "claude kiss hooks not exactly once"
 [ "$(count "$C" "$cursor_cmds")" = 2 ] || fail "cursor kiss hooks not exactly once"
 jq -e --arg k "$K" '.statusLine.command | contains($k)' "$S" >/dev/null || fail "kiss statusLine not set"
@@ -34,6 +37,12 @@ inst --uninstall
 jq -e '.statusLine == null and .model == "opus"' "$S" >/dev/null || fail "uninstall statusLine/model wrong"
 jq -e '.hooks.SessionStart | length == 1' "$S" >/dev/null || fail "foreign claude hook removed"
 jq -e '.hooks.sessionStart | length == 1' "$C" >/dev/null || fail "foreign cursor hook removed"
+jq -e '.hooks.Stop | length == 1' "$S" >/dev/null || fail "prompt-type hook removed by uninstall"
+[ ! -e "$CLAUDE_CONFIG_DIR/CLAUDE.md" ] && [ ! -L "$CLAUDE_CONFIG_DIR/CLAUDE.md" ] || fail "CLAUDE.md link left after uninstall"
+
+# --cursor-home without a value: clear error, not an unbound-variable crash
+! "$SH" ./install.sh --cursor-home >"$tmp/out" 2>&1 || fail "--cursor-home without DIR accepted"
+grep -q 'needs a DIR' "$tmp/out" || fail "no clear --cursor-home error"
 
 # a foreign statusLine is kept on install and on uninstall
 jq '.statusLine = {type:"command", command:"my-line"}' "$S" > "$tmp/s" && mv "$tmp/s" "$S"

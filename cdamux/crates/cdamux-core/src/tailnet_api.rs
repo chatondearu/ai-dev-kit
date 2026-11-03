@@ -578,6 +578,7 @@ mod tests {
                     state: SessionState::Idle,
                     agent: "—".into(),
                     issue: None,
+                    ..Default::default()
                 }],
             }],
         }

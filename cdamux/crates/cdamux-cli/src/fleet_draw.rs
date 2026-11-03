@@ -10,7 +10,7 @@ use crate::settings_form::{draw_settings, SettingsForm};
 use crate::spawn_modal::centered_rect;
 use ansi_to_tui::IntoText as _;
 use cdamux_core::{
-    state_icon, worker_phase_icon, Config, EnrichedSession, GroupBy, NodeState, SessionChrome,
+    state_icon, ChildKind, Config, EnrichedSession, GroupBy, NodeState, SessionChrome,
     SessionState,
 };
 use ratatui::{
@@ -366,6 +366,15 @@ pub(crate) fn draw_tree_column(f: &mut Frame, area: ratatui::layout::Rect, rows:
     StatefulWidget::render(list, area, f.buffer_mut(), &mut list_state);
 }
 
+/// Depth 1 keeps the two-space indent; nested rows hang off their parent with `└ `.
+fn tree_indent(depth: usize) -> String {
+    if depth <= 1 {
+        "  ".into()
+    } else {
+        format!("{}└ ", "  ".repeat(depth - 1))
+    }
+}
+
 pub(crate) fn tree_row_item(row: &TreeRow) -> ListItem<'_> {
     match row {
         TreeRow::Project {
@@ -395,35 +404,40 @@ pub(crate) fn tree_row_item(row: &TreeRow) -> ListItem<'_> {
                 Span::styled(path.clone(), Style::default().fg(CLR_MUTED)),
             ]))
         }
-        TreeRow::Worker {
-            id,
-            phase,
-            message,
-            ..
-        } => {
-            let icon = worker_phase_icon(phase);
-            let color = if phase == "blocked" {
-                CLR_WARN
-            } else if phase == "done" {
-                CLR_ACCENT
-            } else {
-                CLR_MUTED
+        TreeRow::Child { row, depth, .. } => {
+            // Workers keep their gear while running so they read apart from sessions.
+            let icon = match (row.kind, row.state) {
+                (ChildKind::Worker, SessionState::Active) => '⚙',
+                (ChildKind::Worker, SessionState::Idle) => '·',
+                (_, st) => state_icon(st),
+            };
+            let color = match row.state {
+                SessionState::Error => CLR_WARN,
+                SessionState::Done => CLR_ACCENT,
+                _ => CLR_MUTED,
+            };
+            let id = match row.kind {
+                ChildKind::Worker => format!("#{} ", row.id),
             };
             ListItem::new(Line::from(vec![
-                Span::raw("  "),
+                Span::raw(tree_indent(*depth)),
                 Span::styled(format!("{icon} "), Style::default().fg(color)),
-                Span::styled(
-                    format!("#{id} "),
-                    Style::default().fg(CLR_TEXT).add_modifier(Modifier::BOLD),
-                ),
-                Span::styled(format!("{phase}  "), Style::default().fg(CLR_MUTED)),
-                Span::styled(message.clone(), Style::default().fg(CLR_MUTED)),
+                Span::styled(id, Style::default().fg(CLR_TEXT).add_modifier(Modifier::BOLD)),
+                Span::styled(row.label.clone(), Style::default().fg(CLR_MUTED)),
             ]))
         }
-        TreeRow::Session(s) | TreeRow::Unassigned(s) => {
+        TreeRow::Session {
+            session: s,
+            depth,
+            expanded,
+        } => {
             let icon = state_icon(s.state);
-            let mut spans = vec![
-                Span::raw("  "),
+            let mut spans = vec![Span::raw(tree_indent(*depth))];
+            if let Some(open) = expanded {
+                let chevron = if *open { "▼ " } else { "▶ " };
+                spans.push(Span::styled(chevron, Style::default().fg(CLR_MUTED)));
+            }
+            spans.extend([
                 Span::styled(
                     format!("{} ", icon),
                     Style::default().fg(session_state_color(s.state)),
@@ -432,7 +446,7 @@ pub(crate) fn tree_row_item(row: &TreeRow) -> ListItem<'_> {
                     format!("{}  ", s.name),
                     Style::default().fg(CLR_TEXT).add_modifier(Modifier::BOLD),
                 ),
-            ];
+            ]);
             if let Some(n) = s.issue {
                 spans.push(Span::styled(
                     format!("#{n}  "),

@@ -644,6 +644,7 @@ fn spawn_with_path_and_agent(
         PaneLayout::Single,
         true,
         Some(agent_name.as_str()),
+        None,
     ) {
         Ok(SpawnOutcome::Created) => {
             println!("spawned session '{}' in {}", session_name, path_buf.display());

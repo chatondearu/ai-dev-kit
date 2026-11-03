@@ -79,7 +79,7 @@ pub const FLEET_KEYMAP: &[Binding] = &[
     b(&[K::Down, K::Char('j')], "j ↓", A::SelectNext, "next row", Some("j/k nav"), G::Navigate),
     b(&[K::Up, K::Char('k')], "k ↑", A::SelectPrev, "previous row", None, G::Navigate),
     b(&[], "click", A::None, "select row in tree", None, G::Navigate),
-    b(&[K::Left, K::Right, K::Char('h'), K::Char('l')], "h/l ←→", A::ToggleExpand, "expand/collapse project", None, G::Navigate),
+    b(&[K::Left, K::Right, K::Char('h'), K::Char('l')], "h/l ←→", A::ToggleExpand, "expand/collapse project or parent session", None, G::Navigate),
     b(&[K::Char('F')], "F", A::FoldAll, "fold/unfold all groups", None, G::Navigate),
     b(&[K::Enter], "Enter", A::Attach, "attach session (or review tab)", Some("Enter attach"), G::Session),
     b(&[K::Char('n')], "n", A::Spawn, "new session modal", Some("n new"), G::Session),

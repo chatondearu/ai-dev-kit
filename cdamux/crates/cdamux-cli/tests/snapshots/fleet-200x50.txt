@@ -46,5 +46,5 @@ cdamux — fleet  ○ idle ● active ◆ needs
                                                                            │send────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
                                                                            │→ alpha-main _
                                                                            │
-j/k nav · Enter attach · n new · m rename · f fork · x kill · o issue · Space send · 1-5 tabs · ? help · q quit
+j/k nav · Enter attach · n new · m rename · f fork · x kill · o issue · Space send · g graph · 1-5 tabs · ? help · q quit
 

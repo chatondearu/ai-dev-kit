@@ -8,6 +8,7 @@
 use crate::app_tabs::AppTab;
 use crate::fleet_draw::{draw_app_screen, DrawState, FocusArea, SideTab};
 use crate::fleet_tree::TreeRow;
+use crate::graph_view::OrchGraphView;
 use crate::settings_form::SettingsForm;
 use crate::spawn_modal::{draw_modal, ModalState};
 use cdamux_core::{
@@ -102,7 +103,7 @@ pub(crate) fn fixture_rows() -> Vec<TreeRow> {
     ]
 }
 
-pub(crate) fn fixture_graph_text() -> String {
+pub(crate) fn fixture_graph() -> OrchGraphView {
     let graph: OrchGraphFile = serde_json::from_str(
         r#"{"run_id":"run-001","repo":"/src/alpha","updated_at":"2026-01-01T00:00:00Z",
         "status":"running",
@@ -113,15 +114,32 @@ pub(crate) fn fixture_graph_text() -> String {
         "edges":[{"from":"w1","to":"integrator","type":"feeds"},{"from":"w2","to":"integrator","type":"feeds"}]}"#,
     )
     .unwrap();
-    cdamux_core::format_orch_graph_panel_ex(&graph, 80, Some(5))
+    OrchGraphView {
+        text: cdamux_core::format_orch_graph_panel_ex(&graph, 80, Some(5)),
+        // Fixed header: the live one carries the file age.
+        header: "run run-001 · running".into(),
+        stale: false,
+        graph: Some(graph),
+    }
 }
 
 const PREVIEW: &str = "$ cargo test\n   Compiling alpha v0.1.0\nrunning 3 tests\ntest parse ... ok\ntest render ... ok\ntest send ... ok\n\ntest result: ok. 3 passed";
 
 /// Full-screen render of `tab` (Fleet side panel = `side_tab`) with the fixed fixtures.
 pub(crate) fn render_app(w: u16, h: u16, tab: AppTab, side_tab: SideTab) -> Vec<String> {
+    render_app_ex(w, h, tab, side_tab, None)
+}
+
+/// [`render_app`] with the full-screen Graph view open on node `graph_view`.
+pub(crate) fn render_app_ex(
+    w: u16,
+    h: u16,
+    tab: AppTab,
+    side_tab: SideTab,
+    graph_view: Option<usize>,
+) -> Vec<String> {
     let rows = fixture_rows();
-    let graph_text = fixture_graph_text();
+    let graph = fixture_graph();
     let chrome = SessionChrome {
         repo: "alpha".into(),
         worktree: "main".into(),
@@ -145,7 +163,8 @@ pub(crate) fn render_app(w: u16, h: u16, tab: AppTab, side_tab: SideTab) -> Vec<
         preview_scroll: 0,
         notes_text: "(no notes)",
         review_text: "Select a session.",
-        orch_graph_text: &graph_text,
+        orch_graph: &graph,
+        graph_view,
         composer_line: "",
         composer_session: Some("alpha-main"),
         session_chrome: Some(&chrome),
@@ -187,6 +206,7 @@ fn golden_screens() {
         let screens = [
             ("fleet", render_app(w, h, AppTab::Fleet, SideTab::Preview)),
             ("fleet-orch-graph", render_app(w, h, AppTab::Fleet, SideTab::OrchGraph)),
+            ("graph-view", render_app_ex(w, h, AppTab::Fleet, SideTab::Preview, Some(1))),
             ("spawn-modal", render_spawn_modal(w, h)),
             ("settings", render_app(w, h, AppTab::Settings, SideTab::Preview)),
         ];

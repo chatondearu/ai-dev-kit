@@ -45,7 +45,7 @@ See `config/cdamux.example.toml`. Highlights:
 - `[[projects.roots]]` — path + optional label.
 - `projects.discover` — `flat` | `depth(N)` | `git_only`.
 - `sessions.group_by` — `project | cwd | agent | group_path | none`. Fleet tree uses
-  discovered projects when `project`; other values regroup top-level nodes (TUI `g` cycles).
+  discovered projects when `project`; other values regroup top-level nodes (TUI `G` cycles).
   Fleet omits projects/groups with **no tmux sessions** (full discover list stays on Projects tab).
 - **Preview** — `tmux capture-pane -p -e -S -<n>` in the sidecar (snapshot, not a live PTY;
   no `-E -1`, which blanks panes with `history_size=0`). CLI renders ANSI via `ansi-to-tui`;
@@ -98,6 +98,9 @@ Operator curl examples: [tailnet-api.md](tailnet-api.md).
   toggles worktree mode in the Fleet modal (`cdamux worktree list` inspects links).
 - Fleet **reads** repo-local orch state: `.orch/graph/current.json` (Orch graph tab /
   `GET /v1/orch-graph?repo=`) and `.orch/run/status.json` (worker rows under a project).
+  The Orch graph tab and the full-screen Graph view (`g`) draw a layered DAG
+  (`cdamux-core::orch_graph_layout`, longest-path layers over `edges` + `parent`)
+  and fall back to the indented text tree when the layers do not fit the width.
   Execution stays in `orch.sh`; cdamux does not start workers.
 
 ## Open design choices

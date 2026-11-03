@@ -4,12 +4,14 @@ use crate::app_tabs::{
     draw_agents, draw_projects, draw_sessions_list, draw_tab_bar, help_for_tab, AppTab,
 };
 use crate::fleet_tree::TreeRow;
+use crate::graph_view::{draw_graph_screen, draw_orch_graph_panel, OrchGraphView, GRAPH_FOOTER};
 use crate::keymap::fleet_help_text;
 use crate::settings_form::{draw_settings, SettingsForm};
 use crate::spawn_modal::centered_rect;
 use ansi_to_tui::IntoText as _;
 use cdamux_core::{
-    state_icon, worker_phase_icon, Config, EnrichedSession, GroupBy, SessionChrome, SessionState,
+    state_icon, worker_phase_icon, Config, EnrichedSession, GroupBy, NodeState, SessionChrome,
+    SessionState,
 };
 use ratatui::{
     layout::{Constraint, Direction, Layout},
@@ -18,7 +20,6 @@ use ratatui::{
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph, StatefulWidget, Wrap},
     Frame,
 };
-use std::path::Path;
 
 pub(crate) const COMPOSER_LABEL: &str = "send";
 
@@ -31,6 +32,7 @@ pub(crate) const CLR_OK: Color = Color::Rgb(107, 207, 142);
 pub(crate) const CLR_WARN: Color = Color::Rgb(232, 184, 74);
 pub(crate) const CLR_IDLE: Color = Color::Rgb(92, 101, 120);
 pub(crate) const CLR_SEL_BG: Color = Color::Rgb(42, 49, 64);
+pub(crate) const CLR_ERR: Color = Color::Rgb(240, 113, 120);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum FocusArea {
@@ -123,33 +125,6 @@ pub(crate) fn sidecar_plain_body(tab: SideTab, notes: &str, review: &str, orch_g
     }
 }
 
-pub(crate) fn orch_graph_text_for_cwd(cwd: &str, width: usize) -> String {
-    if cwd.is_empty() {
-        return "Select a project or session with a live orch run.".to_string();
-    }
-    match cdamux_core::find_orch_graph_from_cwd(cwd) {
-        Ok((g, age)) => {
-            cdamux_core::format_orch_graph_panel_with_history(&g, width, age, Path::new(cwd))
-        }
-        Err(cdamux_core::OrchGraphError::NotFound(_)) => {
-            let runs = cdamux_core::list_orch_graph_runs(Path::new(cwd), 5);
-            if runs.is_empty() {
-                "(no live graph — start orch.sh in this repo; tab cycles with sidecar)".to_string()
-            } else {
-                let mut s = String::from("(no live graph)\n\nrecent runs:\n");
-                for r in runs {
-                    let st = r.status.unwrap_or_else(|| "?".into());
-                    s.push_str(&format!("  {} · {}\n", r.run_id, st));
-                }
-                s
-            }
-        }
-        Err(cdamux_core::OrchGraphError::Invalid { path, message }) => {
-            format!("invalid current.json at {}:\n{}", path.display(), message)
-        }
-    }
-}
-
 pub(crate) fn review_sidecar_hint(session: Option<&EnrichedSession>) -> String {
     match session {
         None => "Select a session.\n\nCtrl+R or Enter: open hunk review TUI.".to_string(),
@@ -170,21 +145,35 @@ pub(crate) struct DrawState<'a> {
     pub(crate) preview_scroll: usize,
     pub(crate) notes_text: &'a str,
     pub(crate) review_text: &'a str,
-    pub(crate) orch_graph_text: &'a str,
+    pub(crate) orch_graph: &'a OrchGraphView,
+    /// Full-screen Graph view open, with the selected node (navigation order).
+    pub(crate) graph_view: Option<usize>,
     pub(crate) composer_line: &'a str,
     pub(crate) composer_session: Option<&'a str>,
     pub(crate) session_chrome: Option<&'a SessionChrome>,
     pub(crate) status_line: &'a str,
 }
 
-pub(crate) fn session_state_color(state: SessionState) -> Color {
+/// One state → colour map for orch graph nodes; Fleet sessions map onto it.
+pub(crate) fn node_state_color(state: NodeState) -> Color {
     match state {
-        SessionState::Idle => CLR_IDLE,
-        SessionState::Active => CLR_OK,
-        SessionState::NeedsInput => CLR_WARN,
-        SessionState::Done => CLR_ACCENT,
-        SessionState::Error => CLR_WARN,
+        NodeState::Queued => CLR_IDLE,
+        NodeState::Running => CLR_OK,
+        NodeState::Done => CLR_ACCENT,
+        NodeState::Error => CLR_ERR,
+        NodeState::Blocked => CLR_WARN,
+        NodeState::Stale => CLR_MUTED,
     }
+}
+
+pub(crate) fn session_state_color(state: SessionState) -> Color {
+    node_state_color(match state {
+        SessionState::Idle => NodeState::Queued,
+        SessionState::Active => NodeState::Running,
+        SessionState::NeedsInput => NodeState::Blocked,
+        SessionState::Done => NodeState::Done,
+        SessionState::Error => NodeState::Error,
+    })
 }
 
 fn tree_list_block() -> Block<'static> {
@@ -248,6 +237,9 @@ pub(crate) fn draw_app_screen(
     draw_tab_bar(f, root[0], app_tab);
 
     match app_tab {
+        AppTab::Fleet if state.graph_view.is_some() => {
+            draw_graph_screen(f, root[1], state.orch_graph, state.graph_view.unwrap_or(0));
+        }
         AppTab::Fleet => draw_fleet_body(
             f,
             root[1],
@@ -278,6 +270,8 @@ pub(crate) fn draw_app_screen(
 
     let help = if app_tab == AppTab::Fleet && state.focus == FocusArea::Composer {
         "composer: type · Enter send+↵ · Esc back".to_string()
+    } else if app_tab == AppTab::Fleet && state.graph_view.is_some() {
+        GRAPH_FOOTER.to_string()
     } else {
         help_for_tab(app_tab, settings.dirty)
     };
@@ -541,6 +535,10 @@ pub(crate) fn draw_sidecar(
     *preview_rect = Some(vertical[preview_idx]);
     let body_block = Block::default().borders(Borders::NONE).title(" ");
     let view_rows = vertical[preview_idx].height;
+    if state.side_tab == SideTab::OrchGraph {
+        draw_orch_graph_panel(f, vertical[preview_idx], state.orch_graph, None);
+        return;
+    }
     let body = if state.side_tab == SideTab::Preview {
         Paragraph::new(preview_display_lines(
             state.preview_text,
@@ -554,7 +552,7 @@ pub(crate) fn draw_sidecar(
             state.side_tab,
             state.notes_text,
             state.review_text,
-            state.orch_graph_text,
+            &state.orch_graph.text,
         ))
             .style(Style::default().fg(CLR_TEXT))
             .wrap(Wrap { trim: false })

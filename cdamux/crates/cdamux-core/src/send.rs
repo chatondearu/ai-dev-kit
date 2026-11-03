@@ -1,7 +1,7 @@
 //! Push keys/text to a tmux session pane without attaching (shared by CLI and future daemon HTTP).
 
 use crate::tmux::{send_line_to_session, TmuxError};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use thiserror::Error;
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -22,6 +22,8 @@ fn exact_session_target(session: &str) -> String {
 pub fn tmux_has_session(session: &str) -> Result<bool, SendError> {
     let status = Command::new("tmux")
         .args(["has-session", "-t", &exact_session_target(session)])
+        // "can't find session" would land on top of the TUI; the exit code is the answer.
+        .stderr(Stdio::null())
         .status()
         .map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {

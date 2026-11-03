@@ -17,6 +17,8 @@ pub enum DashboardAction {
     ToggleWaitingFilter,
     FoldAll,
     CycleGroupBy,
+    /// Full-screen drawn orch graph of the selected row's repo.
+    GraphView,
     ToggleHelp,
     KillSession,
     ForkSession,
@@ -90,7 +92,8 @@ pub const FLEET_KEYMAP: &[Binding] = &[
     b(&[K::Tab], "Tab", A::CycleSideTab, "Preview / Notes / Review / Orch graph", None, G::View),
     b(&[], "[/] PgUp/PgDn", A::None, "scroll preview", None, G::View),
     b(&[K::Char('w')], "w", A::ToggleWaitingFilter, "waiting-for-input filter (◆)", None, G::View),
-    b(&[K::Char('g')], "g", A::CycleGroupBy, "cycle group_by (project/cwd/agent/…)", None, G::View),
+    b(&[K::Char('g')], "g", A::GraphView, "Graph view (drawn orch DAG, full screen)", Some("g graph"), G::View),
+    b(&[K::Char('G')], "G", A::CycleGroupBy, "cycle group_by (project/cwd/agent/…)", None, G::View),
     b(&[], "1-5", A::None, "app tabs", Some("1-5 tabs"), G::App),
     b(&[K::Char('?')], "?", A::ToggleHelp, "this help", Some("? help"), G::App),
     b(&[K::Char('q')], "q", A::Quit, "quit", Some("q quit"), G::App),
@@ -122,7 +125,7 @@ pub fn fleet_help_text() -> String {
             out.push_str(&format!("  {:<14} {}\n", bind.label, bind.help));
         }
     }
-    out.push_str("\nNote: agent-manager `g` is group tree; here `g` cycles list grouping.");
+    out.push_str("\nNote: agent-manager `g` is group tree; here `G` cycles list grouping.");
     out
 }
 
@@ -142,6 +145,8 @@ mod tests {
         assert_eq!(map_key_event(key(K::Char('k'))), A::SelectPrev);
         assert_eq!(map_key_event(key(K::Down)), A::SelectNext);
         assert_eq!(map_key_event(key(K::Esc)), A::None);
+        assert_eq!(map_key_event(key(K::Char('g'))), A::GraphView);
+        assert_eq!(map_key_event(key(K::Char('G'))), A::CycleGroupBy);
         assert_eq!(map_key_event(KeyEvent::new(K::Char('c'), KeyModifiers::CONTROL)), A::Quit);
         assert_eq!(map_key_event(KeyEvent::new(K::Char('m'), KeyModifiers::CONTROL)), A::None);
     }
@@ -149,7 +154,7 @@ mod tests {
     #[test]
     fn footer_lists_session_keys() {
         let footer = fleet_footer();
-        for part in ["m rename", "f fork", "x kill", "o issue", "Enter attach", "? help"] {
+        for part in ["g graph", "m rename", "f fork", "x kill", "o issue", "Enter attach", "? help"] {
             assert!(footer.contains(part), "{footer}");
         }
     }

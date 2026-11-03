@@ -2,9 +2,10 @@
 
 use crate::app_tabs::{flat_sessions, AppTab, cycle_group_by};
 use crate::fleet_draw::{
-    draw_app_screen, draw_rename_modal, orch_graph_text_for_cwd, review_sidecar_hint, DrawState,
-    row_index_from_mouse, FocusArea, RenameState, SideTab,
+    draw_app_screen, draw_rename_modal, review_sidecar_hint, DrawState, row_index_from_mouse,
+    FocusArea, RenameState, SideTab,
 };
+use crate::graph_view::{load_orch_graph_view, node_session};
 use crate::fleet_tree::{
     clamp_selection, default_expanded, fleet_attention_hint, flatten_tree, focus_session_in_tree,
     issue_at_row, move_selection, orch_repo_at_row, reanchor_selection, session_at_row, toggle_fold_all, TreeRow,
@@ -71,6 +72,19 @@ fn fork_selected_session(cfg: &Config, s: &EnrichedSession) -> Result<String, St
         Ok(SpawnOutcome::Created) => Ok(format!("forked '{}' with {}", base, agent)),
         Err(e) => Err(e.to_string()),
     }
+}
+
+/// Inside tmux: switch the client and return a status line. Outside: `None`,
+/// the caller exits the dashboard and attaches.
+fn switch_or_attach(name: &str) -> Option<Result<String, String>> {
+    if std::env::var_os("TMUX").is_none() {
+        return None;
+    }
+    Some(
+        switch_client_to_session(name)
+            .map(|()| format!("attached {name} — M-u or agent exit reopens cdamux"))
+            .map_err(|e| format!("attach: {e}")),
+    )
 }
 
 fn fetch_preview(session_name: &str, max_lines: u32) -> String {
@@ -146,8 +160,10 @@ pub fn run_dashboard() -> ExitCode {
     let mut session_chrome: Option<SessionChrome> = None;
     let mut notes_text = String::new();
     let mut notes_for_session: Option<String> = None;
-    let mut orch_graph_text = String::new();
+    let mut orch_graph = load_orch_graph_view("", 72);
     let mut orch_graph_for_session: Option<String> = None;
+    // Full-screen Graph view (`g`): selected node index in navigation order.
+    let mut graph_view: Option<usize> = None;
     let mut status_line = String::new();
 
     let (mut terminal, _guard) = match TerminalGuard::enter() {
@@ -230,7 +246,7 @@ pub fn run_dashboard() -> ExitCode {
             match sidecar_step(
                 true,
                 session_changed,
-                side_tab == SideTab::Preview,
+                side_tab == SideTab::Preview && graph_view.is_none(),
                 &mut preview_iv,
                 now,
             ) {
@@ -259,12 +275,12 @@ pub fn run_dashboard() -> ExitCode {
             }
             let graph_key = format!("sess:{}:{}", s.name, s.path);
             if orch_graph_for_session.as_deref() != Some(graph_key.as_str())
-                || (side_tab == SideTab::OrchGraph && graph_iv.due(now))
+                || ((side_tab == SideTab::OrchGraph || graph_view.is_some()) && graph_iv.due(now))
             {
                 graph_iv.mark(now);
-                let text = orch_graph_text_for_cwd(&s.path, 72);
-                needs_draw |= text != orch_graph_text;
-                orch_graph_text = text;
+                let view = load_orch_graph_view(&s.path, 72);
+                needs_draw |= view.differs(&orch_graph);
+                orch_graph = view;
                 orch_graph_for_session = Some(graph_key);
             }
         } else if let Some(repo) = orch_repo_at_row(&rows, selected_row) {
@@ -299,12 +315,12 @@ pub fn run_dashboard() -> ExitCode {
             }
             let graph_key = format!("repo:{repo}");
             if orch_graph_for_session.as_deref() != Some(graph_key.as_str())
-                || (side_tab == SideTab::OrchGraph && graph_iv.due(now))
+                || ((side_tab == SideTab::OrchGraph || graph_view.is_some()) && graph_iv.due(now))
             {
                 graph_iv.mark(now);
-                let text = orch_graph_text_for_cwd(&repo, 72);
-                needs_draw |= text != orch_graph_text;
-                orch_graph_text = text;
+                let view = load_orch_graph_view(&repo, 72);
+                needs_draw |= view.differs(&orch_graph);
+                orch_graph = view;
                 orch_graph_for_session = Some(graph_key);
             }
         } else {
@@ -315,7 +331,7 @@ pub fn run_dashboard() -> ExitCode {
             notes_for_session = None;
             notes_text = "Select a session to view project notes.".to_string();
             orch_graph_for_session = None;
-            orch_graph_text = orch_graph_text_for_cwd("", 72);
+            orch_graph = load_orch_graph_view("", 72);
         }
         let review_text = review_sidecar_hint(session);
 
@@ -365,7 +381,8 @@ pub fn run_dashboard() -> ExitCode {
                                 preview_scroll,
                                 notes_text: &notes_text,
                                 review_text: &review_text,
-                                orch_graph_text: &orch_graph_text,
+                                orch_graph: &orch_graph,
+                                graph_view,
                                 composer_line: &composer_line,
                                 composer_session,
                                 session_chrome: session_chrome.as_ref(),
@@ -406,7 +423,7 @@ pub fn run_dashboard() -> ExitCode {
                         sessions_selected = wheel_step(sessions_selected, wheel, flat.len());
                     } else if app_tab == AppTab::Projects {
                         projects_scroll = wheel_step(projects_scroll, wheel, discovered.len());
-                    } else if app_tab == AppTab::Fleet {
+                    } else if app_tab == AppTab::Fleet && graph_view.is_none() {
                         if focus == FocusArea::Tree
                             && m.kind == MouseEventKind::Down(MouseButton::Left)
                         {
@@ -602,6 +619,34 @@ pub fn run_dashboard() -> ExitCode {
                     continue;
                 }
 
+                if let Some(sel) = graph_view.as_mut() {
+                    match key.code {
+                        KeyCode::Esc | KeyCode::Char('g') => graph_view = None,
+                        KeyCode::Down | KeyCode::Right | KeyCode::Char('j') | KeyCode::Char('l') => {
+                            *sel = (*sel + 1).min(orch_graph.node_count().saturating_sub(1));
+                        }
+                        KeyCode::Up | KeyCode::Left | KeyCode::Char('k') | KeyCode::Char('h') => {
+                            *sel = sel.saturating_sub(1);
+                        }
+                        KeyCode::Enter => match orch_graph.node_at(*sel) {
+                            Some(node) => match node_session(node) {
+                                Some(name) => match switch_or_attach(&name) {
+                                    Some(Ok(msg)) => {
+                                        status_line = msg;
+                                        tree_dirty = true;
+                                    }
+                                    Some(Err(e)) => status_line = e,
+                                    None => attach_name = Some(name),
+                                },
+                                None => status_line = format!("no session linked to node {}", node.id),
+                            },
+                            None => status_line = "no graph node selected".into(),
+                        },
+                        _ => {}
+                    }
+                    continue;
+                }
+
                 if focus == FocusArea::PreviewScroll {
                     if key.code == KeyCode::Esc {
                         focus = FocusArea::Tree;
@@ -682,19 +727,13 @@ pub fn run_dashboard() -> ExitCode {
                         }
                         match rows.get(selected_row) {
                         Some(TreeRow::Session(s) | TreeRow::Unassigned(s)) => {
-                            if std::env::var_os("TMUX").is_some() {
-                                match switch_client_to_session(&s.name) {
-                                    Ok(()) => {
-                                        status_line = format!(
-                                            "attached {} — M-u or agent exit reopens cdamux",
-                                            s.name
-                                        );
-                                        tree_dirty = true;
-                                    }
-                                    Err(e) => status_line = format!("attach: {e}"),
+                            match switch_or_attach(&s.name) {
+                                Some(Ok(msg)) => {
+                                    status_line = msg;
+                                    tree_dirty = true;
                                 }
-                            } else {
-                                attach_name = Some(s.name.clone());
+                                Some(Err(e)) => status_line = e,
+                                None => attach_name = Some(s.name.clone()),
                             }
                         }
                         Some(TreeRow::Project { key, expanded: is_exp, .. }) => {
@@ -786,6 +825,7 @@ pub fn run_dashboard() -> ExitCode {
                         settings.dirty = true;
                         status_line = format!("group_by: {:?}", cfg.sessions.group_by);
                     }
+                    DashboardAction::GraphView => graph_view = Some(0),
                     DashboardAction::ToggleHelp => show_help = !show_help,
                     DashboardAction::None => {}
                 }
@@ -927,7 +967,7 @@ mod tests {
             DashboardAction::ToggleWaitingFilter
         );
         assert_eq!(map_key_event(key(KeyCode::Char('F'))), DashboardAction::FoldAll);
-        assert_eq!(map_key_event(key(KeyCode::Char('g'))), DashboardAction::CycleGroupBy);
+        assert_eq!(map_key_event(key(KeyCode::Char('G'))), DashboardAction::CycleGroupBy);
         assert_eq!(map_key_event(key(KeyCode::Char('?'))), DashboardAction::ToggleHelp);
     }
 }

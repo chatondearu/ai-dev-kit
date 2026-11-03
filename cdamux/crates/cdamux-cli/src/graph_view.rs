@@ -2,19 +2,21 @@
 
 use crate::fleet_draw::{node_state_color, CLR_MUTED, CLR_SEL_BG, CLR_TEXT};
 use cdamux_core::{
-    find_orch_graph_from_cwd, format_orch_graph_panel_with_history, graph_node_order,
-    layout_orch_graph, list_orch_graph_runs, orch_graph_header, orch_graph_is_stale,
-    tmux_has_session, CellClass, GraphLayout, NodeState, OrchGraphError, OrchGraphFile,
-    OrchGraphNode, BOX_H,
+    find_orch_graph_from_cwd, find_orch_run_status_from_cwd, format_orch_graph_panel_with_history,
+    graph_node_order, layout_orch_graph, list_orch_graph_runs, orch_graph_header,
+    orch_graph_is_stale, step_worker_id, tmux_has_session, worker_steps, CellClass, GraphLayout,
+    NodeState, OrchGraphError, OrchGraphFile, OrchGraphNode, OrchWorkerStatus, Step, BOX_H,
 };
 use ratatui::{
     buffer::Buffer,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
+    text::{Line, Span},
     widgets::{Block, Borders, Paragraph, Widget, Wrap},
     Frame,
 };
 use std::path::Path;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Footer while the full-screen Graph view is open.
 pub(crate) const GRAPH_FOOTER: &str = "j/k ↑↓ select node · Enter jump to session · g/Esc back · q quit";
@@ -25,11 +27,13 @@ pub(crate) struct OrchGraphView {
     pub(crate) graph: Option<OrchGraphFile>,
     pub(crate) stale: bool,
     pub(crate) header: String,
+    /// Workers from `.orch/run/status.json` next to the graph (step bar source).
+    pub(crate) workers: Vec<OrchWorkerStatus>,
 }
 
 impl OrchGraphView {
     fn text_only(text: String) -> Self {
-        Self { text, graph: None, stale: false, header: String::new() }
+        Self { text, graph: None, stale: false, header: String::new(), workers: Vec::new() }
     }
 
     /// Node at `selected` in navigation order (clamped).
@@ -38,6 +42,17 @@ impl OrchGraphView {
         let order = graph_node_order(g);
         let i = *order.get(selected.min(order.len().saturating_sub(1)))?;
         g.nodes.get(i)
+    }
+
+    /// Pipeline steps of the worker the node belongs to, when status.json knows it.
+    pub(crate) fn steps_for(&self, node: &OrchGraphNode) -> Option<Vec<Step>> {
+        let wid = step_worker_id(node)?;
+        let worker = self.workers.iter().find(|w| w.id == wid)?;
+        let parent = format!("worker-{wid}");
+        let verifier = self.graph.as_ref()?.nodes.iter().find(|n| {
+            n.kind == "verifier" && n.parent.as_deref() == Some(parent.as_str())
+        });
+        Some(worker_steps(worker, verifier.map(|n| NodeState::from_status(&n.status, self.stale)), now_secs()))
     }
 
     pub(crate) fn node_count(&self) -> usize {
@@ -53,6 +68,17 @@ impl OrchGraphView {
     }
 }
 
+fn now_secs() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
+}
+
+/// Vertical step list for a Worker row's sidecar (its width is unknown here, so no bar).
+pub(crate) fn worker_steps_text(worker: Option<&OrchWorkerStatus>) -> String {
+    worker
+        .map(|w| worker_steps(w, None, now_secs()).iter().map(Step::text).collect::<Vec<_>>().join("\n"))
+        .unwrap_or_default()
+}
+
 pub(crate) fn load_orch_graph_view(cwd: &str, width: usize) -> OrchGraphView {
     if cwd.is_empty() {
         return OrchGraphView::text_only("Select a project or session with a live orch run.".into());
@@ -62,6 +88,7 @@ pub(crate) fn load_orch_graph_view(cwd: &str, width: usize) -> OrchGraphView {
             text: format_orch_graph_panel_with_history(&g, width, age, Path::new(cwd)),
             stale: orch_graph_is_stale(&g, age),
             header: orch_graph_header(&g, age).join(" · "),
+            workers: find_orch_run_status_from_cwd(cwd).map(|s| s.workers).unwrap_or_default(),
             graph: Some(g),
         },
         Err(OrchGraphError::NotFound(_)) => {
@@ -175,15 +202,39 @@ pub(crate) fn node_detail_text(node: &OrchGraphNode, stale: bool) -> String {
     lines.join("\n")
 }
 
-/// Full-screen Graph view: the panel with a selection, and the node detail below.
+/// Step bar: one line when it fits `width`, else a vertical list. Colours follow the node map.
+pub(crate) fn step_bar_lines(steps: &[Step], width: usize) -> Vec<Line<'static>> {
+    let span = |s: &Step| Span::styled(s.text(), Style::default().fg(node_state_color(s.state)));
+    let one_line = steps.iter().map(|s| s.text().chars().count()).sum::<usize>()
+        + steps.len().saturating_sub(1) * 3;
+    if one_line <= width {
+        let mut spans = Vec::new();
+        for (i, s) in steps.iter().enumerate() {
+            if i > 0 {
+                spans.push(Span::styled(" → ", Style::default().fg(CLR_MUTED)));
+            }
+            spans.push(span(s));
+        }
+        return vec![Line::from(spans)];
+    }
+    steps.iter().map(|s| Line::from(span(s))).collect()
+}
+
+/// Full-screen Graph view: the panel with a selection, the node detail, and the
+/// selected worker's step bar under it.
 pub(crate) fn draw_graph_screen(f: &mut Frame, area: Rect, view: &OrchGraphView, selected: usize) {
+    let node = view.node_at(selected);
+    let bar = node
+        .and_then(|n| view.steps_for(n))
+        .map(|steps| step_bar_lines(&steps, area.width as usize))
+        .unwrap_or_default();
+    let bar_h = (bar.len() as u16).min(area.height.saturating_sub(10));
     let parts = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Min(4), Constraint::Length(6)])
+        .constraints([Constraint::Min(4), Constraint::Length(6), Constraint::Length(bar_h)])
         .split(area);
     draw_orch_graph_panel(f, parts[0], view, Some(selected));
-    let detail = view
-        .node_at(selected)
+    let detail = node
         .map(|n| node_detail_text(n, view.stale))
         .unwrap_or_else(|| "(no node selected)".into());
     let block = Block::default()
@@ -197,6 +248,7 @@ pub(crate) fn draw_graph_screen(f: &mut Frame, area: Rect, view: &OrchGraphView,
             .block(block),
         parts[1],
     );
+    f.render_widget(Paragraph::new(bar), parts[2]);
 }
 
 #[cfg(test)]
@@ -218,7 +270,58 @@ mod tests {
             {"id":"U5","kind":"worker","phase":"implement","status":"done","message":"graph view","parent":"integrator"}
         ]}"#;
         let g: OrchGraphFile = serde_json::from_str(raw).unwrap();
-        OrchGraphView { text: "tree".into(), header: "run r1".into(), stale: false, graph: Some(g) }
+        OrchGraphView { text: "tree".into(), header: "run r1".into(), stale: false, graph: Some(g), workers: vec![] }
+    }
+
+    /// `view()` plus a `worker-162` node (and its verifier child) tied to a status.json worker.
+    fn steps_view() -> OrchGraphView {
+        let raw = r#"{"run_id":"r1","status":"running","nodes":[
+            {"id":"worker-162","kind":"worker","phase":"verify","status":"running","message":"w","parent":null},
+            {"id":"worker-162-grounding","kind":"verifier","phase":"grounding","status":"done","message":"ok","parent":"worker-162"}
+        ]}"#;
+        let workers = r#"{"id":"162","phase":"ci","message":"PR #9","updated_at":"t","phases":[
+            {"phase":"agent","started_at":100},{"phase":"verify","started_at":220},{"phase":"ci","started_at":230}]}"#;
+        OrchGraphView {
+            text: "tree".into(),
+            header: "run r1".into(),
+            stale: false,
+            graph: serde_json::from_str(raw).ok(),
+            workers: vec![serde_json::from_str(workers).unwrap()],
+        }
+    }
+
+    #[test]
+    fn step_bar_is_one_line_when_wide_and_a_list_when_narrow() {
+        let v = steps_view();
+        let node = v.node_at(0).unwrap();
+        let mut wide = ratatui::Terminal::new(ratatui::backend::TestBackend::new(90, 16)).unwrap();
+        wide.draw(|f| draw_graph_screen(f, f.area(), &v, 0)).unwrap();
+        let lines = buffer_lines(&wide);
+        let bar = lines.iter().find(|l| l.contains("implement")).expect("bar drawn");
+        assert!(bar.contains("✓ implement 2m00s → ✓ verify 10s → ✓ verifier → ✓ review"), "{bar}");
+        assert!(bar.contains("◎ CI") && bar.ends_with(' '), "{bar}");
+        assert_eq!(lines.iter().filter(|l| l.contains("implement")).count(), 1);
+
+        let mut narrow = ratatui::Terminal::new(ratatui::backend::TestBackend::new(24, 24)).unwrap();
+        narrow.draw(|f| draw_graph_screen(f, f.area(), &v, 0)).unwrap();
+        let text = buffer_lines(&narrow).join("\n");
+        assert!(text.contains("✓ implement") && text.contains("\n✓ verify") && text.contains("· PR"), "{text}");
+        assert_eq!(step_bar_lines(&v.steps_for(node).unwrap(), 24).len(), 6);
+    }
+
+    #[test]
+    fn worker_sidecar_lists_steps() {
+        let w = steps_view().workers.remove(0);
+        let text = worker_steps_text(Some(&w));
+        assert!(text.starts_with("✓ implement 2m00s\n✓ verify 10s\n✓ review"), "{text}");
+        assert!(text.contains("\n◎ CI ") && text.ends_with("· PR"), "{text}");
+        assert_eq!(worker_steps_text(None), "");
+    }
+
+    #[test]
+    fn node_without_worker_has_no_step_bar() {
+        let v = view(); // U0/U5 are not `worker-<id>` nodes
+        assert!(v.steps_for(v.node_at(1).unwrap()).is_none());
     }
 
     #[test]

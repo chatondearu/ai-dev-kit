@@ -8,6 +8,7 @@ mod issue_ref;
 mod orch_graph;
 mod orch_graph_layout;
 mod orch_status;
+mod orch_steps;
 mod project_tree;
 mod send;
 mod session;
@@ -50,9 +51,10 @@ pub use orch_graph::{
 };
 pub use issue_ref::{issue_from_branch_or_path, parse_issue_number};
 pub use orch_status::{
-    load_orch_run_status, orch_run_status_path, project_has_orch_artifacts, worker_phase_icon,
-    OrchRunStatusFile, OrchWorkerStatus,
+    find_orch_run_status_from_cwd, load_orch_run_status, orch_run_status_path, project_has_orch_artifacts, worker_phase_icon,
+    OrchRunStatusFile, OrchWorkerStatus, PhaseMark,
 };
+pub use orch_steps::{step_worker_id, worker_steps, Step};
 pub use agents_util::{
     command_on_path, preferred_spawn_agent, preferred_spawn_agent_index,
 };

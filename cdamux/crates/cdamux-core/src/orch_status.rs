@@ -4,6 +4,13 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+/// One phase change: `started_at` is epoch seconds (written by `lib/progress.sh`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PhaseMark {
+    pub phase: String,
+    pub started_at: u64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct OrchWorkerStatus {
     pub id: String,
@@ -13,6 +20,9 @@ pub struct OrchWorkerStatus {
     pub message: String,
     #[serde(default)]
     pub updated_at: String,
+    /// Phase history, oldest first; absent in files written before it existed.
+    #[serde(default)]
+    pub phases: Vec<PhaseMark>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -31,6 +41,13 @@ pub fn load_orch_run_status(repo: &Path) -> Option<OrchRunStatusFile> {
     let path = orch_run_status_path(repo);
     let raw = fs::read_to_string(path).ok()?;
     serde_json::from_str(&raw).ok()
+}
+
+/// Like [`load_orch_run_status`], walking parents from `cwd` (a session may sit in a subdir).
+pub fn find_orch_run_status_from_cwd(cwd: &str) -> Option<OrchRunStatusFile> {
+    Path::new(cwd)
+        .ancestors()
+        .find_map(load_orch_run_status)
 }
 
 pub fn project_has_orch_artifacts(repo: &Path) -> bool {

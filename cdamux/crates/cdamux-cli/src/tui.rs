@@ -5,7 +5,7 @@ use crate::fleet_draw::{
     draw_app_screen, draw_rename_modal, review_sidecar_hint, DrawState, row_index_from_mouse,
     FocusArea, RenameState, SideTab,
 };
-use crate::graph_view::{load_orch_graph_view, node_session};
+use crate::graph_view::{load_orch_graph_view, node_session, worker_steps_text};
 use crate::fleet_tree::{
     clamp_selection, default_expanded, fleet_attention_hint, flatten_tree, focus_session_in_tree,
     issue_at_row, move_selection, orch_repo_at_row, reanchor_selection, session_at_row, toggle_fold_all, TreeRow,
@@ -289,11 +289,23 @@ pub fn run_dashboard() -> ExitCode {
             preview_scroll = 0;
             match rows.get(selected_row) {
                 Some(TreeRow::Worker {
-                    id, phase, message, ..
+                    id,
+                    phase,
+                    message,
+                    project_path,
                 }) => {
-                    preview_text = format!(
-                        "orch worker #{id}\nphase: {phase}\n{message}\n\n(no tmux pane — headless orch)"
+                    // StatusCache (refresh scheduler) already holds status.json: no I/O per tick.
+                    let worker = status
+                        .workers(std::path::Path::new(project_path))
+                        .iter()
+                        .find(|w| &w.id == id);
+                    let text = format!(
+                        "orch worker #{id}\nphase: {phase}\n{message}\n\n{}\n\n(no tmux pane — headless orch)",
+                        worker_steps_text(worker)
                     );
+                    // Step durations tick: redraw only when the text moved.
+                    needs_draw |= text != preview_text;
+                    preview_text = text;
                 }
                 Some(TreeRow::Project {
                     name,

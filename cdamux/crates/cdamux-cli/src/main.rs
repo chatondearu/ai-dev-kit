@@ -4,6 +4,7 @@ mod app_tabs;
 mod fleet_draw;
 mod fleet_tree;
 mod keymap;
+mod refresh;
 mod review_tui;
 mod settings_form;
 mod spawn_modal;

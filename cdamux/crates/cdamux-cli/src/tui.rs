@@ -10,6 +10,7 @@ use crate::fleet_tree::{
     issue_at_row, move_selection, orch_repo_at_row, reanchor_selection, session_at_row, toggle_fold_all, TreeRow,
 };
 use crate::keymap::{map_key_event, DashboardAction};
+use crate::refresh::{sidecar_step, Interval, Sidecar, StatusCache};
 use crate::settings_form::SettingsForm;
 use crate::widgets::{edit_text, wheel_step};
 use crate::spawn_modal::{
@@ -141,8 +142,8 @@ pub fn run_dashboard() -> ExitCode {
     let mut composer_line = String::new();
     let mut preview_text = String::new();
     let mut preview_for_session: Option<String> = None;
-    let mut session_chrome = SessionChrome::gather("", "");
-    let mut chrome_for_session: Option<String> = None;
+    // Only gathered for a session row: tmux is never queried with an empty target.
+    let mut session_chrome: Option<SessionChrome> = None;
     let mut notes_text = String::new();
     let mut notes_for_session: Option<String> = None;
     let mut orch_graph_text = String::new();
@@ -172,17 +173,23 @@ pub fn run_dashboard() -> ExitCode {
     let mut flat = Vec::new();
     let mut agent_lines = Vec::new();
     let mut tree_dirty = true;
-    let mut last_tree_refresh = Instant::now();
-    let mut last_preview_refresh = Instant::now();
-    const TREE_REFRESH: Duration = Duration::from_millis(2000);
-    const PREVIEW_REFRESH: Duration = Duration::from_millis(800);
+    // One interval per source; the 100 ms poll only handles input.
+    let mut tree_iv = Interval::new(Duration::from_millis(2000));
+    let mut preview_iv = Interval::new(Duration::from_millis(800));
+    let mut graph_iv = Interval::new(Duration::from_millis(800));
+    let mut status = StatusCache::new(Duration::from_millis(500));
+    // Redraw on input or when a refresh changed something visible.
+    let mut needs_draw = true;
 
     while !should_quit && attach_name.is_none() && review_session.is_none() {
+        let now = Instant::now();
         let group_by = cfg.sessions.group_by;
         let mut anchor: Option<String> = None;
-        if tree_dirty || app_tab != cached_tab || last_tree_refresh.elapsed() >= TREE_REFRESH {
+        let repos = cached_tree.nodes.iter().map(|n| n.project.path.as_path());
+        needs_draw |= status.refresh(repos, now);
+        if tree_dirty || app_tab != cached_tab || tree_iv.due(now) {
             // Remember the selected session by name: rows shift when sessions come and go.
-            let old_rows = flatten_tree(&cached_tree, &expanded, group_by, waiting_only);
+            let old_rows = flatten_tree(&cached_tree, &expanded, group_by, waiting_only, &status);
             anchor = session_at_row(&old_rows, selected_row).map(|s| s.name.clone());
             cached_tree = build_project_session_tree(
                 &cfg.projects,
@@ -205,11 +212,12 @@ pub fn run_dashboard() -> ExitCode {
                 Vec::new()
             };
             cached_tab = app_tab;
-            last_tree_refresh = Instant::now();
+            tree_iv.mark(now);
             tree_dirty = false;
+            needs_draw = true;
         }
         let tree = &cached_tree;
-        let rows = flatten_tree(tree, &expanded, group_by, waiting_only);
+        let rows = flatten_tree(tree, &expanded, group_by, waiting_only, &status);
         selected_row = reanchor_selection(&rows, selected_row, anchor.as_deref());
         if app_tab == AppTab::Sessions && sessions_selected >= flat.len() && !flat.is_empty() {
             sessions_selected = flat.len() - 1;
@@ -219,19 +227,31 @@ pub fn run_dashboard() -> ExitCode {
         let session = session_at_row(&rows, selected_row);
         if let Some(s) = session {
             let session_changed = preview_for_session.as_deref() != Some(s.name.as_str());
-            if session_changed {
-                preview_scroll = 0;
-                preview_text = fetch_preview(&s.name, preview_max);
-                preview_for_session = Some(s.name.clone());
-                session_chrome = SessionChrome::gather(&s.name, &s.path);
-                chrome_for_session = Some(s.name.clone());
-                last_preview_refresh = Instant::now();
-            } else if side_tab == SideTab::Preview
-                && last_preview_refresh.elapsed() >= PREVIEW_REFRESH
-            {
-                preview_text = fetch_preview(&s.name, preview_max);
-                session_chrome.refresh_volatile(&s.name);
-                last_preview_refresh = Instant::now();
+            match sidecar_step(
+                true,
+                session_changed,
+                side_tab == SideTab::Preview,
+                &mut preview_iv,
+                now,
+            ) {
+                Sidecar::Load => {
+                    preview_scroll = 0;
+                    preview_text = fetch_preview(&s.name, preview_max);
+                    preview_for_session = Some(s.name.clone());
+                    session_chrome = Some(SessionChrome::gather(&s.name, &s.path));
+                    needs_draw = true;
+                }
+                Sidecar::Poll => {
+                    let text = fetch_preview(&s.name, preview_max);
+                    needs_draw |= text != preview_text;
+                    preview_text = text;
+                    if let Some(c) = session_chrome.as_mut() {
+                        let before = c.clone();
+                        c.refresh_volatile(&s.name);
+                        needs_draw |= *c != before;
+                    }
+                }
+                Sidecar::Idle => {}
             }
             if notes_for_session.as_deref() != Some(s.name.as_str()) {
                 notes_text = crate::note_text_for_session_cwd(&cfg, &s.path);
@@ -239,17 +259,18 @@ pub fn run_dashboard() -> ExitCode {
             }
             let graph_key = format!("sess:{}:{}", s.name, s.path);
             if orch_graph_for_session.as_deref() != Some(graph_key.as_str())
-                || (side_tab == SideTab::OrchGraph
-                    && last_preview_refresh.elapsed() >= PREVIEW_REFRESH)
+                || (side_tab == SideTab::OrchGraph && graph_iv.due(now))
             {
-                orch_graph_text = orch_graph_text_for_cwd(&s.path, 72);
+                graph_iv.mark(now);
+                let text = orch_graph_text_for_cwd(&s.path, 72);
+                needs_draw |= text != orch_graph_text;
+                orch_graph_text = text;
                 orch_graph_for_session = Some(graph_key);
             }
         } else if let Some(repo) = orch_repo_at_row(&rows, selected_row) {
             preview_for_session = None;
-            chrome_for_session = None;
+            session_chrome = None;
             preview_scroll = 0;
-            session_chrome = SessionChrome::gather("", "");
             match rows.get(selected_row) {
                 Some(TreeRow::Worker {
                     id, phase, message, ..
@@ -278,18 +299,19 @@ pub fn run_dashboard() -> ExitCode {
             }
             let graph_key = format!("repo:{repo}");
             if orch_graph_for_session.as_deref() != Some(graph_key.as_str())
-                || (side_tab == SideTab::OrchGraph
-                    && last_preview_refresh.elapsed() >= PREVIEW_REFRESH)
+                || (side_tab == SideTab::OrchGraph && graph_iv.due(now))
             {
-                orch_graph_text = orch_graph_text_for_cwd(&repo, 72);
+                graph_iv.mark(now);
+                let text = orch_graph_text_for_cwd(&repo, 72);
+                needs_draw |= text != orch_graph_text;
+                orch_graph_text = text;
                 orch_graph_for_session = Some(graph_key);
             }
         } else {
             preview_for_session = None;
-            chrome_for_session = None;
+            session_chrome = None;
             preview_scroll = 0;
             preview_text = "(select a session for preview)".to_string();
-            session_chrome = SessionChrome::gather("", "");
             notes_for_session = None;
             notes_text = "Select a session to view project notes.".to_string();
             orch_graph_for_session = None;
@@ -318,58 +340,58 @@ pub fn run_dashboard() -> ExitCode {
         };
 
         let modal_open = spawn_overlay.is_some() || rename_overlay.is_some();
-        terminal
-            .draw(|f| {
-                if modal_open {
-                    draw_overlay_scrim(f);
-                    if let Some(overlay) = &mut spawn_overlay {
-                        draw_modal(f, overlay);
-                    }
-                    if let Some(overlay) = &rename_overlay {
-                        draw_rename_modal(f, overlay);
-                    }
-                } else {
-                    draw_app_screen(
-                        f,
-                        app_tab,
-                        DrawState {
-                            rows: &rows,
-                            selected_row,
-                            side_tab,
-                            focus,
-                            preview_text: &preview_text,
-                            preview_scroll,
-                            notes_text: &notes_text,
-                            review_text: &review_text,
-                            orch_graph_text: &orch_graph_text,
-                            composer_line: &composer_line,
-                            composer_session,
-                            session_chrome: if chrome_for_session.is_some() {
-                                Some(&session_chrome)
-                            } else {
-                                None
+        if needs_draw {
+            needs_draw = false;
+            terminal
+                .draw(|f| {
+                    if modal_open {
+                        draw_overlay_scrim(f);
+                        if let Some(overlay) = &mut spawn_overlay {
+                            draw_modal(f, overlay);
+                        }
+                        if let Some(overlay) = &rename_overlay {
+                            draw_rename_modal(f, overlay);
+                        }
+                    } else {
+                        draw_app_screen(
+                            f,
+                            app_tab,
+                            DrawState {
+                                rows: &rows,
+                                selected_row,
+                                side_tab,
+                                focus,
+                                preview_text: &preview_text,
+                                preview_scroll,
+                                notes_text: &notes_text,
+                                review_text: &review_text,
+                                orch_graph_text: &orch_graph_text,
+                                composer_line: &composer_line,
+                                composer_session,
+                                session_chrome: session_chrome.as_ref(),
+                                status_line: help_status.as_str(),
                             },
-                            status_line: help_status.as_str(),
-                        },
-                        &cfg,
-                        &settings,
-                        &config_path_display,
-                        &discovered,
-                        &mut projects_scroll,
-                        &flat,
-                        sessions_selected,
-                        &mut sessions_scroll,
-                        &agent_lines,
-                        waiting_only,
-                        show_help,
-                        &mut fleet_tree_rect,
-                        &mut sidecar_preview_rect,
-                    );
-                }
-            })
-            .ok();
+                            &cfg,
+                            &settings,
+                            &config_path_display,
+                            &discovered,
+                            &mut projects_scroll,
+                            &flat,
+                            sessions_selected,
+                            &mut sessions_scroll,
+                            &agent_lines,
+                            waiting_only,
+                            show_help,
+                            &mut fleet_tree_rect,
+                            &mut sidecar_preview_rect,
+                        );
+                    }
+                })
+                .ok();
+        }
 
         if event::poll(Duration::from_millis(100)).unwrap_or(false) {
+            needs_draw = true;
             match event::read() {
                 Ok(Event::Mouse(m)) => {
                     let wheel = match m.kind {
@@ -491,7 +513,7 @@ pub fn run_dashboard() -> ExitCode {
                                     composer_line.clear();
                                     preview_text = fetch_preview(name, preview_max);
                                     preview_for_session = Some(name.to_string());
-                                    last_preview_refresh = Instant::now();
+                                    preview_iv.mark(Instant::now());
                                     tree_dirty = true;
                                 }
                                 Err(e) => status_line = e.to_string(),
@@ -572,6 +594,7 @@ pub fn run_dashboard() -> ExitCode {
                         &mut app_tab,
                         cfg.sessions.group_by,
                         waiting_only,
+                        &status,
                     ) {
                         continue;
                     }
@@ -824,6 +847,7 @@ fn handle_sessions_keys(
     app_tab: &mut AppTab,
     group_by: GroupBy,
     waiting_only: bool,
+    status: &StatusCache,
 ) -> bool {
     match key.code {
         KeyCode::Down | KeyCode::Char('j') => {
@@ -849,6 +873,7 @@ fn handle_sessions_keys(
                     &s.name,
                     group_by,
                     waiting_only,
+                    status,
                 );
                 *app_tab = AppTab::Fleet;
             }

@@ -1,9 +1,10 @@
 //! Pure fleet tree model: rows, flattening, folding and selection helpers.
 
 use cdamux_core::{
-    load_orch_run_status, project_has_orch_artifacts, project_key, EnrichedSession, GroupBy,
+    project_has_orch_artifacts, project_key, EnrichedSession, GroupBy,
     ProjectSessionTree, ProjectTreeNode, SessionState,
 };
+use crate::refresh::StatusCache;
 use std::collections::HashSet;
 
 pub(crate) fn tree_node_key(node: &ProjectTreeNode, group_by: GroupBy) -> String {
@@ -49,6 +50,7 @@ pub(crate) fn flatten_tree(
     expanded: &HashSet<String>,
     group_by: GroupBy,
     waiting_only: bool,
+    status: &StatusCache,
 ) -> Vec<TreeRow> {
     let mut rows = Vec::new();
     for node in &tree.nodes {
@@ -58,9 +60,7 @@ pub(crate) fn flatten_tree(
             .filter(|s| session_passes_waiting_filter(s, waiting_only))
             .cloned()
             .collect();
-        let workers = load_orch_run_status(&node.project.path)
-            .map(|s| s.workers)
-            .unwrap_or_default();
+        let workers = status.workers(&node.project.path).to_vec();
         let visible_workers: Vec<_> = if waiting_only {
             workers
                 .into_iter()
@@ -243,18 +243,19 @@ pub(crate) fn focus_session_in_tree(
     name: &str,
     group_by: GroupBy,
     waiting_only: bool,
+    status: &StatusCache,
 ) -> usize {
     for node in &tree.nodes {
         if node.sessions.iter().any(|s| s.name == name) {
             expanded.insert(tree_node_key(node, group_by));
-            let rows = flatten_tree(tree, expanded, group_by, waiting_only);
+            let rows = flatten_tree(tree, expanded, group_by, waiting_only, status);
             if let Some(idx) = row_index_for_session(&rows, name) {
                 return idx;
             }
         }
     }
     if tree.unassigned.iter().any(|s| s.name == name) {
-        let rows = flatten_tree(tree, expanded, group_by, waiting_only);
+        let rows = flatten_tree(tree, expanded, group_by, waiting_only, status);
         return row_index_for_session(&rows, name).unwrap_or(0);
     }
     0
@@ -282,6 +283,10 @@ mod tests {
     use cdamux_core::{Project, SessionState};
     use std::path::PathBuf;
 
+    fn no_status() -> StatusCache {
+        StatusCache::new(std::time::Duration::ZERO)
+    }
+
     #[test]
     fn flatten_respects_expand() {
         let tree = ProjectSessionTree {
@@ -303,12 +308,12 @@ mod tests {
             unassigned: vec![],
         };
         let exp: HashSet<String> = HashSet::new();
-        let collapsed = flatten_tree(&tree, &exp, GroupBy::Project, false);
+        let collapsed = flatten_tree(&tree, &exp, GroupBy::Project, false, &no_status());
         assert_eq!(collapsed.len(), 1);
         let exp2: HashSet<String> = [project_key(&tree.nodes[0].project.path)]
             .into_iter()
             .collect();
-        let open = flatten_tree(&tree, &exp2, GroupBy::Project, false);
+        let open = flatten_tree(&tree, &exp2, GroupBy::Project, false, &no_status());
         assert_eq!(open.len(), 2);
     }
 
@@ -370,7 +375,7 @@ mod tests {
         let exp: HashSet<String> = [project_key(&tree.nodes[0].project.path)]
             .into_iter()
             .collect();
-        let rows = flatten_tree(&tree, &exp, GroupBy::Project, true);
+        let rows = flatten_tree(&tree, &exp, GroupBy::Project, true, &no_status());
         assert_eq!(rows.len(), 2);
         assert!(matches!(&rows[1], TreeRow::Session(s) if s.name == "wait"));
     }

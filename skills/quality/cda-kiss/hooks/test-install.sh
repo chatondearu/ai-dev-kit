@@ -48,9 +48,21 @@ inst --cdamux-hooks; inst --cdamux-hooks
 [ "$(dcount)" = 2 ] || fail "cdamux hooks not exactly once"
 jq -e --arg d "$D" '[.hooks.SubagentStop[].hooks[].command | select(contains($d))] | length == 1' "$S" >/dev/null || fail "no cdamux SubagentStop hook"
 [ "$(count "$S" "$claude_cmds")" = 3 ] || fail "kiss hooks changed by --cdamux-hooks"
+ccount() { jq --arg d "$D" "[$cursor_cmds | select(contains(\$d))] | length" "$C"; }
+[ "$(ccount)" = 2 ] || fail "cursor cdamux hooks not exactly once"
+jq -e --arg d "$D" '[.hooks.subagentStop[].command | select(contains($d))] | length == 1' "$C" >/dev/null || fail "no cdamux subagentStop hook"
+jq -e '.hooks.sessionStart | map(.command) | index("echo mine")' "$C" >/dev/null || fail "foreign cursor hook lost by --cdamux-hooks"
+OCL="$XDG_CONFIG_HOME/opencode/plugins/cdamux-subagent.js"
+"$SH" ./install.sh --opencode --no-claude --no-cursor >"$tmp/out" 2>&1 || fail "opencode install"
+[ ! -e "$OCL" ] || fail "opencode plugin linked without --cdamux-hooks"
+"$SH" ./install.sh --opencode --no-claude --no-cursor --cdamux-hooks >"$tmp/out" 2>&1 || fail "opencode install --cdamux-hooks"
+[ "$(readlink "$OCL")" = "$D/opencode-subagent.js" ] || fail "opencode plugin not linked"
 inst --uninstall
-[ "$(dcount)" = 0 ] || fail "cdamux hooks left after uninstall"
+"$SH" ./install.sh --opencode --no-claude --no-cursor --uninstall >"$tmp/out" 2>&1 || fail "opencode uninstall"
+[ ! -L "$OCL" ] || fail "opencode plugin link left after uninstall"
+[ "$(dcount)" = 0 ] && [ "$(ccount)" = 0 ] || fail "cdamux hooks left after uninstall"
 jq -e '.hooks.SubagentStop == null' "$S" >/dev/null || fail "empty SubagentStop event left"
+jq -e '.hooks.subagentStop == null and (.hooks.sessionStart | length == 1)' "$C" >/dev/null || fail "cursor cdamux uninstall wrong"
 
 # --cursor-home without a value: clear error, not an unbound-variable crash
 ! "$SH" ./install.sh --cursor-home >"$tmp/out" 2>&1 || fail "--cursor-home without DIR accepted"

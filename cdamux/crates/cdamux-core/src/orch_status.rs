@@ -11,7 +11,7 @@ pub struct PhaseMark {
     pub started_at: u64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct OrchWorkerStatus {
     pub id: String,
     #[serde(default)]
@@ -23,6 +23,12 @@ pub struct OrchWorkerStatus {
     /// Phase history, oldest first; absent in files written before it existed.
     #[serde(default)]
     pub phases: Vec<PhaseMark>,
+    /// `ORCH_TMUX=1`: tmux session running the worker's agent (may be gone).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tmux_session: Option<String>,
+    /// `ORCH_TMUX=1`: agent output log of the worker.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub log: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

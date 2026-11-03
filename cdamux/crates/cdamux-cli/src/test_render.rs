@@ -74,13 +74,15 @@ fn row(session: EnrichedSession, depth: usize, expanded: Option<bool>) -> TreeRo
 
 fn worker(id: &str, phase: &str, message: &str) -> TreeRow {
     TreeRow::Child {
-        row: ChildRow::from_orch_worker(&OrchWorkerStatus {
-            id: id.into(),
-            phase: phase.into(),
-            message: message.into(),
-            updated_at: String::new(),
-            phases: Vec::new(),
-        }),
+        row: ChildRow::from_orch_worker(
+            &OrchWorkerStatus {
+                id: id.into(),
+                phase: phase.into(),
+                message: message.into(),
+                ..Default::default()
+            },
+            false,
+        ),
         depth: 1,
         project_path: "/src/alpha".into(),
     }

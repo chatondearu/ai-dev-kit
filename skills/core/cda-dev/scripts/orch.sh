@@ -80,7 +80,8 @@ done
 # Kills this process group (workers, agents, dashboard). Armed after the libs are sourced, so
 # sourcing them from a test never installs it. Run orch in its own group (`setsid`, or `set -m`)
 # when launching it from a script that must survive an interrupt.
-trap '_orch_release_lock; trap - INT TERM; kill 0' INT TERM
+# ORCH_TMUX=1 agents live in tmux, outside this group: kill their sessions too.
+trap '_orch_release_lock; orch_tmux_kill_run; trap - INT TERM; kill 0' INT TERM
 
 export ORCH_MAX_PARALLEL="$MAX_P" ORCH_MAX_ITER="$MAX_I" ORCH_SANDBOX="$SANDBOX"
 export ORCH_FAIL_FAST="$FAIL_FAST" ORCH_FORCE_CLEAN="$FORCE_CLEAN" ORCH_ROOT="$ROOT"
@@ -88,6 +89,11 @@ REPO="$(orch_repo_root "$REPO")"
 export ORCH_REPO="$REPO"
 if [ "$NO_PROGRESS" = 1 ]; then
   export ORCH_PROGRESS=0
+fi
+if [ "${ORCH_TMUX:-0}" = 1 ]; then
+  # Run id in worker session names (orch-<run>-<worker>), shared by every worker.
+  export ORCH_RUN_ID="${ORCH_RUN_ID:-$(date -u +%Y%m%dT%H%M%SZ)}"
+  [ "$SANDBOX" != 1 ] || echo "orch: ORCH_TMUX ignored with --sandbox (tmux runs agents outside bwrap)" >&2
 fi
 
 # Project opt-in: AGENTS.md line `orch: allow-no-checks` (repos without Actions).
@@ -445,7 +451,7 @@ case "$MODE" in
     fi
 
     mkdir -p "$REPO/.orch/run"
-    rm -f "$REPO/.orch/run"/*.rc "$REPO/.orch/run"/*.status "$REPO/.orch/run"/*.json "$REPO/.orch/run"/.dashboard-stop 2>/dev/null || true
+    rm -f "$REPO/.orch/run"/*.rc "$REPO/.orch/run"/*.status "$REPO/.orch/run"/*.json "$REPO/.orch/run"/*.log "$REPO/.orch/run"/.dashboard-stop 2>/dev/null || true
     if [ "$DRY" != 1 ]; then
       orch_graph_init "ready-pickup-$(date -u +%Y%m%dT%H%M%SZ)"
       orch_graph_upsert_node integrator integrator pending queued "awaiting workers" ""

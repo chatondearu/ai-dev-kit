@@ -33,7 +33,7 @@ pub use project_tree::{
     ProjectTreeNode,
 };
 pub use session_links::{
-    session_forest, ChildKind, ChildRow, PreviewSource, SessionForest,
+    session_forest, tail_lines, ChildKind, ChildRow, PreviewSource, SessionForest,
 };
 pub use session_chrome::{session_agent_label, SessionChrome, AGENT_LABEL_MISSING};
 pub use session::{

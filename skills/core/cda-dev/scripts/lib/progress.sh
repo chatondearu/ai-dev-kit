@@ -25,6 +25,12 @@ orch_progress_write_json() {
   mkdir -p "$dir"
   ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date -u)"
   json_file="$dir/${id}.json"
+  # ORCH_TMUX=1: point cdamux at the worker's session (pane preview) and log (tail preview).
+  local tmux_session="" log=""
+  if declare -F orch_tmux_on >/dev/null && orch_tmux_on; then
+    tmux_session="$(orch_tmux_session "$id")"
+    log="$(orch_tmux_log "$id")"
+  fi
   # Parallel workers write here: build in a same-dir temp file, then rename (atomic),
   # so a concurrent `jq -s` never reads a half-written file. $BASHPID: subshell-unique.
   tmp="$json_file.tmp.$BASHPID"
@@ -40,10 +46,13 @@ orch_progress_write_json() {
       --arg updated_at "$ts" \
       --argjson prev "$prev" \
       --argjson now "$(date +%s)" \
+      --arg tmux_session "$tmux_session" \
+      --arg log "$log" \
       '{id:$id, phase:$phase, message:$message, updated_at:$updated_at,
         phases: (if $phase == "pending" then [{phase:$phase, started_at:$now}]
                  elif ($prev | length) > 0 and $prev[-1].phase == $phase then $prev
-                 else ($prev + [{phase:$phase, started_at:$now}])[-40:] end)}' \
+                 else ($prev + [{phase:$phase, started_at:$now}])[-40:] end)}
+       + (if $tmux_session == "" then {} else {tmux_session:$tmux_session, log:$log} end)' \
       >"$tmp" && mv "$tmp" "$json_file"
     # Aggregate all workers into one file agents can poll.
     agg="$dir/status.json"
@@ -75,10 +84,26 @@ orch_progress_set() {
   status_file="$dir/${id}.status"
   printf '%s|%s\n' "$phase" "$msg" >"$status_file"
   orch_progress_write_json "$id" "$phase" "$msg"
+  orch_progress_tmux_state "$id" "$phase"
 
   if ! orch_progress_enabled; then
     printf '[#%s] %s: %s\n' "$id" "$phase" "$msg" >&2
   fi
+}
+
+# ORCH_TMUX=1: mirror the phase as @cdamux_state on the worker's session; no-op without one.
+orch_progress_tmux_state() {
+  local s state
+  declare -F orch_tmux_on >/dev/null && orch_tmux_on || return 0
+  s="$(orch_tmux_session "$1")"
+  tmux has-session -t "=$s:" 2>/dev/null || return 0
+  case "$2" in
+    done) state=done ;;
+    blocked) state=error ;;
+    pending) state=waiting ;;
+    *) state=running ;;
+  esac
+  tmux set-option -t "=$s:" @cdamux_state "$state" 2>/dev/null || true
 }
 
 orch_progress_icon() {

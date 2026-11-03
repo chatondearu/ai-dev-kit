@@ -1,6 +1,7 @@
 //! Session list enrichment and grouping.
 
 use crate::session_chrome::{resolve_agent_label, AGENT_LABEL_MISSING};
+use crate::project_tree::project_for_path;
 use crate::tmux::{list_panes_all, SessionPaneInfo};
 use crate::{discover_projects, GroupBy, Project, ProjectsConfig, TmuxSession};
 use serde::{Deserialize, Serialize};
@@ -205,14 +206,7 @@ fn group_path_key(path: &str, projects: &[Project]) -> String {
         return "(no cwd)".to_string();
     }
     let p = Path::new(path);
-    let mut best: Option<&Project> = None;
-    for proj in projects {
-        if p.starts_with(&proj.path) {
-            if best.is_none() || proj.path.as_os_str().len() > best.unwrap().path.as_os_str().len() {
-                best = Some(proj);
-            }
-        }
-    }
+    let best = project_for_path(path, projects);
     match best {
         Some(proj) => {
             let rel = p.strip_prefix(&proj.path).unwrap_or(p);

@@ -59,7 +59,7 @@ pub use session_manage::{
 };
 pub use spawn::{
     configured_agent_ids, default_agent_name, default_shell_command, resolve_agent_command,
-    session_name_for_path, spawn_tmux_session, spawn_tmux_session_with_layout, PaneLayout,
+    session_name_for_path, spawn_tmux_session_with_layout, PaneLayout,
     SpawnError, SpawnOutcome,
 };
 pub use worktree::{

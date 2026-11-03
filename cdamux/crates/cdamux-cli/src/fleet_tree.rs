@@ -197,6 +197,18 @@ pub(crate) fn clamp_selection(rows: &[TreeRow], selected_row: usize) -> usize {
     indices[0]
 }
 
+/// Keep the selection on the same session after the rows were rebuilt;
+/// fall back to clamping the index when it is gone (or nothing was anchored).
+pub(crate) fn reanchor_selection(
+    rows: &[TreeRow],
+    selected_row: usize,
+    anchor: Option<&str>,
+) -> usize {
+    anchor
+        .and_then(|name| row_index_for_session(rows, name))
+        .unwrap_or_else(|| clamp_selection(rows, selected_row))
+}
+
 pub(crate) fn move_selection(rows: &[TreeRow], selected_row: usize, delta: i32) -> usize {
     let indices = selectable_indices(rows);
     if indices.is_empty() {
@@ -298,6 +310,31 @@ mod tests {
             .collect();
         let open = flatten_tree(&tree, &exp2, GroupBy::Project, false);
         assert_eq!(open.len(), 2);
+    }
+
+    fn sess(name: &str) -> cdamux_core::EnrichedSession {
+        cdamux_core::EnrichedSession {
+            name: name.into(),
+            path: "/tmp/p".into(),
+            group_key: "p".into(),
+            state: SessionState::Idle,
+            agent: "claude".into(),
+            issue: None,
+        }
+    }
+
+    #[test]
+    fn reanchor_follows_session_name_not_index() {
+        let rows = vec![
+            TreeRow::UnassignedHeader,
+            TreeRow::Unassigned(sess("c-a2")),
+            TreeRow::Unassigned(sess("c-b")),
+        ];
+        // `c-b` was row 1 before `c-a2` appeared above it.
+        assert_eq!(reanchor_selection(&rows, 1, Some("c-b")), 2);
+        // Anchored session vanished: clamp the index instead.
+        assert_eq!(reanchor_selection(&rows, 1, Some("gone")), 1);
+        assert_eq!(reanchor_selection(&rows, 1, None), 1);
     }
 
     #[test]

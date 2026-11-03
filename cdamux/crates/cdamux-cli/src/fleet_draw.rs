@@ -202,6 +202,7 @@ pub(crate) fn row_index_from_mouse(
     column: u16,
     row: u16,
     row_count: usize,
+    selected_row: usize,
 ) -> Option<usize> {
     let inner = tree_list_block().inner(area);
     if column < inner.x || column >= inner.x + inner.width {
@@ -210,12 +211,11 @@ pub(crate) fn row_index_from_mouse(
     if row < inner.y || row >= inner.y + inner.height {
         return None;
     }
-    let rel = (row - inner.y) as usize;
-    if rel < row_count {
-        Some(rel)
-    } else {
-        None
-    }
+    // The list is rendered with a fresh ListState each frame, so ratatui scrolls
+    // just enough to show the selected row: offset = selected + 1 - height.
+    let offset = (selected_row + 1).saturating_sub(inner.height as usize);
+    let idx = (row - inner.y) as usize + offset;
+    (idx < row_count).then_some(idx)
 }
 
 pub(crate) fn draw_app_screen(
@@ -591,6 +591,19 @@ pub(crate) fn draw_sidecar(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mouse_click_accounts_for_scroll_offset() {
+        let area = ratatui::layout::Rect::new(0, 0, 40, 20);
+        let inner = tree_list_block().inner(area);
+        let h = inner.height as usize;
+        // Not scrolled: first visible row is row 0.
+        assert_eq!(row_index_from_mouse(area, inner.x, inner.y, 30, 0), Some(0));
+        // Row `h + 4` selected: offset is 5, so the top visible row is row 5.
+        assert_eq!(row_index_from_mouse(area, inner.x, inner.y, 30, h + 4), Some(5));
+        // Click past the last row.
+        assert_eq!(row_index_from_mouse(area, inner.x, inner.y + 2, 2, 0), None);
+    }
 
     #[test]
     fn side_tab_cycles() {

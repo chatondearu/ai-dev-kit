@@ -65,14 +65,22 @@ _orch_ci_heartbeat() {
 orch_pr_checks_watch() {
   local pr="$1"
   local timeout="${2:-600}"
+  # Seconds to keep waiting on "no checks reported" so a fresh push can register checks.
+  local grace="${_ORCH_CI_NO_CHECKS_GRACE:-60}"
   local start=$SECONDS
-  local json status gh_rc
+  local json status gh_rc errf rc
   local last_hb=-999
   local elapsed
+  errf="$(mktemp)"
   while true; do
     elapsed=$((SECONDS - start))
     gh_rc=0
-    json="$(gh pr checks "$pr" --json name,state,bucket 2>/dev/null)" || gh_rc=$?
+    json="$(gh pr checks "$pr" --json name,state,bucket 2>"$errf")" || gh_rc=$?
+    # Real gh on a PR without checks: empty stdout, exit 1, stderr
+    # "no checks reported on the '<branch>' branch" — same as an empty list.
+    if [ "$gh_rc" -ne 0 ] && grep -q 'no checks reported' "$errf" && (( elapsed >= grace || elapsed >= timeout )); then
+      json="[]" gh_rc=0
+    fi
     if [ "$gh_rc" -ne 0 ] || [ -z "$json" ]; then
       status="pending"
     else
@@ -80,17 +88,17 @@ orch_pr_checks_watch() {
     fi
     if [ "$status" = "green" ]; then
       printf 'green\n'
-      return 0
+      rc=0; break
     fi
     if [ "$status" = "fail" ]; then
       printf 'red\n'
-      return 1
+      rc=1; break
     fi
     # Empty checks: do not wait for checks that will never appear.
     if [ "$status" = "none" ]; then
       printf 'none\n'
       printf 'orch: PR #%s has no checks; set ORCH_ALLOW_NO_CHECKS=1 or add CI (see doc/configuration.md)\n' "$pr" >&2
-      return 1
+      rc=1; break
     fi
     if (( elapsed - last_hb >= 30 )); then
       _orch_ci_heartbeat "$pr" "$status" "$elapsed"
@@ -98,10 +106,12 @@ orch_pr_checks_watch() {
     fi
     if (( elapsed >= timeout )); then
       printf 'pending\n'
-      return 1
+      rc=1; break
     fi
     sleep 5
   done
+  rm -f "$errf"
+  return "$rc"
 }
 
 orch_pr_mergeable() {

@@ -186,7 +186,8 @@ orch_graph_add_edge() {
     '
 }
 
-# Graph-shaped worker: implement/fix nodes + verify; falls back to same semantics as orch_loop_worker.
+# The worker loop (orch_loop_worker delegates here): implement/fix nodes + verify +
+# grounding verifier. Graph writes are no-ops when ORCH_GRAPH=0 (--no-graph).
 orch_graph_worker() {
   local wt="$1" prompt="$2"
   local max="${ORCH_MAX_ITER:-10}" i=1
@@ -208,7 +209,7 @@ orch_graph_worker() {
     if type orch_progress_set >/dev/null 2>&1 && [ -n "${ORCH_WORKER_ID:-}" ]; then
       orch_progress_set "$ORCH_WORKER_ID" agent "graph ${phase} ${i}/${max}"
     else
-      printf 'orch graph %s iter %s/%s\n' "$phase" "$i" "$max" >&2
+      printf 'orch loop iter %s/%s (%s)\n' "$i" "$max" "$phase" >&2
     fi
 
     rm -f "$wt/.orch/agent-ok" 2>/dev/null || true
@@ -243,6 +244,11 @@ orch_graph_worker() {
 
       if [ "$vcmd" = "true" ] && [ "$agent_rc" -ne 0 ] && [ ! -f "$wt/.orch/agent-ok" ]; then
         orch_graph_upsert_node "$node_prefix" worker "$phase" retry "agent failed, verify fallback" ""
+        if [ -n "${ORCH_WORKER_ID:-}" ] && type orch_progress_set >/dev/null 2>&1; then
+          orch_progress_set "$ORCH_WORKER_ID" agent "retry after agent fail (${i}/${max})"
+        else
+          printf 'orch loop: agent failed and verify is fallback true (iter %s/%s)\n' "$i" "$max" >&2
+        fi
         i=$((i + 1))
         continue
       fi
@@ -252,12 +258,15 @@ orch_graph_worker() {
         1|on|true|yes)
           if orch_graph_verifier_pass "$wt" "$node_prefix"; then
             orch_graph_upsert_node "$node_prefix" worker done done "verify + grounding ok" ""
+            [ -n "${ORCH_WORKER_ID:-}" ] || printf 'verify ok\n' >&2
             return 0
           fi
           orch_graph_upsert_node "$node_prefix" worker verify blocked "grounding verifier failed" ""
+          [ -n "${ORCH_WORKER_ID:-}" ] || printf 'orch loop: grounding verifier failed (iter %s/%s)\n' "$i" "$max" >&2
           ;;
         *)
           orch_graph_upsert_node "$node_prefix" worker done done "verify ok" ""
+          [ -n "${ORCH_WORKER_ID:-}" ] || printf 'verify ok\n' >&2
           return 0
           ;;
       esac
@@ -273,6 +282,7 @@ orch_graph_worker() {
   done
 
   orch_graph_upsert_node "$node_prefix" worker blocked blocked "max iter exhausted" ""
+  [ -n "${ORCH_WORKER_ID:-}" ] || printf 'blocked\n' >&2
   return 1
 }
 
@@ -292,6 +302,8 @@ orch_graph_verifier_pass() {
     plan="$p"
     break
   done
+  # Fast lane: no plan, the agent brief is the contract.
+  [ "$plan" = none ] && [ -f "$wt/.orch/brief.md" ] && plan="$wt/.orch/brief.md"
 
   if [ ! -f "$tpl" ]; then
     return 0
@@ -307,7 +319,8 @@ orch_graph_verifier_pass() {
   orch_graph_upsert_node "$vnode" verifier grounding running "checking plan/ADR" "$parent"
   orch_graph_add_edge "$parent" "$vnode" step
 
-  rm -f "$wt/.orch/agent-ok" 2>/dev/null || true
+  # Markers from a previous pass (review fix, reused worktree) must not decide this one.
+  rm -f "$wt/.orch/agent-ok" "$wt/.orch/verifier-ok" "$wt/.orch/verifier-fail" 2>/dev/null || true
   if orch_agent_run "$wt" "$vprompt"; then
     if [ -f "$wt/.orch/verifier-ok" ]; then
       orch_graph_upsert_node "$vnode" verifier grounding done "grounded" "$parent"

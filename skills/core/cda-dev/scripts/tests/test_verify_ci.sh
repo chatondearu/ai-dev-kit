@@ -27,12 +27,15 @@ PATH="$FAKE:$_ORIG_PATH"
 out="$(orch_pr_checks_watch 1 5)"
 assert_eq "$out" "green" "ci green"
 
-# empty checks → none immediately (fail-fast; not CI-green without opt-in)
+# empty checks → none immediately (fail-fast; not CI-green without opt-in).
+# Real gh on a PR without checks: nothing on stdout, message on stderr, exit 1.
 cat >"$FAKE/gh" <<EOF
 #!$STUB_BASH
-echo '[]'
+echo "no checks reported on the 'feat/1-x' branch" >&2
+exit 1
 EOF
 chmod +x "$FAKE/gh"
+export _ORCH_CI_NO_CHECKS_GRACE=0
 start_empty=$SECONDS
 set +e
 out_empty="$(orch_pr_checks_watch 99 600 2>/dev/null)"
@@ -54,6 +57,21 @@ ORCH_ALLOW_NO_CHECKS=1
 out_empty_ok="$(orch_pr_checks_watch 99 5)"
 unset ORCH_ALLOW_NO_CHECKS
 assert_eq "$out_empty_ok" "green" "empty checks green with ORCH_ALLOW_NO_CHECKS=1"
+unset _ORCH_CI_NO_CHECKS_GRACE
+
+# "no checks reported" right after a push stays pending within the grace period
+cat >"$FAKE/gh" <<EOF
+#!$STUB_BASH
+if [ -f "$FAKE/registered" ]; then
+  echo '[{"name":"ci","state":"SUCCESS","bucket":"pass"}]'
+else
+  touch "$FAKE/registered"
+  echo "no checks reported on the 'feat/1-x' branch" >&2
+  exit 1
+fi
+EOF
+out_grace="$(orch_pr_checks_watch 99 600 2>/dev/null)"
+assert_eq "$out_grace" "green" "no checks yet within grace waits for late checks"
 
 # fail status → red immediately (no full timeout wait)
 cat >"$FAKE/gh" <<EOF
@@ -200,6 +218,15 @@ allow_rc=$?
 set -e
 unset ORCH_VERIFY_TRUST
 assert_eq "$allow_rc" "0" "untrusted allows allowlisted true"
+
+# Workers run under bash -c: the allowlist helper must be exported with the rest.
+source "$TROOT/../lib/loop.sh"
+orch_export_functions
+set +e
+ORCH_VERIFY_TRUST=untrusted bash -c 'orch_run_verify "$1"' _ "$TMP_AGENTS" >/dev/null 2>&1
+sub_rc=$?
+set -e
+assert_eq "$sub_rc" "0" "untrusted allowlisted verify passes under bash -c"
 rm -rf "$TMP_AGENTS"
 
 # progress JSON aggregate (agent poll surface)

@@ -54,64 +54,18 @@ orch_resolve_context() {
   [ -n "$ORCH_CONSTRAINTS" ] || ORCH_CONSTRAINTS="none"
 }
 
-orch_loop_worker() {
-  local wt="$1" prompt="$2"
-  if orch_graph_enabled 2>/dev/null && type orch_graph_worker >/dev/null 2>&1; then
-    orch_graph_worker "$wt" "$prompt"
-    return $?
-  fi
-  local max="${ORCH_MAX_ITER:-10}" i=1
-  local agent_rc verify_rc vcmd wid="${ORCH_WORKER_ID:-}"
-  local base_prompt="$prompt" vlog="$wt/.orch/verify.log"
-  while [ "$i" -le "$max" ]; do
-    if [ -n "$wid" ] && type orch_progress_set >/dev/null 2>&1; then
-      orch_progress_set "$wid" agent "iter ${i}/${max}"
-    else
-      printf 'orch loop iter %s/%s\n' "$i" "$max" >&2
-    fi
-    rm -f "$wt/.orch/agent-ok" 2>/dev/null || true
-    agent_rc=0
-    orch_agent_run "$wt" "$prompt" || agent_rc=$?
-    if ! vcmd="$(orch_resolve_verify "$wt")"; then
-      if [ -n "$wid" ] && type orch_progress_set >/dev/null 2>&1; then
-        orch_progress_set "$wid" blocked "$ORCH_NO_VERIFY_REASON"
-      else
-        printf 'blocked: %s\n' "$ORCH_NO_VERIFY_REASON" >&2
-      fi
-      return 3
-    fi
-    if [ -n "$wid" ] && type orch_progress_set >/dev/null 2>&1; then
-      orch_progress_set "$wid" verify "${vcmd%%$'\n'*}"
-    fi
-    mkdir -p "$wt/.orch"
-    orch_run_verify "$wt" 2>&1 | tee "$vlog" >&2
-    verify_rc="${PIPESTATUS[0]}"
-    if [ "$verify_rc" -eq 0 ]; then
-      if [ "$vcmd" = "true" ] && [ "$agent_rc" -ne 0 ] && [ ! -f "$wt/.orch/agent-ok" ]; then
-        if [ -n "$wid" ] && type orch_progress_set >/dev/null 2>&1; then
-          orch_progress_set "$wid" agent "retry after agent fail (${i}/${max})"
-        else
-          printf 'orch loop: agent failed and verify is fallback true (iter %s/%s)\n' "$i" "$max" >&2
-        fi
-      else
-        if [ -z "$wid" ] || ! type orch_progress_set >/dev/null 2>&1; then
-          printf 'verify ok\n' >&2
-        fi
-        return 0
-      fi
-    else
-      # Retry with the failing output instead of re-sending the same prompt blind.
-      if type orch_verify_retry_prompt >/dev/null 2>&1; then
-        prompt="$(orch_verify_retry_prompt "$base_prompt" "$wt" "$vlog")"
-      fi
-    fi
-    i=$((i + 1))
+# Workers run under `bash -c`: export every harness function (orch_* / _orch_*) so
+# no helper goes missing in the child (e.g. _orch_verify_is_allowed for pr-fix).
+orch_export_functions() {
+  local fn
+  for fn in $(compgen -A function); do
+    case "$fn" in orch_*|_orch_*) export -f "$fn" ;; esac
   done
-  if [ -z "$wid" ] || ! type orch_progress_set >/dev/null 2>&1; then
-    printf 'blocked\n' >&2
-  fi
-  return 1
 }
+
+# One worker loop for both modes (lib/graph.sh): --no-graph only stops current.json
+# writes, it never skips the grounding verifier (ADR-006).
+orch_loop_worker() { orch_graph_worker "$@"; }
 
 # Independent review gate (ADR-006): run an already rendered reviewer.md prompt in a
 # fresh agent call, log to RLOG. Returns 0 only on `REVIEW: approved`;

@@ -80,9 +80,7 @@ fn fork_selected_session(cfg: &Config, s: &EnrichedSession) -> Result<String, St
 /// Inside tmux: switch the client and return a status line. Outside: `None`,
 /// the caller exits the dashboard and attaches.
 fn switch_or_attach(name: &str) -> Option<Result<String, String>> {
-    if std::env::var_os("TMUX").is_none() {
-        return None;
-    }
+    std::env::var_os("TMUX")?;
     Some(
         switch_client_to_session(name)
             .map(|()| format!("attached {name} — M-u or agent exit reopens cdamux"))

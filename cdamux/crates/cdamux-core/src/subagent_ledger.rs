@@ -84,7 +84,7 @@ fn fold_ledger(text: &str) -> Vec<LedgerAgent> {
 fn agent_rows(agents: &[LedgerAgent], now: u64) -> Vec<ChildRow> {
     agents
         .iter()
-        .filter(|a| a.stopped_at.map_or(true, |t| now.saturating_sub(t) < KEEP_STOPPED_SECS))
+        .filter(|a| a.stopped_at.is_none_or(|t| now.saturating_sub(t) < KEEP_STOPPED_SECS))
         .map(|a| ChildRow {
             id: a.id.clone(),
             label: if a.name.is_empty() { "subagent".into() } else { a.name.clone() },

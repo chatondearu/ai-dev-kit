@@ -383,7 +383,13 @@ pub(crate) fn draw_overlay_scrim(f: &mut Frame) {
 }
 
 pub(crate) fn draw_modal(f: &mut Frame, state: &mut ModalState) {
-    let area = centered_rect(70, 70, f.area());
+    let full = f.area();
+    // Small terminals: give the modal nearly all the room so no option line is squeezed out.
+    let area = centered_rect(
+        if full.width < 100 { 90 } else { 70 },
+        if full.height < 30 { 90 } else { 70 },
+        full,
+    );
     let block = Block::default()
         .title(" New session ")
         .borders(Borders::ALL)

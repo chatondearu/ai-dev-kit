@@ -17,7 +17,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
-    widgets::{Block, Borders, List, ListItem, ListState, Paragraph, StatefulWidget, Wrap},
+    widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, StatefulWidget, Wrap},
     Frame,
 };
 
@@ -304,6 +304,8 @@ pub(crate) fn draw_help_overlay(f: &mut Frame, area: ratatui::layout::Rect) {
         .border_style(Style::default().fg(Color::Cyan))
         .title("keyboard help (? / Esc close)");
     let inner = block.inner(area);
+    // The Fleet screen is drawn underneath: wipe it so it cannot show between columns.
+    f.render_widget(Clear, area);
     f.render_widget(block, area);
     let text = fleet_help_text();
     if text.lines().count() <= inner.height as usize {
@@ -339,7 +341,9 @@ pub(crate) fn draw_fleet_body(
         Span::styled(" — fleet", Style::default().fg(CLR_TEXT)),
         Span::styled("  ○ idle ", Style::default().fg(CLR_IDLE)),
         Span::styled("● active ", Style::default().fg(CLR_OK)),
-        Span::styled("◆ needs", Style::default().fg(CLR_WARN)),
+        Span::styled("◆ needs ", Style::default().fg(CLR_WARN)),
+        Span::styled("⊘ blocked ", Style::default().fg(node_state_color(NodeState::Blocked))),
+        Span::styled("✓ done", Style::default().fg(node_state_color(NodeState::Done))),
     ];
     if waiting_only {
         title_parts.push(Span::styled("  [waiting]", Style::default().fg(CLR_WARN)));
@@ -515,7 +519,8 @@ pub(crate) fn draw_sidecar(
     state: &DrawState,
     preview_rect: &mut Option<ratatui::layout::Rect>,
 ) {
-    let show_composer = state.side_tab == SideTab::Preview;
+    // Only a session row can receive text: projects / workers get the rows back.
+    let show_composer = state.side_tab == SideTab::Preview && state.composer_session.is_some();
     let show_chrome = state.side_tab == SideTab::Preview && state.session_chrome.is_some();
     let vertical = if show_composer {
         Layout::default()
@@ -594,12 +599,15 @@ pub(crate) fn draw_sidecar(
         return;
     }
     let body = if state.side_tab == SideTab::Preview {
-        Paragraph::new(preview_display_lines(
+        let para = Paragraph::new(preview_display_lines(
             state.preview_text,
             state.preview_scroll,
             view_rows,
         ))
-            .wrap(Wrap { trim: false })
+            .wrap(Wrap { trim: false });
+        // Wrapped lines take more rows than the window holds: keep the newest at the bottom.
+        let overflow = para.line_count(vertical[preview_idx].width).saturating_sub(view_rows as usize);
+        para.scroll((overflow as u16, 0))
     } else {
         Paragraph::new(sidecar_plain_body(
             state.side_tab,

@@ -6,7 +6,7 @@
 //! Rewrite them with `CDAMUX_UPDATE_SNAPSHOTS=1 cargo test`.
 
 use crate::app_tabs::AppTab;
-use crate::fleet_draw::{draw_app_screen, draw_help_overlay, DrawState, FocusArea, SideTab};
+use crate::fleet_draw::{draw_app_screen, DrawState, FocusArea, SideTab};
 use crate::fleet_tree::TreeRow;
 use crate::graph_view::OrchGraphView;
 use crate::settings_form::SettingsForm;
@@ -226,14 +226,16 @@ pub(crate) fn fixture_steps_graph() -> OrchGraphView {
     }
 }
 
-const PREVIEW: &str = "$ cargo test\n   Compiling alpha v0.1.0\nrunning 3 tests\ntest parse ... ok\ntest render ... ok\ntest send ... ok\n\ntest result: ok. 3 passed";
+const PREVIEW: &str = "$ cargo test\n   Compiling alpha v0.1.0\nrunning 3 tests\ntest parse ... ok\ntest render ... ok\ntest send ... ok\nwarning: unused import `std::collections::HashMap` in src/parser.rs, remove it or prefix with an underscore to silence this lint\ntest result: ok. 3 passed";
 
 /// Full-screen render of `tab` (Fleet side panel = `side_tab`) with the fixed fixtures.
 pub(crate) fn render_app(w: u16, h: u16, tab: AppTab, side_tab: SideTab) -> Vec<String> {
-    render_app_ex(w, h, tab, side_tab, fixture_rows(), fixture_graph(), None)
+    render_app_ex(w, h, tab, side_tab, fixture_rows(), fixture_graph(), None, false)
 }
 
-/// [`render_app`] with `rows`, `graph` and the full-screen Graph view open on node `graph_view`.
+/// [`render_app`] with `rows`, `graph`, the full-screen Graph view open on node
+/// `graph_view`, and the `?` overlay on top when `help`.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn render_app_ex(
     w: u16,
     h: u16,
@@ -242,6 +244,7 @@ pub(crate) fn render_app_ex(
     rows: Vec<TreeRow>,
     graph: OrchGraphView,
     graph_view: Option<usize>,
+    help: bool,
 ) -> Vec<String> {
     let chrome = SessionChrome {
         repo: "alpha".into(),
@@ -290,7 +293,7 @@ pub(crate) fn render_app_ex(
             &mut sessions_scroll,
             &[],
             false,
-            false,
+            help,
             &mut tree_rect,
             &mut preview_rect,
         )
@@ -304,23 +307,31 @@ pub(crate) fn render_spawn_modal(w: u16, h: u16) -> Vec<String> {
 }
 
 #[test]
+fn wrapped_preview_keeps_the_newest_line_visible() {
+    for (w, h) in SIZES {
+        let screen = render_app(w, h, AppTab::Fleet, SideTab::Preview).join("\n");
+        assert!(screen.contains("test result: ok. 3 passed"), "{w}x{h}\n{screen}");
+    }
+}
+
+#[test]
 fn golden_screens() {
     for (w, h) in SIZES {
         let screens = [
             ("fleet", render_app(w, h, AppTab::Fleet, SideTab::Preview)),
             ("fleet-orch-graph", render_app(w, h, AppTab::Fleet, SideTab::OrchGraph)),
-            ("graph-view", render_app_ex(w, h, AppTab::Fleet, SideTab::Preview, fixture_rows(), fixture_graph(), Some(1))),
+            ("graph-view", render_app_ex(w, h, AppTab::Fleet, SideTab::Preview, fixture_rows(), fixture_graph(), Some(1), false)),
             (
                 "graph-steps",
-                render_app_ex(w, h, AppTab::Fleet, SideTab::Preview, fixture_rows(), fixture_steps_graph(), Some(0)),
+                render_app_ex(w, h, AppTab::Fleet, SideTab::Preview, fixture_rows(), fixture_steps_graph(), Some(0), false),
             ),
             (
                 "fleet-nested",
-                render_app_ex(w, h, AppTab::Fleet, SideTab::Preview, fixture_nested_rows(), fixture_graph(), None),
+                render_app_ex(w, h, AppTab::Fleet, SideTab::Preview, fixture_nested_rows(), fixture_graph(), None, false),
             ),
             (
                 "fleet-children",
-                render_app_ex(w, h, AppTab::Fleet, SideTab::Preview, fixture_children_rows(), fixture_graph(), None),
+                render_app_ex(w, h, AppTab::Fleet, SideTab::Preview, fixture_children_rows(), fixture_graph(), None, false),
             ),
             ("spawn-modal", render_spawn_modal(w, h)),
             ("settings", render_app(w, h, AppTab::Settings, SideTab::Preview)),
@@ -329,7 +340,10 @@ fn golden_screens() {
             ("projects", render_app(w, h, AppTab::Projects, SideTab::Preview)),
             ("sessions", render_app(w, h, AppTab::Sessions, SideTab::Preview)),
             ("agents", render_app(w, h, AppTab::Agents, SideTab::Preview)),
-            ("help", render(w, h, |f| draw_help_overlay(f, f.area()))),
+            (
+                "help",
+                render_app_ex(w, h, AppTab::Fleet, SideTab::Preview, fixture_rows(), fixture_graph(), None, true),
+            ),
         ];
         for (name, lines) in screens {
             assert_snapshot(&format!("{name}-{w}x{h}"), &lines);

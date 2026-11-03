@@ -1,5 +1,5 @@
  1:Fleet   2:Projects   3:Sessions   4:Agents   5:Settings
-cdamux — fleet  ○ idle ● active ◆ needs
+cdamux — fleet  ○ idle ● active ◆ needs ⊘ blocked ✓ done
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
  projects → sessions                                                       │ Preview  Notes  Review  Orch graph
   ▼ ◇ alpha (2 sess · 2 orch) /src/alpha                                   │Select a session.

@@ -1,5 +1,5 @@
  1:Fleet   2:Projects   3:Sessions   4:Agents   5:Settings
-cdamux — fleet  ○ idle ● active ◆ needs
+cdamux — fleet  ○ idle ● active ◆ needs ⊘ blocked ✓ done
 ────────────────────────────────────────────────────────────────────────────────
  projects → sessions
   ▼ ◇ alpha (1 sess · 1 orch) /src/alpha
@@ -12,11 +12,11 @@ cdamux — fleet  ○ idle ● active ◆ needs
 ┌ session ─────────────────────────────────────────────────────────────────────┐
 │repo: alpha  │  worktree: main  │  branch: main                               │
 └──────────────────────────────────────────────────────────────────────────────┘
-running 3 tests
 test parse ... ok
 test render ... ok
 test send ... ok
-
+warning: unused import `std::collections::HashMap` in src/parser.rs, remove it
+or prefix with an underscore to silence this lint
 test result: ok. 3 passed
 send────────────────────────────────────────────────────────────────────────────
 → alpha-main _

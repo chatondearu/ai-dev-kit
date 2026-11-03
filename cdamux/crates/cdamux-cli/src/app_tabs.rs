@@ -128,11 +128,6 @@ pub fn draw_projects(
     scroll: &mut usize,
     status: &str,
 ) {
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Length(4), Constraint::Min(4)])
-        .split(area);
-
     let roots: Vec<String> = cfg
         .projects
         .roots
@@ -146,6 +141,12 @@ pub fn draw_projects(
             label
         })
         .collect();
+    // Borders + discover line + "roots:" + one row per root (at most half the screen).
+    let roots_h = (roots.len() as u16 + 4).min(area.height / 2).max(3);
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(roots_h), Constraint::Min(4)])
+        .split(area);
     let roots_block = if roots.is_empty() {
         "roots: (none — add one in Settings (5) with `a`)".to_string()
     } else {

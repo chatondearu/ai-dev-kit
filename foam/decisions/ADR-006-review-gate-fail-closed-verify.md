@@ -89,3 +89,9 @@ lazy worker is caught by nobody before the operator opens the PR.
   epic [#90](https://github.com/chatondearu/ai-dev-kit/issues/90)
 - [[ADR-002-orch-auto-and-fast-lane|ADR-002]],
   [[ADR-005-cda-graph-orchestration|ADR-005]]
+- **2026-11-03** ([#140](https://github.com/chatondearu/ai-dev-kit/issues/140)):
+  a missing `prompts/verifier.md` fails the grounding pass instead of passing;
+  `headless.sh` sets `ORCH_PROMPTS_DIR` so the verifier also runs headless; the
+  tail of `.orch/verifier-fail` is appended to the next iteration's prompt.
+  `pr-fix` checks the PR (fork, head = default branch, unreadable metadata →
+  `blocked`) before any worktree or checkout of its code.

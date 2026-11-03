@@ -57,6 +57,16 @@ impl TailnetApiError {
     }
 }
 
+/// HTTP status for a backend error (routes with a more specific status map it themselves).
+fn status_of(err: &TailnetApiError) -> u16 {
+    match err {
+        TailnetApiError::NotFound(_) => 404,
+        TailnetApiError::BadRequest(_) => 400,
+        TailnetApiError::Unauthorized(_) => 401,
+        TailnetApiError::Tmux(_) => 502,
+    }
+}
+
 fn json_error(status: u16, err: TailnetApiError) -> TailnetResponse {
     let body = ErrorEnvelope {
         error: ErrorBody {
@@ -226,13 +236,14 @@ impl TailnetApiBackend for LiveTailnetBackend {
     }
 
     fn pane_tail(&self, session_id: &str) -> Result<String, TailnetApiError> {
-        session_must_exist(session_id)?;
-        capture_pane_text(session_id, PANE_CAPTURE_LINES)
+        session_path(session_id)?;
+        // Plain text: the dashboard renders with textContent, ANSI escapes would show raw.
+        capture_pane_text(session_id, PANE_CAPTURE_LINES, false)
             .map_err(|e| TailnetApiError::Tmux(e.to_string()))
     }
 
     fn send_line(&self, session_id: &str, line: &str, enter: bool) -> Result<(), TailnetApiError> {
-        session_must_exist(session_id)?;
+        session_path(session_id)?;
         send_line_to_session(session_id, line, enter)
             .map_err(|e| TailnetApiError::Tmux(e.to_string()))
     }
@@ -280,24 +291,14 @@ fn query_param(query: Option<&str>, key: &str) -> Option<String> {
     None
 }
 
-fn session_cwd_from_grouped(grouped: &GroupedSessions, session_id: &str) -> Option<String> {
-    for group in &grouped.groups {
-        for s in &group.sessions {
-            if s.name == session_id {
-                return Some(s.path.clone());
-            }
-        }
-    }
-    None
-}
-
-fn session_must_exist(session_id: &str) -> Result<(), TailnetApiError> {
-    let sessions = list_tmux_sessions().unwrap_or_default();
-    if sessions.iter().any(|s| s.name == session_id) {
-        Ok(())
-    } else {
-        Err(TailnetApiError::NotFound(format!("session not found: {session_id}")))
-    }
+/// Path of the tmux session named exactly `session_id` (also the existence check).
+fn session_path(session_id: &str) -> Result<String, TailnetApiError> {
+    list_tmux_sessions()
+        .unwrap_or_default()
+        .into_iter()
+        .find(|s| s.name == session_id)
+        .map(|s| s.path)
+        .ok_or_else(|| TailnetApiError::NotFound(format!("session not found: {session_id}")))
 }
 
 /// Percent-decode a single URL path segment (enough for tmux session names).
@@ -371,14 +372,7 @@ pub fn dispatch_tailnet_request(
         };
         let repo_path = match backend.resolve_orch_repo(&repo) {
             Ok(p) => p,
-            Err(e) => {
-                let status = match e {
-                    TailnetApiError::NotFound(_) => 404,
-                    TailnetApiError::BadRequest(_) => 400,
-                    _ => 502,
-                };
-                return json_error(status, e);
-            }
+            Err(e) => return json_error(status_of(&e), e),
         };
         return match load_orch_graph(&repo_path) {
             Ok((graph, _)) => json_ok(200, &graph),
@@ -404,14 +398,7 @@ pub fn dispatch_tailnet_request(
         };
         let repo_path = match backend.resolve_orch_repo(&repo) {
             Ok(p) => p,
-            Err(e) => {
-                let status = match e {
-                    TailnetApiError::NotFound(_) => 404,
-                    TailnetApiError::BadRequest(_) => 400,
-                    _ => 502,
-                };
-                return json_error(status, e);
-            }
+            Err(e) => return json_error(status_of(&e), e),
         };
         return match load_orch_run_status(&repo_path) {
             Some(st) => json_ok(200, &st),
@@ -433,14 +420,7 @@ pub fn dispatch_tailnet_request(
         };
         let repo_path = match backend.resolve_orch_repo(&repo) {
             Ok(p) => p,
-            Err(e) => {
-                let status = match e {
-                    TailnetApiError::NotFound(_) => 404,
-                    TailnetApiError::BadRequest(_) => 400,
-                    _ => 502,
-                };
-                return json_error(status, e);
-            }
+            Err(e) => return json_error(status_of(&e), e),
         };
         #[derive(Serialize)]
         struct RunRow {
@@ -466,31 +446,14 @@ pub fn dispatch_tailnet_request(
             if action == "pane" && method == "GET" {
                 match backend.pane_tail(&session_id) {
                     Ok(text) => return json_ok(200, &PanePayload { text }),
-                    Err(e) => {
-                        let status = match e {
-                            TailnetApiError::NotFound(_) => 404,
-                            _ => 502,
-                        };
-                        return json_error(status, e);
-                    }
+                    Err(e) => return json_error(status_of(&e), e),
                 }
             }
             if action == "orch-graph" && method == "GET" {
-                if let Err(e) = session_must_exist(&session_id) {
-                    let status = match e {
-                        TailnetApiError::NotFound(_) => 404,
-                        _ => 502,
-                    };
-                    return json_error(status, e);
-                }
-                let cwd = match session_cwd_from_grouped(&backend.sessions_grouped(), &session_id) {
-                    Some(p) => p,
-                    None => {
-                        return json_error(
-                            404,
-                            TailnetApiError::NotFound(format!("session not found: {session_id}")),
-                        );
-                    }
+                // One `tmux list-sessions`, not full enrichment: the dashboard polls this at 1 Hz.
+                let cwd = match session_path(&session_id) {
+                    Ok(p) => p,
+                    Err(e) => return json_error(status_of(&e), e),
                 };
                 match find_orch_graph_from_cwd(&cwd) {
                     Ok((graph, _)) => return json_ok(200, &graph),
@@ -523,16 +486,16 @@ pub fn dispatch_tailnet_request(
                         );
                     }
                 };
+                // Typed literally into an agent shell: no newlines (each would submit) or escapes.
+                if req.line.chars().any(char::is_control) {
+                    return json_error(
+                        400,
+                        TailnetApiError::BadRequest("line must not contain control characters".into()),
+                    );
+                }
                 match backend.send_line(&session_id, &req.line, req.enter) {
                     Ok(()) => return json_ok(200, &SendOkPayload { ok: true }),
-                    Err(e) => {
-                        let status = match e {
-                            TailnetApiError::NotFound(_) => 404,
-                            TailnetApiError::BadRequest(_) => 400,
-                            _ => 502,
-                        };
-                        return json_error(status, e);
-                    }
+                    Err(e) => return json_error(status_of(&e), e),
                 }
             }
         }
@@ -674,6 +637,25 @@ mod tests {
         );
         assert_eq!(resp.status, 200);
         assert!(resp.body.contains("\"ok\":true"));
+    }
+
+    #[test]
+    fn send_rejects_control_characters_with_400() {
+        let backend = mock_backend();
+        for line in [r#"a\nb"#, r#"a\rb"#, r#"\u001b[A"#, r#"a\tb"#] {
+            let body = format!(r#"{{"line":"{line}","enter":false}}"#);
+            let resp = dispatch_tailnet_request("POST", "/v1/sessions/c-foo/send", &body, &backend);
+            assert_eq!(resp.status, 400, "{line}: {}", resp.body);
+            assert!(resp.body.contains("control characters"), "{}", resp.body);
+        }
+    }
+
+    #[test]
+    fn status_of_maps_error_kinds() {
+        assert_eq!(status_of(&TailnetApiError::NotFound(String::new())), 404);
+        assert_eq!(status_of(&TailnetApiError::BadRequest(String::new())), 400);
+        assert_eq!(status_of(&TailnetApiError::Unauthorized(String::new())), 401);
+        assert_eq!(status_of(&TailnetApiError::Tmux(String::new())), 502);
     }
 
     #[test]

@@ -213,22 +213,19 @@ pub fn pane_tail(session_name: &str) -> Option<String> {
 }
 
 /// Args for `tmux capture-pane` preview (no `-E -1`: empty history_size panes otherwise blank).
-fn capture_pane_args(session_name: &str, max_lines: i32) -> Vec<String> {
-    let start = format!("-{}", max_lines.max(1));
-    vec![
-        "capture-pane".into(),
-        "-p".into(),
-        "-e".into(),
-        "-t".into(),
-        pane_target(session_name),
-        "-S".into(),
-        start,
-    ]
+/// `escapes` keeps ANSI colors (`-e`) for the TUI; plain text for API clients.
+fn capture_pane_args(session_name: &str, max_lines: i32, escapes: bool) -> Vec<String> {
+    let mut args: Vec<String> = vec!["capture-pane".into(), "-p".into()];
+    if escapes {
+        args.push("-e".into());
+    }
+    args.extend(["-t".into(), pane_target(session_name), "-S".into(), format!("-{}", max_lines.max(1))]);
+    args
 }
 
 /// Capture active pane text for a session (negative start = lines from bottom).
-pub fn capture_pane_text(session_name: &str, max_lines: i32) -> Result<String, TmuxError> {
-    let args = capture_pane_args(session_name, max_lines);
+pub fn capture_pane_text(session_name: &str, max_lines: i32, escapes: bool) -> Result<String, TmuxError> {
+    let args = capture_pane_args(session_name, max_lines, escapes);
     let capture = Command::new("tmux")
         .args(&args)
         .output()
@@ -407,7 +404,9 @@ mod tests {
 
     #[test]
     fn capture_pane_args_omit_end_history_line() {
-        let args = capture_pane_args("c-claude", 40);
+        let args = capture_pane_args("c-claude", 40, true);
+        assert!(args.contains(&"-e".into()));
+        assert!(!capture_pane_args("c-claude", 40, false).contains(&"-e".into()));
         assert!(!args.iter().any(|a| a == "-E"));
         assert!(!args.windows(2).any(|w| w[0] == "-E" && w[1] == "-1"));
         assert!(args.contains(&"-S".into()));

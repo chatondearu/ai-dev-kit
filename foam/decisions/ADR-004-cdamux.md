@@ -74,6 +74,11 @@ Decisions (status stays **accepted**):
    dashboard reads the token from `localStorage.cdamux_token`.
 3. **`?repo=` is canonicalized** and must resolve under a configured root; 404 bodies
    never echo the path (no directory-existence oracle).
+4. **Token stays optional; requests are gated instead** ([#138](https://github.com/chatondearu/ai-dev-kit/issues/138)):
+   `Host` must equal the bind `ip:port` (421), `POST` must be `application/json` (415,
+   forces a CORS preflight that gets 405), bodies over 64 KiB get 413 and the token is
+   checked before any body byte is read, `send` `line` rejects control characters (400).
+   `cdamuxd` exits 1 when the server cannot start so the service manager restarts it.
 
 Docs: [`cdamux/docs/tailnet-api.md`](../../cdamux/docs/tailnet-api.md).
 

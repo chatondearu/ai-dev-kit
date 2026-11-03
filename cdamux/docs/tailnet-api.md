@@ -5,8 +5,10 @@ Tailscale IPv4 address (via `tailscale ip -4`). It does not listen on `0.0.0.0`.
 Set `daemon.tailnet_port` (default `7480`) in `~/.config/cdamux/config.toml`.
 
 For tests or dev without Tailscale, set `CDAMUX_TAILNET_BIND_ADDR` to a local
-address (e.g. `127.0.0.1`). Unspecified addresses (`0.0.0.0`, `::`) are refused
-and the tailnet server does not start (the daemon itself keeps running).
+address (e.g. `127.0.0.1`). Unspecified addresses (`0.0.0.0`, `::`) are refused.
+When the address cannot be resolved (no `tailscale`, refused bind address) or bound,
+`cdamuxd` logs the error and exits 1, so `Restart=on-failure` / launchd `KeepAlive`
+retries it.
 
 ## Authentication
 
@@ -20,7 +22,22 @@ comparison is constant-time. Static dashboard assets (`/`, `/app.js`,
 
 When the variable is unset the API stays open to every tailnet peer and the
 daemon logs `tailnet API without token` once at startup. Rotation: change the
-variable and restart `cdamuxd`.
+variable and restart `cdamuxd`. The token is checked before the request body is read.
+
+## Request rules
+
+These apply to every `/v1/*` request, with or without a token:
+
+| Rule | Rejection |
+| ---- | --------- |
+| `Host` must equal the bind `ip:port` (open the dashboard by IP, e.g. `http://100.x.y.z:7480/`, not a MagicDNS name) | `421` |
+| `POST` must send `Content-Type: application/json` | `415` |
+| Body at most 64 KiB | `413` |
+| `send` `line` must not contain control characters (newline, tab, escape, …): one line per request | `400` |
+
+The `Host` check blocks DNS rebinding; the JSON-only `POST` means a page on another
+origin cannot reach `send` without a CORS preflight, and preflights (`OPTIONS`)
+get `405`.
 
 ## Endpoints
 
@@ -28,7 +45,7 @@ variable and restart `cdamuxd`.
 | ---- | ------ | ----------- |
 | `/v1/health` | GET | Daemon version and whether tmux is reachable |
 | `/v1/sessions` | GET | Grouped session list (same JSON as `cdamux list --json`) |
-| `/v1/sessions/:id/pane` | GET | Captured pane text (bounded tail) |
+| `/v1/sessions/:id/pane` | GET | Captured pane text (bounded tail, plain text without ANSI escapes) |
 | `/v1/sessions/:id/send` | POST | Send a literal line; optional Enter |
 
 Session `:id` is the tmux session name (URL-encode special characters).
@@ -62,7 +79,7 @@ curl -sS -X POST "$CDAMUX_API/v1/sessions/c-myapp/send" \
 ## Security
 
 Exposure is limited by binding to the tailnet interface only (never `0.0.0.0`),
-plus the optional shared token above. `POST /v1/sessions/:id/send` types into
+the request rules above, and the optional shared token. `POST /v1/sessions/:id/send` types into
 agent shells: always set `CDAMUX_TAILNET_TOKEN` unless every tailnet peer is
 trusted. `?repo=` paths are canonicalized and must resolve under a configured
 project root; error bodies never echo the requested path.

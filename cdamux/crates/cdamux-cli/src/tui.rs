@@ -74,7 +74,7 @@ fn fork_selected_session(cfg: &Config, s: &EnrichedSession) -> Result<String, St
 
 fn fetch_preview(session_name: &str, max_lines: u32) -> String {
     let lines = max_lines.clamp(10, 500) as i32;
-    match capture_pane_text(session_name, lines) {
+    match capture_pane_text(session_name, lines, true) {
         Ok(t) if t.trim().is_empty() => "(empty pane)".to_string(),
         Ok(t) => t,
         Err(_) => "(preview unavailable)".to_string(),

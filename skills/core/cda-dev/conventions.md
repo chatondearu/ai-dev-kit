@@ -200,7 +200,7 @@ Blocked by: #<A>
 
 `orch.sh` computes the dispatchable **frontier** before every `ready-pickup` run:
 a requested child is dispatched only when **every** issue on its `Blocked by:`
-line is closed. Children with an open blocker are **held** (progress `blocked`,
+line is closed (only `#N` tokens on that line count). Children with an open blocker are **held** (progress `blocked`,
 reason `waiting on #A`), not dispatched; they become takeable on a later run once
 A's PR is merged and its issue closes. If *every* requested issue is held, the run
 exits non-zero with "no frontier". This is the same `Blocked by:` convention

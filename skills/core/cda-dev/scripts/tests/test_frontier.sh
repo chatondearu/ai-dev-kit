@@ -6,7 +6,8 @@ source "$TROOT/../lib/frontier.sh"
 
 # --- pure parser -----------------------------------------------------------
 assert_eq "$(orch_parse_blockers 'Blocked by: #12, #15')" "12 15" "comma + hash"
-assert_eq "$(orch_parse_blockers 'blocked by: 7')" "7" "bare number, lowercase"
+assert_eq "$(orch_parse_blockers 'blocked by: #7')" "7" "lowercase"
+assert_eq "$(orch_parse_blockers 'Blocked by: #12 (ADR-004 must land; see PR 3)')" "12" "trailing prose numbers ignored"
 assert_eq "$(orch_parse_blockers '## Question
 something
 Blocked by: #3 #4

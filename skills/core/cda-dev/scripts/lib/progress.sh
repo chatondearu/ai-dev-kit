@@ -20,11 +20,14 @@ orch_progress_enabled() {
 # Machine-readable status for waiting agents (poll `.orch/run/status.json`).
 orch_progress_write_json() {
   local id="$1" phase="$2" msg="$3"
-  local dir ts json_file agg
+  local dir ts json_file agg tmp
   dir="$(orch_progress_dir)"
   mkdir -p "$dir"
   ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date -u)"
   json_file="$dir/${id}.json"
+  # Parallel workers write here: build in a same-dir temp file, then rename (atomic),
+  # so a concurrent `jq -s` never reads a half-written file. $BASHPID: subshell-unique.
+  tmp="$json_file.tmp.$BASHPID"
   if command -v jq >/dev/null 2>&1; then
     jq -n \
       --arg id "$id" \
@@ -32,9 +35,10 @@ orch_progress_write_json() {
       --arg message "$msg" \
       --arg updated_at "$ts" \
       '{id:$id, phase:$phase, message:$message, updated_at:$updated_at}' \
-      >"$json_file"
+      >"$tmp" && mv "$tmp" "$json_file"
     # Aggregate all workers into one file agents can poll.
     agg="$dir/status.json"
+    tmp="$agg.tmp.$BASHPID"
     local files=() f
     for f in "$dir"/*.json; do
       [ -e "$f" ] || continue
@@ -42,13 +46,13 @@ orch_progress_write_json() {
       files+=("$f")
     done
     if [ "${#files[@]}" -eq 0 ]; then
-      jq -n --arg ts "$ts" '{updated_at:$ts, workers:[]}' >"$agg"
+      jq -n --arg ts "$ts" '{updated_at:$ts, workers:[]}' >"$tmp" && mv "$tmp" "$agg"
     else
-      jq -s --arg ts "$ts" '{updated_at:$ts, workers:.}' "${files[@]}" >"$agg"
+      jq -s --arg ts "$ts" '{updated_at:$ts, workers:.}' "${files[@]}" >"$tmp" && mv "$tmp" "$agg"
     fi
   else
     printf '{"id":"%s","phase":"%s","message":"%s","updated_at":"%s"}\n' \
-      "$id" "$phase" "$msg" "$ts" >"$json_file"
+      "$id" "$phase" "$msg" "$ts" >"$tmp" && mv "$tmp" "$json_file"
   fi
 }
 

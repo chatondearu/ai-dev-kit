@@ -16,7 +16,6 @@ FORCE=0
 TARGET=""
 
 log() { printf '%s\n' "$*"; }
-run() { if [ "$DRY" = 1 ]; then printf 'DRY  %s\n' "$*"; else eval "$*"; fi; }
 
 die() { printf 'init.sh: %s\n' "$*" >&2; exit 1; }
 
@@ -35,28 +34,28 @@ resolve_target() {
   pwd
 }
 
-# Copy file or tree: src_rel → dest under repo root
+# Copy file or tree: src_rel → dest under repo root.
+# --force overwrites template files in place; it never deletes anything.
 install_path() {
   local src="$SCAFFOLD/$1"
   local dest="$REPO_ROOT/$1"
   if [ ! -e "$src" ]; then
     return 0
   fi
-  if [ -e "$dest" ] || [ -L "$dest" ]; then
-    if [ "$FORCE" = 1 ]; then
-      run "rm -rf \"$dest\""
-    else
-      log "skip $1 (exists; use --force to overwrite)"
-      return 0
-    fi
+  if { [ -e "$dest" ] || [ -L "$dest" ]; } && [ "$FORCE" != 1 ]; then
+    log "skip $1 (exists; use --force to overwrite template files)"
+    return 0
   fi
-  local parent
-  parent="$(dirname "$dest")"
-  run "mkdir -p \"$parent\""
+  if [ "$DRY" = 1 ]; then
+    log "DRY  copy $1"
+    return 0
+  fi
+  mkdir -p "$(dirname "$dest")"
   if [ -d "$src" ]; then
-    run "cp -a \"$src\" \"$dest\""
+    mkdir -p "$dest"
+    cp -R "$src/." "$dest/"
   else
-    run "cp \"$src\" \"$dest\""
+    cp "$src" "$dest"
   fi
   log "add  $1"
 }
@@ -81,7 +80,7 @@ merge_agents_snippet() {
     if [ "$DRY" = 1 ]; then
       log "DRY  would create AGENTS.md from snippet"
     elif [ "$FORCE" = 1 ] || [ ! -f "$agents" ]; then
-      run "cp \"$snippet\" \"$agents\""
+      cp "$snippet" "$agents"
       log "add  AGENTS.md (from snippet)"
     fi
     return

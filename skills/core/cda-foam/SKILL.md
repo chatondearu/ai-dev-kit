@@ -48,7 +48,8 @@ bash "$(dirname "$0")/scripts/import-kanban.sh"
 ```
 
 `init.sh` copies templates only. It does **not** run `git commit` — you decide
-when to commit the scaffold.
+when to commit the scaffold. Existing paths are skipped; `--force` overwrites
+template files in place and never deletes anything.
 
 ## Protocol (every product/architecture/design task)
 

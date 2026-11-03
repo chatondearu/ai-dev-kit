@@ -20,7 +20,6 @@ MARKER_BEGIN='<!-- agents-setup:managed -->'
 MARKER_END='<!-- /agents-setup:managed -->'
 
 log() { printf '%s\n' "$*"; }
-run() { if [ "$DRY" = 1 ]; then printf 'DRY  %s\n' "$*"; else eval "$*"; fi; }
 die() { printf 'setup-agents.sh: %s\n' "$*" >&2; exit 1; }
 
 usage() {
@@ -210,14 +209,14 @@ main() {
   fi
 
   if [ "$INIT_FOAM" = 1 ]; then
-    if [ -d "$REPO_ROOT/foam" ] && [ "$FORCE" != 1 ]; then
+    # --force never reaches foam: existing project memory is left untouched.
+    if [ -d "$REPO_ROOT/foam" ]; then
       log "ok   foam/ exists"
     elif [ -f "$FOAM_INIT" ]; then
       log "# foam scaffold"
       foam_args=()
       [ "$DRY" = 1 ] && foam_args+=(--dry-run)
-      [ "$FORCE" = 1 ] && foam_args+=(--force)
-      bash "$FOAM_INIT" "${foam_args[@]}" "$REPO_ROOT"
+      bash "$FOAM_INIT" ${foam_args[@]+"${foam_args[@]}"} "$REPO_ROOT"
     else
       log "warn: missing $FOAM_INIT"
     fi

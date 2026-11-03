@@ -100,7 +100,7 @@ pub fn worker_steps(w: &OrchWorkerStatus, verifier: Option<NodeState>, now: u64)
 }
 
 /// Status worker id (`162`) for a graph node: a `worker-162` node or one of its children.
-pub fn step_worker_id<'a>(node: &'a OrchGraphNode) -> Option<&'a str> {
+pub fn step_worker_id(node: &OrchGraphNode) -> Option<&str> {
     let name = if node.kind == "worker" { Some(node.id.as_str()) } else { node.parent.as_deref() };
     name?.strip_prefix("worker-")
 }

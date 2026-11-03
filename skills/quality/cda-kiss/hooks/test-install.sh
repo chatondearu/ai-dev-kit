@@ -40,6 +40,18 @@ jq -e '.hooks.sessionStart | length == 1' "$C" >/dev/null || fail "foreign curso
 jq -e '.hooks.Stop | length == 1' "$S" >/dev/null || fail "prompt-type hook removed by uninstall"
 [ ! -e "$CLAUDE_CONFIG_DIR/CLAUDE.md" ] && [ ! -L "$CLAUDE_CONFIG_DIR/CLAUDE.md" ] || fail "CLAUDE.md link left after uninstall"
 
+# cdamux sub-agent ledger hooks: opt-in only, idempotent, removed by --uninstall
+D="$PWD/cdamux/hooks"
+dcount() { jq --arg d "$D" "[$claude_cmds | select(contains(\$d))] | length" "$S"; }
+inst; [ "$(dcount)" = 0 ] || fail "cdamux hooks wired without --cdamux-hooks"
+inst --cdamux-hooks; inst --cdamux-hooks
+[ "$(dcount)" = 2 ] || fail "cdamux hooks not exactly once"
+jq -e --arg d "$D" '[.hooks.SubagentStop[].hooks[].command | select(contains($d))] | length == 1' "$S" >/dev/null || fail "no cdamux SubagentStop hook"
+[ "$(count "$S" "$claude_cmds")" = 3 ] || fail "kiss hooks changed by --cdamux-hooks"
+inst --uninstall
+[ "$(dcount)" = 0 ] || fail "cdamux hooks left after uninstall"
+jq -e '.hooks.SubagentStop == null' "$S" >/dev/null || fail "empty SubagentStop event left"
+
 # --cursor-home without a value: clear error, not an unbound-variable crash
 ! "$SH" ./install.sh --cursor-home >"$tmp/out" 2>&1 || fail "--cursor-home without DIR accepted"
 grep -q 'needs a DIR' "$tmp/out" || fail "no clear --cursor-home error"

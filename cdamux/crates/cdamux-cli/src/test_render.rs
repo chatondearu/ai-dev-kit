@@ -12,8 +12,8 @@ use crate::graph_view::OrchGraphView;
 use crate::settings_form::SettingsForm;
 use crate::spawn_modal::{draw_modal, ModalState};
 use cdamux_core::{
-    ChildRow, Config, EnrichedSession, OrchGraphFile, OrchWorkerStatus, ProjectRoot, SessionChrome,
-    SessionState,
+    ChildKind, ChildRow, Config, EnrichedSession, OrchGraphFile, OrchWorkerStatus, PreviewSource,
+    ProjectRoot, SessionChrome, SessionState,
 };
 use ratatui::{backend::TestBackend, Frame, Terminal};
 use std::path::PathBuf;
@@ -131,6 +131,50 @@ pub(crate) fn fixture_nested_rows() -> Vec<TreeRow> {
         row(session("alpha-fork", "/src/alpha", SessionState::NeedsInput, "claude", Some(42)), 2, Some(true)),
         row(session("alpha-fork-2", "/src/alpha", SessionState::Idle, "cursor", None), 3, None),
         row(session("alpha-side", "/src/alpha", SessionState::Done, "claude", None), 1, Some(false)),
+    ]
+}
+
+/// A session with a running and a stopped CLI sub-agent, plus an orch worker running
+/// in a live tmux session (`ORCH_TMUX=1`).
+pub(crate) fn fixture_children_rows() -> Vec<TreeRow> {
+    let subagent = |id: &str, label: &str, state| TreeRow::Child {
+        row: ChildRow {
+            id: id.into(),
+            label: label.into(),
+            kind: ChildKind::Subagent,
+            state,
+            preview: PreviewSource::None,
+        },
+        depth: 2,
+        project_path: "/src/alpha".into(),
+    };
+    vec![
+        TreeRow::Project {
+            key: "alpha".into(),
+            name: "alpha".into(),
+            path: "/src/alpha".into(),
+            session_count: 1,
+            worker_count: 1,
+            expanded: true,
+        },
+        TreeRow::Child {
+            row: ChildRow::from_orch_worker(
+                &OrchWorkerStatus {
+                    id: "9".into(),
+                    phase: "agent".into(),
+                    message: "iter 1/10".into(),
+                    tmux_session: Some("orch-run1-9".into()),
+                    log: Some("/src/alpha/.orch/run/9.log".into()),
+                    ..Default::default()
+                },
+                true,
+            ),
+            depth: 1,
+            project_path: "/src/alpha".into(),
+        },
+        row(session("alpha-main", "/src/alpha", SessionState::Active, "claude", None), 1, Some(true)),
+        subagent("a1b2c3d4e5f6", "Explore", SessionState::Active),
+        subagent("f6e5d4c3b2a1", "cda-review", SessionState::Done),
     ]
 }
 
@@ -273,6 +317,10 @@ fn golden_screens() {
             (
                 "fleet-nested",
                 render_app_ex(w, h, AppTab::Fleet, SideTab::Preview, fixture_nested_rows(), fixture_graph(), None),
+            ),
+            (
+                "fleet-children",
+                render_app_ex(w, h, AppTab::Fleet, SideTab::Preview, fixture_children_rows(), fixture_graph(), None),
             ),
             ("spawn-modal", render_spawn_modal(w, h)),
             ("settings", render_app(w, h, AppTab::Settings, SideTab::Preview)),

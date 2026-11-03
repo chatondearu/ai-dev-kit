@@ -2,7 +2,9 @@
 //! mtime-gated cache for `status.json`, so the 100 ms input poll never does I/O.
 //! Every method takes `now` so tests drive a fake clock.
 
-use cdamux_core::{load_orch_run_status, orch_run_status_path, OrchWorkerStatus};
+use cdamux_core::{
+    load_orch_run_status, orch_run_status_path, session_subagents, ChildRow, OrchWorkerStatus,
+};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -60,10 +62,13 @@ pub(crate) fn sidecar_step(
     }
 }
 
-/// Orch workers per repo, re-read only when the file's mtime moved.
+/// Orch workers per repo, re-read only when the file's mtime moved, and CLI
+/// sub-agent rows per tmux session (ledger, mtime-cached in core), on the same interval.
 pub(crate) struct StatusCache {
     iv: Interval,
     entries: HashMap<PathBuf, (Option<SystemTime>, Vec<OrchWorkerStatus>)>,
+    sub_iv: Interval,
+    subagents: HashMap<String, Vec<ChildRow>>,
 }
 
 impl StatusCache {
@@ -71,7 +76,43 @@ impl StatusCache {
         Self {
             iv: Interval::new(every),
             entries: HashMap::new(),
+            sub_iv: Interval::new(every),
+            subagents: HashMap::new(),
         }
+    }
+
+    /// Cached sub-agent rows of a session; never touches the disk.
+    pub(crate) fn subagents(&self, session: &str) -> &[ChildRow] {
+        self.subagents.get(session).map_or(&[], Vec::as_slice)
+    }
+
+    /// Re-read the ledgers of `sessions` once per interval (stopped rows expire by
+    /// clock, so this runs even when no file moved). True when any row changed.
+    pub(crate) fn refresh_subagents<'a>(
+        &mut self,
+        sessions: impl Iterator<Item = &'a str>,
+        now: Instant,
+    ) -> bool {
+        self.refresh_subagents_with(sessions, now, session_subagents)
+    }
+
+    fn refresh_subagents_with<'a>(
+        &mut self,
+        sessions: impl Iterator<Item = &'a str>,
+        now: Instant,
+        mut load: impl FnMut(&str) -> Vec<ChildRow>,
+    ) -> bool {
+        if !self.sub_iv.due(now) {
+            return false;
+        }
+        self.sub_iv.mark(now);
+        let next: HashMap<String, Vec<ChildRow>> = sessions
+            .map(|s| (s.to_string(), load(s)))
+            .filter(|(_, rows)| !rows.is_empty())
+            .collect();
+        let changed = next != self.subagents;
+        self.subagents = next;
+        changed
     }
 
     /// Cached workers; never touches the disk.
@@ -190,5 +231,22 @@ mod tests {
         }
         assert_eq!(loads.get(), 2);
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn subagent_ledgers_read_once_per_interval_not_per_tick() {
+        let t0 = Instant::now();
+        let mut cache = StatusCache::new(Duration::from_millis(500));
+        let loads = Cell::new(0);
+        let load = |_: &str| {
+            loads.set(loads.get() + 1);
+            Vec::new()
+        };
+        // 100 ms ticks over 1 s, two sessions: one read each per 500 ms.
+        for i in 0..10 {
+            cache.refresh_subagents_with(["a", "b"].into_iter(), at(t0, i * 100), load);
+        }
+        assert_eq!(loads.get(), 4);
+        assert!(cache.subagents("a").is_empty());
     }
 }

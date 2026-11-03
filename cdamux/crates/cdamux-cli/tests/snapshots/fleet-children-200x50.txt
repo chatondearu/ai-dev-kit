@@ -1,0 +1,50 @@
+ 1:Fleet   2:Projects   3:Sessions   4:Agents   5:Settings
+cdamux — fleet  ○ idle ● active ◆ needs
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ projects → sessions                                                       │ Preview  Notes  Review  Orch graph
+  ▼ ◇ alpha (1 sess · 1 orch) /src/alpha                                   │┌ session ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+▸   ⚙ #9 agent  iter 1/10                                                  ││repo: alpha  │  worktree: main  │  branch: main                                                                           │
+    ▼ ● alpha-main  claude  /src/alpha                                     │└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+    └ ● Explore  a1b2c3d4                                                  │
+    └ ✓ cda-review  f6e5d4c3                                               │$ cargo test
+                                                                           │   Compiling alpha v0.1.0
+                                                                           │running 3 tests
+                                                                           │test parse ... ok
+                                                                           │test render ... ok
+                                                                           │test send ... ok
+                                                                           │
+                                                                           │test result: ok. 3 passed
+                                                                           │
+                                                                           │
+                                                                           │
+                                                                           │
+                                                                           │
+                                                                           │
+                                                                           │
+                                                                           │
+                                                                           │
+                                                                           │
+                                                                           │
+                                                                           │
+                                                                           │
+                                                                           │
+                                                                           │
+                                                                           │
+                                                                           │
+                                                                           │
+                                                                           │
+                                                                           │
+                                                                           │
+                                                                           │
+                                                                           │
+                                                                           │
+                                                                           │
+                                                                           │
+                                                                           │
+                                                                           │
+                                                                           │
+                                                                           │send────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+                                                                           │→ alpha-main _
+                                                                           │
+j/k nav · Enter attach · n new · m rename · f fork · x kill · o issue · Space send · g graph · 1-5 tabs · ? help · q quit
+

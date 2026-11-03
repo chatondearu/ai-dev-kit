@@ -64,22 +64,14 @@ Each task writes `.orch/task-<id>-result.json` in the shared worktree.
 
 `paths` is enforced: a file changed outside a task's `paths` marks that task `blocked` with reason `paths: <files>`.
 
-### 4 — Foam machine graph (no VS Code)
-
-```bash
-bash ~/.cursor/skills/cda-graph/scripts/foam-graph-export.sh --repo .
-bash ~/.cursor/skills/cda-graph/scripts/foam-graph-export.sh --repo . --merge-orch
-# → foam/graph/export.json
-```
-
-### 5 — Watch the graph
+### 4 — Watch the graph
 
 - **cdamux** TUI: Fleet → **project** or session → sidecar **Orch graph**; expand project for `⚙` worker rows (`.orch/run/status.json`); `o` opens GitHub issue from `feat/<n>-*`
 - Hooks: `tmux set-option -t SESSION @cdamux_state running|waiting|done|error` (Fleet prefers over pane heuristics)
 - Archives: `.orch/graph/runs/<run_id>.json` after `orch_graph_finish` (shown as recent runs)
 - **API**: `GET /v1/orch-graph?repo=` · `GET /v1/orch-status?repo=` · `GET /v1/orch-runs?repo=`
 
-### 6 — Disable graph file
+### 5 — Disable graph file
 
 ```bash
 bash "$SKILL/scripts/orch.sh" --no-graph --mode ready-pickup --issue 12

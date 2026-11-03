@@ -1,6 +1,7 @@
 //! Spawn tmux sessions with configured agent commands.
 
 use crate::send::tmux_has_session;
+use crate::tmux::pane_target;
 use crate::{AgentEntry, AgentsConfig, AttachMode};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -140,7 +141,7 @@ pub fn spawn_tmux_session_with_layout(
 
     if primary_command != shell {
         let send = Command::new("tmux")
-            .args(["send-keys", "-t", session_name, primary_command, "Enter"])
+            .args(["send-keys", "-t", &pane_target(session_name), primary_command, "Enter"])
             .status()
             .map_err(|e| SpawnError::Tmux(e.to_string()))?;
         if !send.success() {
@@ -176,7 +177,7 @@ fn apply_pane_split(session_name: &str, layout: PaneLayout) -> Result<(), SpawnE
     // Session target = active pane of the current window (independent of base-index);
     // split-window already starts the default shell in the new pane.
     let status = Command::new("tmux")
-        .args(["split-window", flag, "-t", session_name])
+        .args(["split-window", flag, "-t", &pane_target(session_name)])
         .status()
         .map_err(|e| SpawnError::Tmux(e.to_string()))?;
     if !status.success() {

@@ -66,8 +66,9 @@ pub use agents_util::{
 };
 pub use send::{send_to_session, SendError, tmux_has_session};
 pub use session_manage::{
-    kill_tmux_session, mark_session_cdamux_return, rename_tmux_session, switch_client_to_session,
-    unique_session_name,
+    current_tmux_session, ensure_home_session, home_session_new_argv, is_home_session,
+    kill_tmux_session, mark_session_cdamux_return, rename_tmux_session,
+    should_ensure_home_before_kill, switch_client_to_session, unique_session_name,
 };
 pub use spawn::{
     configured_agent_ids, default_agent_name, default_shell_command, resolve_agent_command,
@@ -80,8 +81,8 @@ pub use worktree::{
 };
 pub use tmux::{
     capture_pane_text, classify_pane_heuristics, list_panes_all, list_tmux_sessions,
-    parse_list_panes_all, parse_list_sessions, send_line_to_session, SessionPaneInfo, TmuxError,
-    TmuxSession,
+    parse_list_panes_all, parse_list_sessions, send_line_to_session, SessionPaneInfo,
+    HOME_SESSION_NAME, TmuxError, TmuxSession,
 };
 
 #[derive(Debug, Error)]

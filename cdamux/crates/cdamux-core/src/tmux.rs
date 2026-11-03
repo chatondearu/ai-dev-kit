@@ -7,6 +7,9 @@ use std::io::Write;
 use std::process::{Command, Stdio};
 use thiserror::Error;
 
+/// Dedicated full-screen dashboard session; hidden from Fleet / Sessions lists.
+pub const HOME_SESSION_NAME: &str = "cdamux";
+
 #[derive(Debug, Error)]
 pub enum TmuxError {
     #[error("tmux not found on PATH")]
@@ -77,7 +80,10 @@ pub fn list_tmux_sessions() -> Result<Vec<TmuxSession>, TmuxError> {
     }
 
     let text = String::from_utf8(output.stdout).map_err(|e| TmuxError::Output(e.to_string()))?;
-    Ok(parse_list_sessions(&text))
+    Ok(parse_list_sessions(&text)
+        .into_iter()
+        .filter(|s| s.name != HOME_SESSION_NAME)
+        .collect())
 }
 
 /// Per-session snapshot from one `tmux list-panes -a` call (idle + hook user options).
@@ -342,6 +348,18 @@ mod tests {
         assert_eq!(sessions.len(), 2);
         assert_eq!(sessions[0].name, "c-bar");
         assert_eq!(sessions[1].name, "c-foo");
+    }
+
+    #[test]
+    fn home_session_name_is_cdamux() {
+        assert_eq!(HOME_SESSION_NAME, "cdamux");
+        let raw = "cdamux\t/\nc-foo\t/home/foo\n";
+        let visible: Vec<_> = parse_list_sessions(raw)
+            .into_iter()
+            .filter(|s| s.name != HOME_SESSION_NAME)
+            .map(|s| s.name)
+            .collect();
+        assert_eq!(visible, vec!["c-foo"]);
     }
 
     #[test]

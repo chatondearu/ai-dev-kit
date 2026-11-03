@@ -1,11 +1,90 @@
 //! Kill, rename, fork naming, attach helpers.
 
 use crate::send::{tmux_has_session, SendError};
-use std::process::Command;
+use crate::tmux::{list_tmux_sessions, HOME_SESSION_NAME};
+use std::process::{Command, Stdio};
+
+/// True when `name` is the cdamux home / dashboard session.
+pub fn is_home_session(name: &str) -> bool {
+    name == HOME_SESSION_NAME
+}
+
+/// Args for `tmux new-session -A -s cdamux cdamux` (outside-tmux dashboard entry).
+pub fn home_session_new_argv() -> [&'static str; 5] {
+    ["new-session", "-A", "-s", HOME_SESSION_NAME, "cdamux"]
+}
+
+/// Create the home session detached if missing (runs `cdamux` as the pane command).
+pub fn ensure_home_session() -> Result<(), SendError> {
+    if tmux_has_session(HOME_SESSION_NAME)? {
+        return Ok(());
+    }
+    let status = Command::new("tmux")
+        .args([
+            "new-session",
+            "-d",
+            "-s",
+            HOME_SESSION_NAME,
+            "cdamux",
+        ])
+        .status()
+        .map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                SendError::NotFound
+            } else {
+                SendError::SendFailed
+            }
+        })?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(SendError::SendFailed)
+    }
+}
+
+/// Current client session name when inside tmux (`None` outside or on failure).
+pub fn current_tmux_session() -> Option<String> {
+    if std::env::var_os("TMUX").is_none() {
+        return None;
+    }
+    let out = Command::new("tmux")
+        .args(["display-message", "-p", "#{session_name}"])
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let name = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    (!name.is_empty()).then_some(name)
+}
+
+/// Ensure home before kill when this client is on `killing` and no other visible
+/// (non-home) session would remain — so `detach-on-destroy next` has a landing spot.
+pub fn should_ensure_home_before_kill(
+    current: Option<&str>,
+    killing: &str,
+    visible_non_home: &[&str],
+) -> bool {
+    if is_home_session(killing) {
+        return false;
+    }
+    current == Some(killing) && !visible_non_home.iter().any(|n| *n != killing)
+}
 
 pub fn kill_tmux_session(name: &str) -> Result<(), SendError> {
     if !tmux_has_session(name)? {
         return Err(SendError::SessionNotFound(name.to_string()));
+    }
+    let current = current_tmux_session();
+    let visible: Vec<String> = list_tmux_sessions()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|s| s.name)
+        .collect();
+    let visible_refs: Vec<&str> = visible.iter().map(String::as_str).collect();
+    if should_ensure_home_before_kill(current.as_deref(), name, &visible_refs) {
+        ensure_home_session()?;
     }
     let status = Command::new("tmux")
         .args(["kill-session", "-t", name])
@@ -81,6 +160,40 @@ mod tests {
             "c-proj-3"
         );
         assert_eq!(unique_session_name_with("c-other", occupied), "c-other");
+    }
+
+    #[test]
+    fn home_session_new_argv_is_attach_or_create() {
+        assert_eq!(
+            home_session_new_argv(),
+            ["new-session", "-A", "-s", "cdamux", "cdamux"]
+        );
+        assert!(is_home_session("cdamux"));
+        assert!(!is_home_session("c-proj"));
+    }
+
+    #[test]
+    fn ensure_home_before_kill_only_for_last_attached() {
+        assert!(should_ensure_home_before_kill(
+            Some("work"),
+            "work",
+            &["work"]
+        ));
+        assert!(!should_ensure_home_before_kill(
+            Some("work"),
+            "work",
+            &["work", "other"]
+        ));
+        assert!(!should_ensure_home_before_kill(
+            Some("other"),
+            "work",
+            &["work"]
+        ));
+        assert!(!should_ensure_home_before_kill(
+            Some("cdamux"),
+            "cdamux",
+            &[]
+        ));
     }
 }
 

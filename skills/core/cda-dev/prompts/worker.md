@@ -41,7 +41,8 @@ acceptance criteria. No scope expansion.
    - Confirm card is Ready; comment `Claimed for implementation.`
    - Move → In progress
 2. **Branch / worktree**
-   - Branch: `<type>/<issue#>-<slug>` per kanban conventions
+   - Branch: `{{BRANCH}}` (already checked out in the worktree). Stay on this branch, do not
+     create another: the harness looks up your PR by this exact head branch.
    - Work from the assigned worktree cwd; do not switch repos mid-task
 3. **Implement**
    - Follow the contract for this lane (plan checklist or brief criteria)

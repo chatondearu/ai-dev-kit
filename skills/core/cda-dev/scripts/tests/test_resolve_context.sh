@@ -17,7 +17,7 @@ mkdir -p "$REPO/prd" "$REPO/foam/decisions"
 
 render() { # issue body
   orch_resolve_context "$REPO" "$1" "$2"
-  orch_render_prompt "$TPL" "$TMP/out.md" "ISSUE=$1" "WORKTREE=$TMP" "REPO_ROOT=$REPO" \
+  orch_render_prompt "$TPL" "$TMP/out.md" "ISSUE=$1" "BRANCH=feat/$1-issue-$1" "WORKTREE=$TMP" "REPO_ROOT=$REPO" \
     "TITLE=t" "PLAN_PATH=none" "BRIEF_PATH=none" "LANE=full" \
     "PRD_PATH=$ORCH_PRD_PATH" "EPIC=$ORCH_EPIC" "CONSTRAINTS=$ORCH_CONSTRAINTS"
   cat "$TMP/out.md"
@@ -29,6 +29,9 @@ assert_contains "$out" 'prd/PRD-90-epic.md' "own PRD"
 assert_contains "$out" 'ADR-001-first, ADR-002-second' "ADR list"
 [[ "$out" != *ADR-template* ]] && PASSES=$((PASSES + 1)) || { FAILS=$((FAILS + 1)); echo "FAIL template listed" >&2; }
 [[ "$out" != *N/A* ]] && PASSES=$((PASSES + 1)) || { FAILS=$((FAILS + 1)); echo "FAIL N/A left in prompt" >&2; }
+
+# The worker prompt names the real branch the harness looks the PR up on
+assert_contains "$out" 'Branch: `feat/90-issue-90`' "worker prompt names the branch"
 
 # Child issue: PRD and epic come from `## Parent`
 out="$(render 97 $'## Parent\n\n#90\n\n## Plan')"

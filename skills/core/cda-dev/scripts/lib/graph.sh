@@ -116,16 +116,6 @@ orch_worker_result_warn() {
   fi
 }
 
-orch_graph_touch() {
-  local gf
-  gf="$(orch_graph_file)"
-  [ -f "$gf" ] || orch_graph_init
-  if ! command -v jq >/dev/null 2>&1; then
-    return 0
-  fi
-  orch_graph_locked_jq --arg updated "$(orch_graph_now)" '.updated_at = $updated'
-}
-
 # orch_graph_upsert_node ID kind phase status message [parent]
 orch_graph_upsert_node() {
   local id="$1" kind="$2" phase="$3" status="$4" msg="$5"
@@ -262,6 +252,10 @@ orch_graph_worker() {
             return 0
           fi
           orch_graph_upsert_node "$node_prefix" worker verify blocked "grounding verifier failed" ""
+          # Retry with the verifier's reasons instead of re-sending the same prompt blind.
+          if type orch_verifier_retry_prompt >/dev/null 2>&1; then
+            prompt="$(orch_verifier_retry_prompt "$base_prompt" "$wt")"
+          fi
           [ -n "${ORCH_WORKER_ID:-}" ] || printf 'orch loop: grounding verifier failed (iter %s/%s)\n' "$i" "$max" >&2
           ;;
         *)
@@ -305,8 +299,10 @@ orch_graph_verifier_pass() {
   # Fast lane: no plan, the agent brief is the contract.
   [ "$plan" = none ] && [ -f "$wt/.orch/brief.md" ] && plan="$wt/.orch/brief.md"
 
+  # Fail closed (ADR-006): no verifier prompt means no grounding check, never a pass.
   if [ ! -f "$tpl" ]; then
-    return 0
+    printf 'orch: verifier prompt missing (%s); grounding not checked, failing\n' "$tpl" >&2
+    return 1
   fi
   orch_resolve_context "$repo" "$wid"
   orch_render_prompt "$tpl" "$vprompt" \

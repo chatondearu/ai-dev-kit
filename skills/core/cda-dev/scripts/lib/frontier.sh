@@ -28,13 +28,14 @@ orch_gh_repo_slug() {
 }
 
 # Pure parser: echo the space-separated blocker issue numbers found on the
-# first `Blocked by:` line of an issue body. Case-insensitive; tolerates
-# `#12`, `12`, commas and/or spaces. No network. Echoes nothing when absent.
+# first `Blocked by:` line of an issue body. Case-insensitive; only `#N` tokens
+# count, so trailing prose ("ADR-004", "PR 3") is ignored. No network. Echoes
+# nothing when absent.
 orch_parse_blockers() {
   local body="$1" line nums
   line="$(printf '%s\n' "$body" \
     | grep -iE '^[[:space:]]*blocked[[:space:]]+by[[:space:]]*:' | head -n 1 || true)"
-  nums="$(printf '%s' "$line" | grep -oE '[0-9]+' || true)"
+  nums="$(printf '%s' "$line" | grep -oE '#[0-9]+' | tr -d '#' || true)"
   printf '%s' "$nums" | awk '!seen[$0]++' | tr '\n' ' ' | sed 's/[[:space:]]*$//'
 }
 

@@ -2,7 +2,7 @@
 # orch-auto.sh — discover Ready Kanban issues and run ready-pickup (ADR-002).
 # Opt-in AFK poller; pair with templates/systemd/ for start/stop.
 #
-#   bash orch-auto.sh --repo DIR [--once] [--dry-run]
+#   bash orch-auto.sh --repo DIR [--dry-run]
 #   bash orch-auto.sh --help
 set -euo pipefail
 _self="${BASH_SOURCE[0]:-$0}"
@@ -12,7 +12,6 @@ ROOT="$(cd "$_dir" && pwd)"
 
 REPO="$(pwd)"
 DRY=0
-ONCE=0
 MAX_P="${ORCH_MAX_PARALLEL:-1}"
 
 usage() {
@@ -20,21 +19,20 @@ usage() {
 orch-auto.sh — poll Ready cards → orch ready-pickup
 
   --repo DIR     working tree with board (default: cwd)
-  --once         one discovery+dispatch cycle (default for systemd oneshot)
   --dry-run      print eligible issue numbers; do not invoke orch
   --max-parallel N   passed to orch (default: ORCH_MAX_PARALLEL or 1)
   -h|--help
 
 Skips: triage:ready-for-human, issues with an open PR on feat/<id>-issue-<id>,
 and (fail closed) any issue whose label or PR lookup fails.
-Uses flock on <repo>/.orch/auto.lock. Logs under <repo>/.orch/auto/.
+Runs one discovery+dispatch cycle, then exits (systemd oneshot).
+Uses flock on <repo>/.orch/auto.lock. Logs under <repo>/.orch/auto/ (newest 50 kept).
 EOF
 }
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --repo) REPO="$2"; shift;;
-    --once) ONCE=1;;
     --dry-run) DRY=1;;
     --max-parallel) MAX_P="$2"; shift;;
     -h|--help) usage; exit 0;;
@@ -73,6 +71,8 @@ need flock
 LOG_DIR="$REPO/.orch/auto"
 mkdir -p "$LOG_DIR" "$REPO/.orch"
 LOCK="$REPO/.orch/auto.lock"
+# Keep the newest 49 logs plus the one created below.
+ls -1t "$LOG_DIR"/*.log 2>/dev/null | tail -n +50 | while IFS= read -r old; do rm -f "$old"; done || true
 LOG_FILE="$LOG_DIR/$(date -u +%Y%m%dT%H%M%SZ).log"
 
 log() {
@@ -166,10 +166,4 @@ if ! flock -n 9; then
   exit 75
 fi
 
-if [ "$ONCE" = 1 ] || [ "${ORCH_AUTO_ONCE:-0}" = 1 ]; then
-  run_once
-  exit $?
-fi
-
-# Interactive / long-running: one cycle then exit (timer should use --once).
 run_once

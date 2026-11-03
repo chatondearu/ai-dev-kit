@@ -28,6 +28,7 @@ source "$ROOT/lib/loop.sh"
 source "$ROOT/lib/graph.sh"
 source "$ROOT/lib/progress.sh"
 source "$ROOT/lib/frontier.sh"
+source "$ROOT/lib/lock.sh"
 
 MODE=""; REPO="$(pwd)"; DRY=0; SANDBOX=0; FAIL_FAST=0
 MAX_P="${ORCH_MAX_PARALLEL:-3}"; MAX_I="${ORCH_MAX_ITER:-10}"
@@ -79,7 +80,7 @@ done
 # Kills this process group (workers, agents, dashboard). Armed after the libs are sourced, so
 # sourcing them from a test never installs it. Run orch in its own group (`setsid`, or `set -m`)
 # when launching it from a script that must survive an interrupt.
-trap 'trap - INT TERM; kill 0' INT TERM
+trap '_orch_release_lock; trap - INT TERM; kill 0' INT TERM
 
 export ORCH_MAX_PARALLEL="$MAX_P" ORCH_MAX_ITER="$MAX_I" ORCH_SANDBOX="$SANDBOX"
 export ORCH_FAIL_FAST="$FAIL_FAST" ORCH_FORCE_CLEAN="$FORCE_CLEAN" ORCH_ROOT="$ROOT"
@@ -136,10 +137,10 @@ orch_fetch_agent_brief() {
 
 # Run one ready-pickup worker end-to-end. Writes $ORCH_REPO/.orch/run/<id>.rc (0|1).
 orch_ready_pickup_one() {
-  local id="$1" idx="$2"
+  local id="$1"
   local slug="issue-$id"
   local branch="feat/${id}-${slug}"
-  local path port worker_prompt title plan_path p
+  local path worker_prompt title plan_path p
   local loop_rc=0 pr_num="" pr_json="" m=""
   local rc_dir rc_file
   local lane="full" brief_path="N/A" brief_file=""
@@ -224,6 +225,7 @@ orch_ready_pickup_one() {
 
   orch_render_prompt "$ORCH_ROOT/../prompts/worker.md" "$worker_prompt" \
     "ISSUE=$id" \
+    "BRANCH=$branch" \
     "WORKTREE=$path" \
     "REPO_ROOT=$ORCH_REPO" \
     "TITLE=$title" \
@@ -363,29 +365,6 @@ orch_ready_pickup_one() {
 
 orch_export_functions
 
-# Serialize ready-pickup / pr-fix against orch-auto and concurrent orch (ADR-002).
-orch_acquire_lock() {
-  mkdir -p "$ORCH_REPO/.orch"
-  local lock="$ORCH_REPO/.orch/orch.lock"
-  if command -v flock >/dev/null 2>&1; then
-    exec 8>"$lock"
-    if ! flock -n 8; then
-      printf 'orch: another run holds %s\n' "$lock" >&2
-      exit 75
-    fi
-    return 0
-  fi
-  # Portable fallback when flock is absent (e.g. stock macOS): atomic mkdir.
-  local dir="${lock}.d"
-  if mkdir "$dir" 2>/dev/null; then
-    # shellcheck disable=SC2064
-    trap "rmdir '$dir' 2>/dev/null || true" EXIT
-    return 0
-  fi
-  printf 'orch: another run holds %s\n' "$dir" >&2
-  exit 75
-}
-
 # Remove worktrees of issues that ended `done`; blocked ones stay for inspection.
 orch_cleanup_done() {
   local id names=()
@@ -403,7 +382,6 @@ case "$MODE" in
     if [ "$DRY" != 1 ]; then
       orch_acquire_lock
     fi
-    idx=0
     any_blocked=0
     HELD_IDS=(); HELD_REASON=()
 
@@ -447,7 +425,7 @@ case "$MODE" in
         orch_graph_finish blocked
         exit 1
       fi
-      if ! orch_ready_pickup_one "${ISSUES[0]}" 0; then
+      if ! orch_ready_pickup_one "${ISSUES[0]}"; then
         orch_graph_finish blocked
         exit 1
       fi
@@ -462,13 +440,12 @@ case "$MODE" in
         branch="feat/${id}-${slug}"
         path="$(orch_worktree_path "$REPO" "$id" "$slug")"
         echo "worker id=$id branch=$branch wt=$path"
-        idx=$((idx + 1))
       done
       exit 0
     fi
 
     mkdir -p "$REPO/.orch/run"
-    rm -f "$REPO/.orch/run"/*.rc "$REPO/.orch/run"/*.status "$REPO/.orch/run"/.dashboard-stop 2>/dev/null || true
+    rm -f "$REPO/.orch/run"/*.rc "$REPO/.orch/run"/*.status "$REPO/.orch/run"/*.json "$REPO/.orch/run"/.dashboard-stop 2>/dev/null || true
     if [ "$DRY" != 1 ]; then
       orch_graph_init "ready-pickup-$(date -u +%Y%m%dT%H%M%SZ)"
       orch_graph_upsert_node integrator integrator pending queued "awaiting workers" ""
@@ -490,14 +467,13 @@ case "$MODE" in
 
     if [ "$MAX_P" -le 1 ]; then
       for id in "${ISSUES[@]}"; do
-        if ! orch_ready_pickup_one "$id" "$idx"; then
+        if ! orch_ready_pickup_one "$id"; then
           any_blocked=1
           if [ "$FAIL_FAST" = 1 ]; then
             orch_progress_dashboard_stop
             exit 1
           fi
         fi
-        idx=$((idx + 1))
       done
     else
       if ! orch_progress_enabled; then
@@ -507,11 +483,10 @@ case "$MODE" in
         orch_pool_slot "$MAX_P"
         (
           set +e
-          orch_ready_pickup_one "$id" "$idx"
+          orch_ready_pickup_one "$id"
           exit $?
         ) &
         orch_pool_add $!
-        idx=$((idx + 1))
         if [ "$FAIL_FAST" = 1 ]; then
           for rc_file in "$REPO/.orch/run"/*.rc; do
             [ -f "$rc_file" ] || continue
@@ -582,25 +557,7 @@ case "$MODE" in
         pr_clean="${pr_clean%/}"
       done
       num="${pr_clean##*/}"
-      path="$(orch_worktree_path "$REPO" "pr-$num" "fix")"
-      if [ ! -e "$path" ]; then
-        mkdir -p "$(dirname "$path")"
-        checked_out=0
-        if command -v gh >/dev/null 2>&1; then
-          if git -C "$REPO" worktree add --detach "$path" HEAD 2>/dev/null; then
-            if (cd "$path" && gh pr checkout "$num" 2>/dev/null); then
-              checked_out=1
-            else
-              git -C "$REPO" worktree remove --force "$path" 2>/dev/null || rm -rf "$path"
-            fi
-          fi
-        fi
-        if [ "$checked_out" = 0 ]; then
-          git -C "$REPO" fetch -q origin "+pull/$num/head:orch/pr-$num" 2>/dev/null || git -C "$REPO" fetch -q origin "pull/$num/head:orch/pr-$num" || true
-          git -C "$REPO" worktree add "$path" "orch/pr-$num"
-        fi
-      fi
-
+      # Runs before any checkout so untrusted PR code is never fetched for a blocked run.
       # The agent pushes `origin HEAD:<head_ref>`: a fork PR's origin is the base repo,
       # and a head equal to the default branch would push onto it. Block both.
       head_ref=""
@@ -622,6 +579,25 @@ case "$MODE" in
         fi
       fi
       [ -z "$head_ref" ] && head_ref="orch/pr-$num"
+
+      path="$(orch_worktree_path "$REPO" "pr-$num" "fix")"
+      if [ ! -e "$path" ]; then
+        mkdir -p "$(dirname "$path")"
+        checked_out=0
+        if command -v gh >/dev/null 2>&1; then
+          if git -C "$REPO" worktree add --detach "$path" HEAD 2>/dev/null; then
+            if (cd "$path" && gh pr checkout "$num" 2>/dev/null); then
+              checked_out=1
+            else
+              git -C "$REPO" worktree remove --force "$path" 2>/dev/null || rm -rf "$path"
+            fi
+          fi
+        fi
+        if [ "$checked_out" = 0 ]; then
+          git -C "$REPO" fetch -q origin "+pull/$num/head:orch/pr-$num" 2>/dev/null || git -C "$REPO" fetch -q origin "pull/$num/head:orch/pr-$num" || true
+          git -C "$REPO" worktree add "$path" "orch/pr-$num"
+        fi
+      fi
 
       mkdir -p "$path/.orch"
       prompt_file="$path/.orch/pr-fix-prompt.md"

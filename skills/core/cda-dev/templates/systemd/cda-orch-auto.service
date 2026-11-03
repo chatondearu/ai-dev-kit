@@ -18,7 +18,7 @@ Wants=network-online.target
 Type=oneshot
 EnvironmentFile=-%h/.config/cda-orch-auto.env
 # Override ExecStart paths after copy if the skill lives elsewhere.
-ExecStart=/bin/bash %h/.cursor/skills/cda-dev/scripts/orch-auto.sh --repo ${ORCH_REPO} --once
+ExecStart=/bin/bash %h/.cursor/skills/cda-dev/scripts/orch-auto.sh --repo ${ORCH_REPO}
 Nice=10
 # Soften laptop impact; raise on a dedicated box if needed.
 CPUQuota=50%

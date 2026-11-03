@@ -79,21 +79,33 @@ chmod +x "$STUB_BIN/gh"
 export PATH="$STUB_BIN:$PATH"
 export ORCH_GH_BOARD="$STUB_BIN/fake-gh-board.sh"
 
-echo "# orch-auto --dry-run --once filters human + open-PR"
-out="$(bash "$SCRIPTS/orch-auto.sh" --repo "$TMP" --once --dry-run 2>"$TMP/stderr")"
+echo "# orch-auto --dry-run filters human + open-PR"
+out="$(bash "$SCRIPTS/orch-auto.sh" --repo "$TMP" --dry-run 2>"$TMP/stderr")"
 assert_eq "$out" "10" "only eligible #10 printed"
 assert_contains "$(cat "$TMP/stderr")" "skip #11" "logs skip human"
 assert_contains "$(cat "$TMP/stderr")" "skip #12" "logs skip open PR"
 
 echo "# orch-auto fails closed when gh lookups fail (rate limit / network)"
-out_fl="$(GH_STUB_FAIL_LABELS=1 bash "$SCRIPTS/orch-auto.sh" --repo "$TMP" --once --dry-run 2>"$TMP/stderr")"
+out_fl="$(GH_STUB_FAIL_LABELS=1 bash "$SCRIPTS/orch-auto.sh" --repo "$TMP" --dry-run 2>"$TMP/stderr")"
 assert_eq "$out_fl" "" "labels lookup failure -> nothing dispatched"
 assert_contains "$(cat "$TMP/stderr")" "skip #11 (labels lookup failed; fail closed)" "logs labels failure skip"
 assert_contains "$(cat "$TMP/stderr")" "no eligible Ready issues" "no eligible when all lookups fail"
-out_fp="$(GH_STUB_FAIL_PRS=1 bash "$SCRIPTS/orch-auto.sh" --repo "$TMP" --once --dry-run 2>"$TMP/stderr")"
+out_fp="$(GH_STUB_FAIL_PRS=1 bash "$SCRIPTS/orch-auto.sh" --repo "$TMP" --dry-run 2>"$TMP/stderr")"
 assert_eq "$out_fp" "" "open-PR lookup failure -> nothing dispatched"
 assert_contains "$(cat "$TMP/stderr")" "skip #10 (open-PR lookup failed; fail closed)" "logs PR failure skip"
 assert_contains "$(cat "$TMP/stderr")" "skip #11 (ready-for-human)" "labels still checked first"
+
+echo "# orch-auto keeps only the newest 50 logs"
+for n in $(seq -w 1 60); do
+  : >"$TMP/.orch/auto/old-$n.log"
+  touch -t "$(printf '2000010112%02d' $((10#$n - 1)))" "$TMP/.orch/auto/old-$n.log"  # minutes 00-59: valid for GNU and BSD touch
+done
+bash "$SCRIPTS/orch-auto.sh" --repo "$TMP" --dry-run >/dev/null 2>&1
+# 49 kept + the new log; 49 total when the new log shares a second-resolution name with an earlier one
+n_logs="$(find "$TMP/.orch/auto" -name '*.log' | wc -l | tr -d ' ')"
+[ "$n_logs" -le 50 ] && [ "$n_logs" -ge 49 ] && PASSES=$((PASSES + 1)) || { FAILS=$((FAILS + 1)); echo "FAIL log count capped at 50 (got $n_logs)" >&2; }
+assert_file "$TMP/.orch/auto/old-60.log" "newest old log kept"
+[ ! -e "$TMP/.orch/auto/old-01.log" ] && PASSES=$((PASSES + 1)) || { FAILS=$((FAILS + 1)); echo "FAIL oldest log not pruned" >&2; }
 
 if [ "$HAVE_FLOCK" = 0 ]; then
   echo "SKIP flock contention case (flock not installed)"
@@ -107,7 +119,7 @@ mkdir -p "$TMP/.orch"
   exec 9>"$TMP/.orch/auto.lock"
   flock -n 9
   set +e
-  out2="$(bash "$SCRIPTS/orch-auto.sh" --repo "$TMP" --once --dry-run 2>&1)"
+  out2="$(bash "$SCRIPTS/orch-auto.sh" --repo "$TMP" --dry-run 2>&1)"
   rc2=$?
   set -e
   assert_eq "$rc2" "75" "second run exits 75 when lock held"

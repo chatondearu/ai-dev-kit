@@ -25,17 +25,27 @@ orch_worktree_add() {
   local path cur
   path="$(orch_worktree_path "$repo" "$id" "$slug")"
   mkdir -p "$(dirname "$path")"
+  # Drop registrations of worktree dirs deleted by hand ("missing but already registered").
+  git -C "$repo" worktree prune 2>/dev/null || true
   if [ -e "$path" ]; then
-    # AFK retry: reuse if this path is already the expected branch worktree.
     if [ -d "$path/.git" ] || [ -f "$path/.git" ]; then
       cur="$(git -C "$path" branch --show-current 2>/dev/null || true)"
+      # AFK retry: reuse if this path is already the expected branch worktree.
       if [ "$cur" = "$branch" ]; then
         printf 'worktree reuse: %s (%s)\n' "$path" "$branch" >&2
         return 0
       fi
+      # Detached HEAD (e.g. blocked mid-rebase) or uncommitted files: that is work, never delete it.
+      if [ -z "$cur" ] || [ -n "$(git -C "$path" status --porcelain 2>/dev/null)" ]; then
+        printf 'worktree has a detached HEAD or uncommitted changes; not replacing: %s\n' "$path" >&2
+        return 1
+      fi
+      printf 'worktree stale; replacing: %s\n' "$path" >&2
+      git -C "$repo" worktree remove "$path" || return 1
+    else
+      printf 'worktree stale; replacing: %s\n' "$path" >&2
+      rm -rf "$path"
     fi
-    printf 'worktree stale; replacing: %s\n' "$path" >&2
-    git -C "$repo" worktree remove --force "$path" 2>/dev/null || rm -rf "$path"
   fi
   if git -C "$repo" show-ref --verify --quiet "refs/heads/$branch"; then
     git -C "$repo" worktree add "$path" "$branch"

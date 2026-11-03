@@ -8,6 +8,8 @@ source "$TROOT/../lib/loop.sh"
 source "$TROOT/../lib/graph.sh"
 # --no-graph path: the same loop must still run verify and the grounding verifier.
 export ORCH_GRAPH=0
+# Tests 1-6 exercise verify/retry only; the verifier (default on, ADR-006) has its own tests below.
+export ORCH_GRAPH_VERIFY=0
 
 TMP="$(mktemp -d)"
 FAKE="$(mktemp -d)"
@@ -127,13 +129,49 @@ exit 0
 EOF
 chmod +x "$FAKE/claude-verifier-fail"
 set +e
-out_stale="$(ORCH_PROMPTS_DIR="$TMP2D/prompts" ORCH_REPO="$TMP2D" ORCH_AGENT="$FAKE/claude-verifier-fail" \
+out_stale="$(ORCH_GRAPH_VERIFY=1 ORCH_PROMPTS_DIR="$TMP2D/prompts" ORCH_REPO="$TMP2D" ORCH_AGENT="$FAKE/claude-verifier-fail" \
   ORCH_MAX_ITER=1 orch_loop_worker "$TMP2D" "$PROMPT" 2>&1)"
 rc_stale=$?
 set -e
 assert_eq "$rc_stale" "1" "stale verifier-ok + verifier-fail -> loop fails (also with ORCH_GRAPH=0)"
 assert_contains "$out_stale" "grounding verifier failed" "logs grounding verifier failure"
 rm -rf "$TMP2D"
+
+# Test 2e: verifier failure -> next iteration's prompt carries .orch/verifier-fail
+TMP2E="$(mktemp -d)"
+printf '{"scripts":{"test":"npm test"}}\n' >"$TMP2E/package.json"
+mkdir -p "$TMP2E/.orch" "$TMP2E/prompts"
+printf '# Verifier (grounding node)\n' >"$TMP2E/prompts/verifier.md"
+cat >"$FAKE/claude-verifier-reason" <<EOF
+#!$STUB_BASH
+p="\$(cat)"
+echo "\$p" >>.orch/seen-prompts.txt
+case "\$p" in *"Verifier (grounding node)"*) echo "- plan item 3 not implemented" >.orch/verifier-fail ;; esac
+exit 0
+EOF
+chmod +x "$FAKE/claude-verifier-reason"
+set +e
+ORCH_GRAPH_VERIFY=1 ORCH_PROMPTS_DIR="$TMP2E/prompts" ORCH_REPO="$TMP2E" ORCH_AGENT="$FAKE/claude-verifier-reason" \
+  ORCH_MAX_ITER=2 orch_loop_worker "$TMP2E" "$PROMPT" >/dev/null 2>&1
+set -e
+retry="$TMP2E/.orch/worker-prompt-retry.md"
+assert_file "$retry" "retry prompt written after failed verifier"
+assert_contains "$(cat "$retry")" "plan item 3 not implemented" "retry prompt carries verifier reasons"
+assert_contains "$(head -n 1 "$retry")" "fix" "verifier retry keeps the original prompt"
+assert_contains "$(cat "$TMP2E/.orch/seen-prompts.txt")" "## Previous verifier findings" "iteration 2 agent received the verifier reasons"
+rm -rf "$TMP2E"
+
+# Test 2f: missing prompts/verifier.md fails closed (never a silent pass)
+TMP2F="$(mktemp -d)"
+printf '{"scripts":{"test":"npm test"}}\n' >"$TMP2F/package.json"
+set +e
+out_nov="$(ORCH_GRAPH_VERIFY=1 ORCH_PROMPTS_DIR="$TMP2F/nope" ORCH_REPO="$TMP2F" ORCH_AGENT="$FAKE/claude" \
+  ORCH_MAX_ITER=1 orch_loop_worker "$TMP2F" "$PROMPT" 2>&1)"
+rc_nov=$?
+set -e
+rm -rf "$TMP2F"
+assert_eq "$rc_nov" "1" "missing verifier prompt -> loop fails"
+assert_contains "$out_nov" "verifier prompt missing" "logs the missing verifier prompt"
 
 # Test 3: Prompt substitution helper
 TMP_TPL="$(mktemp)"

@@ -15,6 +15,9 @@ source "$ROOT/lib/verify.sh"
 source "$ROOT/lib/loop.sh"
 source "$ROOT/lib/graph.sh"
 source "$ROOT/lib/sandbox.sh"
+# The grounding verifier (ADR-006) renders prompts/verifier.md from here.
+ORCH_PROMPTS_DIR="$(cd "$ROOT/../prompts" && pwd)"
+export ORCH_PROMPTS_DIR
 
 REPO="$(pwd)"
 PROMPT_TEXT=""

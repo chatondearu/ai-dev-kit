@@ -1,5 +1,5 @@
 //! Session links: parent/child nesting of tmux sessions (`@cdamux_parent`) and the
-//! generic [`ChildRow`] that non-session children (orch workers, later sub-agents)
+//! generic [`ChildRow`] that non-session children (orch workers, CLI sub-agents)
 //! render through in the Fleet tree.
 
 use crate::orch_status::OrchWorkerStatus;
@@ -23,6 +23,8 @@ pub enum PreviewSource {
 pub enum ChildKind {
     /// Headless orch worker from `.orch/run/status.json`.
     Worker,
+    /// CLI sub-agent from the session's ledger (`docs/subagents.md`).
+    Subagent,
 }
 
 /// A non-session row nested under a project or session.
@@ -64,24 +66,28 @@ impl ChildRow {
     }
 }
 
-/// Last `max_lines` lines of a log or transcript file, reading at most the final
-/// 64 KiB so a huge file never lands in memory.
-pub fn tail_lines(path: &Path, max_lines: usize) -> std::io::Result<String> {
-    const MAX_BYTES: u64 = 64 * 1024;
+/// Last `max_bytes` of a file, starting at a line boundary, so a huge log or
+/// transcript never lands in memory. The one bounded tail read for previews.
+pub(crate) fn read_tail(path: &Path, max_bytes: u64) -> std::io::Result<String> {
     let mut f = File::open(path)?;
-    let len = f.metadata()?.len();
-    let start = len.saturating_sub(MAX_BYTES);
+    let start = f.metadata()?.len().saturating_sub(max_bytes);
     f.seek(SeekFrom::Start(start))?;
     let mut buf = Vec::new();
-    f.take(MAX_BYTES).read_to_end(&mut buf)?;
-    let text = String::from_utf8_lossy(&buf);
-    let mut lines: Vec<&str> = text.lines().collect();
-    if start > 0 && !lines.is_empty() {
-        // The window starts mid-line: drop the partial first line.
-        lines.remove(0);
-    }
-    let from = lines.len().saturating_sub(max_lines);
-    Ok(lines[from..].join("\n"))
+    f.take(max_bytes).read_to_end(&mut buf)?;
+    let text = String::from_utf8_lossy(&buf).into_owned();
+    // Seeking mid-file lands inside a line: drop that partial first line.
+    Ok(if start > 0 {
+        text.split_once('\n').map_or(String::new(), |(_, rest)| rest.to_string())
+    } else {
+        text
+    })
+}
+
+/// Last `max_lines` lines of a log file, from its final 64 KiB.
+pub fn tail_lines(path: &Path, max_lines: usize) -> std::io::Result<String> {
+    let text = read_tail(path, 64 * 1024)?;
+    let lines: Vec<&str> = text.lines().collect();
+    Ok(lines[lines.len().saturating_sub(max_lines)..].join("\n"))
 }
 
 /// Sessions arranged by `@cdamux_parent`: indices into the input slice.

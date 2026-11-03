@@ -16,6 +16,7 @@ mod session_chrome;
 mod session_links;
 mod session_manage;
 mod spawn;
+mod subagent_ledger;
 mod worktree;
 mod tailnet_api;
 mod tmux;
@@ -35,6 +36,7 @@ pub use project_tree::{
 pub use session_links::{
     session_forest, tail_lines, ChildKind, ChildRow, PreviewSource, SessionForest,
 };
+pub use subagent_ledger::{session_subagents, subagent_ledger_path, transcript_tail};
 pub use session_chrome::{session_agent_label, SessionChrome, AGENT_LABEL_MISSING};
 pub use session::{
     classify_session, enrich_sessions, group_sessions, parse_hook_session_state, EnrichedSession,

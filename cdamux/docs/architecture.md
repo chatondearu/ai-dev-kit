@@ -108,6 +108,8 @@ Operator curl examples: [tailnet-api.md](tailnet-api.md).
   (`cdamux-core::orch_graph_layout`, longest-path layers over `edges` + `parent`)
   and fall back to the indented text tree when the layers do not fit the width.
   Execution stays in `orch.sh`; cdamux does not start workers.
+- CLI sub-agents come from the per-session ledger fed by hook adapters
+  (sub-agent rows under a session): [subagents.md](subagents.md).
 
 ## Open design choices
 

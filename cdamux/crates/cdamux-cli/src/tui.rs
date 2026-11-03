@@ -22,8 +22,9 @@ use cdamux_core::{
     build_project_session_tree, capture_pane_text, config_path, discover_projects,
     kill_tmux_session, load_config, preferred_spawn_agent, rename_tmux_session,
     resolve_agent_command, send_to_session, session_name_for_path, spawn_tmux_session_with_layout,
-    switch_client_to_session, tail_lines, unique_session_name, Config, EnrichedSession, GroupBy,
-    PaneLayout, PreviewSource, ProjectSessionTree, SessionChrome, SpawnOutcome,
+    switch_client_to_session, tail_lines, transcript_tail, unique_session_name, ChildKind,
+    ChildRow, Config, EnrichedSession, GroupBy, PaneLayout, PreviewSource, ProjectSessionTree,
+    SessionChrome, SpawnOutcome,
 };
 use crossterm::event::{
     self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers,
@@ -98,17 +99,20 @@ fn fetch_preview(session_name: &str, max_lines: u32) -> String {
     }
 }
 
-/// Preview text for a child row source; `None` when the row has no source.
-fn preview_source_text(src: &PreviewSource, max_lines: u32) -> Option<String> {
-    match src {
+/// Preview text for a child row: its pane, or its file tail (sub-agent transcripts are
+/// formatted, logs raw); `None` when the row has no source.
+fn preview_source_text(row: &ChildRow, max_lines: u32) -> Option<String> {
+    let n = max_lines.clamp(10, 500) as usize;
+    match &row.preview {
         PreviewSource::Pane(name) => Some(fetch_preview(name, max_lines)),
-        PreviewSource::FileTail(path) => Some(
-            match tail_lines(path, max_lines.clamp(10, 500) as usize) {
-                Ok(t) if t.trim().is_empty() => format!("(empty file {})", path.display()),
-                Ok(t) => t,
-                Err(e) => format!("(cannot read {}: {e})", path.display()),
-            },
-        ),
+        PreviewSource::FileTail(path) if row.kind == ChildKind::Subagent => {
+            Some(transcript_tail(path, n))
+        }
+        PreviewSource::FileTail(path) => Some(match tail_lines(path, n) {
+            Ok(t) if t.trim().is_empty() => format!("(empty file {})", path.display()),
+            Ok(t) => t,
+            Err(e) => format!("(cannot read {}: {e})", path.display()),
+        }),
         PreviewSource::None => None,
     }
 }
@@ -220,6 +224,13 @@ pub fn run_dashboard() -> ExitCode {
         let mut anchor: Option<String> = None;
         let repos = cached_tree.nodes.iter().map(|n| n.project.path.as_path());
         needs_draw |= status.refresh(repos, now);
+        let names = cached_tree
+            .nodes
+            .iter()
+            .flat_map(|n| &n.sessions)
+            .chain(&cached_tree.unassigned)
+            .map(|s| s.name.as_str());
+        needs_draw |= status.refresh_subagents(names, now);
         if tree_dirty || app_tab != cached_tab || tree_iv.due(now) {
             // Remember the selected session by name: rows shift when sessions come and go.
             let old_rows = flatten_tree(&cached_tree, &expanded, group_by, waiting_only, &status);
@@ -310,7 +321,9 @@ pub fn run_dashboard() -> ExitCode {
                     if changed {
                         preview_scroll = 0;
                     }
-                    let text = if row.preview == PreviewSource::None {
+                    let text = if row.preview == PreviewSource::None && row.kind == ChildKind::Subagent {
+                        Some(format!("sub-agent {}\n\n(no transcript yet)", row.label))
+                    } else if row.preview == PreviewSource::None {
                         // StatusCache (refresh scheduler) already holds status.json: no I/O per tick.
                         let worker = status
                             .workers(std::path::Path::new(project_path))
@@ -328,7 +341,7 @@ pub fn run_dashboard() -> ExitCode {
                         match sidecar_step(true, changed, visible, &mut preview_iv, now) {
                             Sidecar::Idle => None,
                             Sidecar::Load | Sidecar::Poll => {
-                                preview_source_text(&row.preview, preview_max)
+                                preview_source_text(row, preview_max)
                             }
                         }
                     };

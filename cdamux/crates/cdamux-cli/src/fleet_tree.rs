@@ -46,7 +46,8 @@ pub(crate) enum TreeRow {
         depth: usize,
         expanded: Option<bool>,
     },
-    /// Non-session child (headless orch worker today) under its project.
+    /// Non-session child: headless orch worker under its project, or CLI sub-agent
+    /// under its session (`project_path` = the session path).
     Child {
         row: ChildRow,
         depth: usize,
@@ -55,32 +56,55 @@ pub(crate) enum TreeRow {
     UnassignedHeader,
 }
 
-/// Push `sessions` nested by parent, skipping the children of collapsed sessions.
-fn push_sessions(rows: &mut Vec<TreeRow>, sessions: &[EnrichedSession], expanded: &HashSet<String>) {
+/// Push `sessions` nested by parent, each followed by its ledger sub-agents (hidden in
+/// waiting-only mode), skipping the children of collapsed sessions.
+fn push_sessions(
+    rows: &mut Vec<TreeRow>,
+    sessions: &[EnrichedSession],
+    expanded: &HashSet<String>,
+    waiting_only: bool,
+    status: &StatusCache,
+) {
+    #[allow(clippy::too_many_arguments)]
     fn walk(
         rows: &mut Vec<TreeRow>,
         sessions: &[EnrichedSession],
         forest: &SessionForest,
         expanded: &HashSet<String>,
+        waiting_only: bool,
+        status: &StatusCache,
         i: usize,
         depth: usize,
     ) {
         let kids = &forest.children[i];
+        // StatusCache holds the ledger rows (refresh scheduler): no I/O per tick.
+        let subagents: &[ChildRow] = if waiting_only {
+            &[]
+        } else {
+            status.subagents(&sessions[i].name)
+        };
         let open = !expanded.contains(&session_fold_key(&sessions[i].name));
         rows.push(TreeRow::Session {
             session: sessions[i].clone(),
             depth,
-            expanded: (!kids.is_empty()).then_some(open),
+            expanded: (!kids.is_empty() || !subagents.is_empty()).then_some(open),
         });
         if open {
+            for row in subagents {
+                rows.push(TreeRow::Child {
+                    row: row.clone(),
+                    depth: depth + 1,
+                    project_path: sessions[i].path.clone(),
+                });
+            }
             for &k in kids {
-                walk(rows, sessions, forest, expanded, k, depth + 1);
+                walk(rows, sessions, forest, expanded, waiting_only, status, k, depth + 1);
             }
         }
     }
     let forest = session_forest(sessions);
     for &r in &forest.roots {
-        walk(rows, sessions, &forest, expanded, r, 1);
+        walk(rows, sessions, &forest, expanded, waiting_only, status, r, 1);
     }
 }
 
@@ -138,7 +162,7 @@ pub(crate) fn flatten_tree(
                     project_path: project_path.clone(),
                 });
             }
-            push_sessions(&mut rows, &visible, expanded);
+            push_sessions(&mut rows, &visible, expanded, waiting_only, status);
         }
     }
     let unassigned: Vec<EnrichedSession> = tree
@@ -149,7 +173,7 @@ pub(crate) fn flatten_tree(
         .collect();
     if !unassigned.is_empty() {
         rows.push(TreeRow::UnassignedHeader);
-        push_sessions(&mut rows, &unassigned, expanded);
+        push_sessions(&mut rows, &unassigned, expanded, waiting_only, status);
     }
     rows
 }
@@ -521,6 +545,31 @@ mod tests {
         let idx = focus_session_in_tree(&tree, &mut exp, "c", GroupBy::Project, false, &no_status());
         assert!(matches!(&flatten_tree(&tree, &exp, GroupBy::Project, false, &no_status())[idx],
             TreeRow::Session { session, depth: 3, .. } if session.name == "c"));
+    }
+
+    #[test]
+    fn ledger_subagents_nest_under_their_session() {
+        // Only this test sets XDG_STATE_HOME; the session name is unique to it.
+        let state = std::env::temp_dir().join(format!("cdamux-u3-{}", std::process::id()));
+        let ledger = state.join("cdamux/agents/u3-ledger-sess.jsonl");
+        std::fs::create_dir_all(ledger.parent().unwrap()).unwrap();
+        std::fs::write(&ledger, "{\"ts\":1,\"cli\":\"claude\",\"event\":\"start\",\"id\":\"ab12cd34ef\",\"name\":\"Explore\"}\n").unwrap();
+        std::env::set_var("XDG_STATE_HOME", &state);
+        let tree = unassigned_tree(vec![EnrichedSession {
+            state: SessionState::NeedsInput,
+            ..child("u3-ledger-sess", None)
+        }]);
+        let mut status = no_status();
+        status.refresh_subagents(["u3-ledger-sess"].into_iter(), std::time::Instant::now());
+        std::env::remove_var("XDG_STATE_HOME");
+        let rows = flatten_tree(&tree, &HashSet::new(), GroupBy::Project, false, &status);
+        let waiting = flatten_tree(&tree, &HashSet::new(), GroupBy::Project, true, &status);
+        let _ = std::fs::remove_dir_all(&state);
+        assert_eq!(shape(&rows), vec![("u3-ledger-sess".into(), 1, Some(true))]);
+        assert!(matches!(&rows[2], TreeRow::Child { row, depth: 2, .. }
+            if row.kind == ChildKind::Subagent && row.label == "Explore"));
+        assert_eq!(shape(&waiting), vec![("u3-ledger-sess".into(), 1, None)]);
+        assert_eq!(waiting.len(), 2, "waiting-only hides running sub-agents");
     }
 
     #[test]

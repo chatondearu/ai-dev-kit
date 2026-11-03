@@ -416,14 +416,19 @@ pub(crate) fn tree_row_item(row: &TreeRow) -> ListItem<'_> {
                 SessionState::Done => CLR_ACCENT,
                 _ => CLR_MUTED,
             };
-            let id = match row.kind {
-                ChildKind::Worker => format!("#{} ", row.id),
+            // (bold, muted): workers lead with their issue id, sub-agents with their name.
+            let (head, tail) = match row.kind {
+                ChildKind::Worker => (format!("#{} ", row.id), row.label.clone()),
+                ChildKind::Subagent => (
+                    format!("{}  ", row.label),
+                    row.id.chars().take(8).collect::<String>(),
+                ),
             };
             ListItem::new(Line::from(vec![
                 Span::raw(tree_indent(*depth)),
                 Span::styled(format!("{icon} "), Style::default().fg(color)),
-                Span::styled(id, Style::default().fg(CLR_TEXT).add_modifier(Modifier::BOLD)),
-                Span::styled(row.label.clone(), Style::default().fg(CLR_MUTED)),
+                Span::styled(head, Style::default().fg(CLR_TEXT).add_modifier(Modifier::BOLD)),
+                Span::styled(tail, Style::default().fg(CLR_MUTED)),
             ]))
         }
         TreeRow::Session {

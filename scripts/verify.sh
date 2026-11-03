@@ -9,6 +9,7 @@ for t in skills/core/cda-dev/scripts/tests/test_*.sh \
   skills/core/cda-kanban/scripts/tests/test_closest_status.sh \
   skills/core/cda-kanban/scripts/tests/test_gh_board.sh \
   skills/quality/cda-kiss/hooks/test-install.sh \
+  cdamux/hooks/test.sh \
   skills/core/cda-doc-hygiene/scripts/tests/test_doc_hygiene.sh \
   skills/core/cda-agents/scripts/tests/test_setup_agents.sh \
   skills/core/cda-prd/scripts/tests/test_new_prd_plan.sh \

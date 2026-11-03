@@ -387,6 +387,7 @@ mod tests {
         OrchGraphFile {
             run_id: "r".into(),
             repo: String::new(),
+            session: None,
             updated_at: String::new(),
             nodes,
             edges: edges

@@ -1,7 +1,8 @@
 //! Tailnet HTTP API dispatch (testable without binding a socket).
 
 use crate::orch_graph::{
-    find_orch_graph_from_cwd, list_orch_graph_runs, load_orch_graph, OrchGraphError,
+    find_orch_graph_from_cwd, find_orch_run, list_live_orch_runs, list_orch_graph_runs,
+    load_orch_graph, load_orch_graph_at, OrchGraphError,
 };
 use crate::orch_status::load_orch_run_status;
 use crate::tmux::{capture_pane_text, list_tmux_sessions, send_line_to_session};
@@ -374,7 +375,17 @@ pub fn dispatch_tailnet_request(
             Ok(p) => p,
             Err(e) => return json_error(status_of(&e), e),
         };
-        return match load_orch_graph(&repo_path) {
+        // `run` picks one run (live or archived); default = latest (current.json).
+        let loaded = match query_param(query, "run") {
+            Some(run) => match find_orch_run(&repo_path, &run) {
+                Some(p) => load_orch_graph_at(&p),
+                None => {
+                    return json_error(404, TailnetApiError::NotFound("no such run under repo".into()))
+                }
+            },
+            None => load_orch_graph(&repo_path),
+        };
+        return match loaded {
             Ok((graph, _)) => json_ok(200, &graph),
             Err(OrchGraphError::NotFound(_)) => json_error(
                 404,
@@ -427,13 +438,19 @@ pub fn dispatch_tailnet_request(
             run_id: String,
             status: Option<String>,
             path: String,
+            session: Option<String>,
+            live: bool,
         }
-        let rows: Vec<RunRow> = list_orch_graph_runs(&repo_path, 20)
+        // Live runs first (newest first), then the archive.
+        let rows: Vec<RunRow> = list_live_orch_runs(&repo_path)
             .into_iter()
+            .chain(list_orch_graph_runs(&repo_path, 20))
             .map(|r| RunRow {
                 run_id: r.run_id,
                 status: r.status,
                 path: r.path.display().to_string(),
+                session: r.session,
+                live: r.live,
             })
             .collect();
         return json_ok(200, &rows);
@@ -700,6 +717,29 @@ mod tests {
         let resp = dispatch_tailnet_request("GET", &url, "", &backend);
         assert_eq!(resp.status, 200, "{}", resp.body);
         assert!(resp.body.contains("\"run_id\":\"r1\""));
+    }
+
+    #[test]
+    fn orch_graph_run_param_picks_a_live_run_and_runs_lists_it() {
+        let (dir, backend) = backend_with_root();
+        let repo = dir.path().join("repo");
+        std::fs::create_dir_all(repo.join(".orch/graph/live")).unwrap();
+        std::fs::write(
+            repo.join(".orch/graph/live/r2.json"),
+            r#"{"run_id":"r2","session":"alpha","status":"running"}"#,
+        )
+        .unwrap();
+        let base = format!("/v1/orch-graph?repo={}", repo.display());
+        let latest = dispatch_tailnet_request("GET", &base, "", &backend);
+        assert!(latest.body.contains("\"run_id\":\"r1\""), "default stays current.json: {}", latest.body);
+        let r2 = dispatch_tailnet_request("GET", &format!("{base}&run=r2"), "", &backend);
+        assert_eq!(r2.status, 200, "{}", r2.body);
+        assert!(r2.body.contains("\"session\":\"alpha\""), "{}", r2.body);
+        let gone = dispatch_tailnet_request("GET", &format!("{base}&run=..%2Fcurrent"), "", &backend);
+        assert_eq!(gone.status, 404, "{}", gone.body);
+        let runs = dispatch_tailnet_request("GET", &format!("/v1/orch-runs?repo={}", repo.display()), "", &backend);
+        assert!(runs.body.contains(r#""run_id":"r2","status":"running""#), "{}", runs.body);
+        assert!(runs.body.contains(r#""session":"alpha","live":true"#), "{}", runs.body);
     }
 
     #[test]

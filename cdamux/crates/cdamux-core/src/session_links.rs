@@ -2,6 +2,7 @@
 //! generic [`ChildRow`] that non-session children (orch workers, CLI sub-agents)
 //! render through in the Fleet tree.
 
+use crate::orch_graph::OrchGraphRunSummary;
 use crate::orch_status::OrchWorkerStatus;
 use crate::session::{EnrichedSession, SessionState};
 use std::collections::HashMap;
@@ -25,6 +26,8 @@ pub enum ChildKind {
     Worker,
     /// CLI sub-agent from the session's ledger (`docs/subagents.md`).
     Subagent,
+    /// Live orch run (`.orch/graph/live/<run>.json`) under the session that started it.
+    Run,
 }
 
 /// A non-session row nested under a project or session.
@@ -62,6 +65,25 @@ impl ChildRow {
                 (_, Some(log)) => PreviewSource::FileTail(PathBuf::from(log)),
                 _ => PreviewSource::None,
             },
+        }
+    }
+}
+
+impl ChildRow {
+    /// Run row: `id` = run id, `label` = run status.
+    pub fn from_orch_run(run: &OrchGraphRunSummary) -> Self {
+        let status = run.status.as_deref().filter(|s| !s.is_empty()).unwrap_or("running");
+        let state = match status {
+            "ok" | "done" => SessionState::Done,
+            "blocked" => SessionState::Error,
+            _ => SessionState::Active,
+        };
+        Self {
+            id: run.run_id.clone(),
+            label: status.to_string(),
+            kind: ChildKind::Run,
+            state,
+            preview: PreviewSource::None,
         }
     }
 }

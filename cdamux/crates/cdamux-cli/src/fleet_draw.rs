@@ -440,6 +440,7 @@ pub(crate) fn tree_row_item(row: &TreeRow) -> ListItem<'_> {
                 (ChildKind::Worker, SessionState::Error) => {
                     (NodeState::Blocked.icon(), node_state_color(NodeState::Blocked))
                 }
+                (ChildKind::Run, SessionState::Active) => ('◈', CLR_OK),
                 (_, st) => (state_icon(st), session_state_color(st)),
             };
             // (bold, muted): workers lead with their issue id, sub-agents with their name.
@@ -449,6 +450,7 @@ pub(crate) fn tree_row_item(row: &TreeRow) -> ListItem<'_> {
                     format!("{}  ", row.label),
                     row.id.chars().take(8).collect::<String>(),
                 ),
+                ChildKind::Run => (format!("run {} ", row.id), row.label.clone()),
             };
             ListItem::new(Line::from(vec![
                 Span::raw(tree_indent(*depth)),

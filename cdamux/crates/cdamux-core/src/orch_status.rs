@@ -31,10 +31,13 @@ pub struct OrchWorkerStatus {
     pub log: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct OrchRunStatusFile {
     #[serde(default)]
     pub updated_at: String,
+    /// Orch run the workers belong to (same id as the graph file and `@cdamux_run`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run_id: Option<String>,
     #[serde(default)]
     pub workers: Vec<OrchWorkerStatus>,
 }

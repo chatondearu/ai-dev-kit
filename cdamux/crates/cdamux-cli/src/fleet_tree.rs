@@ -2,10 +2,12 @@
 
 use cdamux_core::{
     project_has_orch_artifacts, project_key, session_forest, ChildKind, ChildRow,
-    EnrichedSession, GroupBy, ProjectSessionTree, ProjectTreeNode, SessionForest, SessionState,
+    EnrichedSession, GroupBy, OrchGraphRunSummary, ProjectSessionTree, ProjectTreeNode,
+    SessionForest, SessionState,
 };
 use crate::refresh::StatusCache;
 use std::collections::HashSet;
+use std::path::Path;
 
 pub(crate) fn tree_node_key(node: &ProjectTreeNode, group_by: GroupBy) -> String {
     if group_by == GroupBy::Project {
@@ -46,65 +48,91 @@ pub(crate) enum TreeRow {
         depth: usize,
         expanded: Option<bool>,
     },
-    /// Non-session child: headless orch worker under its project, or CLI sub-agent
-    /// under its session (`project_path` = the session path).
+    /// Non-session child: orch run under the session that started it (or its project
+    /// when headless), orch worker under its run (or its project), or CLI sub-agent under
+    /// its session (`project_path` = the session path). `run` = the orch run it belongs to.
     Child {
         row: ChildRow,
         depth: usize,
         project_path: String,
+        run: Option<String>,
     },
     UnassignedHeader,
 }
 
-/// Push `sessions` nested by parent, each followed by its ledger sub-agents (hidden in
-/// waiting-only mode), skipping the children of collapsed sessions.
-fn push_sessions(
-    rows: &mut Vec<TreeRow>,
-    sessions: &[EnrichedSession],
-    expanded: &HashSet<String>,
+/// Sessions of one project (or the unassigned list) with what nests under them.
+struct Nest<'a> {
+    sessions: &'a [EnrichedSession],
+    forest: SessionForest,
+    expanded: &'a HashSet<String>,
     waiting_only: bool,
-    status: &StatusCache,
-) {
-    #[allow(clippy::too_many_arguments)]
-    fn walk(
-        rows: &mut Vec<TreeRow>,
-        sessions: &[EnrichedSession],
-        forest: &SessionForest,
-        expanded: &HashSet<String>,
-        waiting_only: bool,
-        status: &StatusCache,
-        i: usize,
-        depth: usize,
-    ) {
-        let kids = &forest.children[i];
-        // StatusCache holds the ledger rows (refresh scheduler): no I/O per tick.
-        let subagents: &[ChildRow] = if waiting_only {
-            &[]
-        } else {
-            status.subagents(&sessions[i].name)
-        };
-        let open = !expanded.contains(&session_fold_key(&sessions[i].name));
-        rows.push(TreeRow::Session {
-            session: sessions[i].clone(),
+    status: &'a StatusCache,
+    /// Live runs of the project; empty without a repo or in waiting-only mode.
+    runs: &'a [OrchGraphRunSummary],
+    /// status.json workers, nested under the row of their run (`status.json` `run_id`).
+    run_workers: Option<(&'a str, &'a [ChildRow])>,
+    project_path: &'a str,
+}
+
+impl Nest<'_> {
+    /// A row per run of `runs` (its workers, then the sessions of `idxs` tagged with it
+    /// via `@cdamux_run`), then the other sessions of `idxs`, all at `depth`.
+    fn level(&self, rows: &mut Vec<TreeRow>, idxs: &[usize], runs: &[&OrchGraphRunSummary], depth: usize) {
+        let child = |row: ChildRow, depth, run: &str| TreeRow::Child {
+            row,
             depth,
-            expanded: (!kids.is_empty() || !subagents.is_empty()).then_some(open),
+            project_path: self.project_path.to_string(),
+            run: Some(run.to_string()),
+        };
+        let in_run = |k: usize| runs.iter().any(|r| self.sessions[k].run.as_deref() == Some(r.run_id.as_str()));
+        for run in runs {
+            rows.push(child(ChildRow::from_orch_run(run), depth, &run.run_id));
+            if let Some((_, workers)) = self.run_workers.filter(|(id, _)| *id == run.run_id) {
+                rows.extend(workers.iter().map(|w| child(w.clone(), depth + 1, &run.run_id)));
+            }
+            for &k in idxs.iter().filter(|&&k| self.sessions[k].run.as_deref() == Some(run.run_id.as_str())) {
+                self.walk(rows, k, depth + 1);
+            }
+        }
+        for &k in idxs.iter().filter(|&&k| !in_run(k)) {
+            self.walk(rows, k, depth);
+        }
+    }
+
+    /// Session `i`, then (unless collapsed) its ledger sub-agents, the runs it started
+    /// and its child sessions.
+    fn walk(&self, rows: &mut Vec<TreeRow>, i: usize, depth: usize) {
+        let s = &self.sessions[i];
+        let kids = &self.forest.children[i];
+        // StatusCache holds the ledger rows (refresh scheduler): no I/O per tick.
+        let subagents: &[ChildRow] = if self.waiting_only { &[] } else { self.status.subagents(&s.name) };
+        let own: Vec<&OrchGraphRunSummary> =
+            self.runs.iter().filter(|r| r.session.as_deref() == Some(s.name.as_str())).collect();
+        let open = !self.expanded.contains(&session_fold_key(&s.name));
+        rows.push(TreeRow::Session {
+            session: s.clone(),
+            depth,
+            expanded: (!kids.is_empty() || !subagents.is_empty() || !own.is_empty()).then_some(open),
         });
         if open {
             for row in subagents {
                 rows.push(TreeRow::Child {
                     row: row.clone(),
                     depth: depth + 1,
-                    project_path: sessions[i].path.clone(),
+                    project_path: s.path.clone(),
+                    run: None,
                 });
             }
-            for &k in kids {
-                walk(rows, sessions, forest, expanded, waiting_only, status, k, depth + 1);
-            }
+            self.level(rows, kids, &own, depth + 1);
         }
     }
-    let forest = session_forest(sessions);
-    for &r in &forest.roots {
-        walk(rows, sessions, &forest, expanded, waiting_only, status, r, 1);
+
+    /// Root sessions, after the runs whose session is not here (headless or gone).
+    fn push(&self, rows: &mut Vec<TreeRow>) {
+        let here = |name: &str| self.sessions.iter().any(|s| s.name == name);
+        let headless: Vec<&OrchGraphRunSummary> =
+            self.runs.iter().filter(|r| !r.session.as_deref().is_some_and(here)).collect();
+        self.level(rows, &self.forest.roots, &headless, 1);
     }
 }
 
@@ -155,14 +183,37 @@ pub(crate) fn flatten_tree(
             expanded: is_exp,
         });
         if is_exp {
-            for row in visible_workers {
-                rows.push(TreeRow::Child {
-                    row,
-                    depth: 1,
-                    project_path: project_path.clone(),
-                });
+            // Waiting-only keeps the flat list of blocked workers, without run rows.
+            let runs = match status.runs(&node.project.path) {
+                Some(r) if !waiting_only => r.live.as_slice(),
+                _ => &[],
+            };
+            // Workers of a live run nest under it; others (pre-#178 status.json) stay here.
+            let run_workers = status
+                .status_run(&node.project.path)
+                .filter(|id| runs.iter().any(|r| r.run_id == *id))
+                .map(|id| (id, visible_workers.as_slice()));
+            if run_workers.is_none() {
+                for row in &visible_workers {
+                    rows.push(TreeRow::Child {
+                        row: row.clone(),
+                        depth: 1,
+                        project_path: project_path.clone(),
+                        run: None,
+                    });
+                }
             }
-            push_sessions(&mut rows, &visible, expanded, waiting_only, status);
+            Nest {
+                forest: session_forest(&visible),
+                sessions: &visible,
+                expanded,
+                waiting_only,
+                status,
+                runs,
+                run_workers,
+                project_path: &project_path,
+            }
+            .push(&mut rows);
         }
     }
     let unassigned: Vec<EnrichedSession> = tree
@@ -173,9 +224,90 @@ pub(crate) fn flatten_tree(
         .collect();
     if !unassigned.is_empty() {
         rows.push(TreeRow::UnassignedHeader);
-        push_sessions(&mut rows, &unassigned, expanded, waiting_only, status);
+        Nest {
+            forest: session_forest(&unassigned),
+            sessions: &unassigned,
+            expanded,
+            waiting_only,
+            status,
+            runs: &[],
+            run_workers: None,
+            project_path: "",
+        }
+        .push(&mut rows);
     }
     rows
+}
+
+/// Which orch graph the sidecar Orch graph tab and the Graph view (`g`) show.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum GraphTarget {
+    None,
+    /// `.orch/graph/current.json` found from this path: project rows, pre-#178 harness.
+    Latest(String),
+    /// These runs (newest first, `Tab` cycles in the Graph view), found from `cwd`.
+    Runs { cwd: String, runs: Vec<String> },
+    /// A session that started no run, in a repo with per-run graphs.
+    NoRun,
+}
+
+/// Graph of the selected row: a run row (or worker under it) shows its run; a session
+/// its own live runs, else the run of its `@cdamux_run`; a project the latest run.
+pub(crate) fn graph_target_at_row(
+    rows: &[TreeRow],
+    idx: usize,
+    tree: &ProjectSessionTree,
+    status: &StatusCache,
+) -> GraphTarget {
+    let runs_from = |cwd: &str, runs: Vec<String>| GraphTarget::Runs { cwd: cwd.to_string(), runs };
+    match rows.get(idx) {
+        Some(TreeRow::Child { project_path, run: Some(run), .. }) => runs_from(project_path, vec![run.clone()]),
+        Some(TreeRow::Session { session: s, .. }) => {
+            let repo = tree
+                .nodes
+                .iter()
+                .find(|n| n.sessions.iter().any(|x| x.name == s.name))
+                .and_then(|n| status.runs(&n.project.path).map(|r| (n.project.path.as_path(), r)));
+            let own: Vec<String> = repo
+                .iter()
+                .flat_map(|(_, r)| &r.live)
+                .filter(|r| r.session.as_deref() == Some(s.name.as_str()))
+                .map(|r| r.run_id.clone())
+                .collect();
+            match (own.is_empty(), &s.run, repo) {
+                (false, _, Some((path, _))) => runs_from(&path.to_string_lossy(), own),
+                (true, Some(run), _) => runs_from(&s.path, vec![run.clone()]),
+                (true, None, Some((_, r))) if r.per_run => GraphTarget::NoRun,
+                _ => GraphTarget::Latest(s.path.clone()),
+            }
+        }
+        Some(TreeRow::Project { path, .. }) | Some(TreeRow::Child { project_path: path, .. }) => {
+            GraphTarget::Latest(path.clone())
+        }
+        _ => GraphTarget::None,
+    }
+}
+
+/// Project row sidecar: live runs (with the session that started them) and recent ones.
+pub(crate) fn project_runs_text(status: &StatusCache, repo: &str) -> String {
+    let Some(runs) = status.runs(Path::new(repo)) else {
+        return String::new();
+    };
+    let mut out = String::new();
+    if !runs.live.is_empty() {
+        out.push_str("\n\nlive runs:");
+        for r in &runs.live {
+            let who = r.session.as_deref().unwrap_or("headless");
+            out.push_str(&format!("\n  {} · {} · {}", r.run_id, who, r.status.as_deref().unwrap_or("running")));
+        }
+    }
+    if !runs.recent.is_empty() {
+        out.push_str("\n\nrecent runs:");
+        for r in &runs.recent {
+            out.push_str(&format!("\n  {} · {}", r.run_id, r.status.as_deref().unwrap_or("?")));
+        }
+    }
+    out
 }
 
 pub(crate) fn toggle_fold_all(tree: &ProjectSessionTree, expanded: &mut HashSet<String>, group_by: GroupBy) {
@@ -597,5 +729,87 @@ mod tests {
             shape(&rows),
             vec![("a".into(), 1, None), ("b".into(), 1, None)]
         );
+    }
+
+    /// `(depth, label)` per row: sessions by name, children as `kind id`.
+    fn outline(rows: &[TreeRow]) -> Vec<(usize, String)> {
+        rows.iter()
+            .map(|r| match r {
+                TreeRow::Project { name, .. } => (0, name.clone()),
+                TreeRow::Session { session, depth, .. } => (*depth, session.name.clone()),
+                TreeRow::Child { row, depth, .. } => (*depth, format!("{:?} {}", row.kind, row.id)),
+                TreeRow::UnassignedHeader => (0, "unassigned".into()),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn runs_nest_under_their_session_with_workers_and_worker_sessions() {
+        use crate::test_render::{fixture_runs, fixture_runs_rows, RUN_42, RUN_HEADLESS, RUN_MAIN};
+        let rows = fixture_runs_rows();
+        let w = format!("orch-{RUN_MAIN}-7");
+        assert_eq!(
+            outline(&rows),
+            vec![
+                (0, "alpha".into()),
+                (1, format!("Run {RUN_HEADLESS}")),
+                (1, "alpha-42".into()),
+                (2, format!("Run {RUN_42}")),
+                (1, "alpha-main".into()),
+                (2, format!("Run {RUN_MAIN}")),
+                (3, "Worker 7".into()),
+                (3, "Worker 8".into()),
+                (3, w.clone()),
+            ]
+        );
+        // Waiting-only: no run rows, blocked workers stay flat under the project.
+        let (tree, status) = fixture_runs();
+        let open: HashSet<String> = ["/src/alpha".to_string()].into_iter().collect();
+        let waiting = flatten_tree(&tree, &open, GroupBy::Project, true, &status);
+        assert_eq!(
+            outline(&waiting),
+            vec![(0, "alpha".into()), (1, "Worker 8".into()), (1, "alpha-42".into())]
+        );
+        // Collapsing alpha-main hides its run, workers and worker session.
+        let mut exp = open.clone();
+        set_row_fold(&rows, 4, &mut exp, false);
+        assert_eq!(flatten_tree(&tree, &exp, GroupBy::Project, false, &status).len(), 5);
+    }
+
+    #[test]
+    fn graph_target_follows_run_row_own_run_then_cdamux_run() {
+        use crate::test_render::{fixture_runs, fixture_runs_rows, RUN_42, RUN_MAIN};
+        let (tree, status) = fixture_runs();
+        let rows = fixture_runs_rows();
+        let at = |i| graph_target_at_row(&rows, i, &tree, &status);
+        let runs = |cwd: &str, ids: &[&str]| GraphTarget::Runs {
+            cwd: cwd.into(),
+            runs: ids.iter().map(|s| s.to_string()).collect(),
+        };
+        assert_eq!(at(0), GraphTarget::Latest("/src/alpha".into()), "project = latest");
+        assert_eq!(at(3), runs("/src/alpha", &[RUN_42]), "run row");
+        assert_eq!(at(2), runs("/src/alpha", &[RUN_42]), "session's own run");
+        assert_eq!(at(6), runs("/src/alpha", &[RUN_MAIN]), "worker under its run");
+        assert_eq!(at(8), runs("/src/alpha", &[RUN_MAIN]), "worker session via @cdamux_run");
+
+        // Several runs from one session: newest first. A plain session: no run of its own.
+        let extra = EnrichedSession { name: "solo".into(), ..sess("solo") };
+        let mut tree2 = tree.clone();
+        tree2.nodes[0].sessions.push(extra);
+        let mut status2 = StatusCache::new(std::time::Duration::ZERO);
+        let mut runs2 = status.runs(Path::new("/src/alpha")).unwrap().clone();
+        let mut newer = runs2.live[1].clone();
+        newer.run_id = "newer".into();
+        runs2.live.insert(0, newer);
+        status2.insert_fixture(Path::new("/src/alpha"), Default::default(), runs2.clone());
+        let rows2 = flatten_tree(&tree2, &["/src/alpha".to_string()].into_iter().collect(), GroupBy::Project, false, &status2);
+        let main = row_index_for_session(&rows2, "alpha-main").unwrap();
+        let solo = row_index_for_session(&rows2, "solo").unwrap();
+        assert_eq!(graph_target_at_row(&rows2, main, &tree2, &status2), runs("/src/alpha", &["newer", RUN_MAIN]));
+        assert_eq!(graph_target_at_row(&rows2, solo, &tree2, &status2), GraphTarget::NoRun);
+        // Pre-#178 harness (no live/ dir): the old shared graph.
+        runs2.per_run = false;
+        status2.insert_fixture(Path::new("/src/alpha"), Default::default(), runs2);
+        assert_eq!(graph_target_at_row(&rows2, solo, &tree2, &status2), GraphTarget::Latest("/tmp/p".into()));
     }
 }

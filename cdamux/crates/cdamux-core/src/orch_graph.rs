@@ -1,4 +1,5 @@
-//! Live CDA orchestration graph (`.orch/graph/current.json`).
+//! Live CDA orchestration graphs: one file per run under `.orch/graph/live/`,
+//! finished runs under `runs/`, `current.json` pointing at the latest (ADR-007, #178).
 
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -14,6 +15,9 @@ pub struct OrchGraphFile {
     pub run_id: String,
     #[serde(default)]
     pub repo: String,
+    /// tmux session (`#S`) that created the run; absent for headless runs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<String>,
     #[serde(default)]
     pub updated_at: String,
     #[serde(default)]
@@ -77,7 +81,12 @@ fn file_age_secs(path: &Path) -> Option<u64> {
 }
 
 pub fn load_orch_graph(repo: &Path) -> Result<(OrchGraphFile, Option<u64>), OrchGraphError> {
-    let path = orch_graph_path(repo);
+    load_orch_graph_at(&orch_graph_path(repo))
+}
+
+/// Parse one graph file (a run file, or `current.json` through its symlink).
+pub fn load_orch_graph_at(path: &Path) -> Result<(OrchGraphFile, Option<u64>), OrchGraphError> {
+    let path = path.to_path_buf();
     if !path.is_file() {
         return Err(OrchGraphError::NotFound(path));
     }
@@ -144,6 +153,9 @@ pub fn format_orch_graph_panel(graph: &OrchGraphFile, width: usize) -> String {
 /// Run header: `run`, `status`, `updated … · age · stale`, `ended`.
 pub fn orch_graph_header(graph: &OrchGraphFile, age_secs: Option<u64>) -> Vec<String> {
     let mut lines = vec![format!("run {}", graph.run_id)];
+    if let Some(session) = &graph.session {
+        lines.push(format!("session {session}"));
+    }
     if let Some(status) = &graph.status {
         if !status.is_empty() {
             lines.push(format!("status {status}"));
@@ -264,23 +276,81 @@ pub fn format_orch_graph_panel_with_history(
     out
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OrchGraphRunSummary {
     pub run_id: String,
     pub path: PathBuf,
     pub status: Option<String>,
+    /// tmux session that created the run; `None` = headless (orch-auto, no tmux).
+    pub session: Option<String>,
+    /// Under `live/` (or a running legacy `current.json`), not archived in `runs/`.
+    pub live: bool,
 }
 
 pub fn orch_graph_runs_dir(repo: &Path) -> PathBuf {
     repo.join(".orch/graph/runs")
 }
 
+pub fn orch_graph_live_dir(repo: &Path) -> PathBuf {
+    repo.join(".orch/graph/live")
+}
+
 /// Newest-first summaries from archived run JSON files.
 pub fn list_orch_graph_runs(repo: &Path, limit: usize) -> Vec<OrchGraphRunSummary> {
-    let dir = orch_graph_runs_dir(repo);
-    let Ok(rd) = fs::read_dir(&dir) else {
+    list_run_dir(&orch_graph_runs_dir(repo), limit, false)
+}
+
+/// Live runs, newest first. Without `live/` (pre-#178 harness) a still-running
+/// `current.json` stands in as one run without a session.
+pub fn list_live_orch_runs(repo: &Path) -> Vec<OrchGraphRunSummary> {
+    let dir = orch_graph_live_dir(repo);
+    if dir.is_dir() {
+        return list_run_dir(&dir, usize::MAX, true);
+    }
+    match load_orch_graph(repo) {
+        Ok((g, _)) if g.ended_at.is_none() && matches!(g.status.as_deref(), None | Some("" | "running")) => {
+            vec![summary(g, orch_graph_path(repo), true)]
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// Run file for `run_id`: `live/`, then `runs/`, then a legacy `current.json` with that id.
+/// The id is reduced to the writer's file-name charset, so it can never leave the graph dir.
+pub fn find_orch_run(repo: &Path, run_id: &str) -> Option<PathBuf> {
+    // Same mapping as graph.sh: `tr -c 'A-Za-z0-9._-' '_'` (bytewise).
+    let name: String = run_id
+        .bytes()
+        .map(|b| if b.is_ascii_alphanumeric() || b"._-".contains(&b) { b as char } else { '_' })
+        .collect();
+    let name = format!("{name}.json");
+    [orch_graph_live_dir(repo), orch_graph_runs_dir(repo)]
+        .into_iter()
+        .map(|d| d.join(&name))
+        .find(|p| p.is_file())
+        .or_else(|| {
+            let (g, _) = load_orch_graph(repo).ok()?;
+            (g.run_id == run_id).then(|| orch_graph_path(repo))
+        })
+}
+
+/// [`find_orch_run`] in `cwd` or its nearest ancestor holding that run.
+pub fn find_orch_run_from_cwd(cwd: &str, run_id: &str) -> Option<PathBuf> {
+    if cwd.is_empty() {
+        return None;
+    }
+    Path::new(cwd).ancestors().find_map(|a| find_orch_run(a, run_id))
+}
+
+fn summary(g: OrchGraphFile, path: PathBuf, live: bool) -> OrchGraphRunSummary {
+    OrchGraphRunSummary { run_id: g.run_id, path, status: g.status, session: g.session, live }
+}
+
+fn list_run_dir(dir: &Path, limit: usize, live: bool) -> Vec<OrchGraphRunSummary> {
+    let Ok(rd) = fs::read_dir(dir) else {
         return Vec::new();
     };
+    // `*.json` only: skips the writer's `<run>.json.lock` and `<run>.json.tmp.*` files.
     let mut entries: Vec<_> = rd
         .filter_map(|e| e.ok())
         .filter(|e| {
@@ -298,11 +368,7 @@ pub fn list_orch_graph_runs(repo: &Path, limit: usize) -> Vec<OrchGraphRunSummar
             let path = e.path();
             let raw = fs::read_to_string(&path).ok()?;
             let g: OrchGraphFile = serde_json::from_str(&raw).ok()?;
-            Some(OrchGraphRunSummary {
-                run_id: g.run_id,
-                path,
-                status: g.status,
-            })
+            Some(summary(g, path, live))
         })
         .collect()
 }
@@ -362,6 +428,7 @@ mod tests {
         let g = OrchGraphFile {
             run_id: "r1".into(),
             repo: "/tmp".into(),
+            session: None,
             updated_at: "t".into(),
             nodes: vec![OrchGraphNode {
                 id: "integrator".into(),
@@ -423,6 +490,7 @@ mod tests {
         let g = OrchGraphFile {
             run_id: "r1".into(),
             repo: String::new(),
+            session: None,
             updated_at: "old".into(),
             nodes: vec![],
             edges: vec![],
@@ -431,5 +499,51 @@ mod tests {
         };
         let out = format_orch_graph_panel_ex(&g, 60, Some(ORCH_GRAPH_STALE_SECS + 10));
         assert!(out.contains("stale"), "{out}");
+    }
+
+    fn write(path: &Path, body: &str, age_secs: u64) {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, body).unwrap();
+        let f = fs::OpenOptions::new().write(true).open(path).unwrap();
+        f.set_modified(SystemTime::now() - std::time::Duration::from_secs(age_secs)).unwrap();
+    }
+
+    #[test]
+    fn live_runs_newest_first_with_session_and_archive_lookup() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path();
+        let live = orch_graph_live_dir(repo);
+        write(&live.join("old.json"), r#"{"run_id":"old","session":"a","status":"running"}"#, 60);
+        write(&live.join("new.json"), r#"{"run_id":"new","status":"running"}"#, 1);
+        write(&live.join("new.json.lock"), "", 0);
+        write(&orch_graph_runs_dir(repo).join("done.json"), r#"{"run_id":"done","status":"ok"}"#, 5);
+        let runs = list_live_orch_runs(repo);
+        let ids: Vec<_> = runs.iter().map(|r| (r.run_id.as_str(), r.session.as_deref(), r.live)).collect();
+        assert_eq!(ids, vec![("new", None, true), ("old", Some("a"), true)]);
+        assert!(!list_orch_graph_runs(repo, 5)[0].live);
+        assert_eq!(find_orch_run(repo, "old"), Some(live.join("old.json")));
+        assert_eq!(find_orch_run(repo, "done"), Some(orch_graph_runs_dir(repo).join("done.json")));
+        // From a worktree below the repo; traversal-looking ids stay inside the graph dir.
+        let wt = repo.join(".orch/worktrees/7-x");
+        fs::create_dir_all(&wt).unwrap();
+        assert_eq!(find_orch_run_from_cwd(wt.to_str().unwrap(), "new"), Some(live.join("new.json")));
+        assert_eq!(find_orch_run(repo, "../live/new"), None);
+    }
+
+    #[test]
+    fn legacy_current_json_stands_in_only_while_running() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path();
+        write(&orch_graph_path(repo), r#"{"run_id":"legacy","status":"running"}"#, 1);
+        let runs = list_live_orch_runs(repo);
+        assert_eq!(runs.len(), 1);
+        assert_eq!((runs[0].run_id.as_str(), runs[0].session.as_deref()), ("legacy", None));
+        assert_eq!(find_orch_run(repo, "legacy"), Some(orch_graph_path(repo)));
+        write(&orch_graph_path(repo), r#"{"run_id":"legacy","status":"ok","ended_at":"t"}"#, 1);
+        assert!(list_live_orch_runs(repo).is_empty());
+        // Once `live/` exists, current.json is only the pointer: not listed twice.
+        write(&orch_graph_path(repo), r#"{"run_id":"legacy","status":"running"}"#, 1);
+        fs::create_dir_all(orch_graph_live_dir(repo)).unwrap();
+        assert!(list_live_orch_runs(repo).is_empty());
     }
 }

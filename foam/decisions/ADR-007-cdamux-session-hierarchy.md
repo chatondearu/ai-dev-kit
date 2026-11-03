@@ -123,6 +123,12 @@ made autonomy opt-in. The hierarchy has to respect all three.
   the graph file name, `status.json` `run_id` and `@cdamux_run` share one id.
   `graph-node.sh` targets `--run-id`, else `$ORCH_RUN_ID`, else the newest live
   run of the current tmux session.
+- **2026-11-03** ([#179](https://github.com/chatondearu/ai-dev-kit/issues/179)):
+  cdamux reads the per-run files: a live run is a `ChildKind::Run` row under its
+  `session` (headless runs under the project) holding the status.json workers of
+  the same `run_id` and the worker sessions tagged `@cdamux_run`. Graph selection:
+  run row → that run; session → its newest own live run, else its `@cdamux_run`;
+  project → latest (`current.json`). Graph view `Tab` cycles a session's runs.
 
 ## References
 

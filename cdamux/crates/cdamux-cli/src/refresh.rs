@@ -3,7 +3,9 @@
 //! Every method takes `now` so tests drive a fake clock.
 
 use cdamux_core::{
-    load_orch_run_status, orch_run_status_path, session_subagents, ChildRow, OrchWorkerStatus,
+    list_live_orch_runs, list_orch_graph_runs, load_orch_run_status, orch_graph_live_dir,
+    orch_graph_path, orch_graph_runs_dir, orch_run_status_path, session_subagents, ChildRow,
+    OrchGraphRunSummary, OrchRunStatusFile, OrchWorkerStatus,
 };
 use std::collections::HashMap;
 use std::fs;
@@ -62,11 +64,31 @@ pub(crate) fn sidecar_step(
     }
 }
 
-/// Orch workers per repo, re-read only when the file's mtime moved, and CLI
-/// sub-agent rows per tmux session (ledger, mtime-cached in core), on the same interval.
+/// Orch runs of one repo: live (newest first) and the last few archived.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct RepoRuns {
+    pub(crate) live: Vec<OrchGraphRunSummary>,
+    pub(crate) recent: Vec<OrchGraphRunSummary>,
+    /// `.orch/graph/live/` exists (false = pre-#178 harness: one shared current.json).
+    pub(crate) per_run: bool,
+}
+
+/// mtimes that move whenever a run starts, writes, finishes or is archived: the writer
+/// renames into `live/` and `runs/`; a legacy harness rewrites `current.json` in place.
+type RunsStamp = [Option<SystemTime>; 3];
+
+fn mtime(path: &Path) -> Option<SystemTime> {
+    fs::metadata(path).and_then(|m| m.modified()).ok()
+}
+
+/// Orch workers per repo, re-read only when the file's mtime moved, orch runs per repo
+/// (same rule on the graph dirs), and CLI sub-agent rows per tmux session (ledger,
+/// mtime-cached in core), on the same interval.
 pub(crate) struct StatusCache {
     iv: Interval,
-    entries: HashMap<PathBuf, (Option<SystemTime>, Vec<OrchWorkerStatus>)>,
+    entries: HashMap<PathBuf, (Option<SystemTime>, OrchRunStatusFile)>,
+    runs_iv: Interval,
+    runs: HashMap<PathBuf, (RunsStamp, RepoRuns)>,
     sub_iv: Interval,
     subagents: HashMap<String, Vec<ChildRow>>,
 }
@@ -76,6 +98,8 @@ impl StatusCache {
         Self {
             iv: Interval::new(every),
             entries: HashMap::new(),
+            runs_iv: Interval::new(every),
+            runs: HashMap::new(),
             sub_iv: Interval::new(every),
             subagents: HashMap::new(),
         }
@@ -117,7 +141,71 @@ impl StatusCache {
 
     /// Cached workers; never touches the disk.
     pub(crate) fn workers(&self, repo: &Path) -> &[OrchWorkerStatus] {
-        self.entries.get(repo).map_or(&[], |(_, w)| w.as_slice())
+        self.entries.get(repo).map_or(&[], |(_, st)| st.workers.as_slice())
+    }
+
+    /// Run id of the cached status.json (`None` before #178); never touches the disk.
+    pub(crate) fn status_run(&self, repo: &Path) -> Option<&str> {
+        self.entries.get(repo)?.1.run_id.as_deref()
+    }
+
+    /// Cached runs of `repo`; never touches the disk.
+    pub(crate) fn runs(&self, repo: &Path) -> Option<&RepoRuns> {
+        self.runs.get(repo).map(|(_, r)| r)
+    }
+
+    /// Test fixtures: cached status.json and runs of `repo` without any file.
+    #[cfg(test)]
+    pub(crate) fn insert_fixture(&mut self, repo: &Path, status: OrchRunStatusFile, runs: RepoRuns) {
+        self.entries.insert(repo.to_path_buf(), (None, status));
+        self.runs.insert(repo.to_path_buf(), ([None; 3], runs));
+    }
+
+    /// Re-list the runs of each repo once per interval, only when a graph dir moved.
+    /// Returns true when any run list changed (caller redraws).
+    pub(crate) fn refresh_runs<'a>(
+        &mut self,
+        repos: impl Iterator<Item = &'a Path>,
+        now: Instant,
+    ) -> bool {
+        self.refresh_runs_with(repos, now, |p| RepoRuns {
+            live: list_live_orch_runs(p),
+            recent: list_orch_graph_runs(p, 5),
+            per_run: orch_graph_live_dir(p).is_dir(),
+        })
+    }
+
+    fn refresh_runs_with<'a>(
+        &mut self,
+        repos: impl Iterator<Item = &'a Path>,
+        now: Instant,
+        mut load: impl FnMut(&Path) -> RepoRuns,
+    ) -> bool {
+        if !self.runs_iv.due(now) {
+            return false;
+        }
+        self.runs_iv.mark(now);
+        let mut next = HashMap::new();
+        let mut changed = false;
+        for repo in repos {
+            let stamp = [
+                mtime(&orch_graph_live_dir(repo)),
+                mtime(&orch_graph_runs_dir(repo)),
+                mtime(&orch_graph_path(repo)),
+            ];
+            let entry = match self.runs.remove(repo) {
+                Some(old) if old.0 == stamp => old,
+                old => {
+                    let runs = load(repo);
+                    changed |= old.is_none_or(|o| o.1 != runs);
+                    (stamp, runs)
+                }
+            };
+            next.insert(repo.to_path_buf(), entry);
+        }
+        changed |= !self.runs.is_empty(); // a repo left the tree
+        self.runs = next;
+        changed
     }
 
     /// Stat each repo once per interval; parse only when mtime changed.
@@ -127,14 +215,14 @@ impl StatusCache {
         repos: impl Iterator<Item = &'a Path>,
         now: Instant,
     ) -> bool {
-        self.refresh_with(repos, now, |p| load_orch_run_status(p).map(|s| s.workers))
+        self.refresh_with(repos, now, load_orch_run_status)
     }
 
     fn refresh_with<'a>(
         &mut self,
         repos: impl Iterator<Item = &'a Path>,
         now: Instant,
-        mut load: impl FnMut(&Path) -> Option<Vec<OrchWorkerStatus>>,
+        mut load: impl FnMut(&Path) -> Option<OrchRunStatusFile>,
     ) -> bool {
         if !self.iv.due(now) {
             return false;
@@ -149,9 +237,9 @@ impl StatusCache {
             let entry = match self.entries.remove(repo) {
                 Some(old) if old.0 == mtime => old,
                 old => {
-                    let workers = load(repo).unwrap_or_default();
-                    changed |= old.is_none_or(|o| o.1 != workers);
-                    (mtime, workers)
+                    let st = load(repo).unwrap_or_default();
+                    changed |= old.is_none_or(|o| o.1 != st);
+                    (mtime, st)
                 }
             };
             next.insert(repo.to_path_buf(), entry);
@@ -213,7 +301,7 @@ mod tests {
         let loads = Cell::new(0);
         let load = |_: &Path| {
             loads.set(loads.get() + 1);
-            Some(Vec::new())
+            Some(OrchRunStatusFile::default())
         };
         let run = |cache: &mut StatusCache, ms: u64| {
             cache.refresh_with([dir.as_path()].into_iter(), at(t0, ms), load)
@@ -225,6 +313,37 @@ mod tests {
         assert_eq!(loads.get(), 1);
         // mtime moves: next due check re-parses exactly once.
         let f = fs::OpenOptions::new().write(true).open(&path).unwrap();
+        f.set_modified(SystemTime::now() + Duration::from_secs(5)).unwrap();
+        for i in 30..40 {
+            run(&mut cache, i * 100);
+        }
+        assert_eq!(loads.get(), 2);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn runs_relisted_only_when_the_live_dir_moves() {
+        let dir = std::env::temp_dir().join(format!("cdamux-refresh-runs-{}", std::process::id()));
+        let live = orch_graph_live_dir(&dir);
+        fs::create_dir_all(&live).unwrap();
+        let t0 = Instant::now();
+        let mut cache = StatusCache::new(Duration::from_millis(500));
+        let loads = Cell::new(0);
+        let load = |_: &Path| {
+            loads.set(loads.get() + 1);
+            RepoRuns { per_run: true, ..RepoRuns::default() }
+        };
+        let run = |cache: &mut StatusCache, ms: u64| {
+            cache.refresh_runs_with([dir.as_path()].into_iter(), at(t0, ms), load)
+        };
+        assert!(run(&mut cache, 0), "first listing is a change");
+        for i in 1..30 {
+            assert!(!run(&mut cache, i * 100));
+        }
+        assert_eq!(loads.get(), 1);
+        assert!(cache.runs(&dir).unwrap().per_run);
+        // A new run lands in live/: the dir mtime moves, next due check re-lists once.
+        let f = fs::File::open(&live).unwrap();
         f.set_modified(SystemTime::now() + Duration::from_secs(5)).unwrap();
         for i in 30..40 {
             run(&mut cache, i * 100);

@@ -51,9 +51,10 @@ pub use orch_graph_layout::{
     graph_node_order, layout_orch_graph, CellClass, GraphCell, GraphLayout, NodeBox, NodeState, BOX_H,
 };
 pub use orch_graph::{
-    find_orch_graph_from_cwd, orch_graph_is_stale, orch_graph_header, format_orch_graph_panel, format_orch_graph_panel_ex,
-    format_orch_graph_panel_with_history, list_orch_graph_runs, load_orch_graph, orch_graph_path,
-    orch_graph_runs_dir, OrchGraphError, OrchGraphFile, OrchGraphNode, OrchGraphRunSummary,
+    find_orch_graph_from_cwd, find_orch_run, find_orch_run_from_cwd, orch_graph_is_stale, orch_graph_header,
+    format_orch_graph_panel, format_orch_graph_panel_ex, format_orch_graph_panel_with_history,
+    list_live_orch_runs, list_orch_graph_runs, load_orch_graph, load_orch_graph_at, orch_graph_live_dir,
+    orch_graph_path, orch_graph_runs_dir, OrchGraphError, OrchGraphFile, OrchGraphNode, OrchGraphRunSummary,
 };
 pub use issue_ref::{issue_from_branch_or_path, parse_issue_number};
 pub use orch_status::{

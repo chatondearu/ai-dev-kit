@@ -3,7 +3,7 @@
 │  j ↓            next row                Tab            next sidecar tab      │
 │  k ↑            previous row            PgUp PgDn [ ]  scroll preview        │
 │  h ←            collapse row            w              waiting filter (◆)    │
-│  l →            expand row              g              Graph view            │
+│  l →            expand row              g              Graph view (Tab: run) │
 │  F              fold/unfold all groups  G              cycle group_by        │
 │  click          select row                                                   │
 │                                       App                                    │

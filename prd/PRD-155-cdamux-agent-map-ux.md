@@ -1,6 +1,6 @@
 # PRD-155 — cdamux agent map: session hierarchy, sub-agents, live graph and steps views, TUI clean
 
-- **Status**: approved
+- **Status**: shipped
 - **GitHub**: [#155](https://github.com/chatondearu/ai-dev-kit/issues/155)
 - **Date**: 2026-11-03
 - **Tags**: #cdamux #ux #orchestration
@@ -17,10 +17,10 @@ a full screen.
 
 ## Goals
 
-- [ ] Fleet nests child sessions, orch workers and CLI sub-agents under their parent, each with a preview
-- [ ] A drawn DAG view of the orch graph and a per-worker steps view, both live
-- [ ] No hot-loop I/O: each source refreshed on its interval and only when it changed
-- [ ] Every screen snapshot-tested at 80×24, 120×40, 200×50; a ≤ 5-round clean loop fixes the inconsistencies
+- [x] Fleet nests child sessions, orch workers and CLI sub-agents under their parent, each with a preview
+- [x] A drawn DAG view of the orch graph and a per-worker steps view, both live
+- [x] No hot-loop I/O: each source refreshed on its interval and only when it changed
+- [x] Every screen snapshot-tested at 80×24, 120×40, 200×50; a ≤ 5-round clean loop fixes the inconsistencies
 
 ## Non-goals
 
@@ -42,8 +42,8 @@ a full screen.
 
 ## Requirements
 
-See [[../plans/PLAN-155-cdamux-agent-map-ux|PLAN-155]] — one child issue per task
-(#156–#165) with scope, acceptance and verify command.
+See [[../foam/archive/plans/PLAN-155-cdamux-agent-map-ux|PLAN-155]] — one child issue per task
+(#156–#165, follow-ups #178–#179) with scope, acceptance and verify command.
 
 ## Success metrics
 
@@ -52,8 +52,8 @@ See [[../plans/PLAN-155-cdamux-agent-map-ux|PLAN-155]] — one child issue per t
 
 ## Links
 
-- Plan: [[../plans/PLAN-155-cdamux-agent-map-ux|PLAN-155]]
+- Plan: [[../foam/archive/plans/PLAN-155-cdamux-agent-map-ux|PLAN-155]]
 - Related: [[PRD-41-cdamux-mission-control-tui|PRD-41]], [[PRD-83-cdamux-fleet-status-preview-agent|PRD-83]]
 - ADRs: [[../foam/decisions/ADR-002-orch-auto-and-fast-lane|ADR-002]],
   [[../foam/decisions/ADR-004-cdamux|ADR-004]],
-  [[../foam/decisions/ADR-005-cda-graph-orchestration|ADR-005]]; ADR-007 (new, U9)
+  [[../foam/decisions/ADR-005-cda-graph-orchestration|ADR-005]]; [[../foam/decisions/ADR-007-cdamux-session-hierarchy|ADR-007]]

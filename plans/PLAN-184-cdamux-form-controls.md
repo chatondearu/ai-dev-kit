@@ -63,5 +63,5 @@ chrome and tab buttons are separate slices.
 
 ## Verification
 
-- [ ] `nix develop -c bash scripts/verify.sh`
-- [ ] No new crate dependency
+- [x] `nix develop -c bash scripts/verify.sh`
+- [x] No new crate dependency

@@ -180,8 +180,14 @@ const CHROME_H: u16 = 4;
 const SIDECAR_CHROME_MIN_H: u16 = 11;
 
 fn tree_list_block(stacked: bool) -> Block<'static> {
+    // RIGHT always: scrollbar paints the right border column; BOTTOM separates
+    // the tree from the sidecar when stacked (width < STACK_BELOW_COLS).
     Block::default()
-        .borders(if stacked { Borders::BOTTOM } else { Borders::RIGHT })
+        .borders(if stacked {
+            Borders::BOTTOM | Borders::RIGHT
+        } else {
+            Borders::RIGHT
+        })
         .border_style(Style::default().fg(CLR_MUTED))
         .title(Span::styled(
             " projects → sessions ",
@@ -400,7 +406,7 @@ pub(crate) fn draw_tree_column(
     let mut list_state = ListState::default();
     list_state.select(Some(selected_row.min(rows.len().saturating_sub(1))));
     f.render_stateful_widget(list, area, &mut list_state);
-    // RIGHT-only (or BOTTOM-only when stacked): scrollbar sits on the area's right column.
+    // RIGHT border column is reserved for the track (also when stacked + BOTTOM).
     draw_scrollbar(f, area, len, list_state.offset());
 }
 
@@ -678,22 +684,40 @@ mod tests {
 
     #[test]
     fn tree_scrollbar_only_when_overflowing() {
-        let mut term =
-            ratatui::Terminal::new(ratatui::backend::TestBackend::new(40, 12)).unwrap();
-        term.draw(|f| draw_tree_column(f, f.area(), &session_rows(5), 0, false))
-            .unwrap();
-        assert!(
-            tree_right_column(&term).chars().all(|c| c == '│'),
-            "no scrollbar expected: {}",
-            tree_right_column(&term)
-        );
-        term.draw(|f| draw_tree_column(f, f.area(), &session_rows(30), 29, false))
-            .unwrap();
-        assert!(
-            tree_right_column(&term).contains('█'),
-            "scrollbar thumb expected: {}",
-            tree_right_column(&term)
-        );
+        for stacked in [false, true] {
+            let mut term =
+                ratatui::Terminal::new(ratatui::backend::TestBackend::new(40, 12)).unwrap();
+            term.draw(|f| draw_tree_column(f, f.area(), &session_rows(5), 0, stacked))
+                .unwrap();
+            let col = tree_right_column(&term);
+            assert!(
+                col.chars().all(|c| c == '│' || c == '┘' || c == '─'),
+                "stacked={stacked}: no scrollbar expected: {col}"
+            );
+            // Last content column must stay clear of the thumb (RIGHT border reserved).
+            let buf = term.backend().buffer();
+            let x = buf.area.width - 2;
+            let content_col: String = (0..buf.area.height).map(|y| buf[(x, y)].symbol()).collect();
+            assert!(
+                !content_col.contains('█'),
+                "stacked={stacked}: thumb must not overwrite text: {content_col}"
+            );
+
+            term.draw(|f| draw_tree_column(f, f.area(), &session_rows(30), 29, stacked))
+                .unwrap();
+            let col = tree_right_column(&term);
+            assert!(
+                col.contains('█'),
+                "stacked={stacked}: scrollbar thumb expected: {col}"
+            );
+            let buf = term.backend().buffer();
+            let x = buf.area.width - 2;
+            let content_col: String = (0..buf.area.height).map(|y| buf[(x, y)].symbol()).collect();
+            assert!(
+                !content_col.contains('█'),
+                "stacked={stacked}: thumb must stay on border column: {content_col}"
+            );
+        }
     }
 
     #[test]

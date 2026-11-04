@@ -1,14 +1,14 @@
 [ 1 Fleet ] [ 2 Projects ] [ 3 Sessions ] [ 4 Agents ] [ 5 Settings ]
 cdamux — fleet  ○ idle ● active ◆ needs ⊘ blocked ✓ done
 ────────────────────────────────────────────────────────────────────────────────
- projects → sessions
-  ▼ ◇ alpha (2 sess · 2 orch) /src/alpha
-▸   ● alpha-main  claude  /src/alpha
-    ◆ alpha-42  #42  cursor  /src/alpha
-    ⚙ #7 running  implementing parser
-    ⊘ #8 blocked  waiting on review
-  ▶ ◇ beta (0) /src/beta
-────────────────────────────────────────────────────────────────────────────────
+ projects → sessions                                                           │
+  ▼ ◇ alpha (2 sess · 2 orch) /src/alpha                                       │
+▸   ● alpha-main  claude  /src/alpha                                           │
+    ◆ alpha-42  #42  cursor  /src/alpha                                        │
+    ⚙ #7 running  implementing parser                                          │
+    ⊘ #8 blocked  waiting on review                                            │
+  ▶ ◇ beta (0) /src/beta                                                       │
+───────────────────────────────────────────────────────────────────────────────┘
  Preview  Notes  Review  Orch graph
 Select a session.
 

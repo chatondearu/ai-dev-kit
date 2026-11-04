@@ -1,13 +1,13 @@
 [ 1 Fleet ] [ 2 Projects ] [ 3 Sessions ] [ 4 Agents ] [ 5 Settings ]
 cdamux — fleet  ○ idle ● active ◆ needs ⊘ blocked ✓ done
 ────────────────────────────────────────────────────────────────────────────────
- projects → sessions
-  ▼ ◇ alpha (1 sess · 1 orch) /src/alpha
-▸   ⚙ #9 agent  iter 1/10
-    ▼ ● alpha-main  claude  /src/alpha
-    └ ● Explore  a1b2c3d4
-    └ ✓ cda-review  f6e5d4c3
-────────────────────────────────────────────────────────────────────────────────
+ projects → sessions                                                           │
+  ▼ ◇ alpha (1 sess · 1 orch) /src/alpha                                       │
+▸   ⚙ #9 agent  iter 1/10                                                      │
+    ▼ ● alpha-main  claude  /src/alpha                                         │
+    └ ● Explore  a1b2c3d4                                                      │
+    └ ✓ cda-review  f6e5d4c3                                                   │
+───────────────────────────────────────────────────────────────────────────────┘
  Preview  Notes  Review  Orch graph
 ┌ session ─────────────────────────────────────────────────────────────────────┐
 │repo: alpha  │  worktree: main  │  branch: main                               │

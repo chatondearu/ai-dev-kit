@@ -1,4 +1,4 @@
-//! Small ratatui form widgets: Select (enum cycle), Toggle, TextInput,
+//! Small ratatui form widgets: Select (enum cycle), checkbox, TextInput,
 //! FieldList, and a text modal. Pure helpers so forms stay thin and testable.
 
 use crate::app_tabs::{

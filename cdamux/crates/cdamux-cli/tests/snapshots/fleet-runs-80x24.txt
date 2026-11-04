@@ -1,14 +1,14 @@
- 1:Fleet   2:Projects   3:Sessions   4:Agents   5:Settings
+[ 1 Fleet ] [ 2 Projects ] [ 3 Sessions ] [ 4 Agents ] [ 5 Settings ]
 cdamux — fleet  ○ idle ● active ◆ needs ⊘ blocked ✓ done
 ────────────────────────────────────────────────────────────────────────────────
- projects → sessions
-  ▼ ◇ alpha (3 sess · 2 orch) /src/alpha
-▸   ◈ run 20261103T090000Z running
-    ▼ ◆ alpha-42  cursor  /src/alpha
-    └ ◈ run cursor-fallback-20261103T110000Z-4242 running
-    ▼ ● alpha-main  claude  /src/alpha
-    └ ◈ run 20261103T100000Z running
-────────────────────────────────────────────────────────────────────────────────
+ projects → sessions                                                           █
+  ▼ ◇ alpha (3 sess · 2 orch) /src/alpha                                       █
+▸   ◈ run 20261103T090000Z running                                             █
+    ▼ ◆ alpha-42  cursor  /src/alpha                                           █
+    └ ◈ run cursor-fallback-20261103T110000Z-4242 running                      █
+    ▼ ● alpha-main  claude  /src/alpha                                         █
+    └ ◈ run 20261103T100000Z running                                           █
+───────────────────────────────────────────────────────────────────────────────║
  Preview  Notes  Review  Orch graph
 ┌ session ─────────────────────────────────────────────────────────────────────┐
 │repo: alpha  │  worktree: main  │  branch: main                               │
@@ -19,6 +19,6 @@ warning: unused import `std::collections::HashMap` in src/parser.rs, remove it
 or prefix with an underscore to silence this lint
 test result: ok. 3 passed
 send────────────────────────────────────────────────────────────────────────────
-→ alpha-main _
+→ alpha-main
 j/k nav · Enter attach · n new · m rename · f fork · x kill · ? help · q quit
 

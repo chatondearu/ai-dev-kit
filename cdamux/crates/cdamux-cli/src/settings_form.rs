@@ -5,7 +5,8 @@
 
 use crate::app_tabs::{CLR_MUTED, CLR_OK, CLR_PROJECT, CLR_TEXT};
 use crate::widgets::{
-    cycle, draw_field_list, draw_text_modal, edit_text, move_focus, toggle_text, FieldRow,
+    checkbox, cycle, draw_field_list, draw_text_modal, edit_text, move_focus, select, text_field,
+    text_modal_inner_width, FieldRow,
 };
 use cdamux_core::{
     save_config_to, AttachMode, Config, DiscoverMode, GroupBy, ProjectRoot,
@@ -14,7 +15,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
     layout::Rect,
     style::Style,
-    text::{Line, Span},
+    text::{Line, Span, Text},
     widgets::ListItem,
     Frame,
 };
@@ -111,12 +112,12 @@ pub fn fields(cfg: &Config) -> Vec<Field> {
     out
 }
 
-fn value_of(cfg: &Config, field: Field) -> String {
+fn raw_value(cfg: &Config, field: Field) -> String {
     match field {
         Field::AttachMode => format!("{:?}", cfg.sessions.attach_mode).to_lowercase(),
         Field::GroupBy => format!("{:?}", cfg.sessions.group_by),
         Field::PreviewMaxLines => cfg.ui.preview_max_lines.to_string(),
-        Field::ListenTailnet => toggle_text(cfg.daemon.listen_tailnet).into(),
+        Field::ListenTailnet => String::new(),
         Field::TailnetPort => cfg.daemon.tailnet_port.to_string(),
         Field::IdleSeconds => cfg.daemon.idle_seconds_for_needs_input.to_string(),
         Field::Discover => format!("{:?}", cfg.projects.discover),
@@ -134,6 +135,15 @@ fn value_of(cfg: &Config, field: Field) -> String {
             })
             .unwrap_or_default(),
         Field::AddRoot => String::new(),
+    }
+}
+
+fn display_value(cfg: &Config, field: Field) -> String {
+    match field.kind() {
+        Kind::Enum => select(&raw_value(cfg, field)),
+        Kind::Bool => checkbox(cfg.daemon.listen_tailnet).into(),
+        Kind::Scalar | Kind::Root => raw_value(cfg, field),
+        Kind::Action => String::new(),
     }
 }
 
@@ -207,7 +217,7 @@ impl SettingsForm {
             KeyCode::Enter => match field.kind() {
                 Kind::Enum | Kind::Bool => self.step(cfg, field, 1),
                 Kind::Scalar => {
-                    self.modal = Some(Modal::Scalar { field, input: value_of(cfg, field) });
+                    self.modal = Some(Modal::Scalar { field, input: raw_value(cfg, field) });
                 }
                 Kind::Root | Kind::Action => self.open_root_modal(cfg, field),
             },
@@ -353,45 +363,68 @@ pub fn draw_settings(f: &mut Frame, area: Rect, cfg: &Config, form: &SettingsFor
     let focus = form.focus.min(all.len() - 1);
     let rows = all
         .into_iter()
-        .map(|field| FieldRow {
-            section: field.section(),
-            label: field.label(),
-            value: value_of(cfg, field),
-            value_color: match field {
-                Field::ListenTailnet if cfg.daemon.listen_tailnet => CLR_OK,
-                Field::ListenTailnet | Field::AddRoot => CLR_MUTED,
-                _ => CLR_PROJECT,
-            },
-            action: field.kind() == Kind::Action,
+        .map(|field| {
+            let kind = field.kind();
+            FieldRow {
+                section: field.section(),
+                label: field.label(),
+                value: display_value(cfg, field),
+                value_color: match field {
+                    Field::ListenTailnet if cfg.daemon.listen_tailnet => CLR_OK,
+                    Field::ListenTailnet | Field::AddRoot => CLR_MUTED,
+                    _ => CLR_PROJECT,
+                },
+                action: kind == Kind::Action,
+                input_bg: matches!(kind, Kind::Scalar | Kind::Root),
+            }
         })
         .collect();
     let status = if form.status.is_empty() { "S: save to disk" } else { form.status.as_str() };
     draw_field_list(f, area, "settings", header, rows, focus, status);
 
     if let Some(modal) = &form.modal {
-        let (title, body) = modal_text(modal, cfg);
+        let inner_w = text_modal_inner_width(area);
+        let (title, body) = modal_text(modal, cfg, inner_w);
         draw_text_modal(f, area, title, body);
     }
 }
 
-fn modal_text(modal: &Modal, cfg: &Config) -> (String, String) {
+fn modal_text(modal: &Modal, cfg: &Config, inner_w: usize) -> (String, Text<'static>) {
     match modal {
         Modal::Scalar { field, input } => (
             format!(" {} ", field.label()),
-            format!("value: {input}█\nEnter save · Esc cancel"),
+            Text::from(vec![
+                Line::from(vec![
+                    Span::raw("value: "),
+                    text_field(input, true, inner_w.saturating_sub(7)),
+                ]),
+                Line::from("Enter save · Esc cancel"),
+            ]),
         ),
         Modal::Root { index, label, path, on_path } => {
-            let (lc, pc) = if *on_path { ("", "█") } else { ("█", "") };
+            let label_w = inner_w.saturating_sub(7);
+            let path_w = inner_w.saturating_sub(7);
             (
                 if index.is_some() { " Edit root ".into() } else { " Add root ".into() },
-                format!(
-                    "label: {label}{lc}\npath:  {path}{pc}\nTab switch field · Enter save · Esc cancel"
-                ),
+                Text::from(vec![
+                    Line::from(vec![
+                        Span::raw("label: "),
+                        text_field(label, !*on_path, label_w),
+                    ]),
+                    Line::from(vec![
+                        Span::raw("path:  "),
+                        text_field(path, *on_path, path_w),
+                    ]),
+                    Line::from("Tab switch field · Enter save · Esc cancel"),
+                ]),
             )
         }
         Modal::ConfirmDelete(i) => (
             " Delete root ".into(),
-            format!("delete {}?\ny/Enter confirm · Esc cancel", value_of(cfg, Field::Root(*i))),
+            Text::from(format!(
+                "delete {}?\ny/Enter confirm · Esc cancel",
+                raw_value(cfg, Field::Root(*i))
+            )),
         ),
     }
 }

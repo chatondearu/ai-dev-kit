@@ -21,6 +21,8 @@ pub const CLR_PROJECT: Color = Color::Rgb(158, 200, 255);
 pub const CLR_OK: Color = Color::Rgb(107, 207, 142);
 pub const CLR_WARN: Color = Color::Rgb(232, 184, 74);
 pub const CLR_SEL_BG: Color = Color::Rgb(42, 49, 64);
+/// Darker than the panel — text-field / composer input fill.
+pub const CLR_INPUT_BG: Color = Color::Rgb(12, 14, 20);
 const CLR_PANEL: Color = Color::Rgb(20, 24, 32);
 
 pub fn screen_block(title: &str) -> Block<'static> {
@@ -88,22 +90,37 @@ impl AppTab {
     }
 }
 
+/// Button chip text shared by draw and hit-test (`[ 1 Fleet ]`).
+fn tab_chip(tab: AppTab) -> String {
+    format!("[ {} {} ]", tab.digit(), tab.label())
+}
+
+/// Column → tab for the tab row (chips start at x=0, one-space gaps → `None`).
+pub fn tab_at_column(x: u16) -> Option<AppTab> {
+    let mut col: u16 = 0;
+    for tab in AppTab::ALL {
+        let w = tab_chip(tab).len() as u16;
+        if x >= col && x < col + w {
+            return Some(tab);
+        }
+        col = col.saturating_add(w).saturating_add(1);
+    }
+    None
+}
+
 pub fn draw_tab_bar(f: &mut Frame, area: ratatui::layout::Rect, active: AppTab) {
     let spans: Vec<Span> = AppTab::ALL
         .iter()
         .flat_map(|tab| {
             let style = if *tab == active {
                 Style::default()
-                    .fg(CLR_ACCENT)
-                    .bg(CLR_SEL_BG)
-                    .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
+                    .fg(CLR_PANEL)
+                    .bg(CLR_ACCENT)
+                    .add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(CLR_MUTED)
             };
-            [
-                Span::styled(format!(" {}:{} ", tab.digit(), tab.label()), style),
-                Span::raw(" "),
-            ]
+            [Span::styled(tab_chip(*tab), style), Span::raw(" ")]
         })
         .collect();
     f.render_widget(Paragraph::new(Line::from(spans)), area);
@@ -294,6 +311,23 @@ mod tests {
     fn tab_digits() {
         assert_eq!(AppTab::from_digit('3'), Some(AppTab::Sessions));
         assert_eq!(AppTab::from_digit('9'), None);
+    }
+
+    #[test]
+    fn tab_at_column_hits_and_gaps() {
+        // [ 1 Fleet ]=11, gap, [ 2 Projects ]=14, gap, [ 3 Sessions ]=14, …
+        assert_eq!(tab_at_column(0), Some(AppTab::Fleet));
+        assert_eq!(tab_at_column(10), Some(AppTab::Fleet));
+        assert_eq!(tab_at_column(11), None);
+        assert_eq!(tab_at_column(12), Some(AppTab::Projects));
+        assert_eq!(tab_at_column(25), Some(AppTab::Projects));
+        assert_eq!(tab_at_column(26), None);
+        assert_eq!(tab_at_column(27), Some(AppTab::Sessions));
+        assert_eq!(tab_at_column(42), Some(AppTab::Agents));
+        assert_eq!(tab_at_column(55), Some(AppTab::Settings));
+        assert_eq!(tab_at_column(68), Some(AppTab::Settings));
+        assert_eq!(tab_at_column(69), None);
+        assert_eq!(tab_at_column(200), None);
     }
 
     use crate::test_render::buffer_lines;

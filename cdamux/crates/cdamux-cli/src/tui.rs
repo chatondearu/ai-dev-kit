@@ -25,7 +25,7 @@ use cdamux_core::{
     resolve_agent_command, send_to_session, session_name_for_path, spawn_tmux_session_with_layout,
     switch_client_to_session, tail_lines, transcript_tail, unique_session_name, ChildKind,
     ChildRow, Config, EnrichedSession, GroupBy, PaneLayout, PreviewSource, ProjectSessionTree,
-    SessionChrome, SpawnOutcome,
+    session_registry, SessionChrome,
 };
 use crossterm::event::{
     self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers,
@@ -73,7 +73,7 @@ fn fork_selected_session(cfg: &Config, s: &EnrichedSession) -> Result<String, St
         Some(agent.as_str()),
         Some(s.name.as_str()),
     ) {
-        Ok(SpawnOutcome::Created) => Ok(format!("forked '{}' with {}", base, agent)),
+        Ok(o) => Ok(format!("forked '{}' with {}{}", base, agent, o.note())),
         Err(e) => Err(e.to_string()),
     }
 }
@@ -577,6 +577,7 @@ pub fn run_dashboard() -> ExitCode {
                             } else {
                                 match rename_tmux_session(&old, &new) {
                                     Ok(()) => {
+                                        let _ = session_registry::rename(&old, &new);
                                         tree_dirty = true;
                                         status_line = format!("renamed {} → {}", old, new);
                                     }
@@ -818,6 +819,8 @@ pub fn run_dashboard() -> ExitCode {
                         if let Some(s) = session_at_row(&rows, selected_row) {
                             match kill_tmux_session(&s.name) {
                                 Ok(()) => {
+                                    // Closed from cdamux: forget it (an external kill stays restorable).
+                                    let _ = session_registry::remove(&s.name);
                                     tree_dirty = true;
                                     status_line = format!("killed {}", s.name);
                                     selected_row = selected_row.saturating_sub(1);

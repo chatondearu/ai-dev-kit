@@ -15,7 +15,7 @@ R1 lays the registry; R2 and R3 run in parallel on R1; R4 runs on R3.
 | ADR | Constraint |
 | --- | ---------- |
 | [[../foam/decisions/ADR-002-orch-auto-and-fast-lane|ADR-002]] | no auto-merge; nothing enabled by plain `install.sh` |
-| [[../foam/decisions/ADR-004-cdamux|ADR-004]] | tmux is the truth for what runs — the registry is never read to decide liveness (amended by ADR-008) |
+| [[../foam/decisions/ADR-004-cdamux|ADR-004]] | tmux is the truth for what runs — the registry is never read to decide liveness (amended by [[../foam/decisions/ADR-009-cdamux-session-restore-registry|ADR-009]]) |
 | [[../foam/decisions/ADR-007-cdamux-session-hierarchy|ADR-007]] | links stay tmux options; hooks share `cdamux/hooks/ledger.js`, opt-in `--cdamux-hooks`, fail-open, local only |
 
 ## Tasks
@@ -24,14 +24,14 @@ The full contract of each task is the child issue body.
 
 | Id | Child | Task | Depends |
 | -- | ----- | ---- | ------- |
-| R1 | #196 | Restore registry module, record on spawn/fork, forget on close, rename, Claude `--session-id` pre-assign, ADR-008 | — |
+| R1 | #196 | Restore registry module, record on spawn/fork, forget on close, rename, Claude `--session-id` pre-assign, ADR-009 | — |
 | R2 | #197 | `SessionStart` id-capture hooks (Claude, Cursor, opencode) + `install.sh --cdamux-hooks` wiring next to kiss | R1 |
 | R3 | #198 | Per-agent `resume` template + `cdamux restore <name>|--all` | R1 |
 | R4 | #199 | Fleet dormant rows (restore / forget keys) + `cdamux restart [--all] [--force]` | R3 |
 
 Wave 1: R1. Wave 2: R2, R3. Wave 3: R4.
 
-- [ ] R1 · [ ] R2 · [ ] R3 · [ ] R4
+- [x] R1 · [ ] R2 · [ ] R3 · [ ] R4
 
 ## Risks
 

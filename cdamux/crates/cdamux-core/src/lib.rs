@@ -15,6 +15,7 @@ mod session;
 mod session_chrome;
 mod session_links;
 mod session_manage;
+pub mod session_registry;
 mod spawn;
 mod subagent_ledger;
 mod worktree;

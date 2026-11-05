@@ -14,6 +14,7 @@ Status values: `proposed` | `accepted` | `deprecated` | `superseded`.
 | [[ADR-006-review-gate-fail-closed-verify|ADR-006]] | Independent review gate and fail-closed verify | accepted | #architecture #tooling #quality #autonomy |
 | [[ADR-007-cdamux-session-hierarchy|ADR-007]] | cdamux session hierarchy: tmux links, tmux workers, sub-agent ledger | accepted | #architecture #tooling #autonomy |
 | [[ADR-008-graphify-code-graph|ADR-008]] | Graphify code graph via cda.aitools | accepted | #architecture #tooling #deployment |
+| [[ADR-009-cdamux-session-restore-registry|ADR-009]] | cdamux session restore registry | accepted | #architecture #tooling #resilience |
 
 ## Template
 

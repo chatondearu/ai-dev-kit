@@ -22,7 +22,7 @@ use cdamux_core::{
     parse_unified_diff, resolve_agent_command, resolve_note_path, send_to_session,
     session_name_for_path, spawn_tmux_session_with_layout, unique_session_name, AttachMode, DiffError,
     GroupBy, SendError,
-    PaneLayout, SpawnError, SpawnOutcome,
+    PaneLayout, SpawnError,
 };
 use clap::{Parser, Subcommand};
 use skim::prelude::*;
@@ -656,8 +656,8 @@ fn spawn_with_path_and_agent(
         Some(agent_name.as_str()),
         None,
     ) {
-        Ok(SpawnOutcome::Created) => {
-            println!("spawned session '{}' in {}", session_name, path_buf.display());
+        Ok(o) => {
+            println!("spawned session '{}' in {}{}", session_name, path_buf.display(), o.note());
             ExitCode::SUCCESS
         }
         Err(e) => {

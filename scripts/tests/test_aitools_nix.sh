@@ -28,6 +28,86 @@ nix eval --impure --expr "
     \"ok\"
 "
 
+echo "== graphify module on/off (nixos + darwin) =="
+# Stub host options so we can eval nixosModules/darwinModules without a full
+# NixOS or nix-darwin system (flake has no nix-darwin input).
+nix eval --impure --expr "
+  let
+    flake = builtins.getFlake \"path:$ROOT\";
+    lib = flake.inputs.nixpkgs.lib;
+    system = builtins.currentSystem;
+    pkgs = import flake.inputs.nixpkgs {
+      inherit system;
+      config.allowUnfreePredicate = pkg: pkg.pname == \"moshi-hook\";
+    };
+    stub = {
+      options = {
+        assertions = lib.mkOption { type = lib.types.listOf lib.types.unspecified; default = []; };
+        warnings = lib.mkOption { type = lib.types.listOf lib.types.str; default = []; };
+        environment.systemPackages = lib.mkOption { type = lib.types.listOf lib.types.package; default = []; };
+        environment.variables = lib.mkOption {
+          type = lib.types.attrsOf (lib.types.nullOr (lib.types.oneOf [ lib.types.str (lib.types.listOf lib.types.str) ]));
+          default = {};
+        };
+        environment.etc = lib.mkOption { type = lib.types.attrsOf lib.types.unspecified; default = {}; };
+        users.users = lib.mkOption {
+          type = lib.types.attrsOf (lib.types.submodule {
+            options = {
+              maid = lib.mkOption { type = lib.types.unspecified; default = null; };
+              home = lib.mkOption { type = lib.types.str; default = \"/home/tester\"; };
+            };
+          });
+          default = {};
+        };
+        systemd.user.services = lib.mkOption { type = lib.types.attrsOf lib.types.unspecified; default = {}; };
+        systemd.tmpfiles.rules = lib.mkOption { type = lib.types.listOf lib.types.str; default = []; };
+        programs.mosh.enable = lib.mkOption { type = lib.types.bool; default = false; };
+        launchd.user.agents = lib.mkOption { type = lib.types.attrsOf lib.types.unspecified; default = {}; };
+      };
+      config._module.args.pkgs = pkgs;
+    };
+    evalPlatform = { isDarwin, graphifyEnable }:
+      let
+        mod = if isDarwin then flake.darwinModules.cdaAitools else flake.nixosModules.cdaAitools;
+        eval = lib.evalModules {
+          modules = [
+            stub
+            mod
+            {
+              cda.aitools = {
+                enable = true;
+                user = \"tester\";
+                enablePackages = true;
+                installMethod = \"none\";
+                graphify.enable = graphifyEnable;
+                graphify.installMethod = \"nix\";
+              };
+            }
+          ];
+        };
+        failed = builtins.filter (a: !(a.assertion)) eval.config.assertions;
+        pkgsNames = map (p: p.pname or p.name or \"?\") eval.config.environment.systemPackages;
+        hasGraphifyPkg = builtins.any (n: lib.hasInfix \"graphify\" n) pkgsNames;
+        hasEnv = (eval.config.environment.variables.CDA_GRAPHIFY or null) == \"1\";
+        hasLinuxUnit = eval.config.systemd.user.services ? cda-graphify-install;
+        hasDarwinUnit = eval.config.launchd.user.agents ? cda-graphify-install;
+        hasUnit = if isDarwin then hasDarwinUnit else hasLinuxUnit;
+      in
+        assert failed == [];
+        assert hasEnv == graphifyEnable;
+        assert hasGraphifyPkg == graphifyEnable;
+        assert hasUnit == graphifyEnable;
+        assert hasLinuxUnit == (!isDarwin && graphifyEnable);
+        assert hasDarwinUnit == (isDarwin && graphifyEnable);
+        \"ok\";
+  in
+    assert evalPlatform { isDarwin = false; graphifyEnable = false; } == \"ok\";
+    assert evalPlatform { isDarwin = false; graphifyEnable = true; } == \"ok\";
+    assert evalPlatform { isDarwin = true; graphifyEnable = false; } == \"ok\";
+    assert evalPlatform { isDarwin = true; graphifyEnable = true; } == \"ok\";
+    \"ok\"
+"
+
 echo "== graphify package parses =="
 nix-instantiate --parse "$ROOT/aitools/nix/graphify-package.nix" >/dev/null
 

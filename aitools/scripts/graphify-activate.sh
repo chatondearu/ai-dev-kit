@@ -48,5 +48,5 @@ graphify install
 
 if [[ "$HOOKS" -eq 1 ]]; then
   # Claude PreToolUse hooks; CLAUDE_CONFIG_DIR redirects writes away from live config.
-  graphify install --platform claude
+  graphify claude install
 fi

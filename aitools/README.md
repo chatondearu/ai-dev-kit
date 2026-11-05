@@ -56,7 +56,7 @@ Legacy option names `ccmux.*` / `ccmuxd.*` are renamed automatically (see `mkRen
 | ------ | ------- |
 | `graphify.enable` | `CDA_GRAPHIFY=1` + activation oneshot |
 | `graphify.installMethod` | `auto` \| `nix` \| `uv` \| `none` (like cdamux) |
-| `graphify.hooks.enable` | also `graphify install --platform claude` |
+| `graphify.hooks.enable` | also `graphify claude install` |
 | `foamHome` | optional `CDA_FOAM_HOME` |
 
 `auto`/`nix` use `aitools/nix/graphify-package.nix` (pinned wheel; some grammars

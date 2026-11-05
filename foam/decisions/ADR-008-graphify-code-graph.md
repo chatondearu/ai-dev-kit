@@ -19,7 +19,7 @@ opt-in companion ([[ADR-003-cda-aitools|ADR-003]]).
    `aitools/nix/graphify-package.nix`; `auto`/`uv` may run `uv tool install
    graphifyy` at activation when the Nix path is incomplete (missing grammars).
 3. **`graphify.hooks.enable`** (default false) also runs
-   `graphify install --platform claude`, honouring `CLAUDE_CONFIG_DIR`.
+   `graphify claude install`, honouring `CLAUDE_CONFIG_DIR`.
 4. **`cda.aitools.foamHome`** optionally exports `CDA_FOAM_HOME` for skills that
    need a relocatable foam root (e.g. floorplan).
 5. Activation is a user oneshot (systemd / launchd), not `install.sh`.

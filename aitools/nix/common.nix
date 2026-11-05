@@ -8,7 +8,8 @@
     default = null;
     description = ''
       Login user for maid deploy and platform services.
-      Required when cdamuxd.enable, moshiHook.enable, or deploy.enable.
+      Required when cdamuxd.enable, moshiHook.enable, deploy.enable, or
+      graphify.enable with installMethod != "none".
     '';
   };
 
@@ -144,7 +145,7 @@
         type = lib.types.bool;
         default = false;
         description = ''
-          When true, activation also runs `graphify install --platform claude`
+          When true, activation also runs `graphify claude install`
           (Claude PreToolUse hooks). Honours CLAUDE_CONFIG_DIR.
         '';
       };

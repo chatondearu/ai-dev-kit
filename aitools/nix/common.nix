@@ -8,7 +8,8 @@
     default = null;
     description = ''
       Login user for maid deploy and platform services.
-      Required when cdamuxd.enable, moshiHook.enable, or deploy.enable.
+      Required when cdamuxd.enable, moshiHook.enable, deploy.enable, or
+      graphify.enable with installMethod != "none".
     '';
   };
 
@@ -19,6 +20,16 @@
       Absolute path for aitools configs/state (e.g. /cda/aitools).
       When null, runtime falls back to CDA_AITOOLS_HOME or ~/.config/cda-aitools.
     '';
+  };
+
+  foamHome = lib.mkOption {
+    type = lib.types.nullOr lib.types.str;
+    default = null;
+    description = ''
+      Absolute path exported as CDA_FOAM_HOME (shared project memory root for
+      skills such as cda-floorplan). Null leaves the variable unset.
+    '';
+    example = "/cda/foam";
   };
 
   repoPath = lib.mkOption {
@@ -113,6 +124,30 @@
         Host path to Moshi pairing token (e.g. agenix secret). When set and the host
         is not yet paired, moshi-hook-pair runs at login. Omit to pair manually once.
       '';
+    };
+  };
+
+  graphify = {
+    enable = lib.mkEnableOption "Graphify code-graph CLI (PyPI graphifyy) + CDA_GRAPHIFY=1";
+
+    installMethod = lib.mkOption {
+      type = lib.types.enum ["auto" "nix" "uv" "none"];
+      default = "auto";
+      description = ''
+        How to obtain graphify: nix = pinned PyPI derivation; uv = uv tool install
+        graphifyy at activation; auto = prefer nix package when built into the
+        module, else uv at activation; none = env flag only (manual install).
+      '';
+    };
+
+    claudeConfigDir = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      description = ''
+        CLAUDE_CONFIG_DIR for the activation oneshot. launchd/systemd units do not
+        inherit the login shell, so without it the skill lands in ~/.claude.
+      '';
+      example = "/cda/.claude";
     };
   };
 

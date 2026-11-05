@@ -6,6 +6,7 @@ cd "$ROOT"
 for t in skills/core/cda-dev/scripts/tests/test_*.sh \
   skills/core/cda-dev/scripts/tests/smoke_orch_dry.sh \
   scripts/tests/test_doctor.sh \
+  scripts/tests/test_aitools_nix.sh \
   skills/core/cda-kanban/scripts/tests/test_closest_status.sh \
   skills/core/cda-kanban/scripts/tests/test_gh_board.sh \
   skills/quality/cda-kiss/hooks/test-install.sh \

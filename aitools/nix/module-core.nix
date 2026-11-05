@@ -5,12 +5,26 @@
   pkgs,
   templates,
   cdamuxPkg,
+  graphifyPkg,
   moshiHookFor,
   isDarwin,
   ...
 }:
 let
   optionsSchema = import ./common.nix {inherit lib;};
+  a = config.cda.aitools;
+  graphifyNix =
+    a.graphify.enable
+    && a.graphify.installMethod != "none"
+    && (a.graphify.installMethod == "nix" || a.graphify.installMethod == "auto")
+    && graphifyPkg != null;
+  graphifyUv =
+    a.graphify.enable
+    && a.graphify.installMethod != "none"
+    && (
+      a.graphify.installMethod == "uv"
+      || (a.graphify.installMethod == "auto" && graphifyPkg == null)
+    );
 in {
   options.cda.aitools = optionsSchema;
 
@@ -60,13 +74,26 @@ in {
             || config.cda.aitools.deploy.enable;
           message = "cda.aitools.tmux.persist requires deploy.enable.";
         }
+        {
+          assertion =
+            !config.cda.aitools.enable
+            || !config.cda.aitools.graphify.enable
+            || config.cda.aitools.graphify.installMethod != "nix"
+            || graphifyPkg != null;
+          message = "cda.aitools.graphify.installMethod = \"nix\" needs the in-tree graphify package.";
+        }
+        {
+          assertion =
+            !config.cda.aitools.enable
+            || !config.cda.aitools.graphify.enable
+            || config.cda.aitools.graphify.installMethod == "none"
+            || config.cda.aitools.user != null;
+          message = "cda.aitools.user must be set when graphify.enable with installMethod != none.";
+        }
       ];
     }
     (lib.mkIf config.cda.aitools.enable {
       environment.systemPackages =
-        let
-          a = config.cda.aitools;
-        in
         lib.optionals (a.enablePackages && a.installMethod != "none") [pkgs.tmux]
         ++ lib.optionals (
           a.enablePackages
@@ -76,11 +103,23 @@ in {
         ++ lib.optionals a.moshiHook.enable [
           (moshiHookFor a.moshiHook.version)
           pkgs.jq
-        ];
+        ]
+        ++ lib.optionals graphifyNix [graphifyPkg]
+        ++ lib.optionals graphifyUv [pkgs.uv]
+        # auto with a working nix package still ships uv so activation can fall back.
+        ++ lib.optionals (a.graphify.enable && a.graphify.installMethod == "auto" && graphifyPkg != null) [pkgs.uv];
 
-      environment.variables = lib.mkIf (config.cda.aitools.configRoot != null) {
-        CDA_AITOOLS_HOME = config.cda.aitools.configRoot;
-      };
+      environment.variables = lib.mkMerge [
+        (lib.mkIf (a.configRoot != null) {
+          CDA_AITOOLS_HOME = a.configRoot;
+        })
+        (lib.mkIf (a.foamHome != null) {
+          CDA_FOAM_HOME = a.foamHome;
+        })
+        (lib.mkIf a.graphify.enable {
+          CDA_GRAPHIFY = "1";
+        })
+      ];
 
       environment.etc = lib.mkIf (
         config.cda.aitools.enablePackages

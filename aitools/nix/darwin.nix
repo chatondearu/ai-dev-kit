@@ -9,11 +9,12 @@ let
   templates = ./../templates;
   isDarwin = true;
   cdamuxPkg = pkgs.callPackage ../../cdamux/nix/package.nix {};
+  graphifyPkg = pkgs.callPackage ./graphify-package.nix {};
   moshiHookFor = version:
     pkgs.callPackage ./moshi-hook-package.nix {inherit version;};
 in {
   _module.args = {
-    inherit templates cdamuxPkg moshiHookFor isDarwin;
+    inherit templates cdamuxPkg graphifyPkg moshiHookFor isDarwin;
   };
 
   imports = [

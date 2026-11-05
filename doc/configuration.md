@@ -36,10 +36,14 @@ these (`./scripts/doctor.sh` only checks `PATH`).
 | `ORCH_GRAPH_INTEGRATOR` | `auto` | Integrator after workers (`1` always, `0` never) |
 | `ORCH_GRAPH_PLAN_PARALLEL` | `auto` | Graph-plan tasks: `auto` / `parallel` / `sequential` |
 | `ORCH_GRAPH_PLAN_MAX_PARALLEL` | `$ORCH_MAX_PARALLEL` | Parallel cap for `--graph-plan` tasks |
-| `CDA_FOAM_HOME` | unset | Shared foam home; `cda-floorplan` writes `$CDA_FOAM_HOME/projects/<repo>/floorplan/` when the project has no `foam/` |
+| `CDA_GRAPHIFY` | unset | `1` when `cda.aitools.graphify.enable` — skills may query the code graph ([ADR-008](../foam/decisions/ADR-008-graphify-code-graph.md)) |
+| `CDA_FOAM_HOME` | unset | Shared foam home (`cda.aitools.foamHome`); `cda-floorplan` writes `$CDA_FOAM_HOME/projects/<repo>/floorplan/` when the project has no `foam/` |
 | `FLOORPLAN_ENGINE` / `FLOORPLAN_AGENT` | auto | Override Ask / build agent for `cda-floorplan` (`agent`, `cursor-agent`, `claude`, `opencode`, `codex`) |
+| `CDA_AITOOLS_HOME` | `~/.config/cda-aitools` | Companion config root (`cda.aitools.configRoot` or env) |
 
 See [graph-orchestration.md](graph-orchestration.md).
+Graphify install stays in **aitools** only — never `install.sh`
+([ADR-001](../foam/decisions/ADR-001-host-tools-vs-kit.md)).
 
 ## `cda-floorplan` map location
 

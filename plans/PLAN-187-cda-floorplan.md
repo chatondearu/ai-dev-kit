@@ -1,6 +1,6 @@
 # PLAN-187 — Vendor floorplan as agent-agnostic cda-floorplan
 
-- **Status**: draft
+- **Status**: in-progress
 - **PRD**: [[../prd/PRD-186-floorplan-graphify|PRD-186]]
 - **GitHub**: [#187](https://github.com/chatondearu/ai-dev-kit/issues/187)
 - **Date**: 2026-11-05
@@ -40,13 +40,13 @@ lives in `scripts/lib/agent.mjs` and `assets/serve.mjs`.
 
 ## Tasks
 
-- [ ] Copy upstream tree at v0.3.0, add license + THIRD_PARTY entry
-- [ ] Rename skill, rewrite SKILL.md host notes (Claude / Cursor / opencode / Codex)
-- [ ] Output dir helper + call sites + foam note + gitignore
-- [ ] Engine detection + `--engine` values
-- [ ] Drop CLAUDE.local.md block
-- [ ] `node` assert self-check (`scripts/tests/` or skill-local test wired into verify)
-- [ ] `skills/README.md` index row
+- [x] Copy upstream tree at v0.3.0, add license + THIRD_PARTY entry
+- [x] Rename skill, rewrite SKILL.md host notes (Claude / Cursor / opencode / Codex)
+- [x] Output dir helper + call sites + foam note + gitignore
+- [x] Engine detection + `--engine` values
+- [x] Drop CLAUDE.local.md block
+- [x] `node` assert self-check (`scripts/tests/` or skill-local test wired into verify)
+- [x] `skills/README.md` index row
 
 ## Risks & mitigations
 
@@ -57,9 +57,9 @@ lives in `scripts/lib/agent.mjs` and `assets/serve.mjs`.
 
 ## Test plan
 
-- [ ] Self-check: 3 output-resolution cases (foam, CDA_FOAM_HOME, fallback)
-- [ ] Self-check: engine detection order and `--engine` override
-- [ ] Manual: build a map of this repo → `foam/floorplan/`
+- [x] Self-check: 3 output-resolution cases (foam, CDA_FOAM_HOME, fallback)
+- [x] Self-check: engine detection order and `--engine` override
+- [ ] Manual: build a map of this repo → `foam/floorplan/` (needs full agent describe pass; deferred)
 
 ## Verification
 

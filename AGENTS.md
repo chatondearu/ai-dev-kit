@@ -85,10 +85,10 @@ see `cdamux/AGENTS.md` and `cdamux/docs/research.md`. Not packaged in `aitools` 
 Experimental opt-in companion: `aitools/` (`cda.aitools` Nix modules, ADR-003).
 Never enabled by `install.sh`. Relocatable root: `CDA_AITOOLS_HOME`.
 
-**Verify (run before every PR):** `nix develop -c bash scripts/verify.sh`
+**Verify (run before every PR):** `nix develop -c make test`
 
 ```bash
-nix develop -c bash scripts/verify.sh
+nix develop -c make test
 ```
 
 **Gotchas**
@@ -108,4 +108,4 @@ nix develop -c bash scripts/verify.sh
   orch: allow-no-checks
   (or `ORCH_ALLOW_NO_CHECKS=1`). Poll live worker state at `.orch/run/status.json`.
 
-verify: nix develop -c bash scripts/verify.sh
+verify: nix develop -c make test

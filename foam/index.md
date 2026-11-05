@@ -55,6 +55,7 @@ Index: [[decisions/index|All ADRs]]
 | [[../prd/PRD-90-kiss-audit-2026-11|PRD-90]] kiss-audit 2026-11 fixes (plan: [[archive/plans/PLAN-90-kiss-audit-2026-11|PLAN-90]]) | shipped |
 | [[../prd/PRD-129-kiss-audit-2026-11-03|PRD-129]] kiss-audit 2026-11-03 fixes (plan: [[archive/plans/PLAN-129-kiss-audit-2026-11-03|PLAN-129]]) | shipped |
 | [[../prd/PRD-155-cdamux-agent-map-ux|PRD-155]] cdamux agent map UX (plan: [[archive/plans/PLAN-155-cdamux-agent-map-ux|PLAN-155]]) | shipped |
+| [[../prd/PRD-195-cdamux-session-resume|PRD-195]] cdamux session resume (plan: [[../plans/PLAN-195-cdamux-session-resume|PLAN-195]]) | approved |
 
 - PRD template: `prd/template.md`
 - Plan template: `plans/template.md`

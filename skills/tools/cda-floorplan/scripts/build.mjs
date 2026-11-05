@@ -377,6 +377,8 @@ const graph = {
   schema: 'floorplan/graph@1',
   meta: {
     generatedAt: new Date().toISOString(), scanAt: scan.generatedAt, rootName: scan.rootName, root: scan.root,
+    // Relative path of the map folder from codebase root (foam/floorplan, floorplan, …) for Ask/query CLI.
+    mapDir: path.relative(root, outDir).replace(/\\/g, '/') || 'floorplan',
     audience, agent,
     ...(scan.blueprint ? { blueprint: { source: scan.blueprint.source, stack: scan.blueprint.stack, assumptions: scan.blueprint.assumptions } } : {}),
     repos: scan.repos.map(({ path: p, name, branch, head, remote }) => ({ path: p, name, branch, head, remote })),

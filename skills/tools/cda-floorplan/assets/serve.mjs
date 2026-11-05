@@ -18,7 +18,10 @@ import { spawn, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const root = path.resolve(here, '..');
+// Codebase root comes from graph.json meta.root (absolute). Parent of the map dir is wrong under
+// foam/floorplan/ or $CDA_FOAM_HOME/.../floorplan/ — Ask/Change must cwd the real repo.
+let root = path.resolve(here, '..');
+let mapRel = 'floorplan'; // relative (or abs) path of the map dir from root — for query.mjs allowlist
 const argv = process.argv.slice(2);
 const opt = (name, dflt) => { const i = argv.indexOf('--' + name); return i < 0 ? dflt : argv[i + 1]; };
 const has = (name) => argv.includes('--' + name);
@@ -133,6 +136,9 @@ function load() {
   c.q = c.createGraphQuery(g);
   page = html.replace('</head>', inject + '</head>');
   G = g; core = c;
+  root = path.resolve(G.meta?.root || path.resolve(here, '..'));
+  // Prefer mapDir written by build; else derive map←root (foam/floorplan, not floorplan).
+  mapRel = (G.meta?.mapDir || path.relative(root, here).replace(/\\/g, '/') || 'floorplan').replace(/\/$/, '');
   // kinds of request: a question (answer + board), a new guided flow, and for a blueprint, a change to the
   // plan. Codex reads its schema from a file.
   MODES = {
@@ -264,7 +270,7 @@ const failCode = (msg) => /not logged in|logged out|\/login|log ?in again|sign i
 function claudeRun(body, mode) {
   const args = [...cli.args, '-p', '--output-format', 'stream-json', '--verbose',
     '--json-schema', JSON.stringify(mode.schema), '--append-system-prompt', mode.instructions,
-    '--tools', 'Read,Grep,Glob,Bash', '--allowedTools', 'Bash(node floorplan/query.mjs:*)', 'Read', 'Grep', 'Glob'];
+    '--tools', 'Read,Grep,Glob,Bash', '--allowedTools', `Bash(node ${mapRel}/query.mjs:*)`, 'Read', 'Grep', 'Glob'];
   if (body.session) args.push('--resume', String(body.session));
   if (model) args.push('--model', model);
   return {

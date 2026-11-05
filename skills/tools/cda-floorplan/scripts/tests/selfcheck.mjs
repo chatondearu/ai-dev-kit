@@ -82,4 +82,52 @@ assert.equal(detectAgent({}, { CODEX_THREAD_ID: 't1' }), 'codex');
 // empty PATH → default claude
 assert.equal(detectAgent({}, { PATH: '' }), 'claude');
 
+// --- serve root + query path under foam (map parent ≠ codebase root) ---
+{
+  // Contract mirrored by assets/serve.mjs load(): root = meta.root, mapRel = meta.mapDir || relative(root, mapDir)
+  const resolveServe = (mapDir) => {
+    const g = JSON.parse(fs.readFileSync(path.join(mapDir, 'graph.json'), 'utf8'));
+    const root = path.resolve(g.meta.root);
+    const mapRel = (g.meta.mapDir || path.relative(root, mapDir).replace(/\\/g, '/') || 'floorplan').replace(/\/$/, '');
+    return { root, mapRel };
+  };
+
+  const root = mkTmp('serve-foam');
+  const mapDir = path.join(root, 'foam', 'floorplan');
+  fs.mkdirSync(mapDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(mapDir, 'graph.json'),
+    JSON.stringify({ meta: { root, mapDir: 'foam/floorplan' } }),
+  );
+  const { root: gotRoot, mapRel } = resolveServe(mapDir);
+  assert.equal(gotRoot, root);
+  assert.notEqual(gotRoot, path.dirname(mapDir)); // must not be foam/
+  assert.equal(mapRel, 'foam/floorplan');
+  assert.equal(path.join(gotRoot, mapRel, 'query.mjs'), path.join(mapDir, 'query.mjs'));
+
+  // CDA_FOAM_HOME: map outside the repo — relative path escapes; still ≠ dirname(mapDir) as cwd
+  const home = mkTmp('serve-home');
+  const homeMap = path.join(home, 'projects', path.basename(root), 'floorplan');
+  fs.mkdirSync(homeMap, { recursive: true });
+  const homeMapRel = path.relative(root, homeMap).replace(/\\/g, '/');
+  fs.writeFileSync(
+    path.join(homeMap, 'graph.json'),
+    JSON.stringify({ meta: { root, mapDir: homeMapRel } }),
+  );
+  const homeServe = resolveServe(homeMap);
+  assert.equal(homeServe.root, root);
+  assert.notEqual(homeServe.root, path.dirname(homeMap));
+  assert.equal(homeServe.mapRel, homeMapRel);
+
+  // serve.mjs / graph-query must not hardcode floorplan/query for allowlist / ask instructions
+  const assets = path.join(HERE, '..', '..', 'assets');
+  const serveSrc = fs.readFileSync(path.join(assets, 'serve.mjs'), 'utf8');
+  assert.match(serveSrc, /G\.meta\?\.root/);
+  assert.match(serveSrc, /mapRel/);
+  assert.doesNotMatch(serveSrc, /Bash\(node floorplan\/query\.mjs/);
+  const gq = fs.readFileSync(path.join(assets, 'graph-query.js'), 'utf8');
+  assert.match(gq, /mapDirRel|meta\?\.mapDir/);
+  assert.doesNotMatch(gq, /node floorplan\/query\.mjs overview/);
+}
+
 console.log('cda-floorplan self-check: ok');

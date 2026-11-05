@@ -113,7 +113,9 @@ export const isMapDir = outIsMapDir;
  * Write the map .gitignore (selective under foam / CDA_FOAM_HOME; full ignore under <repo>/floorplan/).
  * Returns a warning when git already tracks files that should be ignored, else null.
  */
-export function keepOutOfGit(dir, root = path.dirname(dir), env = process.env) {
+export function keepOutOfGit(dir, root, env = process.env) {
+  // root must be the codebase root (not dirname(mapDir)): under foam, parent of the map is foam/, not the repo.
+  if (!root) throw new Error('keepOutOfGit: root (codebase) is required');
   writeMapGitignore(root, dir, env);
   const tracked = (git(dir, ['ls-files', '--', '.']) || '').split('\n').filter(Boolean);
   if (!tracked.length) return null;

@@ -57,6 +57,7 @@ Install the `cdamux` binary on `PATH` (e.g. `cargo install --path crates/cdamux-
 - [ ] `list --json --group-by project` returns grouped JSON
 - [ ] `cdamux send <session> <message>` delivers text without attaching (targets session **active window / active pane** via `tmux send-keys -l -t`)
 - [ ] `cdamux send <session> --enter` (or message + `--enter`) submits with Enter
+- [ ] Spawn a claude session, `tmux kill-session` it, `cdamux restore --all` brings it back on the same conversation (`--resume <id>`)
 
 ## Send (without attach)
 

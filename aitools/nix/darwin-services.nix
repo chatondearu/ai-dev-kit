@@ -25,7 +25,8 @@
       in {
         launchd.user.agents.cda-graphify-install = {
           serviceConfig = {
-            ProgramArguments = [activateExec];
+            # nix-darwin types ProgramArguments as listOf str: coerce the script path.
+            ProgramArguments = ["${activateExec}"];
             RunAtLoad = true;
             KeepAlive = false;
           };

@@ -94,9 +94,9 @@ nix eval --impure --expr "
         hasLinuxUnit = eval.config.systemd.user.services ? cda-graphify-install;
         hasDarwinUnit = eval.config.launchd.user.agents ? cda-graphify-install;
         hasUnit = if isDarwin then hasDarwinUnit else hasLinuxUnit;
-        # Units do not inherit the login shell: activation must carry CLAUDE_CONFIG_DIR.
-        darwinScript = if hasDarwinUnit then (builtins.head eval.config.launchd.user.agents.cda-graphify-install.serviceConfig.ProgramArguments).text else \"\";
-        hasCfgDir = lib.hasInfix \"CLAUDE_CONFIG_DIR=/cfg/claude\" darwinScript;
+        # nix-darwin types ProgramArguments as listOf str (the stub does not).
+        darwinArgsAreStrings = !hasDarwinUnit
+          || builtins.all builtins.isString eval.config.launchd.user.agents.cda-graphify-install.serviceConfig.ProgramArguments;
       in
         assert failed == [];
         assert hasEnv == graphifyEnable;
@@ -104,9 +104,17 @@ nix eval --impure --expr "
         assert hasUnit == graphifyEnable;
         assert hasLinuxUnit == (!isDarwin && graphifyEnable);
         assert hasDarwinUnit == (isDarwin && graphifyEnable);
-        assert hasCfgDir == (isDarwin && graphifyEnable);
+        assert darwinArgsAreStrings;
         \"ok\";
+    # Units do not inherit the login shell: activation must carry CLAUDE_CONFIG_DIR.
+    activateScript = import $ROOT/aitools/nix/graphify-activation.nix {
+      inherit pkgs lib;
+      graphifyPkg = null;
+      pathTail = \"/usr/bin:/bin\";
+      a.graphify = { installMethod = \"none\"; claudeConfigDir = \"/cfg/claude\"; };
+    };
   in
+    assert lib.hasInfix \"CLAUDE_CONFIG_DIR=/cfg/claude\" activateScript.text;
     assert evalPlatform { isDarwin = false; graphifyEnable = false; } == \"ok\";
     assert evalPlatform { isDarwin = false; graphifyEnable = true; } == \"ok\";
     assert evalPlatform { isDarwin = true; graphifyEnable = false; } == \"ok\";

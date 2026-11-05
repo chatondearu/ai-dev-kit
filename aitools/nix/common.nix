@@ -21,6 +21,16 @@
     '';
   };
 
+  foamHome = lib.mkOption {
+    type = lib.types.nullOr lib.types.str;
+    default = null;
+    description = ''
+      Absolute path exported as CDA_FOAM_HOME (shared project memory root for
+      skills such as cda-floorplan). Null leaves the variable unset.
+    '';
+    example = "/cda/foam";
+  };
+
   repoPath = lib.mkOption {
     type = lib.types.str;
     default = "{{home}}/dev/chatondearu/ai-dev-kit";
@@ -113,6 +123,31 @@
         Host path to Moshi pairing token (e.g. agenix secret). When set and the host
         is not yet paired, moshi-hook-pair runs at login. Omit to pair manually once.
       '';
+    };
+  };
+
+  graphify = {
+    enable = lib.mkEnableOption "Graphify code-graph CLI (PyPI graphifyy) + CDA_GRAPHIFY=1";
+
+    installMethod = lib.mkOption {
+      type = lib.types.enum ["auto" "nix" "uv" "none"];
+      default = "auto";
+      description = ''
+        How to obtain graphify: nix = pinned PyPI derivation; uv = uv tool install
+        graphifyy at activation; auto = prefer nix package when built into the
+        module, else uv at activation; none = env flag only (manual install).
+      '';
+    };
+
+    hooks = {
+      enable = lib.mkOption {
+        type = lib.types.bool;
+        default = false;
+        description = ''
+          When true, activation also runs `graphify install --platform claude`
+          (Claude PreToolUse hooks). Honours CLAUDE_CONFIG_DIR.
+        '';
+      };
     };
   };
 

@@ -4,6 +4,7 @@
   lib,
   pkgs,
   cdamuxPkg,
+  graphifyPkg,
   moshiHookFor,
   ...
 }:
@@ -12,6 +13,52 @@
     (lib.mkIf (config.cda.aitools.enable && config.cda.aitools.mosh.enable) {
       programs.mosh.enable = true;
     })
+    (lib.mkIf (
+      config.cda.aitools.enable
+      && config.cda.aitools.graphify.enable
+      && config.cda.aitools.graphify.installMethod != "none"
+      && config.cda.aitools.user != null
+      && config.cda.aitools.systemdUser.enable
+    ) (
+      let
+        a = config.cda.aitools;
+        ensureUv =
+          a.graphify.installMethod == "uv"
+          || a.graphify.installMethod == "auto";
+        useNixPkg =
+          graphifyPkg != null
+          && (
+            a.graphify.installMethod == "nix"
+            || a.graphify.installMethod == "auto"
+          );
+        activateArgs =
+          lib.optionalString ensureUv " --ensure-uv"
+          + lib.optionalString a.graphify.hooks.enable " --hooks";
+        pathPrefix =
+          lib.optionalString useNixPkg "${graphifyPkg}/bin:"
+          + lib.optionalString ensureUv "${pkgs.uv}/bin:";
+        activateExec = pkgs.writeShellScript "cda-graphify-activate" ''
+          set -euo pipefail
+          export PATH="${pathPrefix}$HOME/.local/bin:/run/current-system/sw/bin:$PATH"
+          exec ${pkgs.bash}/bin/bash ${../scripts/graphify-activate.sh}${activateArgs}
+        '';
+        cond =
+          lib.optionalAttrs (a.systemdUser.conditionUser != null) {
+            unitConfig.ConditionUser = a.systemdUser.conditionUser;
+          };
+      in {
+        systemd.user.services.cda-graphify-install = {
+          description = "Register Graphify agent skill (idempotent)";
+          wantedBy = ["default.target"];
+          serviceConfig = {
+            Type = "oneshot";
+            RemainAfterExit = true;
+            ExecStart = activateExec;
+          };
+        }
+        // cond;
+      }
+    ))
     (lib.mkIf (
       config.cda.aitools.enable
       && config.cda.aitools.systemdUser.enable

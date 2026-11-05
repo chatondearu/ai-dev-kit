@@ -1,6 +1,6 @@
 # PLAN-188 — Graphify package + cda.aitools.graphify option
 
-- **Status**: draft
+- **Status**: done
 - **PRD**: [[../prd/PRD-186-floorplan-graphify|PRD-186]]
 - **GitHub**: [#188](https://github.com/chatondearu/ai-dev-kit/issues/188)
 - **Date**: 2026-11-05
@@ -39,12 +39,12 @@ activation step via the existing maid deploy path for `graphify install`.
 
 ## Tasks
 
-- [ ] Options in `common.nix`, wiring in `module-core.nix`, darwin + nixos env
-- [ ] Package derivation (or documented `uv` fallback if Nix build fails)
-- [ ] Activation: `graphify install` idempotent; hooks sub-option
-- [ ] doctor.sh check + test case
-- [ ] Docs: bootstrap prompt, aitools README, recommended.md
-- [ ] ADR-008
+- [x] Options in `common.nix`, wiring in `module-core.nix`, darwin + nixos env
+- [x] Package derivation (or documented `uv` fallback if Nix build fails)
+- [x] Activation: `graphify install` idempotent; hooks sub-option
+- [x] doctor.sh check + test case
+- [x] Docs: bootstrap prompt, aitools README, recommended.md
+- [x] ADR-008
 
 ## Risks & mitigations
 
@@ -55,9 +55,9 @@ activation step via the existing maid deploy path for `graphify install`.
 
 ## Test plan
 
-- [ ] Module eval with option on/off (darwin + nixos) in `nix flake check` or a scripted eval
-- [ ] doctor output case
+- [x] Module eval with option on/off (darwin + nixos) in `nix flake check` or a scripted eval
+- [x] doctor output case
 
 ## Verification
 
-- [ ] `nix develop -c bash scripts/verify.sh`
+- [x] `nix develop -c bash scripts/verify.sh`

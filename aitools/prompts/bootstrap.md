@@ -8,7 +8,7 @@ Do **not** invent package-install steps inside the kit’s `install.sh`.
 
 1. Kit skills/rules linked (portable path).
 2. Host agent CLIs available (official installers).
-3. Optional: Nix `cda.aitools` for tmux/cdamux configs with relocatable root.
+3. Optional: Nix `cda.aitools` for tmux/cdamux/Graphify with relocatable root.
 4. `doctor.sh` green enough to run orch/headless.
 
 ## Steps
@@ -58,13 +58,18 @@ cda.aitools = {
   enable = true;
   configRoot = "/cda/aitools"; # or omit for ~/.config/cda-aitools
   installMethod = "auto";
+  # Optional code graph (ADR-008); never via install.sh
+  # graphify = { enable = true; installMethod = "auto"; };
+  # foamHome = "/cda/foam";
 };
 ```
 
 4. Copy templates from `aitools/templates/` into `$CDA_AITOOLS_HOME`.
 5. On Darwin without Nix: `aitools/scripts/cdamux-align-mac.sh` (build from in-tree `cdamux/`).
+6. Graphify without the Nix package: `uv tool install graphifyy`, then
+   `bash aitools/scripts/graphify-activate.sh` (add `--hooks` for Claude PreToolUse).
 
-Read `aitools/README.md` and foam ADR-003.
+Read `aitools/README.md`, foam ADR-003, and ADR-008.
 
 ### E — Non-Nix session tools
 

@@ -4,11 +4,50 @@
   lib,
   pkgs,
   cdamuxPkg,
+  graphifyPkg,
   moshiHookFor,
   ...
 }:
 {
   config = lib.mkMerge [
+    (lib.mkIf (
+      config.cda.aitools.enable
+      && config.cda.aitools.graphify.enable
+      && config.cda.aitools.graphify.installMethod != "none"
+      && config.cda.aitools.user != null
+    ) (
+      let
+        a = config.cda.aitools;
+        ensureUv =
+          a.graphify.installMethod == "uv"
+          || a.graphify.installMethod == "auto";
+        useNixPkg =
+          graphifyPkg != null
+          && (
+            a.graphify.installMethod == "nix"
+            || a.graphify.installMethod == "auto"
+          );
+        activateArgs =
+          lib.optionalString ensureUv " --ensure-uv"
+          + lib.optionalString a.graphify.hooks.enable " --hooks";
+        pathPrefix =
+          lib.optionalString useNixPkg "${graphifyPkg}/bin:"
+          + lib.optionalString ensureUv "${pkgs.uv}/bin:";
+        activateExec = pkgs.writeShellScript "cda-graphify-activate" ''
+          set -euo pipefail
+          export PATH="${pathPrefix}$HOME/.local/bin:/run/current-system/sw/bin:/opt/homebrew/bin:/usr/bin:/bin:$PATH"
+          exec ${pkgs.bash}/bin/bash ${../scripts/graphify-activate.sh}${activateArgs}
+        '';
+      in {
+        launchd.user.agents.cda-graphify-install = {
+          serviceConfig = {
+            ProgramArguments = [activateExec];
+            RunAtLoad = true;
+            KeepAlive = false;
+          };
+        };
+      }
+    ))
     (lib.mkIf (config.cda.aitools.enable && config.cda.aitools.cdamuxd.enable) (
       let
         a = config.cda.aitools;

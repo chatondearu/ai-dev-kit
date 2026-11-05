@@ -23,7 +23,7 @@ nix eval --impure --expr "
     assert schema ? graphify;
     assert schema.graphify ? enable;
     assert schema.graphify ? installMethod;
-    assert schema.graphify.hooks ? enable;
+    assert !(schema.graphify ? hooks);
     assert schema ? foamHome;
     \"ok\"
 "
@@ -110,6 +110,34 @@ nix eval --impure --expr "
 
 echo "== graphify package parses =="
 nix-instantiate --parse "$ROOT/aitools/nix/graphify-package.nix" >/dev/null
+nix-instantiate --parse "$ROOT/aitools/nix/graphify-activation.nix" >/dev/null
+
+echo "== graphify-activate isolated (symlink CLAUDE.md + throwaway cwd) =="
+# Never touch live maintainer config (AGENTS.md gotcha).
+FAKE="$(mktemp -d "${TMPDIR:-/tmp}/cda-test-graphify-activate.XXXXXX")"
+KIT="$FAKE/kit"
+mkdir -p "$KIT/claude" "$FAKE/home" "$FAKE/xdg" "$FAKE/cursor" "$FAKE/cwd"
+printf '# kit CLAUDE.md\n' >"$KIT/claude/CLAUDE.md"
+KIT_BEFORE="$(cat "$KIT/claude/CLAUDE.md")"
+printf '# cwd CLAUDE.md\n' >"$FAKE/cwd/CLAUDE.md"
+CWD_BEFORE="$(cat "$FAKE/cwd/CLAUDE.md")"
+mkdir -p "$FAKE/claude"
+ln -s "$KIT/claude/CLAUDE.md" "$FAKE/claude/CLAUDE.md"
+GF_BIN="$(nix build --no-link --print-out-paths "$ROOT#graphify")/bin"
+(
+  export HOME="$FAKE/home"
+  export CLAUDE_CONFIG_DIR="$FAKE/claude"
+  export XDG_CONFIG_HOME="$FAKE/xdg"
+  export CURSOR_HOME="$FAKE/cursor"
+  export PATH="$GF_BIN:$PATH"
+  cd "$FAKE/cwd"
+  bash "$ROOT/aitools/scripts/graphify-activate.sh"
+)
+test -f "$FAKE/claude/skills/graphify/SKILL.md"
+test -L "$FAKE/claude/CLAUDE.md"
+test "$(cat "$KIT/claude/CLAUDE.md")" = "$KIT_BEFORE"
+test "$(cat "$FAKE/cwd/CLAUDE.md")" = "$CWD_BEFORE"
+rm -rf "$FAKE"
 
 # Optional heavy build (CDN / PyPI); skip unless CDA_TEST_AITOOLS_BUILD=1
 if [ "${CDA_TEST_AITOOLS_BUILD:-0}" = "1" ]; then

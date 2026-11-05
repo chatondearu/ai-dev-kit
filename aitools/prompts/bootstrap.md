@@ -67,7 +67,7 @@ cda.aitools = {
 4. Copy templates from `aitools/templates/` into `$CDA_AITOOLS_HOME`.
 5. On Darwin without Nix: `aitools/scripts/cdamux-align-mac.sh` (build from in-tree `cdamux/`).
 6. Graphify without the Nix package: `uv tool install graphifyy`, then
-   `bash aitools/scripts/graphify-activate.sh` (add `--hooks` for Claude PreToolUse).
+   `bash aitools/scripts/graphify-activate.sh` (skill only; no Claude hooks — ADR-008).
 
 Read `aitools/README.md`, foam ADR-003, and ADR-008.
 

@@ -15,7 +15,7 @@ Session tools and configs are opt-in via **Nix** (`cda.aitools`).
 | `templates/tmux-persist.conf` | Optional resurrect/continuum fragment (`tmux.persist.enable`) |
 | `templates/cdamux/config.toml` | cdamux config (`@PROJECTS_ROOT@` substituted by Nix) |
 | `scripts/moshi-hook-bootstrap.sh` | Pair Moshi + install hooks (e.g. `--target cursor`) |
-| `scripts/graphify-activate.sh` | Idempotent `graphify install` (+ optional Claude hooks) |
+| `scripts/graphify-activate.sh` | Idempotent `graphify install` (throwaway cwd; shields symlinked CLAUDE.md) |
 | `scripts/cdamux-align-mac.sh` | macOS: `cargo install` from in-tree `cdamux/` + config |
 | `nix/` | `nixosModules.cdaAitools` + `darwinModules.cdaAitools` |
 
@@ -56,12 +56,13 @@ Legacy option names `ccmux.*` / `ccmuxd.*` are renamed automatically (see `mkRen
 | ------ | ------- |
 | `graphify.enable` | `CDA_GRAPHIFY=1` + activation oneshot |
 | `graphify.installMethod` | `auto` \| `nix` \| `uv` \| `none` (like cdamux) |
-| `graphify.hooks.enable` | also `graphify claude install` |
 | `foamHome` | optional `CDA_FOAM_HOME` |
 
 `auto`/`nix` use `aitools/nix/graphify-package.nix` (pinned wheel; some grammars
 relaxed). `auto`/`uv` can fall back to `uv tool install graphifyy`. Manual:
-`bash aitools/scripts/graphify-activate.sh [--ensure-uv] [--hooks]`.
+`bash aitools/scripts/graphify-activate.sh [--ensure-uv]`.
+Claude PreToolUse hooks (`graphify claude install`) are not wired — cwd-scoped
+writes; see ADR-008.
 
 ## Parity
 

@@ -139,17 +139,6 @@
         module, else uv at activation; none = env flag only (manual install).
       '';
     };
-
-    hooks = {
-      enable = lib.mkOption {
-        type = lib.types.bool;
-        default = false;
-        description = ''
-          When true, activation also runs `graphify claude install`
-          (Claude PreToolUse hooks). Honours CLAUDE_CONFIG_DIR.
-        '';
-      };
-    };
   };
 
   systemdUser = {

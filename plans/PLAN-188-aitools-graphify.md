@@ -21,10 +21,11 @@ Apache-2.0) behind `cda.aitools.graphify.enable`, exporting `CDA_GRAPHIFY=1`.
 
 ### In scope
 
-- Options: `graphify.enable`, `graphify.installMethod` (`auto | nix | uv | none`), `graphify.hooks.enable` (default false), `foamHome` (→ `CDA_FOAM_HOME`)
+- Options: `graphify.enable`, `graphify.installMethod` (`auto | nix | uv | none`), `foamHome` (→ `CDA_FOAM_HOME`)
 - `aitools/nix/graphify-package.nix` (pinned PyPI build); `auto` → `uv tool install graphifyy` fallback
 - Session env `CDA_GRAPHIFY=1` on darwin + NixOS
-- Idempotent `graphify install` (and `graphify claude install` when hooks on), honouring `CLAUDE_CONFIG_DIR`
+- Idempotent `graphify install` honouring `CLAUDE_CONFIG_DIR`; no hooks (cwd-scoped `graphify claude install` — ADR-008)
+- Activation shields symlinked `CLAUDE.md` and runs in a throwaway cwd
 - `aitools/prompts/bootstrap.md`, `aitools/README.md`, `scripts/doctor.sh`, `docs/recommended.md`
 - `foam/decisions/ADR-008-graphify-code-graph.md` + index
 
@@ -41,7 +42,7 @@ activation step via the existing maid deploy path for `graphify install`.
 
 - [x] Options in `common.nix`, wiring in `module-core.nix`, darwin + nixos env
 - [x] Package derivation (or documented `uv` fallback if Nix build fails)
-- [x] Activation: `graphify install` idempotent; hooks sub-option
+- [x] Activation: `graphify install` idempotent; symlink shield + isolated test
 - [x] doctor.sh check + test case
 - [x] Docs: bootstrap prompt, aitools README, recommended.md
 - [x] ADR-008

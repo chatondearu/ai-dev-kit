@@ -7,6 +7,8 @@ description: Chart a large, foggy chunk of work as a map of decision tickets on 
 
 A loose idea has arrived, too big for one session and wrapped in fog: the way from here to the **destination** isn't visible yet. This skill charts that way as a **shared map** of GitHub issues, then works its **decision tickets** — questions whose resolution is a *decision*, not a slice of a build — one at a time until the route is clear.
 
+When `CDA_GRAPHIFY=1` and `graphify-out/graph.json` exists, read `graphify-out/GRAPH_REPORT.md` (or query the graph) before grepping or reading files.
+
 This is the **fog-clearing stage that sits before `cda-prd`**. It produces decisions (recorded as ADRs via `cda-foam`), not deliverables. When the map is clear, hand the destination to `cda-prd` to draft the PRD, then `cda-plan` and `cda-dev` take over.
 
 The destination varies: a spec/PRD to hand off, a decision to lock before planning, or a change made in place (e.g. a data-structure migration). Naming it is the first act of charting — it fixes the scope and shapes every ticket.

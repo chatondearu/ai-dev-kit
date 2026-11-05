@@ -7,7 +7,7 @@ description: Test-driven development. Use when the user wants to build features 
 
 TDD is the red → green loop. This skill is the reference that makes that loop produce tests worth keeping: what a good test is, where tests go, the anti-patterns, and the rules of the loop. Every section applies on every cycle: consult them before and during the loop, not after.
 
-When exploring the codebase, read `GLOSSARY.md` (if it exists) so test names and interface vocabulary match the project's domain language, and respect ADRs in the area you're touching. If the project keeps its memory graph under `foam/` (see the `cda-foam` skill), read the relevant ADRs/PRDs there first.
+When exploring the codebase, read `GLOSSARY.md` (if it exists) so test names and interface vocabulary match the project's domain language, and respect ADRs in the area you're touching. If the project keeps its memory graph under `foam/` (see the `cda-foam` skill), read the relevant ADRs/PRDs there first. When `CDA_GRAPHIFY=1` and `graphify-out/graph.json` exists, read `graphify-out/GRAPH_REPORT.md` (or query the graph) before grepping or reading files.
 
 ## What a good test is
 

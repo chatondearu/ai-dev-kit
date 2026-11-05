@@ -53,6 +53,23 @@ assert.deepStrictEqual(map.split("\n").slice(1), ["a/b", "a", "d"], map);
 process.env.KISS_MAP_CHARS = "60";
 const small = L.buildMap(repo);
 assert.ok(small.endsWith("…(truncated)") && small.length <= 60 + 12, small);
+delete process.env.KISS_MAP_CHARS;
+
+// Graphify SessionStart orientation: off / on+no-graph / on+graph
+delete process.env.CDA_GRAPHIFY;
+assert.strictEqual(L.buildGraphPointer(repo), "");
+assert.ok(L.buildSessionMap(repo).startsWith("Repo map"), "off → repo map");
+
+process.env.CDA_GRAPHIFY = "1";
+assert.strictEqual(L.buildGraphPointer(repo), "", "on + no graph → empty");
+assert.ok(L.buildSessionMap(repo).startsWith("Repo map"), "on + no graph → repo map");
+
+fs.mkdirSync(path.join(repo, "graphify-out"), { recursive: true });
+fs.writeFileSync(path.join(repo, "graphify-out", "graph.json"), "{}");
+const ptr = L.buildGraphPointer(repo);
+assert.ok(ptr.includes("GRAPH_REPORT.md") && ptr.includes("graph.json"), ptr);
+assert.strictEqual(L.buildSessionMap(repo), ptr, "on + graph replaces repo map");
+delete process.env.CDA_GRAPHIFY;
 
 console.log("kiss lib: all assertions passed");
 '
@@ -66,3 +83,23 @@ echo '{"prompt":"/kiss"}' | node mode-tracker.js >/dev/null
 echo '{"source":"startup"}' | KISS_MAP=0 node activate.js | grep -q "KISS MODE ACTIVE — level: full" \
   || { echo "FAIL: /kiss did not re-enable"; exit 1; }
 echo "kiss hooks: sticky off round trip passed"
+
+# Graphify activate.js: on + graph injects pointer (cwd = fixture with graph.json)
+hooks_dir="$PWD"
+grepo="$tmp/graph-repo"
+mkdir -p "$grepo/graphify-out" "$grepo/src"
+printf '%s\n' '{}' > "$grepo/graphify-out/graph.json"
+printf '%s\n' 'x' > "$grepo/src/a.js"
+git -C "$grepo" init -q
+git -C "$grepo" add .
+out="$(cd "$grepo" && echo '{"source":"startup"}' | CDA_GRAPHIFY=1 node "$hooks_dir/activate.js")"
+echo "$out" | grep -q "GRAPH_REPORT.md" || { echo "FAIL: activate on+graph missing pointer"; exit 1; }
+echo "$out" | grep -q "Repo map" && { echo "FAIL: activate on+graph still has repo map"; exit 1; }
+out="$(cd "$grepo" && echo '{"source":"startup"}' | env -u CDA_GRAPHIFY node "$hooks_dir/activate.js")"
+echo "$out" | grep -q "Repo map" || { echo "FAIL: activate off missing repo map"; exit 1; }
+echo "$out" | grep -q "GRAPH_REPORT.md" && { echo "FAIL: activate off has graph pointer"; exit 1; }
+rm -f "$grepo/graphify-out/graph.json"
+out="$(cd "$grepo" && echo '{"source":"startup"}' | CDA_GRAPHIFY=1 node "$hooks_dir/activate.js")"
+echo "$out" | grep -q "Repo map" || { echo "FAIL: activate on+no-graph missing repo map"; exit 1; }
+echo "$out" | grep -q "GRAPH_REPORT.md" && { echo "FAIL: activate on+no-graph has pointer"; exit 1; }
+echo "kiss hooks: graphify SessionStart cases passed"

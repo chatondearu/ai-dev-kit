@@ -10,6 +10,8 @@ description:
 
 This skill guides the agent in conducting professional and thorough code reviews for both local development and remote Pull Requests.
 
+When `CDA_GRAPHIFY=1` and `graphify-out/graph.json` exists, read `graphify-out/GRAPH_REPORT.md` (or query the graph) before grepping or reading files.
+
 ## Workflow
 
 ### 1. Determine Review Target

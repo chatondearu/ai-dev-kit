@@ -28,6 +28,7 @@ Turn an **approved PRD** + **Kanban issue** into an implementation **plan**
 2. Read the PRD and linked ADRs in `foam/decisions/`.
 3. Search open PRs for the same issue: `gh pr list --search "#NNN"`.
 4. Do not start coding until the plan checklist reflects real scope.
+5. When `CDA_GRAPHIFY=1` and `graphify-out/graph.json` exists, read `graphify-out/GRAPH_REPORT.md` (or query the graph) before grepping or reading files.
 
 ## Create plan from issue
 

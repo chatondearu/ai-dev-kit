@@ -34,6 +34,9 @@ branches. **Do not merge.**
 
 In both lanes: discover files yourself (paths in briefs go stale). Verify by
 acceptance criteria. No scope expansion.
+When `CDA_GRAPHIFY=1` and `graphify-out/graph.json` exists, read
+`graphify-out/GRAPH_REPORT.md` (or query the graph) before grepping or reading
+files.
 
 ## Steps (mandatory order)
 

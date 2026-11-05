@@ -36,7 +36,8 @@ these (`./scripts/doctor.sh` only checks `PATH`).
 | `ORCH_GRAPH_INTEGRATOR` | `auto` | Integrator after workers (`1` always, `0` never) |
 | `ORCH_GRAPH_PLAN_PARALLEL` | `auto` | Graph-plan tasks: `auto` / `parallel` / `sequential` |
 | `ORCH_GRAPH_PLAN_MAX_PARALLEL` | `$ORCH_MAX_PARALLEL` | Parallel cap for `--graph-plan` tasks |
-| `CDA_GRAPHIFY` | unset | `1` when `cda.aitools.graphify.enable` — skills may query the code graph ([ADR-008](../foam/decisions/ADR-008-graphify-code-graph.md)) |
+| `CDA_GRAPHIFY` | unset | `1` when `cda.aitools.graphify.enable` → kit skills and the kiss SessionStart hook prefer `graphify-out/` before grep/file reads ([ADR-008](../foam/decisions/ADR-008-graphify-code-graph.md); never set by `install.sh`) |
+| `KISS_MAP` | on | `0` → skip SessionStart orientation (repo map / graphify pointer) |
 | `CDA_FOAM_HOME` | unset | Shared foam home (`cda.aitools.foamHome`); `cda-floorplan` writes `$CDA_FOAM_HOME/projects/<repo>/floorplan/` when the project has no `foam/` |
 | `FLOORPLAN_ENGINE` / `FLOORPLAN_AGENT` | auto | Override Ask / build agent for `cda-floorplan` (`agent`, `cursor-agent`, `claude`, `opencode`, `codex`) |
 | `CDA_AITOOLS_HOME` | `~/.config/cda-aitools` | Companion config root (`cda.aitools.configRoot` or env) |
@@ -101,3 +102,8 @@ tool's hook config (needs `jq`; idempotent):
 
 Claude assembles global instructions from `rules/` into `CLAUDE.md` when Claude
 is enabled; that path is separate from KISS hooks.
+
+When `CDA_GRAPHIFY=1` and `<repo>/graphify-out/graph.json` exists, the Claude /
+Cursor SessionStart hook injects a pointer to `graphify-out/GRAPH_REPORT.md`
+instead of the cheap repo map. Off or missing graph → repo map unchanged.
+`rules/03-graphify.md` and code-reading skills carry the same rule.

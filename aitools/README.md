@@ -40,7 +40,7 @@ cda.aitools = {
   cdamuxd.enable = true;
   moshiHook = { enable = true; hookTargets = [ "cursor" ]; };
   # Optional code graph (ADR-008); off by default
-  # graphify = { enable = true; installMethod = "auto"; };
+  # graphify = { enable = true; installMethod = "auto"; claudeConfigDir = "/cda/.claude"; };
   # foamHome = "/cda/foam";
 };
 ```
@@ -56,6 +56,7 @@ Legacy option names `ccmux.*` / `ccmuxd.*` are renamed automatically (see `mkRen
 | ------ | ------- |
 | `graphify.enable` | `CDA_GRAPHIFY=1` + activation oneshot |
 | `graphify.installMethod` | `auto` \| `nix` \| `uv` \| `none` (like cdamux) |
+| `graphify.claudeConfigDir` | `CLAUDE_CONFIG_DIR` for activation (units do not inherit the shell) |
 | `foamHome` | optional `CDA_FOAM_HOME` |
 
 `auto`/`nix` use `aitools/nix/graphify-package.nix` (pinned wheel; some grammars

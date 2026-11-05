@@ -24,5 +24,6 @@ in
   pkgs.writeShellScript "cda-graphify-activate" ''
     set -euo pipefail
     export PATH="${pathPrefix}$HOME/.local/bin:${pathTail}"
+    ${lib.optionalString (a.graphify.claudeConfigDir != null) "export CLAUDE_CONFIG_DIR=${lib.escapeShellArg a.graphify.claudeConfigDir}"}
     exec ${pkgs.bash}/bin/bash ${../scripts/graphify-activate.sh}${activateArgs}
   ''

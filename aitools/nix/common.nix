@@ -139,6 +139,16 @@
         module, else uv at activation; none = env flag only (manual install).
       '';
     };
+
+    claudeConfigDir = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      description = ''
+        CLAUDE_CONFIG_DIR for the activation oneshot. launchd/systemd units do not
+        inherit the login shell, so without it the skill lands in ~/.claude.
+      '';
+      example = "/cda/.claude";
+    };
   };
 
   systemdUser = {

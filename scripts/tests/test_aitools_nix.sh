@@ -23,6 +23,7 @@ nix eval --impure --expr "
     assert schema ? graphify;
     assert schema.graphify ? enable;
     assert schema.graphify ? installMethod;
+    assert schema.graphify ? claudeConfigDir;
     assert !(schema.graphify ? hooks);
     assert schema ? foamHome;
     \"ok\"
@@ -81,6 +82,7 @@ nix eval --impure --expr "
                 installMethod = \"none\";
                 graphify.enable = graphifyEnable;
                 graphify.installMethod = \"nix\";
+                graphify.claudeConfigDir = \"/cfg/claude\";
               };
             }
           ];
@@ -92,6 +94,9 @@ nix eval --impure --expr "
         hasLinuxUnit = eval.config.systemd.user.services ? cda-graphify-install;
         hasDarwinUnit = eval.config.launchd.user.agents ? cda-graphify-install;
         hasUnit = if isDarwin then hasDarwinUnit else hasLinuxUnit;
+        # Units do not inherit the login shell: activation must carry CLAUDE_CONFIG_DIR.
+        darwinScript = if hasDarwinUnit then (builtins.head eval.config.launchd.user.agents.cda-graphify-install.serviceConfig.ProgramArguments).text else \"\";
+        hasCfgDir = lib.hasInfix \"CLAUDE_CONFIG_DIR=/cfg/claude\" darwinScript;
       in
         assert failed == [];
         assert hasEnv == graphifyEnable;
@@ -99,6 +104,7 @@ nix eval --impure --expr "
         assert hasUnit == graphifyEnable;
         assert hasLinuxUnit == (!isDarwin && graphifyEnable);
         assert hasDarwinUnit == (isDarwin && graphifyEnable);
+        assert hasCfgDir == (isDarwin && graphifyEnable);
         \"ok\";
   in
     assert evalPlatform { isDarwin = false; graphifyEnable = false; } == \"ok\";

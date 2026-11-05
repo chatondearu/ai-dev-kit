@@ -59,7 +59,7 @@ cda.aitools = {
   configRoot = "/cda/aitools"; # or omit for ~/.config/cda-aitools
   installMethod = "auto";
   # Optional code graph (ADR-008); never via install.sh
-  # graphify = { enable = true; installMethod = "auto"; };
+  # graphify = { enable = true; installMethod = "auto"; claudeConfigDir = "/cda/.claude"; };
   # foamHome = "/cda/foam";
 };
 ```

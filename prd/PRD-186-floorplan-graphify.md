@@ -1,6 +1,6 @@
 # PRD-186 — Floorplan map skill + graphify code graph across the kit
 
-- **Status**: approved
+- **Status**: shipped
 - **GitHub**: [#186](https://github.com/chatondearu/ai-dev-kit/issues/186)
 - **Date**: 2026-11-05
 - **Tags**: #product #tooling #skills
@@ -16,11 +16,11 @@ and no kit skill knows to use it.
 
 ## Goals
 
-- [ ] Floorplan ships as a kit skill that works from any supported agent and
+- [x] Floorplan ships as a kit skill that works from any supported agent and
       files its map in project memory (foam) when there is one.
-- [ ] Updating the kit's Nix companion on a host installs and configures
+- [x] Updating the kit's Nix companion on a host installs and configures
       Graphify, behind one switch.
-- [ ] Every code-reading kit skill queries the graph when the switch is on.
+- [x] Every code-reading kit skill queries the graph when the switch is on.
 
 ## Non-goals
 
@@ -41,23 +41,23 @@ and no kit skill knows to use it.
 
 ### Functional
 
-- [ ] #187 — `skills/tools/cda-floorplan/` vendored from upstream v0.3.0 (MIT),
+- [x] #187 — `skills/tools/cda-floorplan/` vendored from upstream v0.3.0 (MIT),
       host-agnostic skill dir resolution, Ask bar engines `agent`,
       `cursor-agent`, `claude`, `opencode`, `codex`; output order project
       `foam/` → `$CDA_FOAM_HOME/projects/<repo>/` → `<repo>/floorplan/`; no
       `CLAUDE.local.md` block.
-- [ ] #188 — `cda.aitools.graphify.{enable,installMethod}` and
+- [x] #188 — `cda.aitools.graphify.{enable,installMethod}` and
       `cda.aitools.foamHome`; pinned package with `uv` fallback; exports
       `CDA_GRAPHIFY=1`; runs `graphify install` (no cwd hooks); bootstrap prompt,
       doctor, recommended docs; ADR-008.
-- [ ] #189 — shared rule in `rules/`, one line per code-reading skill, kiss
+- [x] #189 — shared rule in `rules/`, one line per code-reading skill, kiss
       SessionStart hook points at the graph report when on.
 
 ### Non-functional
 
-- [ ] Off by default; with the switch off, kit behaviour is unchanged.
-- [ ] kiss hooks stay local-only, fail-open, fast.
-- [ ] `nix develop -c bash scripts/verify.sh` green.
+- [x] Off by default; with the switch off, kit behaviour is unchanged.
+- [x] kiss hooks stay local-only, fail-open, fast.
+- [x] `nix develop -c bash scripts/verify.sh` green.
 
 ## Related project memory
 
@@ -75,5 +75,5 @@ and no kit skill knows to use it.
 
 ## Implementation pointer
 
-`plans/PLAN-187-cda-floorplan.md`, `plans/PLAN-188-aitools-graphify.md`,
-`plans/PLAN-189-skills-graphify.md`
+`foam/archive/plans/PLAN-187-cda-floorplan.md`, `foam/archive/plans/PLAN-188-aitools-graphify.md`,
+`foam/archive/plans/PLAN-189-skills-graphify.md`

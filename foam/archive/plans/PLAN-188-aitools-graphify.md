@@ -1,7 +1,7 @@
 # PLAN-188 — Graphify package + cda.aitools.graphify option
 
 - **Status**: done
-- **PRD**: [[../prd/PRD-186-floorplan-graphify|PRD-186]]
+- **PRD**: [[../../prd/PRD-186-floorplan-graphify|PRD-186]]
 - **GitHub**: [#188](https://github.com/chatondearu/ai-dev-kit/issues/188)
 - **Date**: 2026-11-05
 

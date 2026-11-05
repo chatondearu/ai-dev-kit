@@ -1,7 +1,7 @@
 # PLAN-187 — Vendor floorplan as agent-agnostic cda-floorplan
 
-- **Status**: implemented
-- **PRD**: [[../prd/PRD-186-floorplan-graphify|PRD-186]]
+- **Status**: done
+- **PRD**: [[../../prd/PRD-186-floorplan-graphify|PRD-186]]
 - **GitHub**: [#187](https://github.com/chatondearu/ai-dev-kit/issues/187)
 - **Date**: 2026-11-05
 

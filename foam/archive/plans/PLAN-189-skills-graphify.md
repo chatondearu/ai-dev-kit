@@ -1,7 +1,7 @@
 # PLAN-189 — Query the graphify graph when CDA_GRAPHIFY=1
 
-- **Status**: in-progress
-- **PRD**: [[../prd/PRD-186-floorplan-graphify|PRD-186]]
+- **Status**: done
+- **PRD**: [[../../prd/PRD-186-floorplan-graphify|PRD-186]]
 - **GitHub**: [#189](https://github.com/chatondearu/ai-dev-kit/issues/189)
 - **Date**: 2026-11-05
 

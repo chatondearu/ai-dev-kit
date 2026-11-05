@@ -16,7 +16,7 @@ const { append, setAgentSessionId } = createRequire(realPath)(path.join(path.dir
 export const CdamuxSubagent = async () => {
   const children = new Map(); // child session id -> parent session id
   const add = (info) => {
-    if (info && info.id && !info.parentID) return setAgentSessionId(process.env, info.id);
+    if (info && info.id && !info.parentID) return setAgentSessionId(process.env, info.id, process.pid); // in-process: start at opencode itself
     if (!info || !info.parentID || children.has(info.id)) return;
     children.set(info.id, info.parentID);
     append(process.env, { cli: 'opencode', event: 'start', id: info.id, parent_id: info.parentID, name: info.title || undefined });

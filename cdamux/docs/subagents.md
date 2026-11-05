@@ -49,8 +49,21 @@ Rules (on top of the adapter rules below):
   Its entry sits next to the kiss `SessionStart` entry in `settings.json`; each
   installer only strips entries under its own hooks dir.
 - Cursor: prints `{}` (`sessionStart` is fire-and-forget, not a permission hook).
-- Gap: a nested CLI run from the session's pane (a `claude -p` from a Bash tool)
-  fires its own `SessionStart` and overwrites the id.
+- Only the pane's top-level CLI writes. A nested CLI started from the pane (a
+  `claude -p` or a headless orch worker run from a tool call, which inherit
+  `TMUX_PANE`) fires its own `SessionStart` and would point restore at a worker.
+  Rule: walk the parent chain (`ps -o ppid=,comm= -p <pid>`, at most 8 hops) from the
+  hook's parent (opencode: the plugin's own process) up to the pane's
+  `#{pane_pid}`; accept only if at most one process on the way is not a shell
+  (`sh`, `bash`, `zsh`, `fish`, … — pane, login and `sh -c` hook shells). The
+  top-level CLI is that one; a nested CLI also passes the top CLI, so it sees two.
+  `ps` failure or the pane out of reach → no write. Checked live on the
+  maintainer's tree (`fish -c fish` pane → fish → claude): top-level shape writes,
+  nested shape does not, ~15 ms. Not an env var: `CLAUDECODE=1` (set in Claude's
+  tool shells) reaches every nested CLI, and whether the top CLI's own hooks see it
+  is undocumented; the parent chain works the same for every CLI.
+- shortcut: a launcher that is not a shell and stays alive (npm's node wrapper of
+  opencode) counts as a second process, so that agent's id is not captured.
 - Without the hooks, Claude still resumes from the id cdamux pre-assigns at spawn
   (`--session-id`), but a `/clear` then resumes the pre-clear conversation.
 

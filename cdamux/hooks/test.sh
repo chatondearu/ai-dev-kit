@@ -7,7 +7,20 @@ H="$PWD/claude-subagent.js"
 
 tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
 mkdir -p "$tmp/bin"
-printf '#!/bin/sh\necho "fleet/demo"\n' > "$tmp/bin/tmux"; chmod +x "$tmp/bin/tmux"
+# tmux stub: `#{pane_pid} #S` -> "$PANE_PID fleet/demo", anything else -> the session name.
+printf '#!/bin/sh\ncase "$*" in *pane_pid*) echo "$PANE_PID fleet/demo";; *) echo "fleet/demo";; esac\n' > "$tmp/bin/tmux"
+# ps stub (`ps -o ppid=,comm= -p PID`): a fake ancestry from $CHAIN. The first (real) pid
+# asked for has comm ${CHAIN[0]} and parent B+1; pid B+k has comm ${CHAIN[k]}, parent B+k+1.
+cat > "$tmp/bin/ps" <<'PS'
+#!/bin/sh
+[ -z "$PS_FAIL" ] || exit 1
+[ -z "$PS_LOG" ] || echo "$4 $PPID" >> "$PS_LOG"   # asked pid, caller (node) pid
+B=90000000 pid="$4"; set -- $CHAIN
+if [ "$pid" -lt "$B" ]; then i=0; else i=$((pid - B)); fi
+[ "$i" -lt "$#" ] || exit 1
+shift "$i"; echo "$((B + i + 1)) $1"
+PS
+chmod +x "$tmp/bin/tmux" "$tmp/bin/ps"
 export PATH="$tmp/bin:$PATH" HOME="$tmp/home" XDG_STATE_HOME="$tmp/state" TMUX="/tmp/fake,1,0" TMUX_PANE="%1"
 L="$tmp/state/cdamux/agents/fleet_demo.jsonl"   # `/` in the session name -> `_`
 
@@ -79,6 +92,8 @@ mkdir -p "$(dirname "$R")"
 seed() { printf '{"name":"fleet/demo","cwd":"/src/app","agent":"%s","agent_session_id":null,"parent":"fleet","role":"agent","layout":"single","created_ts":100,"updated_ts":100,"extra":1}\n' "$1" > "$R"; }
 kept() { jq -e '.name=="fleet/demo" and .cwd=="/src/app" and .parent=="fleet" and .role=="agent" and .layout=="single" and .created_ts==100 and .extra==1' "$R" >/dev/null || fail "$1: other keys not kept"; }
 start() { printf '%s' "$1" | node "$S" || fail "session-start exited non-zero"; }
+# top-level: hook <- sh -c <- claude <- fish (login) <- fish (pane): one non-shell on the way
+export CHAIN="sh claude fish -fish" PANE_PID=90000004
 
 seed claude
 out="$(start '{"session_id":"c-1","transcript_path":"/p/c-1.jsonl","cwd":"/src/app","hook_event_name":"SessionStart","source":"startup"}')"
@@ -100,6 +115,17 @@ printf '{ broken' > "$R"
 start '{"session_id":"x","hook_event_name":"SessionStart"}' >/dev/null
 [ "$(cat "$R")" = '{ broken' ] || fail "malformed record rewritten"
 
+# only the pane's top-level CLI: a nested `claude -p` (hook <- sh <- claude <- zsh tool
+# shell <- top claude <- pane), an orch worker under it, or a ps failure writes nothing
+seed claude; before="$(cat "$R")"
+CHAIN="sh claude zsh claude fish" PANE_PID=90000005 start '{"session_id":"nested","hook_event_name":"SessionStart"}' >/dev/null
+CHAIN="sh claude bash bash claude zsh claude fish" PANE_PID=90000008 start '{"session_id":"nested","hook_event_name":"SessionStart"}' >/dev/null
+PS_FAIL=1 start '{"session_id":"nested","hook_event_name":"SessionStart"}' >/dev/null
+CHAIN="sh claude fish fish fish fish fish fish fish fish" PANE_PID=90000010 start '{"session_id":"nested","hook_event_name":"SessionStart"}' >/dev/null
+[ "$(cat "$R")" = "$before" ] || fail "nested CLI / ps failure / pane out of reach changed the record"
+CHAIN="claude fish" PANE_PID=90000002 start '{"session_id":"direct","hook_event_name":"SessionStart"}' >/dev/null
+[ "$(jq -r .agent_session_id "$R")" = direct ] || fail "hook run without sh -c not accepted"
+
 # a session cdamux did not spawn (no record) gets none
 rm -f "$R"
 start '{"session_id":"x","hook_event_name":"SessionStart"}' >/dev/null
@@ -112,15 +138,23 @@ jq -e '.agent_session_id=="cu-1"' "$R" >/dev/null || fail "cursor id not stored"
 kept cursor
 out="$(start 'not json')"; [ -z "$out" ] || fail "bad JSON printed output"
 
-# opencode: the main session (no parentID) sets the id; a child session does not
+# opencode: the main session (no parentID) sets the id; a child session does not.
+# In-process plugin: the walk starts at opencode itself (opencode <- fish pane).
 seed opencode
-node --input-type=module -e '
+CHAIN="opencode fish" PANE_PID=90000002 PS_LOG="$tmp/ps.log" node --input-type=module -e '
 const { CdamuxSubagent } = await import(process.argv[1]);
 const { event } = await CdamuxSubagent();
 await event({ event: { type: "session.created", properties: { info: { id: "ses_main", title: "x" } } } });
 await event({ event: { type: "session.created", properties: { info: { id: "ses_c1", parentID: "ses_main" } } } });
 ' "$PWD/opencode-subagent.js" || fail "opencode plugin threw"
 jq -e '.agent_session_id=="ses_main"' "$R" >/dev/null || fail "opencode main id not stored"
+head -n 1 "$tmp/ps.log" | awk '$1 != $2 { exit 1 }' || fail "opencode walk must start at its own pid"
 kept opencode
+CHAIN="opencode zsh opencode fish" PANE_PID=90000004 node --input-type=module -e '
+const { CdamuxSubagent } = await import(process.argv[1]);
+const { event } = await CdamuxSubagent();
+await event({ event: { type: "session.created", properties: { info: { id: "ses_nested" } } } });
+' "$PWD/opencode-subagent.js" || fail "opencode plugin threw"
+jq -e '.agent_session_id=="ses_main"' "$R" >/dev/null || fail "nested opencode overwrote the id"
 
 echo "ok: cdamux sub-agent + session id adapters"

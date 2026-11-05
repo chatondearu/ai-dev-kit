@@ -1,6 +1,6 @@
 # PLAN-187 — Vendor floorplan as agent-agnostic cda-floorplan
 
-- **Status**: in-progress
+- **Status**: implemented
 - **PRD**: [[../prd/PRD-186-floorplan-graphify|PRD-186]]
 - **GitHub**: [#187](https://github.com/chatondearu/ai-dev-kit/issues/187)
 - **Date**: 2026-11-05
@@ -63,5 +63,5 @@ lives in `scripts/lib/agent.mjs` and `assets/serve.mjs`.
 
 ## Verification
 
-- [ ] `nix develop -c bash scripts/verify.sh`
+- [x] `nix develop -c bash scripts/verify.sh`
 - [ ] Update foam feature list after merge

@@ -28,9 +28,10 @@
 # enabled tool's lifecycle hooks (needs jq; merge is idempotent). Cursor:
 # sessionStart + beforeSubmitPrompt. Claude Code: SessionStart, SubagentStart,
 # UserPromptSubmit. opencode: kiss.mjs plugin.
-# --cdamux-hooks (opt-in) also wires the cdamux sub-agent ledger adapters
-# (cdamux/docs/subagents.md) into each enabled tool: Claude (SubagentStart/Stop),
-# Cursor (subagentStart/subagentStop), opencode (plugin link). --uninstall removes them.
+# --cdamux-hooks (opt-in) also wires the cdamux adapters (sub-agent ledger +
+# session id capture, cdamux/docs/subagents.md) into each enabled tool: Claude
+# (SubagentStart/Stop, SessionStart next to kiss), Cursor (subagentStart/subagentStop,
+# sessionStart), opencode (plugin link). --uninstall removes them.
 #
 # Tool selection: a tool defaults to ON when its config dir exists (Cursor is
 # always considered). --<tool> forces ON, --no-<tool> forces OFF. The universal
@@ -175,7 +176,9 @@ wire_cursor_hooks() {
   log "hook $f (kiss: sessionStart/beforeSubmitPrompt)"
 }
 
-# cdamux sub-agent ledger adapter (opt-in): same merge rules as the kiss hooks.
+# cdamux adapters (opt-in): sub-agent ledger + restore-registry session id (ADR-009).
+# Same merge rules as the kiss hooks; strip() only touches entries under cdamux/hooks,
+# so the cdamux SessionStart entry sits next to the kiss one.
 CDAMUX_HOOKS_DIR="$REPO_DIR/cdamux/hooks"
 
 wire_cdamux_claude_hooks() {
@@ -188,8 +191,9 @@ wire_cdamux_claude_hooks() {
     .hooks //= {}
     | .hooks.SubagentStart = (strip("SubagentStart") + [{hooks:[{type:"command", command:$cmd, timeout:5}]}])
     | .hooks.SubagentStop  = (strip("SubagentStop")  + [{hooks:[{type:"command", command:$cmd, timeout:5}]}])
-  ' --arg dir "$dir" --arg cmd "node \"$dir/claude-subagent.js\"" || return 0
-  log "hook $f (cdamux ledger: SubagentStart/SubagentStop)"
+    | .hooks.SessionStart  = (strip("SessionStart")  + [{hooks:[{type:"command", command:$ss, timeout:5}]}])
+  ' --arg dir "$dir" --arg cmd "node \"$dir/claude-subagent.js\"" --arg ss "node \"$dir/session-start.js\"" || return 0
+  log "hook $f (cdamux: SubagentStart/SubagentStop/SessionStart)"
 }
 
 wire_cdamux_cursor_hooks() {
@@ -202,8 +206,9 @@ wire_cdamux_cursor_hooks() {
     .version //= 1 | .hooks //= {}
     | .hooks.subagentStart = (strip("subagentStart") + [{command:$cmd, timeout:5}])
     | .hooks.subagentStop  = (strip("subagentStop")  + [{command:$cmd, timeout:5}])
-  ' --arg dir "$dir" --arg cmd "node \"$dir/cursor-subagent.js\"" || return 0
-  log "hook $f (cdamux ledger: subagentStart/subagentStop)"
+    | .hooks.sessionStart  = (strip("sessionStart")  + [{command:$ss, timeout:5}])
+  ' --arg dir "$dir" --arg cmd "node \"$dir/cursor-subagent.js\"" --arg ss "node \"$dir/session-start.js\"" || return 0
+  log "hook $f (cdamux: subagentStart/subagentStop/sessionStart)"
 }
 
 unwire_hooks() { # strip one hook dir's entries (default: kiss) from a tool's hook file, drop now-empty events

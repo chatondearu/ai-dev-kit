@@ -42,12 +42,21 @@ struct LedgerAgent {
 
 /// Ledger file of a tmux session; `None` without `XDG_STATE_HOME` or `HOME`.
 pub fn subagent_ledger_path(session: &str) -> Option<PathBuf> {
+    Some(cdamux_state_dir("agents")?.join(session_file_name(session, "jsonl")))
+}
+
+/// `${XDG_STATE_HOME:-$HOME/.local/state}/cdamux/<sub>`; `None` without either variable.
+pub(crate) fn cdamux_state_dir(sub: &str) -> Option<PathBuf> {
     let base = match std::env::var_os("XDG_STATE_HOME").filter(|v| !v.is_empty()) {
         Some(x) => PathBuf::from(x),
         None => PathBuf::from(std::env::var_os("HOME")?).join(".local/state"),
     };
-    // Same rule as the hook adapters: a `/` in a session name must not leave the dir.
-    Some(base.join("cdamux/agents").join(format!("{}.jsonl", session.replace('/', "_"))))
+    Some(base.join("cdamux").join(sub))
+}
+
+/// Same rule as the hook adapters: a `/` in a session name must not leave the dir.
+pub(crate) fn session_file_name(session: &str, ext: &str) -> String {
+    format!("{}.{ext}", session.replace('/', "_"))
 }
 
 /// Fold ledger lines by `id`, in first-start order; malformed lines and stops

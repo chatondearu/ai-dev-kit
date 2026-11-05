@@ -6,7 +6,7 @@ use cdamux_core::{
     preferred_spawn_agent_index, resolve_agent_command, resolve_worktree_dest,
     session_name_for_path, spawn_tmux_session_with_layout, unique_session_name,
     worktree_add_new_branch, Config,
-    PaneLayout, SpawnOutcome,
+    PaneLayout,
 };
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
@@ -360,11 +360,12 @@ fn execute_spawn(
         agent_label,
         None,
     ) {
-        Ok(SpawnOutcome::Created) => Ok(format!(
-            "spawned '{}' in {} ({})",
+        Ok(o) => Ok(format!(
+            "spawned '{}' in {} ({}){}",
             session_name,
             spawn_path.display(),
-            state.layout_label()
+            state.layout_label(),
+            o.note()
         )),
         Err(e) => Err(e.to_string()),
     }

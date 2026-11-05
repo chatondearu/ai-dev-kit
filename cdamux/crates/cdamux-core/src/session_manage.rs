@@ -130,9 +130,12 @@ pub fn rename_tmux_session(old: &str, new: &str) -> Result<(), SendError> {
     }
 }
 
-/// `base`, `base-2`, `base-3`, … first name without an existing session.
+/// `base`, `base-2`, `base-3`, … first name without a live session or a restore record
+/// (reusing a dormant session's name would overwrite its record).
 pub fn unique_session_name(base: &str) -> String {
-    unique_session_name_with(base, |name| tmux_has_session(name).unwrap_or(false))
+    unique_session_name_with(base, |name| {
+        tmux_has_session(name).unwrap_or(false) || crate::session_registry::load(name).is_some()
+    })
 }
 
 /// Same numbering as [`unique_session_name`], for unit tests without tmux.

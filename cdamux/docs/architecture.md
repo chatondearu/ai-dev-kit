@@ -137,6 +137,32 @@ Operator curl examples: [tailnet-api.md](tailnet-api.md).
   (`cdamux-core::orch_graph_layout`, longest-path layers over `edges` + `parent`)
   and fall back to the indented text tree when the layers do not fit the width.
   Execution stays in `orch.sh`; cdamux does not start workers.
+- **Restore registry** ([ADR-009](../../foam/decisions/ADR-009-cdamux-session-restore-registry.md)):
+  spawn and fork write `${XDG_STATE_HOME:-~/.local/state}/cdamux/sessions/<session>.json`
+  (`/` → `_`, atomic tmp + rename; home session and orch workers excluded). A snapshot
+  for restore only, never read for liveness. Closing / renaming from cdamux removes /
+  renames the file; an external kill keeps it. `claude` spawns get
+  `--session-id <uuid>`, recorded as `agent_session_id`. API in
+  `cdamux_core::session_registry`: `record`, `load`, `load_all`, `remove`, `rename`,
+  `set_agent_session_id`. Schema (all keys always written):
+
+  ```json
+  {
+    "name": "c-proj",
+    "cwd": "/home/me/dev/proj",
+    "agent": "claude",
+    "agent_session_id": "1772424a-d356-4b01-b206-647737b3def4",
+    "parent": null,
+    "role": "agent",
+    "layout": "single",
+    "created_ts": 1793894041,
+    "updated_ts": 1793894041
+  }
+  ```
+
+  `agent`: config agent id or `shell`; `role`: `agent` | `shell`; `layout`:
+  `single` | `horizontal` | `vertical`; `agent_session_id` and `parent` may be `null`;
+  timestamps are Unix seconds.
 - CLI sub-agents come from the per-session ledger fed by hook adapters
   (sub-agent rows under a session): [subagents.md](subagents.md). Hooks are opt-in
   (`./install.sh --cdamux-hooks`).

@@ -29,7 +29,7 @@ is gone and the agent conversation has to be found and resumed by hand — or is
 
 ## Decisions taken at intake (operator, 2026-11-05)
 
-1. One JSON file per session under `${XDG_STATE_HOME:-~/.local/state}/cdamux/sessions/`; ADR-008 amends ADR-004 (tmux stays the truth for what runs; the registry is a restore snapshot only).
+1. One JSON file per session under `${XDG_STATE_HOME:-~/.local/state}/cdamux/sessions/`; ADR-009 amends ADR-004 (tmux stays the truth for what runs; the registry is a restore snapshot only).
 2. Claude gets `--session-id <uuid>` at spawn (works without hooks); `SessionStart` hooks for Claude / Cursor / opencode keep the id current, opt-in via `install.sh --cdamux-hooks`.
 3. Restore is explicit: CLI + Fleet dormant rows.
 4. `cdamux restart --all` = kill + resume; busy sessions skipped unless `--force`.
@@ -50,5 +50,5 @@ See [[../plans/PLAN-195-cdamux-session-resume|PLAN-195]] — one child issue per
 ## Links
 
 - Plan: [[../plans/PLAN-195-cdamux-session-resume|PLAN-195]]
-- ADRs: [[../foam/decisions/ADR-004-cdamux|ADR-004]], [[../foam/decisions/ADR-007-cdamux-session-hierarchy|ADR-007]], ADR-008 (written in R1)
+- ADRs: [[../foam/decisions/ADR-004-cdamux|ADR-004]], [[../foam/decisions/ADR-007-cdamux-session-hierarchy|ADR-007]], [[../foam/decisions/ADR-009-cdamux-session-restore-registry|ADR-009]]
 - Related: [[PRD-155-cdamux-agent-map-ux|PRD-155]]

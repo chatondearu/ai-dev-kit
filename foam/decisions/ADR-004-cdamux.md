@@ -82,6 +82,12 @@ Decisions (status stays **accepted**):
 
 Docs: [`cdamux/docs/tailnet-api.md`](../../cdamux/docs/tailnet-api.md).
 
+## Amendment 2026-11-05 — session restore registry
+
+[[ADR-009-cdamux-session-restore-registry|ADR-009]]: cdamux writes one JSON restore
+snapshot per spawned session under `$XDG_STATE_HOME/cdamux/sessions/`. tmux stays the
+truth for what runs; the registry is never read to decide liveness.
+
 ## References
 
 - PRD: [`prd/PRD-39-cdamux.md`](../../prd/PRD-39-cdamux.md)

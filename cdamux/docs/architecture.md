@@ -163,6 +163,21 @@ Operator curl examples: [tailnet-api.md](tailnet-api.md).
   `agent`: config agent id or `shell`; `role`: `agent` | `shell`; `layout`:
   `single` | `horizontal` | `vertical`; `agent_session_id` and `parent` may be `null`;
   timestamps are Unix seconds.
+- **Restore** (`cdamux restore <name>` / `--all`, `cdamux_core::restore`): recreates a
+  recorded session that has no live tmux session of that name, through the spawn path
+  (same name, cwd, layout, `@cdamux_agent` / `@cdamux_role` / `@cdamux_parent`), never
+  switching the client. The primary pane runs the agent's `resume` template
+  (`[agents.<id>].resume`, `{id}` = `agent_session_id`; defaults: claude
+  `<command> --resume {id}`, cursor `<command> --resume={id}`, opencode
+  `<command> --session {id}`, pi none). No id, an id with characters outside
+  `[A-Za-z0-9._-]`, or no template → the plain agent command (fresh conversation; a fresh
+  claude gets a new `--session-id`, recorded). Shell entries reopen a shell. A resumed
+  record keeps its id and `created_ts`. Live sessions are skipped; a missing cwd is an
+  error and the record is kept. `--all` restores parents before children. One line per
+  session (`restored`, `fresh (no id)`, `fresh (no resume command)`, `skipped (live)`,
+  `error: …`); exit 1 if any failed. API: `restore_one(&SessionRecord, &AgentsConfig)
+  -> Result<RestoreOutcome, RestoreError>`, `resume_command`, `parents_first`,
+  `dormant(records, &live_names)` (registry minus live tmux names, parents first).
 - CLI sub-agents come from the per-session ledger fed by hook adapters
   (sub-agent rows under a session): [subagents.md](subagents.md). Hooks are opt-in
   (`./install.sh --cdamux-hooks`).

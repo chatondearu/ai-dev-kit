@@ -34,16 +34,19 @@ pub fn session_name_for_path(path: &Path) -> String {
     format!("c-{}", base.replace(['.', ':'], "_"))
 }
 
-pub fn resolve_agent_command(agents: &AgentsConfig, name: &str) -> Result<String, SpawnError> {
-    let entry = match name {
+pub(crate) fn agent_entry<'a>(agents: &'a AgentsConfig, name: &str) -> Option<&'a AgentEntry> {
+    match name {
         "cursor" => agents.cursor.as_ref(),
         "opencode" => agents.opencode.as_ref(),
         "claude" => agents.claude.as_ref(),
         "pi" => agents.pi.as_ref(),
         _ => None,
-    };
-    match entry {
-        Some(AgentEntry { command }) => Ok(agent_executable(command, name)),
+    }
+}
+
+pub fn resolve_agent_command(agents: &AgentsConfig, name: &str) -> Result<String, SpawnError> {
+    match agent_entry(agents, name) {
+        Some(entry) => Ok(agent_executable(&entry.command, name)),
         None => Err(SpawnError::UnknownAgent(name.to_string())),
     }
 }
@@ -103,6 +106,54 @@ pub fn spawn_tmux_session_with_layout(
     agent_label: Option<&str>,
     parent: Option<&str>,
 ) -> Result<SpawnOutcome, SpawnError> {
+    let (primary_command, agent_session_id) = with_claude_session_id(primary_command, agent_label);
+    create_tmux_session(
+        session_name,
+        path,
+        &primary_command,
+        layout,
+        switch_to_session,
+        agent_label,
+        parent,
+    )?;
+    let rec = registry_record(session_name, path, agent_label, parent, layout, agent_session_id);
+    Ok(record_outcome(rec))
+}
+
+/// Recreate a recorded session as-is (same name, cwd, layout, links) running
+/// `primary_command`; the record keeps its `created_ts`, `updated_ts` is bumped.
+/// No `--session-id` is added here: the caller built the exact command (restore).
+pub(crate) fn respawn_recorded(rec: &SessionRecord, primary_command: &str) -> Result<SpawnOutcome, SpawnError> {
+    create_tmux_session(
+        &rec.name,
+        &rec.cwd,
+        primary_command,
+        rec.layout,
+        false,
+        Some(&rec.agent),
+        rec.parent.as_deref(),
+    )?;
+    let mut rec = rec.clone();
+    rec.updated_ts = now_secs();
+    Ok(record_outcome(Some(rec)))
+}
+
+fn record_outcome(rec: Option<SessionRecord>) -> SpawnOutcome {
+    match rec.map(|r| session_registry::record(&r)) {
+        Some(Err(e)) => SpawnOutcome::CreatedUnrecorded(e.to_string()),
+        _ => SpawnOutcome::Created,
+    }
+}
+
+fn create_tmux_session(
+    session_name: &str,
+    path: &Path,
+    primary_command: &str,
+    layout: PaneLayout,
+    switch_to_session: bool,
+    agent_label: Option<&str>,
+    parent: Option<&str>,
+) -> Result<(), SpawnError> {
     if !path.exists() {
         return Err(SpawnError::PathNotFound(path.to_path_buf()));
     }
@@ -110,8 +161,6 @@ pub fn spawn_tmux_session_with_layout(
         return Err(SpawnError::NotDirectory(path.to_path_buf()));
     }
 
-    let (primary_command, agent_session_id) = with_claude_session_id(primary_command, agent_label);
-    let primary_command = primary_command.as_str();
     let shell = default_shell_command();
     let status = Command::new("tmux")
         .args([
@@ -155,17 +204,12 @@ pub fn spawn_tmux_session_with_layout(
             .args(["switch-client", "-t", session_name])
             .status();
     }
-
-    let rec = registry_record(session_name, path, agent_label, parent, layout, agent_session_id);
-    Ok(match rec.map(|r| session_registry::record(&r)) {
-        Some(Err(e)) => SpawnOutcome::CreatedUnrecorded(e.to_string()),
-        _ => SpawnOutcome::Created,
-    })
+    Ok(())
 }
 
 /// `claude` → command plus `--session-id <uuid>`, and that uuid; other agents untouched.
 /// No uuid source (no `/dev/urandom`) → no pre-assign rather than a failed spawn.
-fn with_claude_session_id(command: &str, agent_label: Option<&str>) -> (String, Option<String>) {
+pub(crate) fn with_claude_session_id(command: &str, agent_label: Option<&str>) -> (String, Option<String>) {
     match (agent_label == Some("claude")).then(uuid_v4).flatten() {
         Some(id) => (format!("{command} --session-id {id}"), Some(id)),
         None => (command.to_string(), None),
@@ -342,6 +386,7 @@ mod tests {
             opencode: None,
             claude: Some(AgentEntry {
                 command: String::new(),
+                resume: None,
             }),
             pi: None,
         };

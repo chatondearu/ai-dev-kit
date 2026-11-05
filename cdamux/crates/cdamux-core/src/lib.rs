@@ -10,6 +10,7 @@ mod orch_graph_layout;
 mod orch_status;
 mod orch_steps;
 mod project_tree;
+mod restore;
 mod send;
 mod session;
 mod session_chrome;
@@ -66,6 +67,7 @@ pub use orch_steps::{step_worker_id, worker_steps, Step};
 pub use agents_util::{
     command_on_path, preferred_spawn_agent, preferred_spawn_agent_index,
 };
+pub use restore::{dormant, parents_first, restore_one, resume_command, RestoreError, RestoreOutcome};
 pub use send::{send_to_session, SendError, tmux_has_session};
 pub use session_manage::{
     current_tmux_session, ensure_home_session, home_session_new_argv, is_home_session,
@@ -292,6 +294,10 @@ pub struct AgentEntry {
     /// When empty, spawn uses the agent id as the executable name (ccmux parity).
     #[serde(default)]
     pub command: String,
+    /// Resume command template with `{id}` (the agent conversation id), used by
+    /// `cdamux restore`. Unset → built-in default per agent; `""` → never resume.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resume: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

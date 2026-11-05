@@ -19,7 +19,7 @@ use cdamux_core::{
     ensure_note_file,
     grouped_for_list, git_diff_unified, git_toplevel, home_session_new_argv, list_tmux_sessions,
     list_worktrees, load_config, note_refs_for_projects,
-    parse_unified_diff, resolve_agent_command, resolve_note_path, send_to_session,
+    parents_first, parse_unified_diff, resolve_agent_command, restore_one, session_registry, resolve_note_path, send_to_session,
     session_name_for_path, spawn_tmux_session_with_layout, unique_session_name, AttachMode, DiffError,
     GroupBy, SendError,
     PaneLayout, SpawnError,
@@ -70,6 +70,15 @@ enum Commands {
         /// Pick project path and agent interactively (skim).
         #[arg(long, short)]
         interactive: bool,
+    },
+    /// Recreate recorded sessions that are not live, resuming their agent conversation.
+    #[command(group = clap::ArgGroup::new("target").required(true).args(["name", "all"]))]
+    Restore {
+        /// Recorded session name (see the restore registry, ADR-009).
+        name: Option<String>,
+        /// Every recorded session that is not live, parents before children.
+        #[arg(long)]
+        all: bool,
     },
     /// Send text to a session pane without attaching (tmux send-keys).
     #[command(after_help = "Examples:\n  cdamux send t1 \"echo hi\" --enter\n  cdamux send --enter t1 echo hi\n\nText starting with '-' needs `--` first: cdamux send t1 --enter -- -la")]
@@ -183,6 +192,7 @@ fn main() -> ExitCode {
             path,
             interactive,
         }) => cmd_spawn(agent, path, interactive),
+        Some(Commands::Restore { name, all }) => cmd_restore(name, all),
         Some(Commands::Send {
             session,
             message,
@@ -595,6 +605,43 @@ pub(crate) fn tmux_attach_session_with_mode(
     }
 }
 
+fn cmd_restore(name: Option<String>, all: bool) -> ExitCode {
+    let cfg = match load_config() {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("{e}");
+            return ExitCode::from(1);
+        }
+    };
+    let records = if all {
+        parents_first(session_registry::load_all())
+    } else {
+        let name = name.unwrap_or_default();
+        match session_registry::load(&name) {
+            Some(r) => vec![r],
+            None => {
+                eprintln!("restore: no record for session '{name}'");
+                return ExitCode::from(1);
+            }
+        }
+    };
+    let mut failed = false;
+    for rec in &records {
+        match restore_one(rec, &cfg.agents) {
+            Ok(o) => println!("{}: {}", rec.name, o.label()),
+            Err(e) => {
+                failed = true;
+                println!("{}: error: {e}", rec.name);
+            }
+        }
+    }
+    if failed {
+        ExitCode::from(1)
+    } else {
+        ExitCode::SUCCESS
+    }
+}
+
 fn cmd_spawn(agent: Option<String>, path: Option<String>, interactive: bool) -> ExitCode {
     let cfg = match load_config() {
         Ok(c) => c,
@@ -929,6 +976,15 @@ mod tests {
             Some(Commands::Send { session, message, enter }) => (session, message, enter),
             _ => panic!("expected send"),
         }
+    }
+
+    #[test]
+    fn restore_takes_a_name_or_all() {
+        for args in [&["cdamux", "restore", "c-a"][..], &["cdamux", "restore", "--all"]] {
+            assert!(matches!(Cli::try_parse_from(args).unwrap().command, Some(Commands::Restore { .. })));
+        }
+        assert!(Cli::try_parse_from(["cdamux", "restore"]).is_err());
+        assert!(Cli::try_parse_from(["cdamux", "restore", "c-a", "--all"]).is_err());
     }
 
     #[test]

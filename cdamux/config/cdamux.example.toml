@@ -35,6 +35,15 @@ tailnet_port = 7480
 [agents]
 default = "cursor"
 
+# `resume` (optional, per agent): command `cdamux restore` types to reopen a recorded
+# conversation; `{id}` is the agent session id from the restore registry (ADR-009).
+# Unset → built-in default on the configured `command`:
+#   claude   = "<command> --resume {id}"
+#   cursor   = "<command> --resume={id}"
+#   opencode = "<command> --session {id}"
+#   pi       = none (restores start a fresh conversation)
+# `resume = ""` disables resume for that agent.
+
 [agents.cursor]
 command = "cursor-agent"
 
@@ -43,6 +52,7 @@ command = "opencode"
 
 [agents.claude]
 command = "claude"
+# resume = "claude --resume {id}"
 
 [agents.pi]
 command = "pi"

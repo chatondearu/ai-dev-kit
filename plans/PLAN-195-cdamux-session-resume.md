@@ -31,7 +31,7 @@ The full contract of each task is the child issue body.
 
 Wave 1: R1. Wave 2: R2, R3. Wave 3: R4.
 
-- [x] R1 · [ ] R2 · [ ] R3 · [ ] R4
+- [x] R1 · [x] R2 · [x] R3 · [x] R4
 
 ## Risks
 

@@ -7,7 +7,8 @@ use crate::fleet_draw::{
 };
 use crate::graph_view::{load_orch_graph_view, node_session, worker_steps_text};
 use crate::fleet_tree::{
-    clamp_selection, default_expanded, fleet_attention_hint, flatten_tree, focus_session_in_tree,
+    clamp_selection, default_expanded, dormant_at_row, fleet_attention_hint, flatten_tree,
+    focus_session_in_tree,
     graph_target_at_row, issue_at_row, move_selection, orch_repo_at_row, project_runs_text,
     reanchor_selection, session_at_row, toggle_fold_all, set_row_fold, toggle_row_fold, GraphTarget,
     TreeRow,
@@ -22,7 +23,8 @@ use crate::spawn_modal::{
 use cdamux_core::{
     build_project_session_tree, capture_pane_text, config_path, discover_projects,
     kill_tmux_session, load_config, preferred_spawn_agent, rename_tmux_session,
-    resolve_agent_command, send_to_session, session_name_for_path, spawn_tmux_session_with_layout,
+    resolve_agent_command, restore_one, send_to_session, session_name_for_path,
+    spawn_tmux_session_with_layout,
     switch_client_to_session, tail_lines, transcript_tail, unique_session_name, ChildKind,
     ChildRow, Config, EnrichedSession, GroupBy, PaneLayout, PreviewSource, ProjectSessionTree,
     session_registry, SessionChrome,
@@ -166,6 +168,7 @@ pub fn run_dashboard() -> ExitCode {
         &cfg.projects,
         cfg.daemon.idle_seconds_for_needs_input,
         group_by,
+        &[],
     );
     let mut expanded = default_expanded(&tree, group_by);
     let mut waiting_only = false;
@@ -188,6 +191,8 @@ pub fn run_dashboard() -> ExitCode {
     // Full-screen Graph view (`g`): selected node index in navigation order.
     let mut graph_view: Option<usize> = None;
     let mut status_line = String::new();
+    // Dormant row `x` was pressed on once: a second `x` on it forgets the record.
+    let mut pending_forget: Option<String> = None;
 
     let (mut terminal, _guard) = match TerminalGuard::enter() {
         Ok(t) => t,
@@ -235,14 +240,19 @@ pub fn run_dashboard() -> ExitCode {
             .chain(&cached_tree.unassigned)
             .map(|s| s.name.as_str());
         needs_draw |= status.refresh_subagents(names, now);
+        tree_dirty |= status.refresh_registry(now);
         if tree_dirty || app_tab != cached_tab || tree_iv.due(now) {
             // Remember the selected session by name: rows shift when sessions come and go.
             let old_rows = flatten_tree(&cached_tree, &expanded, group_by, waiting_only, &status);
-            anchor = session_at_row(&old_rows, selected_row).map(|s| s.name.clone());
+            anchor = session_at_row(&old_rows, selected_row)
+                .map(|s| s.name.clone())
+                .or_else(|| dormant_at_row(&old_rows, selected_row).map(|r| r.name.clone()));
+            let keep: Vec<&std::path::Path> = status.records().iter().map(|r| r.cwd.as_path()).collect();
             cached_tree = build_project_session_tree(
                 &cfg.projects,
                 cfg.daemon.idle_seconds_for_needs_input,
                 group_by,
+                &keep,
             );
             discovered = if app_tab == AppTab::Projects {
                 discover_projects(&cfg.projects)
@@ -363,6 +373,17 @@ pub fn run_dashboard() -> ExitCode {
                     preview_text = format!(
                         "project {name}\nsessions: {session_count} · orch workers: {worker_count}\n\nExpand for runs/workers/sessions; Orch graph tab shows the latest run.{}",
                         project_runs_text(&status, path)
+                    );
+                }
+                Some(TreeRow::Dormant { record, .. }) => {
+                    preview_for_session = None;
+                    preview_scroll = 0;
+                    preview_text = format!(
+                        "dormant session {}\nagent {} · conversation {}\ncwd {}\n\nEnter restores it · x twice forgets it.",
+                        record.name,
+                        record.agent,
+                        record.agent_session_id.as_deref().unwrap_or("unknown (restores fresh)"),
+                        record.cwd.display()
                     );
                 }
                 _ => {
@@ -747,6 +768,8 @@ pub fn run_dashboard() -> ExitCode {
                     }
                 }
 
+                // Any other key cancels a pending forget.
+                let forget_armed = pending_forget.take();
                 match map_key_event(key) {
                     DashboardAction::Quit => should_quit = true,
                     DashboardAction::CycleSideTab => side_tab = side_tab.next(),
@@ -796,6 +819,13 @@ pub fn run_dashboard() -> ExitCode {
                                 None => attach_name = Some(s.name.clone()),
                             }
                         }
+                        Some(TreeRow::Dormant { record, .. }) => {
+                            status_line = match restore_one(record, &cfg.agents) {
+                                Ok(o) => format!("{}: {}", record.name, o.label()),
+                                Err(e) => format!("restore {}: {e}", record.name),
+                            };
+                            tree_dirty = true;
+                        }
                         _ => toggle_row_fold(&rows, selected_row, &mut expanded),
                         }
                     }
@@ -816,7 +846,17 @@ pub fn run_dashboard() -> ExitCode {
                         }
                     }
                     DashboardAction::KillSession => {
-                        if let Some(s) = session_at_row(&rows, selected_row) {
+                        if let Some(r) = dormant_at_row(&rows, selected_row) {
+                            if forget_armed.as_deref() == Some(r.name.as_str()) {
+                                status_line = match session_registry::remove(&r.name) {
+                                    Ok(()) => format!("forgot {}", r.name),
+                                    Err(e) => format!("forget {}: {e}", r.name),
+                                };
+                            } else {
+                                pending_forget = Some(r.name.clone());
+                                status_line = format!("forget dormant {}? press x again", r.name);
+                            }
+                        } else if let Some(s) = session_at_row(&rows, selected_row) {
                             match kill_tmux_session(&s.name) {
                                 Ok(()) => {
                                     // Closed from cdamux: forget it (an external kill stays restorable).
@@ -873,6 +913,7 @@ pub fn run_dashboard() -> ExitCode {
                                 &cfg.projects,
                                 cfg.daemon.idle_seconds_for_needs_input,
                                 cfg.sessions.group_by,
+                                &[],
                             ),
                             cfg.sessions.group_by,
                         );

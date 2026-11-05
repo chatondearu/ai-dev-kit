@@ -58,6 +58,22 @@ Install the `cdamux` binary on `PATH` (e.g. `cargo install --path crates/cdamux-
 - [ ] `cdamux send <session> <message>` delivers text without attaching (targets session **active window / active pane** via `tmux send-keys -l -t`)
 - [ ] `cdamux send <session> --enter` (or message + `--enter`) submits with Enter
 - [ ] Spawn a claude session, `tmux kill-session` it, `cdamux restore --all` brings it back on the same conversation (`--resume <id>`)
+- [ ] The killed session shows as a dimmed `◌ … dormant` row in the Fleet; `Enter` restores it, `x` `x` forgets it
+- [ ] `cdamux restart --all` from a shell pane of an agent session: other idle agents restart first, a `running` one is skipped, the current one restarts last (see `restart.log`)
+
+## After a kit update
+
+Agents keep running the old skills, hooks and config until they restart. Restart them
+on their own conversations:
+
+```bash
+cdamux restart --all          # skips agents mid-turn (@cdamux_state running)
+cdamux restart --all --force  # also restarts busy ones
+cdamux restart c-myapp        # one session
+```
+
+The home session is never killed. Sessions with no recorded conversation id restart
+fresh (`fresh (no id)`).
 
 ## Send (without attach)
 

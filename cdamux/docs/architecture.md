@@ -178,6 +178,25 @@ Operator curl examples: [tailnet-api.md](tailnet-api.md).
   `error: …`); exit 1 if any failed. API: `restore_one(&SessionRecord, &AgentsConfig)
   -> Result<RestoreOutcome, RestoreError>`, `resume_command`, `parents_first`,
   `dormant(records, &live_names)` (registry minus live tmux names, parents first).
+- **Dormant rows** (Fleet): the dashboard caches the registry in `StatusCache`
+  (`refresh_registry`: re-read only when the `sessions/` dir mtime moves, no tmux call
+  per row). Records with no live tmux session (home excluded) render as dimmed `◌ name
+  dormant · agent cwd` rows (`TreeRow::Dormant`) after the live rows of the project
+  holding their cwd (longest path; non-`project` `group_by` and project-less cwds → the
+  unassigned list); a project with only dormant records keeps its node. Waiting-only
+  hides them. `Enter` restores the row (`restore_one`), `x` twice forgets it
+  (`session_registry::remove`); any other key cancels the pending forget.
+- **Restart** (`cdamux restart <name>` / `--all` [`--force`], `restart_plan`): for each
+  live recorded session, kill (`kill_tmux_session`, record kept) then `restore_one`.
+  Skipped: dormant records (use `restore`), the home session, shell entries, and
+  sessions whose `@cdamux_state` is `running` / `active` / `working` / `busy` unless
+  `--force`. Parents first, the current client's session last. Killing the session the
+  CLI runs in would hang the CLI up, so that one is handed to a detached
+  `nohup cdamux restart <name> --force` (own process group,
+  `CDAMUX_RESTART_DETACHED=1`, output appended to `${XDG_STATE_HOME}/cdamux/restart.log`);
+  the client lands on the next session (`detach-on-destroy`) and is not switched back.
+  One line per session (`restarted, <restore label>`, `skipped (<reason>)`,
+  `restarting in the background (current session)`, `error: …`); exit 1 if any failed.
 - CLI sub-agents come from the per-session ledger fed by hook adapters
   (sub-agent rows under a session): [subagents.md](subagents.md). Hooks are opt-in
   (`./install.sh --cdamux-hooks`).

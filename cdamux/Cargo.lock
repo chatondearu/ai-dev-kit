@@ -179,6 +179,7 @@ dependencies = [
  "ratatui",
  "serde_json",
  "skim",
+ "tempfile",
  "tracing",
  "tracing-subscriber",
 ]

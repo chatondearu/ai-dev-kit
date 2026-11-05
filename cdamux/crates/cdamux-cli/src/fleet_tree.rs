@@ -1,9 +1,9 @@
 //! Pure fleet tree model: rows, flattening, folding and selection helpers.
 
 use cdamux_core::{
-    project_has_orch_artifacts, project_key, session_forest, ChildKind, ChildRow,
-    EnrichedSession, GroupBy, OrchGraphRunSummary, ProjectSessionTree, ProjectTreeNode,
-    SessionForest, SessionState,
+    is_home_session, project_for_path, project_has_orch_artifacts, project_key, session_forest,
+    session_registry::SessionRecord, ChildKind, ChildRow, EnrichedSession, GroupBy,
+    OrchGraphRunSummary, Project, ProjectSessionTree, ProjectTreeNode, SessionForest, SessionState,
 };
 use crate::refresh::StatusCache;
 use std::collections::HashSet;
@@ -57,6 +57,9 @@ pub(crate) enum TreeRow {
         project_path: String,
         run: Option<String>,
     },
+    /// Restore record with no live tmux session (ADR-009), after the live rows of its
+    /// project (or the unassigned list). Enter restores it, `x` twice forgets it.
+    Dormant { record: SessionRecord, depth: usize },
     UnassignedHeader,
 }
 
@@ -152,7 +155,19 @@ pub(crate) fn flatten_tree(
         .chain(&tree.unassigned)
         .map(|s| s.name.as_str())
         .collect();
-    for node in &tree.nodes {
+    // Dormant records per node (longest project path holding their cwd; Project mode
+    // only), the rest under the unassigned header. Waiting-only shows none.
+    let node_projects: Vec<Project> = tree.nodes.iter().map(|n| n.project.clone()).collect();
+    let mut dormant: Vec<Vec<TreeRow>> = vec![Vec::new(); tree.nodes.len() + 1];
+    let records = if waiting_only { &[][..] } else { status.records() };
+    for r in records.iter().filter(|r| !live.contains(r.name.as_str()) && !is_home_session(&r.name)) {
+        let node = project_for_path(&r.cwd.to_string_lossy(), &node_projects)
+            .filter(|_| group_by == GroupBy::Project)
+            .and_then(|p| node_projects.iter().position(|n| n.path == p.path))
+            .unwrap_or(tree.nodes.len());
+        dormant[node].push(TreeRow::Dormant { record: r.clone(), depth: 1 });
+    }
+    for (node_idx, node) in tree.nodes.iter().enumerate() {
         let visible: Vec<EnrichedSession> = node
             .sessions
             .iter()
@@ -214,6 +229,7 @@ pub(crate) fn flatten_tree(
                 project_path: &project_path,
             }
             .push(&mut rows);
+            rows.append(&mut dormant[node_idx]);
         }
     }
     let unassigned: Vec<EnrichedSession> = tree
@@ -222,7 +238,8 @@ pub(crate) fn flatten_tree(
         .filter(|s| session_passes_waiting_filter(s, waiting_only))
         .cloned()
         .collect();
-    if !unassigned.is_empty() {
+    let unassigned_dormant = dormant.last_mut().expect("unassigned slot");
+    if !unassigned.is_empty() || !unassigned_dormant.is_empty() {
         rows.push(TreeRow::UnassignedHeader);
         Nest {
             forest: session_forest(&unassigned),
@@ -235,6 +252,7 @@ pub(crate) fn flatten_tree(
             project_path: "",
         }
         .push(&mut rows);
+        rows.append(unassigned_dormant);
     }
     rows
 }
@@ -365,6 +383,13 @@ pub(crate) fn session_at_row(rows: &[TreeRow], idx: usize) -> Option<&EnrichedSe
     }
 }
 
+pub(crate) fn dormant_at_row(rows: &[TreeRow], idx: usize) -> Option<&SessionRecord> {
+    match rows.get(idx)? {
+        TreeRow::Dormant { record, .. } => Some(record),
+        _ => None,
+    }
+}
+
 pub(crate) fn selectable_indices(rows: &[TreeRow]) -> Vec<usize> {
     rows.iter()
         .enumerate()
@@ -378,6 +403,7 @@ pub(crate) fn orch_repo_at_row(rows: &[TreeRow], idx: usize) -> Option<String> {
         TreeRow::Project { path, .. } => Some(path.clone()),
         TreeRow::Child { project_path, .. } => Some(project_path.clone()),
         TreeRow::Session { session, .. } => Some(session.path.clone()),
+        TreeRow::Dormant { record, .. } => Some(record.cwd.to_string_lossy().into_owned()),
         TreeRow::UnassignedHeader => None,
     }
 }
@@ -455,9 +481,11 @@ pub(crate) fn default_expanded(tree: &ProjectSessionTree, group_by: GroupBy) -> 
         .collect()
 }
 
+/// Row of the session `name`, live or dormant (a restore keeps the selection on it).
 pub(crate) fn row_index_for_session(rows: &[TreeRow], name: &str) -> Option<usize> {
     rows.iter().position(|r| match r {
         TreeRow::Session { session, .. } => session.name == name,
+        TreeRow::Dormant { record, .. } => record.name == name,
         _ => false,
     })
 }
@@ -525,6 +553,28 @@ mod tests {
 
     fn no_status() -> StatusCache {
         StatusCache::new(std::time::Duration::ZERO)
+    }
+
+    #[test]
+    fn dormant_rows_are_records_minus_live_under_their_project() {
+        let (tree, mut status) = crate::test_render::fixture_dormant();
+        let open: HashSet<String> = ["/src/alpha".to_string()].into_iter().collect();
+        let o = |rows: &[TreeRow]| -> Vec<String> { outline(rows).into_iter().map(|(d, l)| format!("{d} {l}")).collect() };
+        // Live alpha-main stays a session row; the home record never shows.
+        let rows = flatten_tree(&tree, &open, GroupBy::Project, false, &status);
+        assert_eq!(o(&rows), ["0 alpha", "1 alpha-main", "1 dormant alpha-old", "0 unassigned", "1 dormant scratch-old"]);
+        let idx = row_index_for_session(&rows, "alpha-old").unwrap();
+        assert_eq!(dormant_at_row(&rows, idx).unwrap().agent, "cursor");
+        assert_eq!(orch_repo_at_row(&rows, idx).as_deref(), Some("/src/alpha/api"));
+        assert!(session_at_row(&rows, idx).is_none());
+        // Waiting-only hides dormant rows; another group_by sends them all to unassigned.
+        let waiting = flatten_tree(&tree, &open, GroupBy::Project, true, &status);
+        assert!(!waiting.iter().any(|r| matches!(r, TreeRow::Dormant { .. })));
+        let by_agent = flatten_tree(&tree, &open, GroupBy::Agent, false, &status);
+        assert_eq!(o(&by_agent)[1..], ["0 unassigned", "1 dormant alpha-old", "1 dormant scratch-old"]);
+        // No records: no unassigned header.
+        status.insert_records(Vec::new());
+        assert_eq!(o(&flatten_tree(&tree, &open, GroupBy::Project, false, &status)), ["0 alpha", "1 alpha-main"]);
     }
 
     #[test]
@@ -738,6 +788,7 @@ mod tests {
                 TreeRow::Project { name, .. } => (0, name.clone()),
                 TreeRow::Session { session, depth, .. } => (*depth, session.name.clone()),
                 TreeRow::Child { row, depth, .. } => (*depth, format!("{:?} {}", row.kind, row.id)),
+                TreeRow::Dormant { record, depth } => (*depth, format!("dormant {}", record.name)),
                 TreeRow::UnassignedHeader => (0, "unassigned".into()),
             })
             .collect()

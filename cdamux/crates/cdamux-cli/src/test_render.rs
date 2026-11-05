@@ -13,9 +13,10 @@ use crate::graph_view::OrchGraphView;
 use crate::settings_form::SettingsForm;
 use crate::spawn_modal::{draw_modal, ModalState};
 use cdamux_core::{
-    ChildKind, ChildRow, Config, EnrichedSession, GroupBy, OrchGraphFile, OrchGraphRunSummary,
-    OrchRunStatusFile, OrchWorkerStatus, PreviewSource, Project, ProjectRoot, ProjectSessionTree,
-    ProjectTreeNode, SessionChrome, SessionState,
+    session_registry::SessionRecord, ChildKind, ChildRow, Config, EnrichedSession, GroupBy,
+    OrchGraphFile, OrchGraphRunSummary, OrchRunStatusFile, OrchWorkerStatus, PaneLayout,
+    PreviewSource, Project, ProjectRoot, ProjectSessionTree, ProjectTreeNode, SessionChrome,
+    SessionState,
 };
 use ratatui::{backend::TestBackend, Frame, Terminal};
 use std::path::PathBuf;
@@ -244,6 +245,47 @@ pub(crate) fn fixture_runs() -> (ProjectSessionTree, StatusCache) {
 
 pub(crate) fn fixture_runs_rows() -> Vec<TreeRow> {
     let (tree, status) = fixture_runs();
+    let open = ["/src/alpha".to_string()].into_iter().collect();
+    flatten_tree(&tree, &open, GroupBy::Project, false, &status)
+}
+
+/// Restore record fixture (ADR-009).
+pub(crate) fn record(name: &str, cwd: &str, agent: &str) -> SessionRecord {
+    SessionRecord {
+        name: name.into(),
+        cwd: cwd.into(),
+        agent: agent.into(),
+        agent_session_id: None,
+        parent: None,
+        role: "agent".into(),
+        layout: PaneLayout::Single,
+        created_ts: 1,
+        updated_ts: 1,
+    }
+}
+
+/// One live session and its record, a dormant record under the same project, one
+/// with no project (unassigned) and a home-session record (never shown).
+pub(crate) fn fixture_dormant() -> (ProjectSessionTree, StatusCache) {
+    let tree = ProjectSessionTree {
+        nodes: vec![ProjectTreeNode {
+            project: Project { name: "alpha".into(), path: "/src/alpha".into(), root_label: "src".into() },
+            sessions: vec![session("alpha-main", "/src/alpha", SessionState::Active, "claude", None)],
+        }],
+        unassigned: vec![],
+    };
+    let mut status = StatusCache::new(std::time::Duration::ZERO);
+    status.insert_records(vec![
+        record("alpha-main", "/src/alpha", "claude"),
+        record("alpha-old", "/src/alpha/api", "cursor"),
+        record("cdamux", "/src/alpha", "claude"),
+        record("scratch-old", "/tmp/scratch", "claude"),
+    ]);
+    (tree, status)
+}
+
+pub(crate) fn fixture_dormant_rows() -> Vec<TreeRow> {
+    let (tree, status) = fixture_dormant();
     let open = ["/src/alpha".to_string()].into_iter().collect();
     flatten_tree(&tree, &open, GroupBy::Project, false, &status)
 }
@@ -494,6 +536,10 @@ fn golden_screens() {
             (
                 "fleet-children",
                 render_app_ex(w, h, AppTab::Fleet, SideTab::Preview, fixture_children_rows(), fixture_graph(), None, false),
+            ),
+            (
+                "fleet-dormant",
+                render_app_ex(w, h, AppTab::Fleet, SideTab::Preview, fixture_dormant_rows(), fixture_graph(), None, false),
             ),
             ("spawn-modal", render_spawn_modal(w, h)),
             ("rename-modal", render(w, h, |f| draw_rename_modal(f, &rename_fixture()))),

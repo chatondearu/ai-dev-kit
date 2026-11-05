@@ -39,8 +39,14 @@ pub(crate) fn now_secs() -> u64 {
         .map_or(0, |d| d.as_secs())
 }
 
+/// Directory holding the records; its mtime moves on every write, rename and removal
+/// (writes land by rename), which the Fleet refresh uses to skip re-reading it.
+pub fn registry_dir() -> Option<PathBuf> {
+    cdamux_state_dir("sessions")
+}
+
 fn record_path(name: &str) -> io::Result<PathBuf> {
-    let dir = cdamux_state_dir("sessions")
+    let dir = registry_dir()
         .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "neither XDG_STATE_HOME nor HOME is set"))?;
     Ok(dir.join(session_file_name(name, "json")))
 }
@@ -67,7 +73,7 @@ pub fn load(name: &str) -> Option<SessionRecord> {
 
 /// Every readable record, sorted by name (malformed files are skipped).
 pub fn load_all() -> Vec<SessionRecord> {
-    let Some(dir) = cdamux_state_dir("sessions") else {
+    let Some(dir) = registry_dir() else {
         return Vec::new();
     };
     let Ok(entries) = std::fs::read_dir(dir) else {

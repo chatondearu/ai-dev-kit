@@ -510,6 +510,17 @@ pub(crate) fn tree_row_item(row: &TreeRow) -> ListItem<'_> {
             spans.push(Span::styled(s.path.clone(), Style::default().fg(CLR_MUTED)));
             ListItem::new(Line::from(spans))
         }
+        // Dimmed with a hollow marker: a restore record, not a running session.
+        TreeRow::Dormant { record, depth } => {
+            let dim = Style::default().fg(CLR_IDLE);
+            ListItem::new(Line::from(vec![
+                Span::raw(tree_indent(*depth)),
+                Span::styled("◌ ", dim),
+                Span::styled(format!("{}  ", record.name), dim.add_modifier(Modifier::ITALIC)),
+                Span::styled(format!("dormant · {}  ", record.agent), dim),
+                Span::styled(record.cwd.to_string_lossy().into_owned(), dim),
+            ]))
+        }
         TreeRow::UnassignedHeader => ListItem::new(Line::from(Span::styled(
             "— unassigned sessions",
             Style::default()

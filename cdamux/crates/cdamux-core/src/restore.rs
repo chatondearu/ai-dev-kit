@@ -2,11 +2,13 @@
 //! record and resume the agent on the same conversation when the agent supports it.
 
 use crate::send::tmux_has_session;
+use crate::session_manage::is_home_session;
 use crate::session_registry::SessionRecord;
 use crate::spawn::{
     agent_entry, default_shell_command, resolve_agent_command, respawn_recorded,
     with_claude_session_id, SpawnError, SpawnOutcome,
 };
+use crate::tmux::SessionPaneInfo;
 use crate::AgentsConfig;
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
@@ -140,6 +142,40 @@ pub fn parents_first(mut records: Vec<SessionRecord>) -> Vec<SessionRecord> {
     records
 }
 
+/// `@cdamux_state` of an agent mid-turn: `cdamux restart` leaves it alone without `--force`.
+pub fn is_busy_state(raw: Option<&str>) -> bool {
+    raw.is_some_and(|s| matches!(s.trim().to_ascii_lowercase().as_str(), "running" | "active" | "working" | "busy"))
+}
+
+/// What `cdamux restart` does with each live record of `records` (dormant ones are
+/// dropped): `Ok` = kill then [`restore_one`], `Err` = skip reason. Parents come first
+/// and `current` (the client's session) last, so the client keeps its session the longest.
+/// `live` is [`crate::list_panes_all`]: live sessions with their raw `@cdamux_state`.
+pub fn restart_plan(
+    records: Vec<SessionRecord>,
+    live: &HashMap<String, SessionPaneInfo>,
+    current: Option<&str>,
+    force: bool,
+) -> Vec<(SessionRecord, Result<(), &'static str>)> {
+    let mut plan: Vec<_> = parents_first(records.into_iter().filter(|r| live.contains_key(&r.name)).collect())
+        .into_iter()
+        .map(|r| {
+            let step = if is_home_session(&r.name) {
+                Err("home session")
+            } else if r.role != "agent" || r.agent == "shell" {
+                Err("shell session")
+            } else if !force && is_busy_state(live[&r.name].hook_state.as_deref()) {
+                Err("busy; --force restarts it")
+            } else {
+                Ok(())
+            };
+            (r, step)
+        })
+        .collect();
+    plan.sort_by_key(|(r, _)| current == Some(r.name.as_str()));
+    plan
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -227,6 +263,53 @@ mod tests {
             plan(&rec("c", "gone", Some("x"), None), &a, false),
             Err(SpawnError::UnknownAgent(_))
         ));
+    }
+
+    #[test]
+    fn restart_plan_skips_busy_shell_home_and_dormant_current_last() {
+        let state = |s: Option<&str>| SessionPaneInfo { hook_state: s.map(str::to_string), ..Default::default() };
+        let live: HashMap<String, SessionPaneInfo> = [
+            ("a-cur", state(None)),
+            ("b-busy", state(Some("running"))),
+            ("c-idle", state(Some("idle"))),
+            ("d-shell", state(None)),
+            ("cdamux", state(None)),
+            ("e-child", state(Some("waiting"))),
+        ]
+        .into_iter()
+        .map(|(n, s)| (n.to_string(), s))
+        .collect();
+        let records = vec![
+            rec("a-cur", "claude", None, None),
+            rec("b-busy", "claude", None, None),
+            rec("c-idle", "cursor", None, None),
+            rec("d-shell", "shell", None, None),
+            rec("cdamux", "claude", None, None),
+            rec("e-child", "claude", None, Some("c-idle")),
+            rec("f-dormant", "claude", None, None),
+        ];
+        let steps = |force| -> Vec<(String, Result<(), &'static str>)> {
+            restart_plan(records.clone(), &live, Some("a-cur"), force)
+                .into_iter()
+                .map(|(r, s)| (r.name, s))
+                .collect()
+        };
+        let plan = steps(false);
+        let names: Vec<&str> = plan.iter().map(|(n, _)| n.as_str()).collect();
+        assert!(!names.contains(&"f-dormant"));
+        assert_eq!(names.last(), Some(&"a-cur"), "current session last");
+        let pos = |n: &str| names.iter().position(|x| *x == n).unwrap();
+        assert!(pos("c-idle") < pos("e-child"), "parents first");
+        let step = |p: &[(String, Result<(), &'static str>)], n: &str| p.iter().find(|(x, _)| x == n).unwrap().1;
+        assert_eq!(step(&plan, "b-busy"), Err("busy; --force restarts it"));
+        assert_eq!(step(&plan, "d-shell"), Err("shell session"));
+        assert_eq!(step(&plan, "cdamux"), Err("home session"));
+        assert_eq!(step(&plan, "c-idle"), Ok(()));
+        assert_eq!(step(&plan, "e-child"), Ok(()));
+        let forced = steps(true);
+        assert_eq!(step(&forced, "b-busy"), Ok(()));
+        assert_eq!(step(&forced, "cdamux"), Err("home session"), "--force never kills home");
+        assert!(is_busy_state(Some(" Working ")) && !is_busy_state(Some("done")) && !is_busy_state(None));
     }
 
     #[test]

@@ -19,6 +19,7 @@ use cdamux_core::{
     ensure_note_file,
     grouped_for_list, git_diff_unified, git_toplevel, home_session_new_argv, list_tmux_sessions,
     list_worktrees, load_config, note_refs_for_projects,
+    current_tmux_session, kill_tmux_session, list_panes_all, restart_plan,
     parents_first, parse_unified_diff, resolve_agent_command, restore_one, session_registry, resolve_note_path, send_to_session,
     session_name_for_path, spawn_tmux_session_with_layout, unique_session_name, AttachMode, DiffError,
     GroupBy, SendError,
@@ -79,6 +80,18 @@ enum Commands {
         /// Every recorded session that is not live, parents before children.
         #[arg(long)]
         all: bool,
+    },
+    /// Kill then restore live recorded agent sessions on their conversation (e.g. after a kit update).
+    #[command(group = clap::ArgGroup::new("target").required(true).args(["name", "all"]))]
+    Restart {
+        /// Recorded session name.
+        name: Option<String>,
+        /// Every live recorded agent session; the current client's session goes last.
+        #[arg(long)]
+        all: bool,
+        /// Also restart sessions whose `@cdamux_state` says the agent is working.
+        #[arg(long)]
+        force: bool,
     },
     /// Send text to a session pane without attaching (tmux send-keys).
     #[command(after_help = "Examples:\n  cdamux send t1 \"echo hi\" --enter\n  cdamux send --enter t1 echo hi\n\nText starting with '-' needs `--` first: cdamux send t1 --enter -- -la")]
@@ -193,6 +206,7 @@ fn main() -> ExitCode {
             interactive,
         }) => cmd_spawn(agent, path, interactive),
         Some(Commands::Restore { name, all }) => cmd_restore(name, all),
+        Some(Commands::Restart { name, all, force }) => cmd_restart(name, all, force),
         Some(Commands::Send {
             session,
             message,
@@ -642,6 +656,95 @@ fn cmd_restore(name: Option<String>, all: bool) -> ExitCode {
     }
 }
 
+/// Set on the detached child that restarts the client's own session (see [`cmd_restart`]).
+const RESTART_DETACHED_ENV: &str = "CDAMUX_RESTART_DETACHED";
+
+fn cmd_restart(name: Option<String>, all: bool, force: bool) -> ExitCode {
+    let cfg = match load_config() {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("{e}");
+            return ExitCode::from(1);
+        }
+    };
+    let live = list_panes_all();
+    let records = if all {
+        session_registry::load_all()
+    } else {
+        let name = name.unwrap_or_default();
+        match session_registry::load(&name) {
+            Some(r) if live.contains_key(&name) => vec![r],
+            Some(_) => {
+                println!("{name}: skipped (not live; cdamux restore {name})");
+                return ExitCode::SUCCESS;
+            }
+            None => {
+                eprintln!("restart: no record for session '{name}'");
+                return ExitCode::from(1);
+            }
+        }
+    };
+    // The detached child restarts the session it runs in: no second hand-off.
+    let current = if std::env::var_os(RESTART_DETACHED_ENV).is_some() {
+        None
+    } else {
+        current_tmux_session()
+    };
+    let mut failed = false;
+    for (rec, step) in restart_plan(records, &live, current.as_deref(), force) {
+        let line = match step {
+            Err(reason) => format!("skipped ({reason})"),
+            // Killing our own session hangs up this process: a detached copy finishes the job.
+            Ok(()) if current.as_deref() == Some(rec.name.as_str()) => {
+                println!("{}: restarting in the background (current session)", rec.name);
+                match restart_detached(&rec.name) {
+                    Ok(()) => continue,
+                    Err(e) => format!("error: {e}"),
+                }
+            }
+            Ok(()) => match kill_tmux_session(&rec.name) {
+                Err(e) => format!("error: kill: {e}"),
+                Ok(()) => match restore_one(&rec, &cfg.agents) {
+                    Ok(o) => format!("restarted, {}", o.label()),
+                    Err(e) => format!("error: killed, restore failed: {e}"),
+                },
+            },
+        };
+        failed |= line.starts_with("error");
+        println!("{}: {line}", rec.name);
+    }
+    if failed {
+        ExitCode::from(1)
+    } else {
+        ExitCode::SUCCESS
+    }
+}
+
+/// `cdamux restart <name> --force` in its own process group under `nohup`, so the
+/// tmux hang-up of `name`'s panes cannot stop it; output goes to `restart.log` next to
+/// the registry (`--force`: the caller already checked busy).
+fn restart_detached(name: &str) -> io::Result<()> {
+    let log = session_registry::registry_dir()
+        .and_then(|d| {
+            std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(d.with_file_name("restart.log"))
+                .ok()
+        })
+        .map_or_else(Stdio::null, Stdio::from);
+    Command::new("nohup")
+        .arg(std::env::current_exe()?)
+        .args(["restart", name, "--force"])
+        .env(RESTART_DETACHED_ENV, "1")
+        .stdin(Stdio::null())
+        .stdout(log)
+        .stderr(Stdio::null())
+        .process_group(0)
+        .spawn()
+        .map(drop)
+}
+
 fn cmd_spawn(agent: Option<String>, path: Option<String>, interactive: bool) -> ExitCode {
     let cfg = match load_config() {
         Ok(c) => c,
@@ -985,6 +1088,15 @@ mod tests {
         }
         assert!(Cli::try_parse_from(["cdamux", "restore"]).is_err());
         assert!(Cli::try_parse_from(["cdamux", "restore", "c-a", "--all"]).is_err());
+    }
+
+    #[test]
+    fn restart_takes_a_name_or_all_and_force() {
+        let cli = Cli::try_parse_from(["cdamux", "restart", "--all", "--force"]).unwrap();
+        assert!(matches!(cli.command, Some(Commands::Restart { all: true, force: true, .. })));
+        assert!(Cli::try_parse_from(["cdamux", "restart", "c-a"]).is_ok());
+        assert!(Cli::try_parse_from(["cdamux", "restart"]).is_err());
+        assert!(Cli::try_parse_from(["cdamux", "restart", "c-a", "--all"]).is_err());
     }
 
     #[test]

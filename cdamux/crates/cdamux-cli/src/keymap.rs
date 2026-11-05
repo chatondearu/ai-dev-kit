@@ -83,11 +83,11 @@ pub const FLEET_KEYMAP: &[Binding] = &[
     b(&[K::Right, K::Char('l')], "l →", A::Expand, "expand row", None, G::Navigate),
     b(&[K::Char('F')], "F", A::FoldAll, "fold/unfold all groups", None, G::Navigate),
     b(&[], "click", A::None, "select row", None, G::Navigate),
-    b(&[K::Enter], "Enter", A::Attach, "attach / review", Some("Enter attach"), G::Session),
+    b(&[K::Enter], "Enter", A::Attach, "attach / restore", Some("Enter attach"), G::Session),
     b(&[K::Char('n')], "n", A::Spawn, "new session", Some("n new"), G::Session),
     b(&[K::Char('m')], "m", A::RenameSession, "rename session", Some("m rename"), G::Session),
     b(&[K::Char('f')], "f", A::ForkSession, "fork session", Some("f fork"), G::Session),
-    b(&[K::Char('x')], "x", A::KillSession, "kill session", Some("x kill"), G::Session),
+    b(&[K::Char('x')], "x", A::KillSession, "kill / forget (x x)", Some("x kill"), G::Session),
     b(&[K::Char('o')], "o", A::OpenIssue, "open GitHub issue", Some("o issue"), G::Session),
     b(&[K::Char(' ')], "Space", A::FocusComposer, "send text", Some("Space send"), G::Session),
     Binding { codes: &[K::Char('r')], ctrl: true, label: "Ctrl+R", action: A::StartReview, help: "hunk review TUI", footer: None, group: G::Session },
@@ -204,7 +204,7 @@ mod tests {
     fn help_is_grouped_and_complete() {
         let help = fleet_help_text();
         assert!(help.contains("Sessions\n"));
-        for line in ["rename session", "fork session", "kill session"] {
+        for line in ["rename session", "fork session", "kill / forget (x x)", "attach / restore"] {
             assert!(help.contains(line), "{help}");
         }
     }

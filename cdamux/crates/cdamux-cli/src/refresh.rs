@@ -4,9 +4,10 @@
 
 use cdamux_core::{
     list_live_orch_runs, list_orch_graph_runs, load_orch_run_status, orch_graph_live_dir,
-    orch_graph_path, orch_graph_runs_dir, orch_run_status_path, session_subagents, ChildRow,
-    OrchGraphRunSummary, OrchRunStatusFile, OrchWorkerStatus,
+    orch_graph_path, orch_graph_runs_dir, orch_run_status_path, session_registry, session_subagents,
+    ChildRow, OrchGraphRunSummary, OrchRunStatusFile, OrchWorkerStatus,
 };
+use session_registry::SessionRecord;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -82,8 +83,8 @@ fn mtime(path: &Path) -> Option<SystemTime> {
 }
 
 /// Orch workers per repo, re-read only when the file's mtime moved, orch runs per repo
-/// (same rule on the graph dirs), and CLI sub-agent rows per tmux session (ledger,
-/// mtime-cached in core), on the same interval.
+/// (same rule on the graph dirs), CLI sub-agent rows per tmux session (ledger,
+/// mtime-cached in core), and the restore registry (same rule on its dir), on the same interval.
 pub(crate) struct StatusCache {
     iv: Interval,
     entries: HashMap<PathBuf, (Option<SystemTime>, OrchRunStatusFile)>,
@@ -91,6 +92,9 @@ pub(crate) struct StatusCache {
     runs: HashMap<PathBuf, (RunsStamp, RepoRuns)>,
     sub_iv: Interval,
     subagents: HashMap<String, Vec<ChildRow>>,
+    reg_iv: Interval,
+    /// `None` until the first read, so an absent dir (mtime `None`) still loads once.
+    registry: Option<(Option<SystemTime>, Vec<SessionRecord>)>,
 }
 
 impl StatusCache {
@@ -102,7 +106,48 @@ impl StatusCache {
             runs: HashMap::new(),
             sub_iv: Interval::new(every),
             subagents: HashMap::new(),
+            reg_iv: Interval::new(every),
+            registry: None,
         }
+    }
+
+    /// Cached restore records (live and dormant); never touches the disk.
+    pub(crate) fn records(&self) -> &[SessionRecord] {
+        self.registry.as_ref().map_or(&[], |(_, r)| r.as_slice())
+    }
+
+    /// Test fixtures: cached restore records without any file.
+    #[cfg(test)]
+    pub(crate) fn insert_records(&mut self, records: Vec<SessionRecord>) {
+        self.registry = Some((None, records));
+    }
+
+    /// Re-read the registry once per interval, only when its dir mtime moved.
+    /// True when the records changed (caller rebuilds the tree: a new record may name
+    /// a session tmux has not listed yet).
+    pub(crate) fn refresh_registry(&mut self, now: Instant) -> bool {
+        let dir = session_registry::registry_dir();
+        self.refresh_registry_with(dir.as_deref(), now, session_registry::load_all)
+    }
+
+    fn refresh_registry_with(
+        &mut self,
+        dir: Option<&Path>,
+        now: Instant,
+        load: impl FnOnce() -> Vec<SessionRecord>,
+    ) -> bool {
+        if !self.reg_iv.due(now) {
+            return false;
+        }
+        self.reg_iv.mark(now);
+        let stamp = dir.and_then(mtime);
+        if self.registry.as_ref().is_some_and(|(s, _)| *s == stamp) {
+            return false;
+        }
+        let records = load();
+        let changed = self.records() != records.as_slice();
+        self.registry = Some((stamp, records));
+        changed
     }
 
     /// Cached sub-agent rows of a session; never touches the disk.
@@ -344,6 +389,33 @@ mod tests {
         assert!(cache.runs(&dir).unwrap().per_run);
         // A new run lands in live/: the dir mtime moves, next due check re-lists once.
         let f = fs::File::open(&live).unwrap();
+        f.set_modified(SystemTime::now() + Duration::from_secs(5)).unwrap();
+        for i in 30..40 {
+            run(&mut cache, i * 100);
+        }
+        assert_eq!(loads.get(), 2);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn registry_reread_only_when_its_dir_moves() {
+        let dir = std::env::temp_dir().join(format!("cdamux-refresh-reg-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let t0 = Instant::now();
+        let mut cache = StatusCache::new(Duration::from_millis(500));
+        let loads = Cell::new(0);
+        let run = |cache: &mut StatusCache, ms: u64| {
+            cache.refresh_registry_with(Some(&dir), at(t0, ms), || {
+                loads.set(loads.get() + 1);
+                Vec::new()
+            })
+        };
+        for i in 0..30 {
+            run(&mut cache, i * 100);
+        }
+        assert_eq!(loads.get(), 1);
+        // A record written or removed moves the dir mtime: re-read once.
+        let f = fs::File::open(&dir).unwrap();
         f.set_modified(SystemTime::now() + Duration::from_secs(5)).unwrap();
         for i in 30..40 {
             run(&mut cache, i * 100);

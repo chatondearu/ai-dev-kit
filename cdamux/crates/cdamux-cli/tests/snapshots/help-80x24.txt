@@ -8,11 +8,11 @@
 │  click          select row                                                   │
 │                                       App                                    │
 │Sessions                                 1-5            app tabs              │
-│  Enter          attach / review         ?              this help             │
+│  Enter          attach / restore        ?              this help             │
 │  n              new session             q              quit                  │
 │  m              rename session          Ctrl+C         quit                  │
 │  f              fork session                                                 │
-│  x              kill session                                                 │
+│  x              kill / forget (x x)                                          │
 │  o              open GitHub issue                                            │
 │  Space          send text                                                    │
 │  Ctrl+R         hunk review TUI                                              │

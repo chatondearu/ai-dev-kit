@@ -42,10 +42,12 @@ pub fn project_key(path: &Path) -> String {
     path.to_string_lossy().to_string()
 }
 
+/// `keep`: cwds of restore records, so a project with only dormant sessions keeps its node.
 pub fn build_project_session_tree(
     projects_cfg: &ProjectsConfig,
     idle_seconds_for_needs_input: u32,
     group_by: GroupBy,
+    keep: &[&Path],
 ) -> ProjectSessionTree {
     let raw = list_tmux_sessions().unwrap_or_default();
     let enriched = enrich_sessions(
@@ -65,6 +67,11 @@ pub fn build_project_session_tree(
         by_project.insert(project_key(&proj.path), Vec::new());
     }
 
+    let kept: Vec<String> = keep
+        .iter()
+        .filter_map(|cwd| project_for_path(&cwd.to_string_lossy(), &projects))
+        .map(|p| project_key(&p.path))
+        .collect();
     let mut unassigned = Vec::new();
     for session in enriched {
         match project_for_path(&session.path, &projects) {
@@ -83,8 +90,7 @@ pub fn build_project_session_tree(
         .filter_map(|project| {
             let key = project_key(&project.path);
             let mut sessions = by_project.remove(&key).unwrap_or_default();
-            let has_orch = project_has_orch_artifacts(&project.path);
-            if sessions.is_empty() && !has_orch {
+            if sessions.is_empty() && !kept.contains(&key) && !project_has_orch_artifacts(&project.path) {
                 return None;
             }
             sessions.sort_by(|a, b| a.name.cmp(&b.name));

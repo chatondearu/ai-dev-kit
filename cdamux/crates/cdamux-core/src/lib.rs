@@ -67,7 +67,10 @@ pub use orch_steps::{step_worker_id, worker_steps, Step};
 pub use agents_util::{
     command_on_path, preferred_spawn_agent, preferred_spawn_agent_index,
 };
-pub use restore::{dormant, parents_first, restore_one, resume_command, RestoreError, RestoreOutcome};
+pub use restore::{
+    dormant, is_busy_state, parents_first, restart_plan, restore_one, resume_command, RestoreError,
+    RestoreOutcome,
+};
 pub use send::{send_to_session, SendError, tmux_has_session};
 pub use session_manage::{
     current_tmux_session, ensure_home_session, home_session_new_argv, is_home_session,

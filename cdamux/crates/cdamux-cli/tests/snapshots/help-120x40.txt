@@ -8,11 +8,11 @@
 │  click          select row                                                                                           │
 │                                                                                                                      │
 │Sessions                                                                                                              │
-│  Enter          attach / review                                                                                      │
+│  Enter          attach / restore                                                                                     │
 │  n              new session                                                                                          │
 │  m              rename session                                                                                       │
 │  f              fork session                                                                                         │
-│  x              kill session                                                                                         │
+│  x              kill / forget (x x)                                                                                  │
 │  o              open GitHub issue                                                                                    │
 │  Space          send text                                                                                            │
 │  Ctrl+R         hunk review TUI                                                                                      │

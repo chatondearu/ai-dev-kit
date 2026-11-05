@@ -8,6 +8,7 @@ when updating. Pins recorded on 2026-10-07.
 | `skills/design/cda-design-taste/` | [Leonxlnx/taste-skill](https://github.com/Leonxlnx/taste-skill) (`skills/taste-skill`) | See upstream repo | `e3c92037548e3e49bea8e6b906c99a8549654e71` |
 | `skills/design/cda-design-audit/` | [vercel-labs/agent-skills](https://github.com/vercel-labs/agent-skills) (`skills/web-design-guidelines`) | See upstream repo | `063bee94c3f4df8453406c830b0a7df0f2860278` |
 | `skills/design/cda-design-md/brands/*` | [VoltAgent/awesome-design-md](https://github.com/VoltAgent/awesome-design-md) (`design-md/…`) | See upstream repo | `13be5c05c63be24b57581162364167028020f043` |
+| `skills/tools/cda-floorplan/` | [haydenschmitty/floorplan](https://github.com/haydenschmitty/floorplan) (`skills/floorplan/`, tag `floorplan--v0.3.0`) | MIT | `2287cc1a2bb4260ec7b8fd8dde45f40599e596b4` |
 
 Kit `name` / folder use the `cda-design-*` prefix for discoverability. On
 re-vendor: copy upstream content into the kit folder, then keep the kit

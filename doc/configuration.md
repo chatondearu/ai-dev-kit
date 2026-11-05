@@ -37,12 +37,23 @@ these (`./scripts/doctor.sh` only checks `PATH`).
 | `ORCH_GRAPH_PLAN_PARALLEL` | `auto` | Graph-plan tasks: `auto` / `parallel` / `sequential` |
 | `ORCH_GRAPH_PLAN_MAX_PARALLEL` | `$ORCH_MAX_PARALLEL` | Parallel cap for `--graph-plan` tasks |
 | `CDA_GRAPHIFY` | unset | `1` when `cda.aitools.graphify.enable` — skills may query the code graph ([ADR-008](../foam/decisions/ADR-008-graphify-code-graph.md)) |
-| `CDA_FOAM_HOME` | unset | Optional relocatable foam root from `cda.aitools.foamHome` |
+| `CDA_FOAM_HOME` | unset | Shared foam home (`cda.aitools.foamHome`); `cda-floorplan` writes `$CDA_FOAM_HOME/projects/<repo>/floorplan/` when the project has no `foam/` |
+| `FLOORPLAN_ENGINE` / `FLOORPLAN_AGENT` | auto | Override Ask / build agent for `cda-floorplan` (`agent`, `cursor-agent`, `claude`, `opencode`, `codex`) |
 | `CDA_AITOOLS_HOME` | `~/.config/cda-aitools` | Companion config root (`cda.aitools.configRoot` or env) |
 
 See [graph-orchestration.md](graph-orchestration.md).
 Graphify install stays in **aitools** only — never `install.sh`
 ([ADR-001](../foam/decisions/ADR-001-host-tools-vs-kit.md)).
+
+## `cda-floorplan` map location
+
+Skill: `skills/tools/cda-floorplan/` (vendored Floorplan v0.3.0). Output, first match:
+
+1. `<project>/foam/floorplan/` + note `foam/floorplan.md` when `foam/` exists
+2. `$CDA_FOAM_HOME/projects/<repo>/floorplan/` (+ sibling `floorplan.md`) when `CDA_FOAM_HOME` is set
+3. else `<project>/floorplan/` (kept fully out of git)
+
+Under foam / `CDA_FOAM_HOME`, commit `architecture.json`, `descriptions/`, and the note; generated HTML/graph helpers are gitignored. No `CLAUDE.local.md` block.
 
 ## On-disk state (under the target repo)
 

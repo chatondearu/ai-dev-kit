@@ -7,7 +7,7 @@ use crate::fleet_tree::TreeRow;
 use crate::graph_view::{draw_graph_screen, draw_orch_graph_panel, OrchGraphView, GRAPH_FOOTER};
 use crate::keymap::{fit_footer, fleet_help_groups, fleet_help_text, HELP_LEFT, HELP_RIGHT};
 use crate::settings_form::{draw_settings, SettingsForm};
-use crate::widgets::draw_text_modal;
+use crate::widgets::{draw_scrollbar, draw_text_modal, text_field, text_modal_inner_width};
 use ansi_to_tui::IntoText as _;
 use cdamux_core::{
     state_icon, ChildKind, Config, EnrichedSession, GroupBy, NodeState, SessionChrome,
@@ -17,7 +17,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
-    widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, StatefulWidget, Wrap},
+    widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap},
     Frame,
 };
 
@@ -75,7 +75,15 @@ pub(crate) struct RenameState {
 
 /// Rename uses the shared 5-row text modal so its hint line survives short terminals.
 pub(crate) fn draw_rename_modal(f: &mut Frame, state: &RenameState) {
-    let body = format!("from: {}\nnew name: {}█\nEnter save · Esc cancel", state.old_name, state.input);
+    let inner_w = text_modal_inner_width(f.area());
+    let body = Text::from(vec![
+        Line::from(format!("from: {}", state.old_name)),
+        Line::from(vec![
+            Span::raw("new name: "),
+            text_field(&state.input, true, inner_w.saturating_sub(10)),
+        ]),
+        Line::from("Enter save · Esc cancel"),
+    ]);
     draw_text_modal(f, f.area(), " Rename session ".into(), body);
 }
 
@@ -172,8 +180,14 @@ const CHROME_H: u16 = 4;
 const SIDECAR_CHROME_MIN_H: u16 = 11;
 
 fn tree_list_block(stacked: bool) -> Block<'static> {
+    // RIGHT always: scrollbar paints the right border column; BOTTOM separates
+    // the tree from the sidecar when stacked (width < STACK_BELOW_COLS).
     Block::default()
-        .borders(if stacked { Borders::BOTTOM } else { Borders::RIGHT })
+        .borders(if stacked {
+            Borders::BOTTOM | Borders::RIGHT
+        } else {
+            Borders::RIGHT
+        })
         .border_style(Style::default().fg(CLR_MUTED))
         .title(Span::styled(
             " projects → sessions ",
@@ -379,6 +393,7 @@ pub(crate) fn draw_tree_column(
     } else {
         rows.iter().map(tree_row_item).collect()
     };
+    let len = items.len();
     let list = List::new(items)
         .highlight_symbol("▸ ")
         .highlight_style(
@@ -390,7 +405,9 @@ pub(crate) fn draw_tree_column(
         .block(tree_list_block(stacked));
     let mut list_state = ListState::default();
     list_state.select(Some(selected_row.min(rows.len().saturating_sub(1))));
-    StatefulWidget::render(list, area, f.buffer_mut(), &mut list_state);
+    f.render_stateful_widget(list, area, &mut list_state);
+    // RIGHT border column is reserved for the track (also when stacked + BOTTOM).
+    draw_scrollbar(f, area, len, list_state.offset());
 }
 
 /// Depth 1 keeps the two-space indent; nested rows hang off their parent with `└ `.
@@ -614,6 +631,7 @@ pub(crate) fn draw_sidecar(
 
     if show_composer {
         let composer_idx = preview_idx + 1;
+        let area = vertical[composer_idx];
         let target = state
             .composer_session
             .map(|n| format!("→ {}", n))
@@ -623,24 +641,84 @@ pub(crate) fn draw_sidecar(
         } else {
             CLR_MUTED
         };
-        let line = if state.composer_line.is_empty() {
-            format!("{} _", target)
-        } else {
-            format!("{} {}", target, state.composer_line)
-        };
+        let editing = state.focus == FocusArea::Composer;
+        let avail = (area.width as usize).saturating_sub(target.chars().count() + 3);
+        let line = Line::from(vec![
+            Span::raw(format!("{target} ")),
+            text_field(state.composer_line, editing, avail),
+        ]);
         let composer = Paragraph::new(line).block(
             Block::default()
                 .borders(Borders::TOP)
                 .border_style(Style::default().fg(border_color))
                 .title(COMPOSER_LABEL),
         );
-        f.render_widget(composer, vertical[composer_idx]);
+        f.render_widget(composer, area);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cdamux_core::EnrichedSession;
+
+    fn session_rows(n: usize) -> Vec<TreeRow> {
+        (0..n)
+            .map(|i| TreeRow::Session {
+                session: EnrichedSession {
+                    name: format!("s{i:02}"),
+                    ..Default::default()
+                },
+                depth: 1,
+                expanded: None,
+            })
+            .collect()
+    }
+
+    /// Rightmost column of the tree area (RIGHT border / scrollbar track).
+    fn tree_right_column(term: &ratatui::Terminal<ratatui::backend::TestBackend>) -> String {
+        let buf = term.backend().buffer();
+        let x = buf.area.width - 1;
+        (0..buf.area.height).map(|y| buf[(x, y)].symbol()).collect()
+    }
+
+    #[test]
+    fn tree_scrollbar_only_when_overflowing() {
+        for stacked in [false, true] {
+            let mut term =
+                ratatui::Terminal::new(ratatui::backend::TestBackend::new(40, 12)).unwrap();
+            term.draw(|f| draw_tree_column(f, f.area(), &session_rows(5), 0, stacked))
+                .unwrap();
+            let col = tree_right_column(&term);
+            assert!(
+                col.chars().all(|c| c == '│' || c == '┘' || c == '─'),
+                "stacked={stacked}: no scrollbar expected: {col}"
+            );
+            // Last content column must stay clear of the thumb (RIGHT border reserved).
+            let buf = term.backend().buffer();
+            let x = buf.area.width - 2;
+            let content_col: String = (0..buf.area.height).map(|y| buf[(x, y)].symbol()).collect();
+            assert!(
+                !content_col.contains('█'),
+                "stacked={stacked}: thumb must not overwrite text: {content_col}"
+            );
+
+            term.draw(|f| draw_tree_column(f, f.area(), &session_rows(30), 29, stacked))
+                .unwrap();
+            let col = tree_right_column(&term);
+            assert!(
+                col.contains('█'),
+                "stacked={stacked}: scrollbar thumb expected: {col}"
+            );
+            let buf = term.backend().buffer();
+            let x = buf.area.width - 2;
+            let content_col: String = (0..buf.area.height).map(|y| buf[(x, y)].symbol()).collect();
+            assert!(
+                !content_col.contains('█'),
+                "stacked={stacked}: thumb must stay on border column: {content_col}"
+            );
+        }
+    }
 
     #[test]
     fn mouse_click_accounts_for_scroll_offset() {

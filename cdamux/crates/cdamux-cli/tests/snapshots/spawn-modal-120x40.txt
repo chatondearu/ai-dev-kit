@@ -5,7 +5,7 @@
 
 
                   ┌ New session ─────────────────────────────────────────────────────────────────────┐
-                  │Path source: discovered repo  (Tab cycle)                                         │
+                  │Path source: [ discovered repo ▾ ]  (Tab cycle)                                   │
                   │                                                                                  │
                   │› /src/alpha                                                                      │
                   │  /src/beta                                                                       │
@@ -24,8 +24,8 @@
                   │git: (no repo at path)                                                            │
                   │                                                                                  │
                   │                                                                                  │
-                  │agent: claude  (a cycle)  |  shell only: no  (s toggle)                           │
-                  │layout: single  (p cycle)                                                         │
+                  │agent: [ claude ▾ ]  (a cycle)  |  shell only: [ ]  (s toggle)                    │
+                  │layout: [ single ▾ ]  (p cycle)                                                   │
                   │secondary pane: shell when split                                                  │
                   │                                                                                  │
                   │                                                                                  │

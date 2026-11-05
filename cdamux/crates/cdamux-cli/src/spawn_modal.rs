@@ -12,11 +12,11 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
     layout::{Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
-    text::{Line, Span},
+    text::{Line, Span, Text},
     widgets::{Block, Borders, List, ListItem, Paragraph, Wrap},
     Frame,
 };
-use crate::widgets::{draw_scrolled_list, wheel_step};
+use crate::widgets::{checkbox, draw_scrolled_list, select, text_field, wheel_step};
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -414,7 +414,7 @@ pub(crate) fn draw_modal(f: &mut Frame, state: &mut ModalState) {
     let mode_line = Line::from(vec![
         Span::raw("Path source: "),
         Span::styled(
-            state.path_mode.label(),
+            select(state.path_mode.label()),
             Style::default()
                 .fg(Color::Yellow)
                 .add_modifier(Modifier::BOLD),
@@ -445,21 +445,23 @@ pub(crate) fn draw_modal(f: &mut Frame, state: &mut ModalState) {
     };
     if items.is_empty() {
         let list_body = match state.path_mode {
-            PathMode::Running => "(no sessions with cwd)".to_string(),
-            PathMode::Discovered => "(no discovered repos)".to_string(),
+            PathMode::Running => Text::raw("(no sessions with cwd)"),
+            PathMode::Discovered => Text::raw("(no discovered repos)"),
             PathMode::Custom => {
-                if state.editing_custom {
-                    format!("path: {}█", state.custom_path)
+                let path_val = if state.custom_path.is_empty() && !state.editing_custom {
+                    "<empty>"
                 } else {
-                    format!(
-                        "path: {}\n(c) edit custom path",
-                        if state.custom_path.is_empty() {
-                            "<empty>"
-                        } else {
-                            state.custom_path.as_str()
-                        }
-                    )
+                    state.custom_path.as_str()
+                };
+                let avail = chunks[1].width.saturating_sub(7) as usize;
+                let mut lines = vec![Line::from(vec![
+                    Span::raw("path: "),
+                    text_field(path_val, state.editing_custom, avail),
+                ])];
+                if !state.editing_custom {
+                    lines.push(Line::from("(c) edit custom path"));
                 }
+                Text::from(lines)
             }
         };
         f.render_widget(Paragraph::new(list_body).style(modal_style), chunks[1]);
@@ -476,33 +478,31 @@ pub(crate) fn draw_modal(f: &mut Frame, state: &mut ModalState) {
     }
 
     let git_line = if state.branches.is_empty() {
-        "git: (no repo at path)".to_string()
+        Line::from("git: (no repo at path)")
     } else {
         let base = state
             .branches
             .get(state.branch_index)
             .map(|s| s.as_str())
             .unwrap_or("?");
+        let avail = chunks[2].width.saturating_sub(12) as usize;
         if state.worktree_mode {
-            if state.editing_new_branch {
-                format!(
-                    "worktree: yes  base: {}  new branch: {}█  (g edit, w off)",
-                    base,
-                    state.new_branch
-                )
+            let branch_val = if state.new_branch.is_empty() && !state.editing_new_branch {
+                "<empty>"
             } else {
-                format!(
-                    "worktree: yes  base: {} (b)  new: {}  (g edit, w off)",
-                    base,
-                    if state.new_branch.is_empty() {
-                        "<empty>"
-                    } else {
-                        state.new_branch.as_str()
-                    }
-                )
-            }
+                state.new_branch.as_str()
+            };
+            Line::from(vec![
+                Span::raw(format!("worktree: {}  base: {}  new: ", checkbox(true), select(base))),
+                text_field(branch_val, state.editing_new_branch, avail.min(16)),
+                Span::raw("  (g edit, w)"),
+            ])
         } else {
-            format!("branch: {} (b)  worktree: no (w)", base)
+            Line::from(format!(
+                "branch: {} (b)  worktree: {} (w)",
+                select(base),
+                checkbox(false)
+            ))
         }
     };
     f.render_widget(
@@ -512,22 +512,31 @@ pub(crate) fn draw_modal(f: &mut Frame, state: &mut ModalState) {
         chunks[2],
     );
 
-    let opts = if state.shell_only {
-        format!(
-            "shell only: yes (bash in primary pane)\nlayout: {}  (p cycle)\nsecondary pane: shell when split",
-            state.layout_label()
-        )
-    } else {
-        let a = state
-            .agents
-            .get(state.agent_index)
-            .map(|s| s.as_str())
-            .unwrap_or("?");
-        format!(
-            "agent: {}  (a cycle)  |  shell only: no  (s toggle)\nlayout: {}  (p cycle)\nsecondary pane: shell when split",
-            a,
-            state.layout_label()
-        )
+    let opts = {
+        let layout = select(state.layout_label());
+        let shell = checkbox(state.shell_only);
+        if state.shell_only {
+            Text::from(vec![
+                Line::from(format!("shell only: {shell} (bash in primary pane)")),
+                Line::from(format!("layout: {layout}  (p cycle)")),
+                Line::from("secondary pane: shell when split"),
+            ])
+        } else {
+            let a = state
+                .agents
+                .get(state.agent_index)
+                .map(|s| s.as_str())
+                .unwrap_or("?");
+            Text::from(vec![
+                Line::from(format!(
+                    "agent: {}  (a cycle)  |  shell only: {}  (s toggle)",
+                    select(a),
+                    shell
+                )),
+                Line::from(format!("layout: {layout}  (p cycle)")),
+                Line::from("secondary pane: shell when split"),
+            ])
+        }
     };
     f.render_widget(
         Paragraph::new(opts)

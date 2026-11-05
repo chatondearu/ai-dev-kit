@@ -1,12 +1,14 @@
-//! Small ratatui form widgets: Select (enum cycle), Toggle, TextInput,
+//! Small ratatui form widgets: Select (enum cycle), checkbox, TextInput,
 //! FieldList, and a text modal. Pure helpers so forms stay thin and testable.
 
-use crate::app_tabs::{screen_block, CLR_ACCENT, CLR_MUTED, CLR_SEL_BG, CLR_TEXT, CLR_WARN};
+use crate::app_tabs::{
+    screen_block, CLR_ACCENT, CLR_INPUT_BG, CLR_MUTED, CLR_SEL_BG, CLR_TEXT, CLR_WARN,
+};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
     layout::{Margin, Rect},
     style::{Color, Modifier, Style},
-    text::{Line, Span},
+    text::{Line, Span, Text},
     widgets::{
         Block, Borders, Clear, List, ListItem, ListState, Paragraph, Scrollbar,
         ScrollbarOrientation, ScrollbarState,
@@ -15,6 +17,34 @@ use ratatui::{
 };
 
 pub const MODAL_BG: Color = Color::Rgb(22, 26, 34);
+
+/// Default visual width for text fields; `text_field` clamps to `available`.
+pub const TEXT_FIELD_WIDTH: usize = 24;
+
+/// Select chrome: `[ value ▾ ]`.
+pub fn select(value: &str) -> String {
+    format!("[ {value} ▾ ]")
+}
+
+/// Checkbox chrome: `[x]` / `[ ]`.
+pub fn checkbox(on: bool) -> &'static str {
+    if on { "[x]" } else { "[ ]" }
+}
+
+/// Text field: pad/truncate to `TEXT_FIELD_WIDTH.min(available)`, darker input bg,
+/// block cursor when `editing`.
+pub fn text_field(value: &str, editing: bool, available: usize) -> Span<'static> {
+    let width = TEXT_FIELD_WIDTH.min(available.max(1));
+    let mut content = value.to_string();
+    if editing {
+        content.push('█');
+    }
+    let display = match content.chars().count() {
+        n if n > width => content.chars().take(width).collect(),
+        n => format!("{content}{}", " ".repeat(width - n)),
+    };
+    Span::styled(display, Style::default().fg(CLR_TEXT).bg(CLR_INPUT_BG))
+}
 
 /// Select: step `cur` by `delta` through `all`, wrapping both ways.
 pub fn cycle<T: Copy + PartialEq>(all: &[T], cur: T, delta: i32) -> T {
@@ -65,11 +95,6 @@ pub fn draw_scrollbar(f: &mut Frame, area: Rect, len: usize, offset: usize) {
     f.render_stateful_widget(bar, area, &mut state);
 }
 
-/// Toggle: display text for a bool field.
-pub fn toggle_text(on: bool) -> &'static str {
-    if on { "on" } else { "off" }
-}
-
 /// TextInput: Backspace pops; plain/shifted chars passing `accept` are pushed.
 pub fn edit_text(buf: &mut String, key: KeyEvent, accept: impl Fn(char) -> bool) {
     match key.code {
@@ -100,6 +125,8 @@ pub struct FieldRow {
     pub value_color: Color,
     /// Action rows render the label only (no ` = `).
     pub action: bool,
+    /// Paint the value on `CLR_INPUT_BG` (Settings scalar / root text fields).
+    pub input_bg: bool,
 }
 
 /// FieldList: header, sectioned rows with focus marker, then a status line.
@@ -123,10 +150,26 @@ pub fn field_list_items(
         if is_focus {
             selected = items.len();
         }
+        let value_span = if row.input_bg {
+            Span::styled(
+                {
+                    let width = TEXT_FIELD_WIDTH;
+                    let n = row.value.chars().count();
+                    if n > width {
+                        row.value.chars().take(width).collect()
+                    } else {
+                        format!("{}{}", row.value, " ".repeat(width - n))
+                    }
+                },
+                Style::default().fg(row.value_color).bg(CLR_INPUT_BG),
+            )
+        } else {
+            Span::styled(row.value, Style::default().fg(row.value_color))
+        };
         let line = Line::from(vec![
             Span::raw(format!("{} {}", if is_focus { "›" } else { " " }, row.label)),
             Span::raw(if row.action { "" } else { " = " }),
-            Span::styled(row.value, Style::default().fg(row.value_color)),
+            value_span,
         ]);
         let style = if is_focus {
             Style::default().bg(CLR_SEL_BG).fg(CLR_TEXT).add_modifier(Modifier::BOLD)
@@ -150,12 +193,20 @@ pub fn draw_field_list(
     status: &str,
 ) {
     let (items, selected) = field_list_items(header, rows, focus, status);
-    let mut state = ListState::default().with_selected(Some(selected));
-    f.render_stateful_widget(List::new(items).block(screen_block(title)), area, &mut state);
+    // Offset is recomputed each frame from the focused row (same as a fresh ListState).
+    let mut offset = 0;
+    draw_scrolled_list(
+        f,
+        area,
+        List::new(items).block(screen_block(title)),
+        selected,
+        &mut offset,
+        true,
+    );
 }
 
 /// Text modal: 5-row box near the top third of `area`, clipped on tiny terminals.
-pub fn draw_text_modal(f: &mut Frame, area: Rect, title: String, body: String) {
+pub fn draw_text_modal(f: &mut Frame, area: Rect, title: String, body: Text<'static>) {
     let rect = text_modal_rect(area);
     let block = Block::default()
         .title(title)
@@ -164,6 +215,11 @@ pub fn draw_text_modal(f: &mut Frame, area: Rect, title: String, body: String) {
         .style(Style::default().bg(MODAL_BG).fg(CLR_TEXT));
     f.render_widget(Clear, rect);
     f.render_widget(Paragraph::new(body).block(block), rect);
+}
+
+/// Inner width of the text modal (for clamping text fields).
+pub fn text_modal_inner_width(area: Rect) -> usize {
+    text_modal_rect(area).width.saturating_sub(2) as usize
 }
 
 /// Top third of the room left once the box fits, so short terminals keep the whole box.
@@ -231,10 +287,108 @@ mod tests {
             value: "v".into(),
             value_color: CLR_TEXT,
             action: false,
+            input_bg: false,
         };
         let rows = vec![row("[a]", "x"), row("[a]", "y"), row("[b]", "z")];
         // header, blank, [a], x, y, blank, [b], z, blank, status
         let (items, selected) = field_list_items(ListItem::new("h"), rows, 2, "ok");
         assert_eq!((items.len(), selected), (10, 7));
+    }
+
+    /// Right column, inside the top/bottom borders (same seam as Sessions).
+    fn right_column(term: &ratatui::Terminal<ratatui::backend::TestBackend>) -> String {
+        let buf = term.backend().buffer();
+        let x = buf.area.width - 1;
+        (1..buf.area.height - 1).map(|y| buf[(x, y)].symbol()).collect()
+    }
+
+    fn many_rows(n: usize) -> Vec<FieldRow> {
+        (0..n)
+            .map(|i| FieldRow {
+                section: "[s]",
+                label: "f",
+                value: format!("{i}"),
+                value_color: CLR_TEXT,
+                action: false,
+                input_bg: false,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn field_list_scrollbar_only_when_overflowing() {
+        let mut term =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(40, 12)).unwrap();
+        term.draw(|f| {
+            draw_field_list(f, f.area(), "settings", ListItem::new("h"), many_rows(5), 0, "ok")
+        })
+        .unwrap();
+        assert!(right_column(&term).chars().all(|c| c == '│'), "no scrollbar expected");
+        term.draw(|f| {
+            draw_field_list(f, f.area(), "settings", ListItem::new("h"), many_rows(30), 29, "ok")
+        })
+        .unwrap();
+        assert!(right_column(&term).contains('█'), "{}", right_column(&term));
+    }
+
+    #[test]
+    fn form_chrome_text_select_checkbox() {
+        assert_eq!(select("mirror"), "[ mirror ▾ ]");
+        assert_eq!(checkbox(true), "[x]");
+        assert_eq!(checkbox(false), "[ ]");
+        let span = text_field("hi", true, 10);
+        assert!(span.content.contains('█'));
+        assert_eq!(span.style.bg, Some(CLR_INPUT_BG));
+
+        let rows = vec![
+            FieldRow {
+                section: "[s]",
+                label: "enum",
+                value: select("Project"),
+                value_color: CLR_TEXT,
+                action: false,
+                input_bg: false,
+            },
+            FieldRow {
+                section: "[s]",
+                label: "flag",
+                value: checkbox(true).into(),
+                value_color: CLR_TEXT,
+                action: false,
+                input_bg: false,
+            },
+            FieldRow {
+                section: "[s]",
+                label: "num",
+                value: "80".into(),
+                value_color: CLR_TEXT,
+                action: false,
+                input_bg: true,
+            },
+        ];
+        let mut term =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(60, 12)).unwrap();
+        // Focus stays on the Enum row so the scalar's input bg is not under the focus fill.
+        term.draw(|f| {
+            draw_field_list(f, f.area(), "settings", ListItem::new("h"), rows, 0, "ok")
+        })
+        .unwrap();
+        let buf = term.backend().buffer();
+        let lines: Vec<String> = (0..buf.area.height)
+            .map(|y| (0..buf.area.width).map(|x| buf[(x, y)].symbol()).collect())
+            .collect();
+        let screen = lines.join("\n");
+        assert!(screen.contains('▾'), "{screen}");
+        assert!(screen.contains("[x]"), "{screen}");
+        // Walk cells (String::find is byte-based; box-drawing borders are multi-byte).
+        let num_y = lines.iter().position(|l| l.contains(" num = ")).unwrap() as u16;
+        let num_x = (0..buf.area.width.saturating_sub(6))
+            .find(|&x| {
+                (0..6).map(|i| buf[(x + i, num_y)].symbol()).collect::<String>() == "num = "
+            })
+            .map(|x| x + 6)
+            .expect("num = cell run");
+        assert_eq!(buf[(num_x, num_y)].symbol(), "8");
+        assert_eq!(buf[(num_x, num_y)].bg, CLR_INPUT_BG);
     }
 }

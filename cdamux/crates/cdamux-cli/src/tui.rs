@@ -1,6 +1,6 @@
 //! Full-screen ratatui dashboard (default `cdamux` with no subcommand).
 
-use crate::app_tabs::{flat_sessions, AppTab, cycle_group_by};
+use crate::app_tabs::{flat_sessions, tab_at_column, AppTab, cycle_group_by};
 use crate::fleet_draw::{
     draw_app_screen, draw_rename_modal, review_sidecar_hint, row_index_from_mouse,
     scroll_preview, DrawState, FocusArea, RenameState, SideTab,
@@ -477,6 +477,18 @@ pub fn run_dashboard() -> ExitCode {
             needs_draw = true;
             match event::read() {
                 Ok(Event::Mouse(m)) => {
+                    // Tab row click → same as digit keys (gaps ignored).
+                    if m.kind == MouseEventKind::Down(MouseButton::Left)
+                        && spawn_overlay.is_none()
+                        && rename_overlay.is_none()
+                        && !(app_tab == AppTab::Settings && settings.modal.is_some())
+                        && m.row == 0
+                    {
+                        if let Some(tab) = tab_at_column(m.column) {
+                            app_tab = tab;
+                        }
+                        continue;
+                    }
                     let wheel = match m.kind {
                         MouseEventKind::ScrollUp => -3,
                         MouseEventKind::ScrollDown => 3,

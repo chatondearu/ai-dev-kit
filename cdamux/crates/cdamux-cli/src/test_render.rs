@@ -5,7 +5,7 @@
 //! fixtures, no clock, no tmux, no filesystem lookups.
 //! Rewrite them with `CDAMUX_UPDATE_SNAPSHOTS=1 cargo test`.
 
-use crate::app_tabs::AppTab;
+use crate::app_tabs::{AppTab, CLR_ACCENT, CLR_INPUT_BG};
 use crate::fleet_draw::{draw_app_screen, draw_rename_modal, DrawState, FocusArea, RenameState, SideTab};
 use crate::fleet_tree::{flatten_tree, TreeRow};
 use crate::refresh::{RepoRuns, StatusCache};
@@ -388,6 +388,80 @@ fn short_terminals_keep_tabs_composer_and_modal_hints() {
     assert!(!screen.contains("┌ session"), "{screen}");
     let modal = render(80, 8, |f| draw_rename_modal(f, &rename_fixture())).join("\n");
     assert!(modal.contains("Enter save · Esc cancel"), "{modal}");
+}
+
+#[test]
+fn form_controls_render_input_bg_select_checkbox_and_active_tab() {
+    let mut term = Terminal::new(TestBackend::new(80, 24)).unwrap();
+    let chrome = SessionChrome {
+        repo: "alpha".into(),
+        worktree: "main".into(),
+        branch: "main".into(),
+        agent: "claude".into(),
+        uptime: "12m".into(),
+        context: "40%".into(),
+        tasks: "2/5".into(),
+        issue: None,
+        cwd: "/src/alpha".into(),
+    };
+    let mut cfg = Config::default();
+    cfg.daemon.listen_tailnet = true;
+    cfg.projects.roots.push(ProjectRoot { path: "/src".into(), label: "src".into() });
+    let settings = SettingsForm::new(None);
+    let rows = fixture_rows();
+    let graph = fixture_graph();
+    let state = DrawState {
+        rows: &rows,
+        selected_row: 1,
+        side_tab: SideTab::Preview,
+        focus: FocusArea::Tree,
+        preview_text: PREVIEW,
+        preview_scroll: 0,
+        notes_text: "(no notes)",
+        review_text: "Select a session.",
+        orch_graph: &graph,
+        graph_view: None,
+        composer_line: "",
+        composer_session: Some("alpha-main"),
+        session_chrome: Some(&chrome),
+        status_line: "",
+    };
+    let (mut projects_scroll, mut sessions_scroll) = (0, 0);
+    let (mut tree_rect, mut preview_rect) = (None, None);
+    term.draw(|f| {
+        draw_app_screen(
+            f,
+            AppTab::Settings,
+            state,
+            &cfg,
+            &settings,
+            "/cfg/cdamux.toml",
+            &[],
+            &mut projects_scroll,
+            &[],
+            0,
+            &mut sessions_scroll,
+            &[],
+            false,
+            false,
+            &mut tree_rect,
+            &mut preview_rect,
+        )
+    })
+    .unwrap();
+    let buf = term.backend().buffer();
+    let lines: Vec<String> = (0..buf.area.height)
+        .map(|y| (0..buf.area.width).map(|x| buf[(x, y)].symbol()).collect())
+        .collect();
+    let screen = lines.join("\n");
+    assert!(screen.contains('▾'), "Enum select chrome missing:\n{screen}");
+    assert!(screen.contains("[x]"), "bool checkbox missing:\n{screen}");
+    // Active Settings tab chip uses accent fill.
+    assert_eq!(buf[(55, 0)].bg, CLR_ACCENT, "active tab fill");
+    // Scalar input bg on preview_max_lines value.
+    let y = lines.iter().position(|l| l.contains("preview_max_lines")).expect("scalar row") as u16;
+    let x = (lines[y as usize].find("= ").unwrap() + 2) as u16;
+    assert_eq!(buf[(x, y)].bg, CLR_INPUT_BG, "text field input bg");
 }
 
 #[test]

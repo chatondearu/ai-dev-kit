@@ -128,6 +128,8 @@ _orch_verify_is_allowed() {
   case "$1" in
     true|npm\ test|pnpm\ test|make\ test|cargo\ test) return 0 ;;
     "nix develop -c npm test"|"nix develop -c pnpm test"|"nix develop -c make test"|"nix develop -c cargo test") return 0 ;;
+    # Repo-standard suite (AGENTS.md): fixed path, not free-form eval.
+    "nix develop -c bash scripts/verify.sh"|"bash scripts/verify.sh") return 0 ;;
     *) return 1 ;;
   esac
 }

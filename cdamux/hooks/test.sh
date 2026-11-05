@@ -70,4 +70,57 @@ jq -e 'select(.event=="start" and .id=="ses_c1") | .cli=="opencode" and .parent_
 jq -e 'select(.event=="stop" and .id=="ses_c2") | .status=="error"' "$L" >/dev/null || fail "opencode error stop wrong"
 jq -e 'select(.event=="stop" and .id=="ses_c1") | .status==null' "$L" >/dev/null || fail "opencode idle stop wrong"
 
-echo "ok: cdamux sub-agent adapters"
+# Session id capture (restore registry, ADR-009): SessionStart -> agent_session_id.
+# Claude payload shaped from the hook docs (SessionStart: session_id, source); Cursor from
+# https://cursor.com/docs/hooks (sessionStart: session_id = conversation_id). Not recorded live.
+S="$PWD/session-start.js"
+R="$tmp/state/cdamux/sessions/fleet_demo.json"
+mkdir -p "$(dirname "$R")"
+seed() { printf '{"name":"fleet/demo","cwd":"/src/app","agent":"%s","agent_session_id":null,"parent":"fleet","role":"agent","layout":"single","created_ts":100,"updated_ts":100,"extra":1}\n' "$1" > "$R"; }
+kept() { jq -e '.name=="fleet/demo" and .cwd=="/src/app" and .parent=="fleet" and .role=="agent" and .layout=="single" and .created_ts==100 and .extra==1' "$R" >/dev/null || fail "$1: other keys not kept"; }
+start() { printf '%s' "$1" | node "$S" || fail "session-start exited non-zero"; }
+
+seed claude
+out="$(start '{"session_id":"c-1","transcript_path":"/p/c-1.jsonl","cwd":"/src/app","hook_event_name":"SessionStart","source":"startup"}')"
+[ -z "$out" ] || fail "claude SessionStart must print nothing, got: $out"
+jq -e '.agent_session_id=="c-1" and .updated_ts > 100' "$R" >/dev/null || fail "claude id not stored"
+kept claude
+start '{"session_id":"c-2","hook_event_name":"SessionStart","source":"clear"}' >/dev/null
+[ "$(jq -r .agent_session_id "$R")" = c-2 ] || fail "claude /clear id not stored"
+ls "$(dirname "$R")" | grep -q tmp && fail "tmp file left behind"
+
+# skipped: other events, bad JSON, outside tmux, no id; a bad record is left as is
+before="$(cat "$R")"
+start '{"session_id":"x","hook_event_name":"SubagentStart"}' >/dev/null
+start 'not json' >/dev/null
+printf '%s' '{"session_id":"x","hook_event_name":"SessionStart"}' | env -u TMUX node "$S" || fail "outside tmux exit"
+start '{"hook_event_name":"SessionStart"}' >/dev/null
+[ "$(cat "$R")" = "$before" ] || fail "skipped payloads changed the record"
+printf '{ broken' > "$R"
+start '{"session_id":"x","hook_event_name":"SessionStart"}' >/dev/null
+[ "$(cat "$R")" = '{ broken' ] || fail "malformed record rewritten"
+
+# a session cdamux did not spawn (no record) gets none
+rm -f "$R"
+start '{"session_id":"x","hook_event_name":"SessionStart"}' >/dev/null
+[ ! -e "$R" ] || fail "record created for a non-cdamux session"
+
+seed cursor
+out="$(start '{"conversation_id":"cu-1","generation_id":"g","hook_event_name":"sessionStart","session_id":"cu-1","is_background_agent":false,"composer_mode":"agent"}')"
+[ "$out" = '{}' ] || fail "cursor sessionStart must print {}, got: $out"
+jq -e '.agent_session_id=="cu-1"' "$R" >/dev/null || fail "cursor id not stored"
+kept cursor
+out="$(start 'not json')"; [ -z "$out" ] || fail "bad JSON printed output"
+
+# opencode: the main session (no parentID) sets the id; a child session does not
+seed opencode
+node --input-type=module -e '
+const { CdamuxSubagent } = await import(process.argv[1]);
+const { event } = await CdamuxSubagent();
+await event({ event: { type: "session.created", properties: { info: { id: "ses_main", title: "x" } } } });
+await event({ event: { type: "session.created", properties: { info: { id: "ses_c1", parentID: "ses_main" } } } });
+' "$PWD/opencode-subagent.js" || fail "opencode plugin threw"
+jq -e '.agent_session_id=="ses_main"' "$R" >/dev/null || fail "opencode main id not stored"
+kept opencode
+
+echo "ok: cdamux sub-agent + session id adapters"

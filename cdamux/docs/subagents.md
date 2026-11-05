@@ -21,8 +21,38 @@ append, trim).
 
 Install (opt-in): `./install.sh --cdamux-hooks` wires every enabled tool (Claude
 `settings.json`, Cursor `hooks.json`, opencode plugin link in
-`~/.config/opencode/plugins/`). `./install.sh --uninstall` removes them. A plain
-`./install.sh` neither adds nor removes them.
+`~/.config/opencode/plugins/`), including the session id capture below.
+`./install.sh --uninstall` removes them. A plain `./install.sh` neither adds nor
+removes them.
+
+## Session id capture (restore registry)
+
+The same opt-in hooks keep `agent_session_id` current in the restore record
+`${XDG_STATE_HOME:-$HOME/.local/state}/cdamux/sessions/<tmux-session>.json`
+([ADR-009](../../foam/decisions/ADR-009-cdamux-session-restore-registry.md)), so a
+restore resumes the conversation that was live, not the one the session started
+with (`/clear`, `/resume`, a new chat). Writer: `setAgentSessionId` in `ledger.js`.
+
+| CLI | Event | Id field | Status |
+| --- | ----- | -------- | ------ |
+| Claude Code | `SessionStart` (`startup`, `resume`, `clear`, `compact`) → `cdamux/hooks/session-start.js` | `session_id` | supported; payload from the hook docs, not recorded live |
+| Cursor | `sessionStart` → `cdamux/hooks/session-start.js` | `session_id` (docs: "same as `conversation_id`"), else `conversation_id` | docs only: not run live, and the docs do not say whether `cursor-agent` (CLI) fires it |
+| opencode | plugin `session.created` with no `parentID` (main session) → `opencode-subagent.js` | `info.id` | SDK types only, not run live; resuming with `--session` fires no `session.created`, the recorded id is already right |
+| pi | none | — | gap: no adapter (as for sub-agents) |
+
+Rules (on top of the adapter rules below):
+
+- Only an existing record is updated (sessions cdamux spawned); never creates one.
+- Only `agent_session_id` and `updated_ts` change; every other key is kept. Written
+  atomically (tmp file + rename); a record that is not a JSON object is left as is.
+- Claude: the hook prints nothing (its `SessionStart` stdout would become context).
+  Its entry sits next to the kiss `SessionStart` entry in `settings.json`; each
+  installer only strips entries under its own hooks dir.
+- Cursor: prints `{}` (`sessionStart` is fire-and-forget, not a permission hook).
+- Gap: a nested CLI run from the session's pane (a `claude -p` from a Bash tool)
+  fires its own `SessionStart` and overwrites the id.
+- Without the hooks, Claude still resumes from the id cdamux pre-assigns at spawn
+  (`--session-id`), but a `/clear` then resumes the pre-clear conversation.
 
 ## Path
 

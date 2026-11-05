@@ -27,7 +27,7 @@ The scripts do the mechanical work: finding repos, parsing imports and routes, m
 Existing map: !`node $SKILL_DIR/scripts/status.mjs || true`
 Arguments: $ARGUMENTS
 
-Host agents fill status via: `node "$SKILL_DIR/scripts/status.mjs"`. Engine detection follows orch.sh order (`agent`, `cursor-agent`, `claude`, `opencode`) plus `codex`; override with `--engine` / `--agent`.
+Host agents fill status via: `node "$SKILL_DIR/scripts/status.mjs"`. Engine detection (map meta / "Fix with" labels) follows orch.sh order (`agent`, `cursor-agent`, `claude`, `opencode`) plus `codex`; override with `--engine` / `--agent`. The map Ask bar only runs structured adapters (`claude`, then `codex`).
 
 ## Nothing built yet? Draw a blueprint
 

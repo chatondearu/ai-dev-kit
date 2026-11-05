@@ -7,8 +7,8 @@
 //        node floorplan/serve.mjs --stop
 //
 // The server listens on 127.0.0.1 only. Each question runs in the codebase root, on your own account.
-// Engines match orch.sh order plus codex. Ask runs through claude -p or codex exec; agent/cursor-agent use
-// the same -p style when present; opencode falls back to claude when Ask needs structured output.
+// Detection (build meta / --engine) may name agent|cursor-agent|opencode for "Fix with" labels; Ask itself
+// only runs structured adapters: claude -p --json-schema, then codex exec --output-schema (ASK_ENGINES).
 // When the map is rebuilt, open tabs reload in place. The running server is recorded in .cache/server.json.
 import http from 'node:http';
 import fs from 'node:fs';
@@ -78,36 +78,26 @@ function codexApp() {
       .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs);
   } catch { return []; }
 }
-const ENGINE_ORDER = ['agent', 'cursor-agent', 'claude', 'opencode', 'codex'];
+// Ask spawn only — never agent/cursor-agent/opencode (no structured --json-schema / --output-schema).
+const ASK_ENGINES = ['claude', 'codex'];
+const ALL_ENGINES = ['agent', 'cursor-agent', 'claude', 'opencode', 'codex'];
 const ENGINES = {
-  agent: () => resolveCli(given('agent') || [...which('agent')], []),
-  'cursor-agent': () => resolveCli(given('cursor-agent') || [...which('cursor-agent')], []),
   claude: () => resolveCli(given('claude') || [
     ...which('claude'),
     path.join(HOME, '.local', 'bin', process.platform === 'win32' ? 'claude.exe' : 'claude'),
     ...(process.platform === 'win32' ? [path.join(process.env.APPDATA || '', 'npm', 'claude.cmd')] : []),
   ], ['@anthropic-ai', 'claude-code', 'cli.js']),
-  // Ask falls back to claude: opencode CLI flags for structured one-shot differ
-  opencode: () => resolveCli(given('opencode') || [...which('opencode')], []),
   codex: () => resolveCli(given('codex') || [...which('codex'), ...codexApp()], ['@openai', 'codex', 'bin', 'codex.js']),
 };
-// --engine (or FLOORPLAN_ENGINE) decides; otherwise the agent that built the map, then orch order
+// --engine / built-by may name any orch engine (labels); Ask still picks from ASK_ENGINES only
 const builtBy = (() => { try { return JSON.parse(fs.readFileSync(path.join(here, 'graph.json'), 'utf8')).meta?.agent; } catch { return null; } })();
 const asked = opt('engine', process.env.FLOORPLAN_ENGINE);
-const isEngine = (k) => typeof k === 'string' && Object.hasOwn(ENGINES, k);
-const want = isEngine(asked) ? asked : isEngine(builtBy) ? builtBy : 'claude';
+const isKnown = (k) => typeof k === 'string' && ALL_ENGINES.includes(k);
+const isAsk = (k) => typeof k === 'string' && ASK_ENGINES.includes(k);
+const want = isAsk(asked) ? asked : isAsk(builtBy) ? builtBy : 'claude';
 let engine = null, cli = null;
-const tryOrder = isEngine(asked) ? [asked] : [want, ...ENGINE_ORDER.filter((k) => k !== want)];
-for (const k of tryOrder) { cli = ENGINES[k](); if (cli) { engine = k; break; } }
-// opencode: structured Ask needs claude/codex — fall back when Ask would use unsupported flags
-if (engine === 'opencode') {
-  const c = ENGINES.claude();
-  if (c) { cli = c; engine = 'claude'; }
-  else {
-    const x = ENGINES.codex();
-    if (x) { cli = x; engine = 'codex'; }
-  }
-}
+const askOrder = [want, ...ASK_ENGINES.filter((k) => k !== want)];
+for (const k of askOrder) { cli = ENGINES[k](); if (cli) { engine = k; break; } }
 const NAME = {
   agent: 'Cursor agent CLI',
   'cursor-agent': 'Cursor agent CLI',
@@ -115,6 +105,7 @@ const NAME = {
   opencode: 'opencode',
   codex: 'Codex',
 };
+const labelAgent = isKnown(asked) ? asked : isKnown(builtBy) ? builtBy : engine;
 // Started from inside a Claude Code or Codex session? Don't let the CLI think it's nested in it.
 function cliEnv() {
   const env = { ...process.env };
@@ -126,7 +117,7 @@ if (cli) { try { version = execFileSync(cli.cmd, [...cli.args, '--version'], { e
 
 // The page, the graph, and the instructions and answer schema (from query.mjs's inlined graph-query
 // code). Loaded at start and again whenever the map is rebuilt.
-const inject = `<script>window.FLOORPLAN_SERVER=${JSON.stringify({ token, cli: !!cli, engine, want, version, model: model || null })};</script>`;
+const inject = `<script>window.FLOORPLAN_SERVER=${JSON.stringify({ token, cli: !!cli, engine, want, agent: labelAgent, version, model: model || null })};</script>`;
 let page, G, core, MODES;
 function load() {
   const html = fs.readFileSync(path.join(here, 'index.html'), 'utf8');
@@ -316,7 +307,8 @@ const CLOSED = Symbol('closed'); // the browser went away mid-request
 /** Runs the agent once for a request and resolves with its answer, streaming progress through `send`. */
 function runAgent(res, send, body) {
   return new Promise((resolve, reject) => {
-    const run = (engine === 'codex' ? codexRun : claudeRun)(body, MODES[body.mode] || MODES.ask); // agent/cursor-agent share -p style
+    // engine is always claude|codex (ASK_ENGINES); never agent/cursor-agent/opencode
+    const run = (engine === 'codex' ? codexRun : claudeRun)(body, MODES[body.mode] || MODES.ask);
     const child = spawn(cli.cmd, run.args, { cwd: root, env: cliEnv(), stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
     const id = crypto.randomBytes(6).toString('hex');
     running.set(id, child);
@@ -483,7 +475,7 @@ const server = http.createServer((req, res) => {
       return;
     }
     if (req.method === 'GET' && url.pathname === '/api/status') { res.writeHead(200, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ tabs: tabs.size, pid: process.pid, hash: selfHash, root })); }
-    if (req.method === 'GET' && url.pathname === '/api/health') { res.writeHead(200, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ cli: !!cli, engine, want, version, path: cli?.path || null })); }
+    if (req.method === 'GET' && url.pathname === '/api/health') { res.writeHead(200, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ cli: !!cli, engine, want, agent: labelAgent, version, path: cli?.path || null })); }
     // requested flows are saved next to the map; build.mjs folds them into graph.json
     if (url.pathname === '/api/flows') {
       if (req.method === 'GET') { res.writeHead(200, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ flows: readFlows() })); }

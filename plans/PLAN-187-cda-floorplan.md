@@ -23,7 +23,7 @@ host agent, and file the map in project memory.
 
 - Vendored copy pinned to v0.3.0 (record commit sha), `THIRD_PARTY.md`, `skills/README.md`
 - Skill name `cda-floorplan`; SKILL.md resolves its own dir without `${CLAUDE_SKILL_DIR}`
-- Ask bar engines: `agent`, `cursor-agent`, `claude`, `opencode` (orch.sh order) + `codex`; `--engine` accepts all
+- Detection / "Fix with" labels: `agent`, `cursor-agent`, `claude`, `opencode` (orch.sh order) + `codex`; Ask bar structured adapters only: `claude`, then `codex`
 - Output resolution: project `foam/` → `$CDA_FOAM_HOME/projects/<repo>/` → `<repo>/floorplan/`
 - Foam note `floorplan.md` (wikilinks-friendly), `.gitignore` for generated files inside foam
 - Remove `--claude-md` / `CLAUDE.local.md` block

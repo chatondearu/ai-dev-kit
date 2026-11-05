@@ -12,7 +12,7 @@ const LIB = path.join(HERE, '..', 'lib');
 const { resolveOutDir, outDirKind, foamNotePath, writeFoamNote, writeMapGitignore } = await import(
   pathToFileURL(path.join(LIB, 'outdir.mjs')).href
 );
-const { detectAgent, AGENTS, DETECT_ORDER } = await import(pathToFileURL(path.join(LIB, 'agent.mjs')).href);
+const { detectAgent, AGENTS, DETECT_ORDER, ASK_ENGINES } = await import(pathToFileURL(path.join(LIB, 'agent.mjs')).href);
 
 function mkTmp(name) {
   return fs.mkdtempSync(path.join(os.tmpdir(), `cda-floorplan-${name}-`));
@@ -73,6 +73,11 @@ function mkTmp(name) {
 // --- engine detection order + --engine override ---
 assert.deepEqual(DETECT_ORDER, ['agent', 'cursor-agent', 'claude', 'opencode', 'codex']);
 assert.deepEqual(AGENTS, DETECT_ORDER);
+// Ask bar: structured adapters only — never treat agent/cursor-agent/opencode as claudeRun
+assert.deepEqual(ASK_ENGINES, ['claude', 'codex']);
+for (const bad of ['agent', 'cursor-agent', 'opencode']) {
+  assert.equal(ASK_ENGINES.includes(bad), false);
+}
 
 assert.equal(detectAgent({ engine: 'opencode' }, {}), 'opencode');
 assert.equal(detectAgent({ agent: 'cursor-agent' }, {}), 'cursor-agent');
@@ -125,6 +130,13 @@ assert.equal(detectAgent({}, { PATH: '' }), 'claude');
   assert.match(serveSrc, /G\.meta\?\.root/);
   assert.match(serveSrc, /mapRel/);
   assert.doesNotMatch(serveSrc, /Bash\(node floorplan\/query\.mjs/);
+  // Ask must not spawn agent/cursor-agent/opencode through claudeRun flags
+  assert.match(serveSrc, /ASK_ENGINES\s*=\s*\[\s*['"]claude['"]\s*,\s*['"]codex['"]\s*\]/);
+  assert.match(serveSrc, /for \(const k of askOrder\)/);
+  assert.match(serveSrc, /engine === 'codex' \? codexRun : claudeRun/);
+  assert.doesNotMatch(serveSrc, /share -p style/);
+  assert.doesNotMatch(serveSrc, /ENGINES\.agent\s*=/);
+  assert.doesNotMatch(serveSrc, /ENGINES\['cursor-agent'\]|ENGINES\["cursor-agent"\]/);
   const gq = fs.readFileSync(path.join(assets, 'graph-query.js'), 'utf8');
   assert.match(gq, /mapDirRel|meta\?\.mapDir/);
   assert.doesNotMatch(gq, /node floorplan\/query\.mjs overview/);

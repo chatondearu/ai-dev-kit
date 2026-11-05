@@ -471,7 +471,10 @@ if (graph.screens?.length) report.push(`SCREENS  ${graph.screens.length} detecte
 report.push(graph.recent
   ? `RECENT WORK  ${graph.recent.items.length} card(s) highlighted across ${graph.recent.tasks.length} task(s)`
   : `RECENT WORK  none highlighted${fs.existsSync(recentFile) ? '' : ' (no recent-work.json)'}`);
-if (scan.blueprint) report.push('BLUEPRINT  planned, not built yet: drawn from floorplan/plan.json');
+if (scan.blueprint) {
+  const planRel = path.relative(root, path.join(outDir, 'plan.json')).replace(/\\/g, '/') || 'plan.json';
+  report.push(`BLUEPRINT  planned, not built yet: drawn from ${planRel}`);
+}
 else report.push(`FOAM NOTE  ${writeFoamNote(root, outDir)}`);
 report.push(`AGENT  map recorded for ${agent}`);
 report.push(trackedWarning ? `GIT  ! ${trackedWarning}` : 'GIT  map gitignore written (foam keeps architecture.json + descriptions/)');

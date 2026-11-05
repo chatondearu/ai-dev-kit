@@ -90,14 +90,18 @@ export function writeMapGitignore(root, outDir, env = process.env) {
     const want = FOAM_GITIGNORE;
     try {
       if (!fs.existsSync(gi) || fs.readFileSync(gi, 'utf8') !== want) fs.writeFileSync(gi, want);
-    } catch {}
+    } catch (e) {
+      console.error(`! could not write ${gi}: ${e.message}`);
+    }
     return null;
   }
   // Upstream: ignore the whole map folder (including this .gitignore).
   const want = '# Floorplan keeps its map out of git: this ignores everything in this folder, this file included.\n*\n';
   try {
     if (!fs.existsSync(gi) || fs.readFileSync(gi, 'utf8') !== want) fs.writeFileSync(gi, want);
-  } catch {}
+  } catch (e) {
+    console.error(`! could not write ${gi}: ${e.message}`);
+  }
   return null;
 }
 

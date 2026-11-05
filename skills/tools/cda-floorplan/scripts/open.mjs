@@ -87,7 +87,9 @@ const CLI = {
   opencode: { name: 'opencode', docs: 'https://opencode.ai' },
   codex: { name: 'Codex', docs: 'https://developers.openai.com/codex' },
 };
-console.log(health?.cli
-  ? `ASK  works: questions run through ${CLI[health.engine]?.name || 'the Claude Code CLI'}${health.version ? ' (' + health.version + ')' : ''}`
-  : `ASK  needs ${(CLI[health?.want] || CLI.claude).name}, which was not found; the map itself works (${(CLI[health?.want] || CLI.claude).docs})`);
+// health.cli is true only when a structured Ask adapter (claude|codex) was found — not agent/cursor-agent/opencode
+const askEngine = health?.cli && (health.engine === 'codex' || health.engine === 'claude') ? health.engine : null;
+console.log(askEngine
+  ? `ASK  works: questions run through ${CLI[askEngine].name}${health.version ? ' (' + health.version + ')' : ''}`
+  : `ASK  needs ${(CLI[health?.want === 'codex' ? 'codex' : 'claude']).name}, which was not found; the map itself works (${(CLI[health?.want === 'codex' ? 'codex' : 'claude']).docs})`);
 console.log(`SERVER  runs in the background, updates open tabs when the map is rebuilt, and stops ${IDLE_MINUTES / 60} hours after the last tab closes. Stop it now: node ${rel}/serve.mjs --stop`);

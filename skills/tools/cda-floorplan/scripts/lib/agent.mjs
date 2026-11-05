@@ -1,11 +1,14 @@
-// Which coding agent is running the skill. Recorded on the map so Ask / "Fix with" name the right one.
+// Which coding agent is running the skill. Recorded on the map so "Fix with" names the right one.
 // Detection order matches orch.sh: agent, cursor-agent, claude, opencode — plus codex.
+// Ask itself only uses structured adapters (ASK_ENGINES); see assets/serve.mjs.
 // --agent / --engine (or FLOORPLAN_AGENT / FLOORPLAN_ENGINE) override; otherwise PATH + env hints.
 import { execFileSync } from 'node:child_process';
 
 export const AGENTS = ['agent', 'cursor-agent', 'claude', 'opencode', 'codex'];
 /** Preferred discovery order (orch.sh), then codex. */
 export const DETECT_ORDER = ['agent', 'cursor-agent', 'claude', 'opencode', 'codex'];
+/** Engines with a real structured Ask adapter (claude -p --json-schema / codex exec --output-schema). */
+export const ASK_ENGINES = ['claude', 'codex'];
 
 function onPath(cmd, env = process.env) {
   try {

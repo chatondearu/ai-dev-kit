@@ -13,7 +13,7 @@ Kit-owned workflow skills use the **`cda-`** prefix so they are easy to spot.
 | **quality** | `quality/` | `cda-review`, `cda-commit`, `cda-docs`, `cda-tdd`, `cda-diagnose`, `cda-standards`, `cda-grill`, `cda-codebase`, `cda-architecture`, `cda-writing`, `cda-retro`, `cda-prototype`, `cda-wizard`, `cda-kiss` (always-on via hooks), `cda-kiss-audit` |
 | **productivity** | `productivity/` | `cda-standing`, `cda-goal`, `cda-where`, `cda-overwhelm`, `cda-hyperfocus`, `cda-body-double`, `cda-unstuck`, `cda-reflect`, `cda-nopanic` (ADHD-friendly, see below) |
 | **design** | `design/` | `cda-design-bold`, `cda-design-taste`, `cda-design-audit`, `cda-design-md`, `cda-design-loop` |
-| **tools** | `tools/` | `cda-context7` |
+| **tools** | `tools/` | `cda-context7`, `cda-floorplan` |
 
 **Personal sources (productivity skills).** Several productivity skills read
 optional personal sources from `${XDG_CONFIG_HOME:-$HOME/.config}/ai-dev-kit/sources.env`

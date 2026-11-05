@@ -219,7 +219,19 @@ set -e
 unset ORCH_VERIFY_TRUST
 assert_eq "$allow_rc" "0" "untrusted allows allowlisted true"
 
+# Repo-standard verify from AGENTS.md must pass the untrusted allowlist.
+echo "verify: nix develop -c bash scripts/verify.sh" >"$TMP_AGENTS/AGENTS.md"
+cmd_suite="$(orch_resolve_verify "$TMP_AGENTS")"
+assert_eq "$cmd_suite" "nix develop -c bash scripts/verify.sh" "resolve repo-standard verify"
+if _orch_verify_is_allowed "$cmd_suite" && _orch_verify_is_allowed "bash scripts/verify.sh"; then
+  suite_allow_rc=0
+else
+  suite_allow_rc=1
+fi
+assert_eq "$suite_allow_rc" "0" "untrusted allows nix/bash scripts/verify.sh"
+
 # Workers run under bash -c: the allowlist helper must be exported with the rest.
+echo "verify: true" >"$TMP_AGENTS/AGENTS.md"
 source "$TROOT/../lib/loop.sh"
 orch_export_functions
 set +e

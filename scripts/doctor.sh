@@ -63,6 +63,18 @@ fi
 printf '\nOptional\n'
 if have bwrap; then ok 'bwrap (orch --sandbox)'; else printf '  —    bwrap (optional sandbox)\n'; fi
 if have llama-swap; then ok "llama-swap ($(command -v llama-swap))"; else printf '  —    llama-swap (local models)\n'; fi
+if have graphify; then
+  ok "graphify ($(command -v graphify))"
+else
+  printf '  —    graphify (cda.aitools.graphify / uv tool install graphifyy)\n'
+fi
+if [ "${CDA_GRAPHIFY:-}" = "1" ]; then
+  ok 'CDA_GRAPHIFY=1'
+elif [ -n "${CDA_GRAPHIFY:-}" ]; then
+  warn "CDA_GRAPHIFY=${CDA_GRAPHIFY} (expected 1 when graphify is enabled)"
+else
+  printf '  —    CDA_GRAPHIFY (set by cda.aitools.graphify.enable)\n'
+fi
 
 printf '\nKit install (skills linked?)\n'
 SKILL_HIT=0

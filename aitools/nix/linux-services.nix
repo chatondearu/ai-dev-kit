@@ -4,6 +4,7 @@
   lib,
   pkgs,
   cdamuxPkg,
+  graphifyPkg,
   moshiHookFor,
   ...
 }:
@@ -12,6 +13,36 @@
     (lib.mkIf (config.cda.aitools.enable && config.cda.aitools.mosh.enable) {
       programs.mosh.enable = true;
     })
+    (lib.mkIf (
+      config.cda.aitools.enable
+      && config.cda.aitools.graphify.enable
+      && config.cda.aitools.graphify.installMethod != "none"
+      && config.cda.aitools.user != null
+      && config.cda.aitools.systemdUser.enable
+    ) (
+      let
+        a = config.cda.aitools;
+        activateExec = import ./graphify-activation.nix {
+          inherit pkgs lib graphifyPkg a;
+          pathTail = "/run/current-system/sw/bin:$PATH";
+        };
+        cond =
+          lib.optionalAttrs (a.systemdUser.conditionUser != null) {
+            unitConfig.ConditionUser = a.systemdUser.conditionUser;
+          };
+      in {
+        systemd.user.services.cda-graphify-install = {
+          description = "Register Graphify agent skill (idempotent)";
+          wantedBy = ["default.target"];
+          serviceConfig = {
+            Type = "oneshot";
+            RemainAfterExit = true;
+            ExecStart = activateExec;
+          };
+        }
+        // cond;
+      }
+    ))
     (lib.mkIf (
       config.cda.aitools.enable
       && config.cda.aitools.systemdUser.enable

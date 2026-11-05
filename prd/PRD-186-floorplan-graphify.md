@@ -46,10 +46,10 @@ and no kit skill knows to use it.
       `cursor-agent`, `claude`, `opencode`, `codex`; output order project
       `foam/` → `$CDA_FOAM_HOME/projects/<repo>/` → `<repo>/floorplan/`; no
       `CLAUDE.local.md` block.
-- [ ] #188 — `cda.aitools.graphify.{enable,installMethod,hooks.enable}` and
+- [ ] #188 — `cda.aitools.graphify.{enable,installMethod}` and
       `cda.aitools.foamHome`; pinned package with `uv` fallback; exports
-      `CDA_GRAPHIFY=1`; runs `graphify install`; bootstrap prompt, doctor,
-      recommended docs; ADR-008.
+      `CDA_GRAPHIFY=1`; runs `graphify install` (no cwd hooks); bootstrap prompt,
+      doctor, recommended docs; ADR-008.
 - [ ] #189 — shared rule in `rules/`, one line per code-reading skill, kiss
       SessionStart hook points at the graph report when on.
 

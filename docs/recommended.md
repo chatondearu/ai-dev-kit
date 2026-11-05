@@ -87,3 +87,19 @@ Agents need to **see** rendered pages for `cda-design-loop`. Prefer, in order:
 3. Otherwise the loop reports `SKIP_VISUAL` and still runs textual checks
 
 Do not auto-install Playwright from the kit. Superdesign remains optional for image→code (see above).
+
+## Graphify — local code graph (opt-in)
+
+- Upstream: https://github.com/Graphify-Labs/graphify  
+- PyPI package: **`graphifyy`** (CLI command: `graphify`), Apache-2.0
+
+Not installed by `./install.sh` ([ADR-001](../foam/decisions/ADR-001-host-tools-vs-kit.md)).
+Prefer the Nix companion ([ADR-008](../foam/decisions/ADR-008-graphify-code-graph.md)):
+
+```nix
+cda.aitools.graphify.enable = true;           # exports CDA_GRAPHIFY=1
+cda.aitools.graphify.installMethod = "auto";  # nix package, else uv
+```
+
+Manual: `uv tool install graphifyy` then `graphify install`.
+`./scripts/doctor.sh` reports `graphify` on `PATH` and `CDA_GRAPHIFY`.

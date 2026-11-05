@@ -71,6 +71,23 @@ assert_contains "$out2" "recommended tools" "points at recommended.md"
 assert_contains "$out2" "Host tools" "reports host tools section"
 assert_contains "$out2" "jq" "reports jq"
 assert_contains "$out2" "flock" "reports flock"
+assert_contains "$out2" "graphify" "mentions graphify optional"
+assert_contains "$out2" "CDA_GRAPHIFY" "mentions CDA_GRAPHIFY"
+
+# Graphify present + CDA_GRAPHIFY=1 → ok lines
+cat >"$FAKE/graphify" <<EOF
+#!$STUB_BASH
+true
+EOF
+chmod +x "$FAKE/graphify"
+DPATH="$(stub_path)"
+set +e
+out_gf="$(PATH="$DPATH" HOME="$FAKE/home" CURSOR_HOME="$FAKE/home/.cursor" CDA_GRAPHIFY=1 "$STUB_BASH" "$ROOT/scripts/doctor.sh" 2>&1)"
+rc_gf=$?
+set -e
+assert_eq "$rc_gf" "0" "doctor OK with graphify stub"
+assert_contains "$out_gf" "ok   graphify" "reports graphify ok"
+assert_contains "$out_gf" "ok   CDA_GRAPHIFY=1" "reports CDA_GRAPHIFY"
 
 # Stock bash < 4 (macOS /bin/bash 3.2): doctor itself must run and warn that orch needs 4+
 if [ -x /bin/bash ] && [ "$(/bin/bash -c 'echo ${BASH_VERSINFO[0]}')" -lt 4 ]; then

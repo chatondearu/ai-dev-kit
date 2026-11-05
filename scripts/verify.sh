@@ -6,6 +6,7 @@ cd "$ROOT"
 for t in skills/core/cda-dev/scripts/tests/test_*.sh \
   skills/core/cda-dev/scripts/tests/smoke_orch_dry.sh \
   scripts/tests/test_doctor.sh \
+  scripts/tests/test_aitools_nix.sh \
   skills/core/cda-kanban/scripts/tests/test_closest_status.sh \
   skills/core/cda-kanban/scripts/tests/test_gh_board.sh \
   skills/quality/cda-kiss/hooks/test-install.sh \
@@ -16,6 +17,7 @@ for t in skills/core/cda-dev/scripts/tests/test_*.sh \
   skills/core/cda-foam/scripts/tests/test_import_kanban.sh; do
   bash "$t"
 done
+node skills/tools/cda-floorplan/scripts/tests/selfcheck.mjs
 bash skills/core/cda-doc-hygiene/scripts/doc-hygiene.sh --check
 bash skills/quality/cda-kiss/hooks/test.sh
 bash skills/design/cda-design-loop/scripts/tests/test_seed_design.sh

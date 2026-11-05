@@ -4,11 +4,34 @@
   lib,
   pkgs,
   cdamuxPkg,
+  graphifyPkg,
   moshiHookFor,
   ...
 }:
 {
   config = lib.mkMerge [
+    (lib.mkIf (
+      config.cda.aitools.enable
+      && config.cda.aitools.graphify.enable
+      && config.cda.aitools.graphify.installMethod != "none"
+      && config.cda.aitools.user != null
+    ) (
+      let
+        a = config.cda.aitools;
+        activateExec = import ./graphify-activation.nix {
+          inherit pkgs lib graphifyPkg a;
+          pathTail = "/run/current-system/sw/bin:/opt/homebrew/bin:/usr/bin:/bin:$PATH";
+        };
+      in {
+        launchd.user.agents.cda-graphify-install = {
+          serviceConfig = {
+            ProgramArguments = [activateExec];
+            RunAtLoad = true;
+            KeepAlive = false;
+          };
+        };
+      }
+    ))
     (lib.mkIf (config.cda.aitools.enable && config.cda.aitools.cdamuxd.enable) (
       let
         a = config.cda.aitools;

@@ -46,7 +46,7 @@ Query the board and present three buckets, oldest first: **Unlabeled** (never tr
 
 ### Triage a specific issue or PR
 
-1. **Gather context.** Read the whole issue/PR (body, comments, labels, author, dates; for a PR, the diff). Parse prior triage notes so you don't re-ask resolved questions. Explore the codebase using the project's `GLOSSARY.md` and respecting ADRs. Run two checks:
+1. **Gather context.** Read the whole issue/PR (body, comments, labels, author, dates; for a PR, the diff). Parse prior triage notes so you don't re-ask resolved questions. Explore the codebase using the project's `GLOSSARY.md` and respecting ADRs. When `CDA_GRAPHIFY=1` and `graphify-out/graph.json` exists, read `graphify-out/GRAPH_REPORT.md` (or query the graph) before grepping or reading files. Run two checks:
    - **Redundancy** — search for an existing implementation of the requested *behavior* by domain concept, not just the request's wording; report where you looked. If found → already-implemented `wontfix`.
    - **Prior rejection** — read `cda-foam`'s out-of-scope register (`foam/features/out-of-scope.md`) and surface any entry that resembles this request.
 2. **Recommend.** Give your category + state recommendation with reasoning and a short codebase summary (including whether it's already implemented). Wait for direction.

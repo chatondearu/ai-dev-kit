@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 // kiss — SessionStart (Claude) / sessionStart (Cursor) hook.
-// Injects the active-level ruleset + a cheap repo map as hidden session context.
+// Injects the active-level ruleset + orientation (graphify pointer or cheap
+// repo map) as hidden session context.
 // Fresh session → default level; "off" stays silent; compact keeps the live level.
-const { readMode, setMode, getInstructions, buildMap, writeHookOutput, DEFAULT_MODE } = require('./lib');
+const { readMode, setMode, getInstructions, buildSessionMap, writeHookOutput, DEFAULT_MODE } = require('./lib');
 
 function activate(source) {
   const live = readMode();
@@ -11,7 +12,7 @@ function activate(source) {
   setMode(mode);
   let out = getInstructions(mode);
   if (process.env.KISS_MAP !== '0') {
-    const map = buildMap();
+    const map = buildSessionMap();
     if (map) out += '\n\n' + map;
   }
   try { writeHookOutput('SessionStart', out); } catch (e) { /* EPIPE at exit */ }

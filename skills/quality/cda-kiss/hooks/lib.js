@@ -111,6 +111,24 @@ function buildMap(cwd = process.cwd()) {
   }
 }
 
+// Opt-in Graphify pointer: replaces the repo map when CDA_GRAPHIFY=1 and the
+// graph file exists. Fail-open (missing file / unset → empty → caller falls back).
+function buildGraphPointer(cwd = process.cwd()) {
+  if (process.env.CDA_GRAPHIFY !== '1') return '';
+  try {
+    if (!fs.existsSync(path.join(cwd, 'graphify-out', 'graph.json'))) return '';
+  } catch (e) {
+    return '';
+  }
+  return 'Graphify is on (CDA_GRAPHIFY=1). Before grepping or reading files, ' +
+    'read graphify-out/GRAPH_REPORT.md and query graphify-out/graph.json.';
+}
+
+// SessionStart orientation: graph pointer wins over the cheap repo map.
+function buildSessionMap(cwd = process.cwd()) {
+  return buildGraphPointer(cwd) || buildMap(cwd);
+}
+
 // Synchronous: hooks call process.exit right after (a pending async pipe write
 // can die with the process).
 function writeHookOutput(event, context) {
@@ -142,5 +160,6 @@ function parseCommand(prompt) {
 module.exports = {
   DEFAULT_MODE, isCursor, normalizeMode,
   readMode, setMode,
-  getInstructions, buildMap, writeHookOutput, parseCommand,
+  getInstructions, buildMap, buildGraphPointer, buildSessionMap,
+  writeHookOutput, parseCommand,
 };

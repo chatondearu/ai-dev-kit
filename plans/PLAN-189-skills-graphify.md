@@ -1,6 +1,6 @@
 # PLAN-189 — Query the graphify graph when CDA_GRAPHIFY=1
 
-- **Status**: draft
+- **Status**: in-progress
 - **PRD**: [[../prd/PRD-186-floorplan-graphify|PRD-186]]
 - **GitHub**: [#189](https://github.com/chatondearu/ai-dev-kit/issues/189)
 - **Date**: 2026-11-05
@@ -31,15 +31,15 @@ and the kiss SessionStart hook send agents to the graph before grep/file reads.
 
 ## Tasks
 
-- [ ] Rule file
-- [ ] Per-skill lines (audit list in PR body)
-- [ ] Hook change (Claude, Cursor, opencode variants that inject the repo map)
-- [ ] Hook tests: on + graph, on + no graph, off
+- [x] Rule file
+- [x] Per-skill lines (audit list in PR body)
+- [x] Hook change (Claude, Cursor SessionStart; opencode has no repo map)
+- [x] Hook tests: on + graph, on + no graph, off
 
 ## Test plan
 
-- [ ] Hook tests above in `scripts/tests/`
+- [x] Hook tests in `skills/quality/cda-kiss/hooks/test.sh` (verify.sh entry)
 
 ## Verification
 
-- [ ] `nix develop -c bash scripts/verify.sh`
+- [x] `nix develop -c bash scripts/verify.sh`

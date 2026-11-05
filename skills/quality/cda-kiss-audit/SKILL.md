@@ -18,7 +18,7 @@ Audit the repo like the senior who just inherited it and will be paged when it b
 ## 1. Map first
 
 - Audit what the user names (a folder, a package) — nothing named → the whole repo.
-- Read the README, build/deploy config, dependency list, entry points (main, routes, handlers, jobs, CLI) and the tests. If the repo keeps a Foam graph, skim `foam/decisions/` (ADRs) so you don't re-flag accepted decisions.
+- Read the README, build/deploy config, dependency list, entry points (main, routes, handlers, jobs, CLI) and the tests. If the repo keeps a Foam graph, skim `foam/decisions/` (ADRs) so you don't re-flag accepted decisions. When `CDA_GRAPHIFY=1` and `graphify-out/graph.json` exists, read `graphify-out/GRAPH_REPORT.md` (or query the graph) before grepping or reading files.
 - Find the **expected load**: one person running a script, or many users/processes at once. Judge scale against that and state which load you assumed.
 - Trace the main flows end to end: where data comes in, what is stored, what goes out. Read those paths fully — user input, money, auth, data writes, background jobs, anything shared between processes.
 - Big repo: go deep where a mistake costs most, not file by file. Say which parts you did **not** read.

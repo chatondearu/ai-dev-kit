@@ -36,6 +36,8 @@ these (`./scripts/doctor.sh` only checks `PATH`).
 | `ORCH_GRAPH_INTEGRATOR` | `auto` | Integrator after workers (`1` always, `0` never) |
 | `ORCH_GRAPH_PLAN_PARALLEL` | `auto` | Graph-plan tasks: `auto` / `parallel` / `sequential` |
 | `ORCH_GRAPH_PLAN_MAX_PARALLEL` | `$ORCH_MAX_PARALLEL` | Parallel cap for `--graph-plan` tasks |
+| `CDA_GRAPHIFY` | unset | `1` → kit skills and the kiss SessionStart hook prefer `graphify-out/` before grep/file reads (set by `cda.aitools.graphify`, never by `install.sh`) |
+| `KISS_MAP` | on | `0` → skip SessionStart orientation (repo map / graphify pointer) |
 
 See [graph-orchestration.md](graph-orchestration.md).
 
@@ -85,3 +87,8 @@ tool's hook config (needs `jq`; idempotent):
 
 Claude assembles global instructions from `rules/` into `CLAUDE.md` when Claude
 is enabled; that path is separate from KISS hooks.
+
+When `CDA_GRAPHIFY=1` and `<repo>/graphify-out/graph.json` exists, the Claude /
+Cursor SessionStart hook injects a pointer to `graphify-out/GRAPH_REPORT.md`
+instead of the cheap repo map. Off or missing graph → repo map unchanged.
+`rules/03-graphify.md` and code-reading skills carry the same rule.

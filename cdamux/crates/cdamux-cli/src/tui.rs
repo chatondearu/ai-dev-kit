@@ -18,12 +18,13 @@ use crate::refresh::{sidecar_step, Interval, Sidecar, StatusCache};
 use crate::settings_form::SettingsForm;
 use crate::widgets::{edit_text, wheel_step};
 use crate::spawn_modal::{
-    draw_modal, draw_overlay_scrim, on_key as spawn_modal_on_key, ModalState, SpawnModalAction,
+    hinted_agent_index, draw_modal, draw_overlay_scrim, on_key as spawn_modal_on_key, ModalState, SpawnHint,
+    SpawnModalAction,
 };
 use cdamux_core::{
-    build_project_session_tree, capture_pane_text, config_path, discover_projects,
-    kill_tmux_session, load_config, preferred_spawn_agent, rename_tmux_session,
-    resolve_agent_command, restore_one, send_to_session, session_name_for_path,
+    build_project_session_tree, capture_pane_text, config_path, current_tmux_session,
+    discover_projects, kill_tmux_session, load_config, preferred_spawn_agent, rename_tmux_session,
+    configured_agent_ids, resolve_agent_command, restore_one, send_to_session, session_name_for_path,
     spawn_tmux_session_with_layout,
     switch_client_to_session, tail_lines, transcript_tail, unique_session_name, ChildKind,
     ChildRow, Config, EnrichedSession, GroupBy, PaneLayout, PreviewSource, ProjectSessionTree,
@@ -64,7 +65,12 @@ fn fork_selected_session(cfg: &Config, s: &EnrichedSession) -> Result<String, St
         return Err("session has no project directory to fork".into());
     }
     let base = unique_session_name(&session_name_for_path(&path));
-    let agent = preferred_spawn_agent(&cfg.agents);
+    let ids = configured_agent_ids(&cfg.agents);
+    let hint = SpawnHint { agent: Some(s.agent.clone()), ..Default::default() };
+    let agent = match hinted_agent_index(&hint, &ids) {
+        Some(i) => ids[i].clone(),
+        None => preferred_spawn_agent(&cfg.agents),
+    };
     let cmd = resolve_agent_command(&cfg.agents, &agent).map_err(|e| e.to_string())?;
     match spawn_tmux_session_with_layout(
         &base,
@@ -78,6 +84,32 @@ fn fork_selected_session(cfg: &Config, s: &EnrichedSession) -> Result<String, St
         Ok(o) => Ok(format!("forked '{}' with {}{}", base, agent, o.note())),
         Err(e) => Err(e.to_string()),
     }
+}
+
+/// Spawn modal context from the Fleet selection (other tabs: none).
+fn spawn_hint(app_tab: AppTab, tree: &ProjectSessionTree, rows: &[TreeRow], idx: usize) -> SpawnHint {
+    if app_tab != AppTab::Fleet {
+        return SpawnHint::default();
+    }
+    let selected = session_at_row(rows, idx);
+    let repo = orch_repo_at_row(rows, idx);
+    let node = tree.nodes.iter().find(|n| {
+        selected.is_some_and(|s| n.sessions.iter().any(|x| x.name == s.name))
+            || repo.as_deref() == Some(n.project.path.to_string_lossy().as_ref())
+    });
+    let sessions = node.map_or(&[][..], |n| n.sessions.as_slice());
+    SpawnHint {
+        session: selected.or(sessions.first()).map(|s| s.name.clone()),
+        agent: selected
+            .map(|s| s.agent.clone())
+            .or_else(|| dormant_at_row(rows, idx).map(|r| r.agent.clone())),
+        project_agents: sessions.iter().map(|s| s.agent.clone()).collect(),
+    }
+}
+
+/// Inside a tmux popup (`display-popup` sets `TMUX` but no `TMUX_PANE`).
+fn in_tmux_popup() -> bool {
+    std::env::var_os("TMUX").is_some() && std::env::var_os("TMUX_PANE").is_none()
 }
 
 /// Inside tmux: switch the client and return a status line. Outside: `None`,
@@ -173,7 +205,11 @@ pub fn run_dashboard() -> ExitCode {
     let mut expanded = default_expanded(&tree, group_by);
     let mut waiting_only = false;
     let mut show_help = false;
-    let mut selected_row = 0;
+    let mut status = StatusCache::new(Duration::from_millis(500));
+    // Opened over a session (popup): start on it, its project unfolded.
+    let mut selected_row = current_tmux_session()
+        .map(|name| focus_session_in_tree(&tree, &mut expanded, &name, group_by, false, &status))
+        .unwrap_or(0);
     let mut side_tab = SideTab::Preview;
     let mut focus = FocusArea::Tree;
     let mut composer_line = String::new();
@@ -221,7 +257,6 @@ pub fn run_dashboard() -> ExitCode {
     let mut tree_iv = Interval::new(Duration::from_millis(2000));
     let mut preview_iv = Interval::new(Duration::from_millis(800));
     let mut graph_iv = Interval::new(Duration::from_millis(800));
-    let mut status = StatusCache::new(Duration::from_millis(500));
     // Redraw on input or when a refresh changed something visible.
     let mut needs_draw = true;
 
@@ -571,11 +606,20 @@ pub fn run_dashboard() -> ExitCode {
                             spawn_overlay = None;
                             continue;
                         }
-                        SpawnModalAction::DismissDone { status } => {
+                        SpawnModalAction::DismissDone { status, session } => {
                             spawn_overlay = None;
                             tree_dirty = true;
-                            status_line = status;
                             selected_row = 0;
+                            // Land in the new session, like Enter on a Fleet row.
+                            match switch_or_attach(&session) {
+                                Some(Ok(_)) => {
+                                    status_line = status;
+                                    // A popup would stay open over it: close it.
+                                    should_quit = in_tmux_popup();
+                                }
+                                Some(Err(e)) => status_line = format!("{status} · {e}"),
+                                None => attach_name = Some(session),
+                            }
                             continue;
                         }
                     }
@@ -663,7 +707,8 @@ pub fn run_dashboard() -> ExitCode {
                     && key.modifiers.is_empty()
                     && key.code == KeyCode::Char('n')
                 {
-                    spawn_overlay = Some(ModalState::new(&cfg));
+                    let hint = spawn_hint(app_tab, tree, &rows, selected_row);
+                    spawn_overlay = Some(ModalState::new(&cfg, &hint));
                     continue;
                 }
                 if let KeyCode::Char(c) = key.code {
@@ -830,7 +875,8 @@ pub fn run_dashboard() -> ExitCode {
                         }
                     }
                     DashboardAction::Spawn => {
-                        spawn_overlay = Some(ModalState::new(&cfg));
+                        let hint = spawn_hint(app_tab, tree, &rows, selected_row);
+                        spawn_overlay = Some(ModalState::new(&cfg, &hint));
                     }
                     DashboardAction::OpenIssue => {
                         match issue_at_row(&rows, selected_row) {

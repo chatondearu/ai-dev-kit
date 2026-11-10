@@ -102,6 +102,9 @@ When `$TMUX` is set (popup or inner session):
 - **`--pick`**: exit CLI with code 0 immediately after successful switch.
 - Full dashboard TUI: stay running (popup `M-p` unchanged; outside-tmux entry
   uses the home session above).
+- Dashboard opens on the client's current session (project unfolded). Creating a
+  session from the `n` modal switches the client to it; in a popup (no
+  `TMUX_PANE`) the dashboard then exits so the popup closes.
 
 ## API sketch (v0.2)
 

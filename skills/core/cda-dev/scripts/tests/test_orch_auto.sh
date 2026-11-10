@@ -79,6 +79,15 @@ chmod +x "$STUB_BIN/gh"
 export PATH="$STUB_BIN:$PATH"
 export ORCH_GH_BOARD="$STUB_BIN/fake-gh-board.sh"
 
+echo "# orch-auto refuses to run without ORCH_AGENT (no parent session to inherit)"
+set +e
+out_na="$(bash "$SCRIPTS/orch-auto.sh" --repo "$TMP" --dry-run 2>&1)"
+rc_na=$?
+set -e
+assert_eq "$rc_na" "2" "no ORCH_AGENT -> exit 2"
+assert_contains "$out_na" "ORCH_AGENT is not set" "names the missing env"
+export ORCH_AGENT=claude
+
 echo "# orch-auto --dry-run filters human + open-PR"
 out="$(bash "$SCRIPTS/orch-auto.sh" --repo "$TMP" --dry-run 2>"$TMP/stderr")"
 assert_eq "$out" "10" "only eligible #10 printed"

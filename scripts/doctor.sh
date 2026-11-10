@@ -47,7 +47,7 @@ if have flock; then ok 'flock'; else warn 'flock (optional: mkdir lock fallback 
 
 printf '\nAgent CLIs (need ≥1)\n'
 AGENT_HIT=0
-for c in agent cursor-agent claude opencode; do
+for c in agent cursor-agent claude opencode codex; do
   if have "$c"; then
     ok "$c ($(command -v "$c"))"
     AGENT_HIT=1
@@ -56,7 +56,7 @@ for c in agent cursor-agent claude opencode; do
   fi
 done
 if [ "$AGENT_HIT" -eq 0 ]; then
-  miss 'no agent CLI (tried agent, cursor-agent, claude, opencode)'
+  miss 'no agent CLI (tried agent, cursor-agent, claude, opencode, codex)'
   printf '       Set ORCH_AGENT or install a CLI; see docs/recommended.md\n'
 fi
 

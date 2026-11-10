@@ -26,9 +26,20 @@ bash "$SKILL/scripts/orch.sh" --mode ready-pickup --issue 12 --dry-run
 bash "$SKILL/scripts/orch.sh" --mode pr-fix --pr 88
 ```
 
-Requires `gh`, a detected agent CLI, and (for fast-lane) an agent brief on the
+Requires `gh`, an agent CLI, and (for fast-lane) an agent brief on the
 issue when no `plans/PLAN-<id>-*` exists. Only brief comments by an
 `OWNER`/`MEMBER`/`COLLABORATOR` count; anyone else's brief is ignored.
+
+Each role (`worker`, `reviewer`, `verifier`, `integrator`, `pr-fix`) runs the CLI
+resolved as `ORCH_AGENT_<ROLE>` > `ORCH_AGENT` / `--agent` > the CLI of the session
+that launched `orch.sh` > first CLI on `PATH`
+([ADR-010](../foam/decisions/ADR-010-worker-cli-inheritance-and-tiers.md)). `--dry-run`
+prints one `agent[<role>]: <cli> (<source>)` line per role, source being
+`role-override`, `override`, `parent` or `path`:
+
+```bash
+ORCH_AGENT_VERIFIER=codex bash "$SKILL/scripts/orch.sh" --mode ready-pickup --issue 12 --dry-run
+```
 
 `pr-fix` only works on same-repo PRs: a cross-repository (fork) PR, a PR whose
 head branch is the default branch, or unreadable PR metadata ends `blocked`
@@ -94,7 +105,7 @@ Templates: `skills/core/cda-dev/templates/systemd/`. **Not** enabled by
 mkdir -p ~/.config/systemd/user
 cp "$SKILL/templates/systemd/cda-orch-auto."{service,timer} ~/.config/systemd/user/
 cp "$SKILL/templates/systemd/cda-orch-auto.env.example" ~/.config/cda-orch-auto.env
-# Edit ORCH_REPO (and PATH / ORCH_AGENT) in the env file
+# Edit ORCH_REPO, ORCH_AGENT (required: orch-auto exits 2 without it) and PATH
 systemctl --user daemon-reload
 systemctl --user enable --now cda-orch-auto.timer   # AFK ON
 systemctl --user stop cda-orch-auto.timer            # free this machine

@@ -15,6 +15,7 @@ Status values: `proposed` | `accepted` | `deprecated` | `superseded`.
 | [[ADR-007-cdamux-session-hierarchy|ADR-007]] | cdamux session hierarchy: tmux links, tmux workers, sub-agent ledger | accepted | #architecture #tooling #autonomy |
 | [[ADR-008-graphify-code-graph|ADR-008]] | Graphify code graph via cda.aitools | accepted | #architecture #tooling #deployment |
 | [[ADR-009-cdamux-session-restore-registry|ADR-009]] | cdamux session restore registry | accepted | #architecture #tooling #resilience |
+| [[ADR-010-worker-cli-inheritance-and-tiers|ADR-010]] | Worker CLI inheritance and tiers | accepted | #architecture #tooling #autonomy #cost |
 
 ## Template
 

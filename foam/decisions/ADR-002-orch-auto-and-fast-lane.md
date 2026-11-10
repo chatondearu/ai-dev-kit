@@ -50,6 +50,9 @@ Two gaps remain:
   cards can still be picked up.
 - **Constraint**: No auto-merge. Units stay templates unless the operator copies
   and enables them.
+- **Amended by [[ADR-010-worker-cli-inheritance-and-tiers|ADR-010]]**: `orch-auto.sh`
+  exits 2 when `ORCH_AGENT` is empty (an AFK timer has no parent session to inherit
+  a CLI from); set it in the env file.
 
 ## References
 

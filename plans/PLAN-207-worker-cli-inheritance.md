@@ -1,6 +1,6 @@
 # PLAN-207 — Resolve the worker CLI: overrides, parent session, PATH
 
-- **Status**: ready
+- **Status**: in-progress
 - **PRD**: [[../prd/PRD-206-cli-inheritance-tiers|PRD-206]]
 - **GitHub**: [#207](https://github.com/chatondearu/ai-dev-kit/issues/207)
 - **Date**: 2026-11-09
@@ -51,12 +51,12 @@ global override says otherwise. PATH detection becomes the last resort.
 
 ## Tasks
 
-- [ ] `ORCH_ROLE` at every call site
-- [ ] `orch_resolve_agent` + parent detection with an injectable ps hook for tests
-- [ ] codex exec case
-- [ ] dry-run print
-- [ ] orch-auto guard + env example
-- [ ] SKILL.md, docs, ADR-010
+- [x] `ORCH_ROLE` at every call site
+- [x] `orch_resolve_agent` + parent detection with an injectable ps hook for tests
+- [x] codex exec case
+- [x] dry-run print
+- [x] orch-auto guard + env example
+- [x] SKILL.md, docs, ADR-010
 
 ## Risks & mitigations
 
@@ -67,6 +67,6 @@ global override says otherwise. PATH detection becomes the last resort.
 
 ## Test plan
 
-- [ ] `tests/test_agents.sh`: role override wins; global override; `CLAUDECODE=1` → claude even when `cursor-agent` is first on PATH; fake ps chain → cursor; nothing → PATH
-- [ ] orch-auto without `ORCH_AGENT` exits non-zero (stubbed)
-- [ ] `nix develop -c bash scripts/verify.sh`
+- [x] `tests/test_agents.sh`: role override wins; global override; `CLAUDECODE=1` → claude even when `cursor-agent` is first on PATH; fake ps chain → cursor; nothing → PATH
+- [x] orch-auto without `ORCH_AGENT` exits non-zero (stubbed)
+- [x] `nix develop -c bash scripts/verify.sh`

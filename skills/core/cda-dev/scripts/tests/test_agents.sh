@@ -110,11 +110,59 @@ assert_eq "$r" "claude${TAB}parent" "env marker beats ps ancestry"
 out_role="$(PATH="$P2" ORCH_AGENT=claude ORCH_AGENT_REVIEWER="$FAKE/custom-stub" ORCH_ROLE=reviewer orch_agent_run "$FAKE" "$PROMPT")"
 assert_contains "$out_role" "custom-stub-marker" "orch_agent_run honors ORCH_ROLE"
 out_codex="$(PATH="$P2" ORCH_AGENT=codex orch_agent_run "$FAKE" "$PROMPT")"
-assert_contains "$out_codex" "codex-ok exec --dangerously-bypass-approvals-and-sandbox -" "codex exec flags"
+assert_contains "$out_codex" "codex-ok exec --dangerously-bypass-approvals-and-sandbox -m gpt-6.1-sol -c model_reasoning_effort=high -" "codex exec flags + medium tier"
 assert_contains "$out_codex" "hi" "codex reads the prompt on stdin"
 
 out_dry="$(PATH="$P2" ORCH_AGENT_VERIFIER=codex CLAUDECODE=1 orch_print_agents)"
 assert_contains "$out_dry" "agent[worker]: claude (parent)" "dry-run line worker"
 assert_contains "$out_dry" "agent[verifier]: codex (role-override)" "dry-run line verifier"
+
+# Tiers (config/tiers.tsv): role defaults, per-role and current-tier env, per-CLI flags.
+export ORCH_RUN_ID=t1 ORCH_REPO="$FAKE2"
+assert_eq "$(orch_tier_for_role worker)" "medium" "default tier: medium"
+assert_eq "$(orch_tier_for_role integrator)" "small" "integrator default: small"
+assert_eq "$(ORCH_TIER_PR_FIX=large orch_tier_for_role pr-fix)" "large" "ORCH_TIER_PR_FIX"
+assert_eq "$(ORCH_TIER=large ORCH_TIER_WORKER=small orch_tier_for_role worker)" "large" "ORCH_TIER (current) beats role tier"
+assert_eq "$(orch_tier_flags agent large)" "--model claude-opus-5-5-high" "agent uses cursor rows"
+out_t="$(PATH="$P2" ORCH_AGENT=claude orch_agent_run "$FAKE" "$PROMPT")"
+assert_contains "$out_t" "claude-ok -p --dangerously-skip-permissions --model sonnet --effort high" "claude medium flags"
+out_t="$(PATH="$P2" ORCH_AGENT=claude ORCH_ROLE=integrator orch_agent_run "$FAKE" "$PROMPT")"
+assert_contains "$out_t" "--model sonnet --effort low" "integrator runs small"
+out_t="$(PATH="$P2" ORCH_AGENT=claude ORCH_TIER_REVIEWER=large ORCH_ROLE=reviewer orch_agent_run "$FAKE" "$PROMPT")"
+assert_contains "$out_t" "--model opus --effort high" "ORCH_TIER_REVIEWER=large"
+out_t="$(PATH="$P2" ORCH_AGENT=cursor-agent orch_agent_run "$FAKE" "$PROMPT" </dev/null)"
+assert_contains "$out_t" "cursor-agent-ok -p --force --model auto hi" "cursor medium flags before prompt"
+
+# --model in the agent command → pinned, no tier flags.
+out_t="$(PATH="$P2" ORCH_AGENT="claude --model haiku" orch_agent_run "$FAKE" "$PROMPT")"
+assert_eq "${out_t%%$'\n'*}" "claude-ok --model haiku -p --dangerously-skip-permissions" "pinned: no tier flags"
+assert_eq "$(orch_agent_tier "codex -m gpt-x" worker)" "pinned${TAB}" "-m pins too"
+
+# ORCH_TIERS_FILE replaces the kit table; a missing one is an error.
+printf '# custom\nclaude\tmedium\t--model haiku\n' >"$FAKE2/tiers.tsv"
+out_t="$(PATH="$P2" ORCH_AGENT=claude ORCH_TIERS_FILE="$FAKE2/tiers.tsv" orch_agent_run "$FAKE" "$PROMPT")"
+assert_eq "${out_t%%$'\n'*}" "claude-ok -p --dangerously-skip-permissions --model haiku" "ORCH_TIERS_FILE row"
+rc=0; err="$(PATH="$P2" ORCH_AGENT=claude ORCH_TIERS_FILE="$FAKE2/nope.tsv" orch_agent_run "$FAKE" "$PROMPT" 2>&1)" || rc=$?
+assert_eq "$rc" "1" "missing ORCH_TIERS_FILE fails"
+assert_contains "$err" "tiers file not readable" "missing ORCH_TIERS_FILE message"
+
+# CLI without a row: no flags, one warning per run.
+err="$( { orch_agent_tier "$FAKE/custom-stub" worker; orch_agent_tier "$FAKE/custom-stub" integrator; } 2>&1 >/dev/null)"
+assert_eq "$(grep -c 'no tier row for custom-stub' <<<"$err")" "1" "unknown CLI warns once per run"
+assert_eq "$(orch_agent_tier "$FAKE/custom-stub" worker 2>/dev/null)" "medium${TAB}" "unknown CLI: no flags"
+unset ORCH_RUN_ID
+
+out_dry="$(PATH="$P2" ORCH_AGENT=claude ORCH_AGENT_INTEGRATOR="claude --model haiku" orch_print_agents)"
+assert_contains "$out_dry" "tier[worker]: medium --model sonnet --effort high" "dry-run tier line"
+assert_contains "$out_dry" "tier[integrator]: pinned" "dry-run pinned line"
+
+# status.json gets cli/model/effort/tier of the worker's agent.
+if command -v jq >/dev/null 2>&1; then
+  source "$TROOT/../lib/progress.sh"
+  export ORCH_PROGRESS=0
+  PATH="$P2" ORCH_AGENT=claude ORCH_WORKER_ID=5 orch_agent_run "$FAKE" "$PROMPT" >/dev/null
+  assert_eq "$(jq -c '.workers[0] | [.id, .cli, .model, .effort, .tier]' "$FAKE2/.orch/run/status.json")" \
+    '["5","claude","sonnet","high","medium"]' "status.json records the worker tier"
+fi
 
 summary

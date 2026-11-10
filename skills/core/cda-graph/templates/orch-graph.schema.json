@@ -25,7 +25,11 @@
           "phase": { "type": "string" },
           "status": { "type": "string" },
           "message": { "type": "string" },
-          "parent": { "type": ["string", "null"] }
+          "parent": { "type": ["string", "null"] },
+          "cli": { "type": ["string", "null"], "description": "agent CLI of the run (agent, verifier, integrator nodes)" },
+          "model": { "type": ["string", "null"], "description": "model set by the tier flags or the pinned command" },
+          "effort": { "type": ["string", "null"], "description": "effort set by the tier flags, when the CLI takes one" },
+          "tier": { "type": ["string", "null"], "description": "small|medium|large, custom ORCH_TIERS_FILE tier, or pinned (command sets --model)" }
         }
       }
     },

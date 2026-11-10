@@ -161,10 +161,11 @@ orch_worker_result_warn() {
   fi
 }
 
-# orch_graph_upsert_node ID kind phase status message [parent]
+# orch_graph_upsert_node ID kind phase status message [parent] [agent]
+# Non-empty `agent`: attach cli/model/effort/tier of the last orch_agent_run call.
 orch_graph_upsert_node() {
   local id="$1" kind="$2" phase="$3" status="$4" msg="$5"
-  local parent="${6:-}"
+  local parent="${6:-}" agent="${7:-}"
   local gf
   if ! orch_graph_enabled; then
     return 0
@@ -181,6 +182,11 @@ orch_graph_upsert_node() {
     --arg status "$status" \
     --arg msg "$msg" \
     --arg parent "$parent" \
+    --arg agent "$agent" \
+    --arg cli "${ORCH_AGENT_CLI:-}" \
+    --arg model "${ORCH_AGENT_MODEL:-}" \
+    --arg effort "${ORCH_AGENT_EFFORT:-}" \
+    --arg tier "${ORCH_AGENT_TIER:-}" \
     --arg updated "$(orch_graph_now)" \
     '
       .updated_at = $updated
@@ -193,7 +199,10 @@ orch_graph_upsert_node() {
               status: $status,
               message: $msg,
               parent: (if $parent == "" then null else $parent end)
-            }]
+            }
+            + (if $agent == "" then {}
+               else {cli:$cli, model:$model, effort:$effort, tier:$tier}
+                 | map_values(if . == "" then null else . end) end)]
         )
     '
 }
@@ -252,7 +261,7 @@ orch_graph_worker() {
     # pr-fix runs this same loop with ORCH_ROLE=pr-fix (orch.sh).
     ORCH_ROLE="${ORCH_ROLE:-worker}" orch_agent_run "$wt" "$prompt" || agent_rc=$?
 
-    orch_graph_upsert_node "$agent_node" agent "$phase" done "agent exit $agent_rc" "$node_prefix"
+    orch_graph_upsert_node "$agent_node" agent "$phase" done "agent exit $agent_rc" "$node_prefix" agent
 
     local verify_node="${node_prefix}-verify-${i}"
     orch_graph_upsert_node "$verify_node" verify verify running "running verify" "$node_prefix"
@@ -365,11 +374,11 @@ orch_graph_verifier_pass() {
   rm -f "$wt/.orch/agent-ok" "$wt/.orch/verifier-ok" "$wt/.orch/verifier-fail" 2>/dev/null || true
   if ORCH_ROLE=verifier orch_agent_run "$wt" "$vprompt"; then
     if [ -f "$wt/.orch/verifier-ok" ]; then
-      orch_graph_upsert_node "$vnode" verifier grounding done "grounded" "$parent"
+      orch_graph_upsert_node "$vnode" verifier grounding done "grounded" "$parent" agent
       return 0
     fi
   fi
-  orch_graph_upsert_node "$vnode" verifier grounding failed "not grounded" "$parent"
+  orch_graph_upsert_node "$vnode" verifier grounding failed "not grounded" "$parent" agent
   return 1
 }
 
@@ -430,10 +439,10 @@ $(cat "$ORCH_REPO/.orch/run/${id}.status")
   export ORCH_WT="$ORCH_REPO"
   export ORCH_WORKER_ID=""
   if ORCH_ROLE=integrator orch_agent_run "$ORCH_REPO" "$out"; then
-    orch_graph_upsert_node integrator integrator synthesize done "synthesis complete" ""
+    orch_graph_upsert_node integrator integrator synthesize done "synthesis complete" "" agent
     return 0
   fi
-  orch_graph_upsert_node integrator integrator synthesize failed "integrator agent failed" ""
+  orch_graph_upsert_node integrator integrator synthesize failed "integrator agent failed" "" agent
   return 1
 }
 
@@ -711,5 +720,5 @@ $(cat "$wt/.orch/worker-result.json")
   { cat "$out"; printf '\n\n## Task payloads\n%s\n' "$summaries"; } >"$out"
   export ORCH_WT="$ORCH_REPO"
   ORCH_ROLE=integrator orch_agent_run "$ORCH_REPO" "$out" || return 0
-  orch_graph_upsert_node integrator integrator synthesize done "plan synthesis" ""
+  orch_graph_upsert_node integrator integrator synthesize done "plan synthesis" "" agent
 }

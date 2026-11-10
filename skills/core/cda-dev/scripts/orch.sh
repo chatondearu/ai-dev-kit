@@ -95,6 +95,10 @@ fi
 # One run id for the graph file (.orch/graph/live/<run>.json), status.json and tmux
 # worker sessions (orch-<run>-<worker>), shared by every worker.
 export ORCH_RUN_ID="${ORCH_RUN_ID:-$(date -u +%Y%m%dT%H%M%SZ)}"
+if [ -n "${ORCH_TIERS_FILE:-}" ] && [ ! -r "$ORCH_TIERS_FILE" ]; then
+  echo "orch: ORCH_TIERS_FILE not readable: $ORCH_TIERS_FILE" >&2
+  exit 2
+fi
 if [ "${ORCH_TMUX:-0}" = 1 ]; then
   [ "$SANDBOX" != 1 ] || echo "orch: ORCH_TMUX ignored with --sandbox (tmux runs agents outside bwrap)" >&2
 fi

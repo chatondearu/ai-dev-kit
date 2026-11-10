@@ -36,7 +36,22 @@ session that launched the run, with explicit overrides per role.
 6. `codex` runs as `codex exec --dangerously-bypass-approvals-and-sandbox -` (prompt on
    stdin), like `claude -p --dangerously-skip-permissions`.
 
-Tiers (model/effort per role) are added by #208 as a further section of this ADR.
+### Tiers (#208)
+
+7. **Tier table**: `skills/core/cda-dev/config/tiers.tsv` maps `cli<TAB>tier<TAB>flags`
+   for `claude`, `cursor` (`agent` / `cursor-agent`), `opencode` and `codex`; tiers are
+   `small`, `medium`, `large`. `ORCH_TIERS_FILE` replaces the whole table; a missing or
+   unreadable file is an error (`orch.sh` exits 2), never a silent fallback. opencode
+   and codex rows are marked unverified until run on the maintainer host.
+8. **Tier per role** (`orch_tier_for_role`): `ORCH_TIER` (current tier, set by
+   escalation in #209) > `ORCH_TIER_<ROLE>` > default (`integrator` → `small`, other
+   roles → `medium`). Tiers only add flags: they never change the resolved CLI.
+9. **Pinned**: an agent command that already passes `--model` / `-m` gets no tier
+   flags and is recorded as tier `pinned`.
+10. **Unknown CLI**: a CLI with no row runs without flags and warns once per run.
+11. **Visibility**: `cli`, `model`, `effort`, `tier` are written to the worker entry of
+    `.orch/run/status.json` (roles `worker` / `pr-fix`) and to graph nodes of agent runs;
+    `--dry-run` prints `tier[<role>]: <tier> <flags>`.
 
 ## Alternatives considered
 
@@ -63,6 +78,9 @@ Tiers (model/effort per role) are added by #208 as a further section of this ADR
 
 - [[../../plans/PLAN-207-worker-cli-inheritance|PLAN-207]], issue
   [#207](https://github.com/chatondearu/ai-dev-kit/issues/207)
-- `skills/core/cda-dev/scripts/lib/agents.sh`, `orch.sh`, `orch-auto.sh`
+- [[../../plans/PLAN-208-model-tiers|PLAN-208]], issue
+  [#208](https://github.com/chatondearu/ai-dev-kit/issues/208)
+- `skills/core/cda-dev/scripts/lib/agents.sh`, `orch.sh`, `orch-auto.sh`,
+  `skills/core/cda-dev/config/tiers.tsv`
 - Operator docs: [`doc/orchestration.md`](../../doc/orchestration.md),
   [`doc/configuration.md`](../../doc/configuration.md)

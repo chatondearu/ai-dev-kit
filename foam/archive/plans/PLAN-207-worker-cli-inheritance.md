@@ -1,7 +1,7 @@
 # PLAN-207 — Resolve the worker CLI: overrides, parent session, PATH
 
-- **Status**: in-progress
-- **PRD**: [[../prd/PRD-206-cli-inheritance-tiers|PRD-206]]
+- **Status**: done
+- **PRD**: [[../../prd/PRD-206-cli-inheritance-tiers|PRD-206]]
 - **GitHub**: [#207](https://github.com/chatondearu/ai-dev-kit/issues/207)
 - **Date**: 2026-11-09
 

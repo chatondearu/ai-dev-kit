@@ -1,7 +1,7 @@
 # PLAN-208 — Run each role at a model/effort tier
 
-- **Status**: verify
-- **PRD**: [[../prd/PRD-206-cli-inheritance-tiers|PRD-206]]
+- **Status**: done
+- **PRD**: [[../../prd/PRD-206-cli-inheritance-tiers|PRD-206]]
 - **GitHub**: [#208](https://github.com/chatondearu/ai-dev-kit/issues/208)
 - **Date**: 2026-11-09
 - **Blocked by**: #207

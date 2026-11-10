@@ -1,7 +1,7 @@
 # PLAN-210 — Doctor warns on stale Cursor model ids
 
-- **Status**: ready
-- **PRD**: [[../prd/PRD-206-cli-inheritance-tiers|PRD-206]]
+- **Status**: done
+- **PRD**: [[../../prd/PRD-206-cli-inheritance-tiers|PRD-206]]
 - **GitHub**: [#210](https://github.com/chatondearu/ai-dev-kit/issues/210)
 - **Date**: 2026-11-09
 - **Blocked by**: #208
@@ -38,5 +38,5 @@ silent AFK worker failure into a readable warning.
 
 ## Test plan
 
-- [ ] stub lists a subset → warning names the missing id; full list → no warning; no CLI → no output
-- [ ] `nix develop -c bash scripts/verify.sh`
+- [x] stub lists a subset → warning names the missing id; full list → no warning; no CLI → no output
+- [x] `nix develop -c bash scripts/verify.sh`

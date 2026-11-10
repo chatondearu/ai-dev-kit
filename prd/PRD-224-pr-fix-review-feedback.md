@@ -1,6 +1,6 @@
 # PRD-224 — pr-fix addresses trusted review feedback, not only red CI
 
-- **Status**: approved
+- **Status**: shipped
 - **GitHub**: [#224](https://github.com/chatondearu/ai-dev-kit/issues/224)
 - **Date**: 2026-11-10
 - **Tags**: #product #orchestration
@@ -14,10 +14,10 @@ agent call: PR #219 needed a sub-agent to apply a master review finding.
 
 ## Goals
 
-- [ ] pr-fix acts on change requests from trusted reviewers.
-- [ ] Untrusted PR text never reaches the agent as instructions.
-- [ ] The PR shows what was addressed and what was not.
-- [ ] No agent call when there is nothing to fix.
+- [x] pr-fix acts on change requests from trusted reviewers.
+- [x] Untrusted PR text never reaches the agent as instructions.
+- [x] The PR shows what was addressed and what was not.
+- [x] No agent call when there is nothing to fix.
 
 ## Non-goals
 
@@ -37,20 +37,20 @@ agent call: PR #219 needed a sub-agent to apply a master review finding.
 
 ### Functional
 
-- [ ] Feedback sources: reviews with state `CHANGES_REQUESTED`, unresolved review
+- [x] Feedback sources: reviews with state `CHANGES_REQUESTED`, unresolved review
       threads (GraphQL `reviewThreads.isResolved=false`), conversation comments
       created after the head commit; author association `OWNER|MEMBER|COLLABORATOR` only.
-- [ ] `orch.sh` fetches and filters; the prompt gets a `## Review feedback` section
+- [x] `orch.sh` fetches and filters; the prompt gets a `## Review feedback` section
       (author, kind, file:line when inline, body).
-- [ ] One summary PR comment per run: finding → commit sha, or the reason it was not addressed.
-- [ ] A finding conflicting with plan / ADR / product decision → `blocked` with a reason.
-- [ ] CI green (or allowed-no-checks) and no trusted feedback → `done` without agent.
+- [x] One summary PR comment per run: finding → commit sha, or the reason it was not addressed.
+- [x] A finding conflicting with plan / ADR / product decision → `blocked` with a reason.
+- [x] CI green (or allowed-no-checks) and no trusted feedback → `done` without agent.
 
 ### Non-functional
 
-- [ ] Stub-`gh` tests; never the live config.
-- [ ] gh lookup failure → fail closed (`blocked`), like the existing metadata guard.
-- [ ] `nix develop -c bash scripts/verify.sh` green.
+- [x] Stub-`gh` tests; never the live config.
+- [x] gh lookup failure → fail closed (`blocked`), like the existing metadata guard.
+- [x] `nix develop -c bash scripts/verify.sh` green.
 
 ## Related project memory
 
@@ -64,4 +64,4 @@ agent call: PR #219 needed a sub-agent to apply a master review finding.
 
 ## Implementation pointer
 
-`plans/PLAN-224-pr-fix-review-feedback.md`
+`foam/archive/plans/PLAN-224-pr-fix-review-feedback.md`

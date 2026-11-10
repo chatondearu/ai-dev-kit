@@ -1,7 +1,7 @@
 # PLAN-224 — pr-fix addresses trusted review feedback
 
-- **Status**: ready
-- **PRD**: [[../prd/PRD-224-pr-fix-review-feedback|PRD-224]]
+- **Status**: done
+- **PRD**: [[../../prd/PRD-224-pr-fix-review-feedback|PRD-224]]
 - **GitHub**: [#224](https://github.com/chatondearu/ai-dev-kit/issues/224)
 - **Date**: 2026-11-10
 
@@ -61,4 +61,4 @@ the agent entirely when there is nothing to fix.
 - [x] New `tests/test_pr_fix_feedback.sh` (or extend `test_pr_fix_gate.sh`): stub gh returns
       reviews/threads/comments with mixed associations and dates → only trusted, unresolved,
       post-head items in the prompt; empty + green → no agent call; gh failure → blocked
-- [ ] `nix develop -c bash scripts/verify.sh`
+- [x] `nix develop -c bash scripts/verify.sh`

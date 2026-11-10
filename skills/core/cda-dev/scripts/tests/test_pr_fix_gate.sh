@@ -40,6 +40,8 @@ case "$*" in
   *"pr view"*headRefName*) echo "${GH_STUB_HEAD-feat/x}" ;;
   *"pr view"*isCrossRepository*) echo "${GH_STUB_CROSS:-false}" ;;
   *"repo view"*defaultBranchRef*) echo main ;;
+  *"pr view"*reviews*) echo '{"reviews":[],"comments":[],"commits":[]}' ;;
+  *"api graphql"*) echo '{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[]}}}}}' ;;
   *) exit 0 ;;
 esac
 EOF

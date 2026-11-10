@@ -33,7 +33,7 @@ Details: [conventions.md](conventions.md). Design:
 | ---- | ------- | -------- | --------- | ---- |
 | `intake` | Feature/fix request in chat, one or more subjects | Yes (breakdown) | Epic issue (2+ children) + approved PRD + N≥1 Ready children + plans | PRs CI-green |
 | `ready-pickup` | Ready Kanban cards | No | Plan **or** triage agent brief (fast-lane) | PRs CI-green |
-| `pr-fix` | PR URL/number | No | None | Same PR CI-green |
+| `pr-fix` | PR URL/number | No | None | Same PR CI-green, trusted review feedback addressed (none + green → no agent) |
 
 **Lanes (ready-pickup):** if `plans/PLAN-<id>-*` exists → `full` (plan/PRD).
 Else → `fast` (triage agent brief required). See foam ADR-002.
@@ -42,8 +42,9 @@ Intake Q&A: [prompts/intake.md](prompts/intake.md) — questioning policy is
 `cda-grill`: **one** frontier round (every question whose answer changes the
 breakdown, each with a recommended answer; "ok" accepts them all), then GO.
 PR repair: [prompts/pr-fix.md](prompts/pr-fix.md) — same-repo PRs only; a fork PR or a
-head on the default branch is `blocked` before any agent run. Fast-lane briefs and
-`orch: allow-no-verify` count only from `OWNER`/`MEMBER`/`COLLABORATOR` authors.
+head on the default branch is `blocked` before any agent run. Fast-lane briefs,
+`orch: allow-no-verify` and pr-fix review feedback count only from
+`OWNER`/`MEMBER`/`COLLABORATOR` authors.
 Epic table: [templates/epic-breakdown.md](templates/epic-breakdown.md).
 
 ## Hard rules

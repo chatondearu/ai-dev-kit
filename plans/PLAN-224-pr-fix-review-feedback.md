@@ -44,10 +44,10 @@ the agent entirely when there is nothing to fix.
 
 ## Tasks
 
-- [ ] feedback collector + trust filter
-- [ ] nothing-to-fix skip
-- [ ] prompt section + summary comment instructions
-- [ ] tests (stub gh) + docs
+- [x] feedback collector + trust filter
+- [x] nothing-to-fix skip
+- [x] prompt section + summary comment instructions
+- [x] tests (stub gh) + docs
 
 ## Risks & mitigations
 
@@ -58,7 +58,7 @@ the agent entirely when there is nothing to fix.
 
 ## Test plan
 
-- [ ] New `tests/test_pr_fix_feedback.sh` (or extend `test_pr_fix_gate.sh`): stub gh returns
+- [x] New `tests/test_pr_fix_feedback.sh` (or extend `test_pr_fix_gate.sh`): stub gh returns
       reviews/threads/comments with mixed associations and dates → only trusted, unresolved,
       post-head items in the prompt; empty + green → no agent call; gh failure → blocked
 - [ ] `nix develop -c bash scripts/verify.sh`

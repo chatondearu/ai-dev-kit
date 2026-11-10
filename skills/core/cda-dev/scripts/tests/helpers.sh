@@ -8,6 +8,9 @@ while IFS= read -r _orch_k; do
   unset "$_orch_k" 2>/dev/null || true
 done < <(env | awk -F= '/^ORCH_/ { print $1 }')
 unset _orch_k
+# No parent-CLI inheritance in tests (ADR-010): no env markers, ps walk disabled.
+unset CLAUDECODE CODEX_THREAD_ID CODEX_SESSION_ID CURSOR_INVOKED_AS
+export ORCH_PS=false
 
 FAILS=0
 PASSES=0

@@ -94,7 +94,13 @@ UI path heuristic: `*.vue`, `*.tsx`, `*.jsx`, `*.css`, `*.scss`, or paths under 
 ## When to use the harness
 
 Prefer `scripts/orch.sh` when a supported agent CLI is on `PATH` (Cursor agent,
-`claude`, `opencode`, or `ORCH_AGENT` / `--agent` override):
+`claude`, `opencode`, `codex`, or `ORCH_AGENT` / `--agent` override).
+
+Workers inherit the CLI of this session (ADR-010). Set nothing unless the user asks
+for another CLI; then translate the request into env on the `orch.sh` command line:
+"verifier en codex" → `ORCH_AGENT_VERIFIER=codex`, "tout en cursor" →
+`ORCH_AGENT=agent`. Roles: `WORKER`, `REVIEWER`, `VERIFIER`, `INTEGRATOR`, `PR_FIX`.
+Check with `--dry-run` (`agent[<role>]: <cli> (<source>)`).
 
 ```bash
 SKILL=~/.cursor/skills/cda-dev   # or claude/opencode install path
@@ -118,7 +124,8 @@ bash "$SKILL/scripts/orch-auto.sh" --repo /path/to/repo --dry-run
 bash "$SKILL/scripts/orch-auto.sh" --repo /path/to/repo
 ```
 
-Systemd user templates: `templates/systemd/` — copy, set `ORCH_REPO`, then
+Systemd user templates: `templates/systemd/` — copy, set `ORCH_REPO` and
+`ORCH_AGENT` (required: no parent session to inherit from), then
 `systemctl --user enable --now cda-orch-auto.timer` (stop the timer to free the
 machine). Prefer a dedicated host for AFK load. Units are **not** enabled by
 `install.sh`.

@@ -14,6 +14,8 @@
 #   --no-graph           (disable live graph updates under .orch/graph/)
 #   -h|--help
 set -euo pipefail
+# A role inherited from a calling agent (e.g. a pr-fix worker running orch) is not ours.
+unset ORCH_ROLE
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 PROMPTS_DIR="$(cd "$ROOT/../prompts" && pwd)"
 export ORCH_PROMPTS_DIR="$PROMPTS_DIR"
@@ -244,7 +246,7 @@ orch_ready_pickup_one() {
     "CONSTRAINTS=$ORCH_CONSTRAINTS"
 
   export ORCH_WT="$path"
-  orch_detect_agent >/dev/null
+  orch_resolve_agent worker >/dev/null
   orch_progress_set "$id" agent "starting"
   if [ -f "$path/.orch/graph-plan-complete" ]; then
     {
@@ -371,6 +373,7 @@ orch_ready_pickup_one() {
 }
 
 orch_export_functions
+[ "$DRY" != 1 ] || orch_print_agents
 
 # Remove worktrees of issues that ended `done`; blocked ones stay for inspection.
 orch_cleanup_done() {
@@ -614,9 +617,9 @@ case "$MODE" in
         "HEAD_REF=$head_ref"
 
       export ORCH_WT="$path"
-      orch_detect_agent >/dev/null
+      orch_resolve_agent pr-fix >/dev/null
       loop_rc=0
-      orch_sandbox_wrap bash -c "ORCH_WT=\"$path\" orch_loop_worker \"$path\" \"$prompt_file\"" || loop_rc=$?
+      orch_sandbox_wrap bash -c "ORCH_WT=\"$path\" ORCH_ROLE=pr-fix orch_loop_worker \"$path\" \"$prompt_file\"" || loop_rc=$?
       if [ "$loop_rc" -ne 0 ]; then
         printf 'blocked: worker loop failed for PR %s\n' "$num" >&2
         exit 1

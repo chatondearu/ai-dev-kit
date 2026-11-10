@@ -44,7 +44,7 @@ chmod +x "$FAKE/npm"
 
 printf '{"scripts":{"test":"npm test"}}\n' >"$TMP/package.json"
 
-export PATH="$FAKE:$_ORIG_PATH" ORCH_AGENT= ORCH_AGENT_BIN=claude ORCH_MAX_ITER=3
+export PATH="$FAKE:$_ORIG_PATH" ORCH_AGENT=claude ORCH_MAX_ITER=3
 
 set +e
 out="$(orch_loop_worker "$TMP" "$PROMPT" 2>&1)"

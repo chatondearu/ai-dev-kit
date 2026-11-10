@@ -7,14 +7,16 @@ update host apps — run `./scripts/doctor.sh` to see what is on your `PATH`.
 ## Host agent CLIs (for orch / headless)
 
 Install via each product’s official channel (or your NixOS / home-manager).
-`orch.sh` and `headless.sh` auto-detect, in order: `agent`, `cursor-agent`,
-`claude`, `opencode` (override with `ORCH_AGENT`).
+`orch.sh` and `headless.sh` use the CLI of the session that launched them, else the
+first of `agent`, `cursor-agent`, `claude`, `opencode` on `PATH` (override with
+`ORCH_AGENT` or per role with `ORCH_AGENT_<ROLE>`; see `doc/configuration.md`).
 
 | CLI | Notes |
 | --- | ----- |
 | Cursor Agent | Cursor subscription; headless often needs trust/auto-approve flags |
 | Claude Code (`claude`) | Anthropic subscription / CLI |
 | OpenCode (`opencode`) | Alternative coding CLI |
+| Codex (`codex`) | Runs as `codex exec`; picked when it launched the run or via `ORCH_AGENT*` |
 | `gh`, `git` | Required for Kanban / CI modes of `orch.sh` |
 | `flock`, `jq` | Required for `orch-auto.sh` (Ready poller) |
 
@@ -32,7 +34,7 @@ SKILL=~/.cursor/skills/cda-dev
 mkdir -p ~/.config/systemd/user
 cp "$SKILL/templates/systemd/cda-orch-auto."{service,timer} ~/.config/systemd/user/
 cp "$SKILL/templates/systemd/cda-orch-auto.env.example" ~/.config/cda-orch-auto.env
-# edit ORCH_REPO (and PATH / ORCH_AGENT) in ~/.config/cda-orch-auto.env
+# edit ORCH_REPO, ORCH_AGENT (required) and PATH in ~/.config/cda-orch-auto.env
 systemctl --user daemon-reload
 systemctl --user enable --now cda-orch-auto.timer   # AFK ON
 systemctl --user stop cda-orch-auto.timer            # free this machine

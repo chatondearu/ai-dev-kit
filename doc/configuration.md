@@ -4,7 +4,7 @@
 
 | Tool | Used by |
 | ---- | ------- |
-| Agent CLI (`agent`, `cursor-agent`, `claude`, `opencode`) | `orch.sh`, `headless.sh` |
+| Agent CLI (`agent`, `cursor-agent`, `claude`, `opencode`, `codex`) | `orch.sh`, `headless.sh` |
 | `gh`, `git` | Kanban / CI modes of orch |
 | `jq`, `flock` | `orch-auto.sh`, `orch.sh` (ready-pickup / pr-fix) |
 | `bwrap` (required for `--sandbox`) | `--sandbox` exits if missing (no unsandboxed fallback) |
@@ -16,7 +16,9 @@ these (`./scripts/doctor.sh` only checks `PATH`).
 
 | Variable | Default | Meaning |
 | -------- | ------- | ------- |
-| `ORCH_AGENT` | auto-detect | Override agent invoke command |
+| `ORCH_AGENT` | inherited | Agent CLI for every role. Unset → CLI of the session that launched `orch.sh` (`CLAUDECODE`, `CODEX_THREAD_ID`/`CODEX_SESSION_ID`, `CURSOR_INVOKED_AS`, else `ps` ancestry), then first of `agent`, `cursor-agent`, `claude`, `opencode` on `PATH` ([ADR-010](../foam/decisions/ADR-010-worker-cli-inheritance-and-tiers.md)). **Required** by `orch-auto.sh` (exit 2 when empty) |
+| `ORCH_AGENT_<ROLE>` | unset | Per-role CLI, beats `ORCH_AGENT`: `ORCH_AGENT_WORKER`, `ORCH_AGENT_REVIEWER`, `ORCH_AGENT_VERIFIER`, `ORCH_AGENT_INTEGRATOR`, `ORCH_AGENT_PR_FIX` |
+| `ORCH_ROLE` | `worker` | Internal: role of the current agent call, set by the harness at each call site (`pr-fix` loop runs with `ORCH_ROLE=pr-fix`) |
 | `ORCH_MAX_PARALLEL` | `3` (`1` for orch-auto default) | Parallel ready-pickup workers |
 | `ORCH_MAX_ITER` | `10` | Verify-loop retries per worker |
 | `ORCH_PROGRESS` | `auto` | Set `0` to disable TTY dashboard |

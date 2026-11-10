@@ -1,5 +1,5 @@
 // Which coding agent is running the skill. Recorded on the map so "Fix with" names the right one.
-// Detection order matches orch.sh: agent, cursor-agent, claude, opencode — plus codex.
+// Detection order matches the orch.sh PATH fallback: agent, cursor-agent, claude, opencode — plus codex.
 // Ask itself only uses structured adapters (ASK_ENGINES); see assets/serve.mjs.
 // --agent / --engine (or FLOORPLAN_AGENT / FLOORPLAN_ENGINE) override; otherwise PATH + env hints.
 import { execFileSync } from 'node:child_process';

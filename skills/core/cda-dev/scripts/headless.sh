@@ -5,6 +5,7 @@
 #   bash headless.sh --prompt "fix the flaky test" [--repo DIR] [--max-iter N]
 #   bash headless.sh --prompt-file ./task.md --dry-run
 set -euo pipefail
+unset ORCH_ROLE  # not ours when a calling agent runs us (see orch.sh)
 _self="${BASH_SOURCE[0]:-$0}"
 _dir="${_self%/*}"
 [ "$_dir" = "$_self" ] && _dir="."

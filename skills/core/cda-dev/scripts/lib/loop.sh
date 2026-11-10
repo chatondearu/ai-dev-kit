@@ -72,7 +72,7 @@ orch_loop_worker() { orch_graph_worker "$@"; }
 # `REVIEW: changes_requested` or no verdict → 1 (fail closed).
 orch_review_run() {
   local wt="$1" rprompt="$2" rlog="$3"
-  orch_agent_run "$wt" "$rprompt" 2>&1 | tee "$rlog" >&2 || true
+  ORCH_ROLE=reviewer orch_agent_run "$wt" "$rprompt" 2>&1 | tee "$rlog" >&2 || true
   case "$(grep -oE 'REVIEW: *(approved|changes_requested)' "$rlog" | tail -n 1)" in
     *approved) return 0 ;;
     *changes_requested) return 1 ;;

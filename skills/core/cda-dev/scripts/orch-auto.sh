@@ -25,6 +25,7 @@ orch-auto.sh — poll Ready cards → orch ready-pickup
 
 Skips: triage:ready-for-human, issues with an open PR on feat/<id>-issue-<id>,
 and (fail closed) any issue whose label or PR lookup fails.
+Requires ORCH_AGENT (exit 2 when empty): no parent session to inherit a CLI from.
 Runs one discovery+dispatch cycle, then exits (systemd oneshot).
 Uses flock on <repo>/.orch/auto.lock. Logs under <repo>/.orch/auto/ (newest 50 kept).
 EOF
@@ -40,6 +41,12 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
+
+# AFK runs have no parent session to inherit a CLI from: never guess one (ADR-010).
+if [ -z "${ORCH_AGENT:-}" ]; then
+  echo "orch-auto: ORCH_AGENT is not set; set it (e.g. ORCH_AGENT=claude) in the env file (~/.config/cda-orch-auto.env for the systemd unit)" >&2
+  exit 2
+fi
 
 source "$ROOT/lib/worktree.sh"
 REPO="$(orch_repo_root "$REPO")"

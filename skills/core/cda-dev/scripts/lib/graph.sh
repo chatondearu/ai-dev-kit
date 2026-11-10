@@ -249,7 +249,8 @@ orch_graph_worker() {
 
     rm -f "$wt/.orch/agent-ok" 2>/dev/null || true
     agent_rc=0
-    orch_agent_run "$wt" "$prompt" || agent_rc=$?
+    # pr-fix runs this same loop with ORCH_ROLE=pr-fix (orch.sh).
+    ORCH_ROLE="${ORCH_ROLE:-worker}" orch_agent_run "$wt" "$prompt" || agent_rc=$?
 
     orch_graph_upsert_node "$agent_node" agent "$phase" done "agent exit $agent_rc" "$node_prefix"
 
@@ -362,7 +363,7 @@ orch_graph_verifier_pass() {
 
   # Markers from a previous pass (review fix, reused worktree) must not decide this one.
   rm -f "$wt/.orch/agent-ok" "$wt/.orch/verifier-ok" "$wt/.orch/verifier-fail" 2>/dev/null || true
-  if orch_agent_run "$wt" "$vprompt"; then
+  if ORCH_ROLE=verifier orch_agent_run "$wt" "$vprompt"; then
     if [ -f "$wt/.orch/verifier-ok" ]; then
       orch_graph_upsert_node "$vnode" verifier grounding done "grounded" "$parent"
       return 0
@@ -428,7 +429,7 @@ $(cat "$ORCH_REPO/.orch/run/${id}.status")
 
   export ORCH_WT="$ORCH_REPO"
   export ORCH_WORKER_ID=""
-  if orch_agent_run "$ORCH_REPO" "$out"; then
+  if ORCH_ROLE=integrator orch_agent_run "$ORCH_REPO" "$out"; then
     orch_graph_upsert_node integrator integrator synthesize done "synthesis complete" ""
     return 0
   fi
@@ -709,6 +710,6 @@ $(cat "$wt/.orch/worker-result.json")
   orch_render_prompt "$tpl" "$out" "REPO_ROOT=$ORCH_REPO" "WORKER_SUMMARIES=see below"
   { cat "$out"; printf '\n\n## Task payloads\n%s\n' "$summaries"; } >"$out"
   export ORCH_WT="$ORCH_REPO"
-  orch_agent_run "$ORCH_REPO" "$out" || return 0
+  ORCH_ROLE=integrator orch_agent_run "$ORCH_REPO" "$out" || return 0
   orch_graph_upsert_node integrator integrator synthesize done "plan synthesis" ""
 }

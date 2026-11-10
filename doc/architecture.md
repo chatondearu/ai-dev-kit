@@ -9,7 +9,7 @@
 | `cda-graph` | Model + foam export; live `.orch/graph/current.json` (see [graph-orchestration.md](graph-orchestration.md)) |
 | `orch-auto.sh` | Opt-in poller: discover Ready → call `ready-pickup` |
 | `headless.sh` | One prompt + verify in the current tree — **no** issue / worktree / PR |
-| Host agent CLI | `agent` / `cursor-agent` / `claude` / `opencode` (or `ORCH_AGENT`) |
+| Host agent CLI | `agent` / `cursor-agent` / `claude` / `opencode` / `codex`: the launching session's CLI, `ORCH_AGENT` / `ORCH_AGENT_<ROLE>` overrides (ADR-010) |
 
 Boundary (accepted ADRs):
 

@@ -54,6 +54,19 @@ session that launched the run, with explicit overrides per role.
     graph nodes of agent runs;
     `--dry-run` prints `tier[<role>]: <tier> <flags>`.
 
+### Escalation (#209)
+
+12. **One tier up per failure**: in the worker / pr-fix loop (`orch_graph_worker`) a red
+    verify or a failed grounding verifier makes the next iteration run one tier up
+    (`orch_tier_escalate` exports `ORCH_TIER`), bounded by `ORCH_TIER_MAX` (default
+    `large`, validated by `orch.sh`). A failure at the ceiling ends the worker `blocked`
+    (`tier ceiling <tier> reached: <failure>`, loop rc 4) even with iterations left; on the
+    last iteration `max iter exhausted` stays the reason. Pinned commands, CLIs with no
+    table row and tiers outside `small|medium|large` never escalate. The review gate keeps
+    its one fix iteration. Only the worker / pr-fix calls use the escalated or task tier:
+    the grounding verifier runs with `ORCH_TIER` cleared, so it keeps its own role tier.
+13. **Task tier**: a graph-plan task may set `tier`; its worker starts there.
+
 ## Alternatives considered
 
 | Alternative | Why rejected |
@@ -81,6 +94,8 @@ session that launched the run, with explicit overrides per role.
   [#207](https://github.com/chatondearu/ai-dev-kit/issues/207)
 - [[../../plans/PLAN-208-model-tiers|PLAN-208]], issue
   [#208](https://github.com/chatondearu/ai-dev-kit/issues/208)
+- [[../../plans/PLAN-209-tier-escalation|PLAN-209]], issue
+  [#209](https://github.com/chatondearu/ai-dev-kit/issues/209)
 - `skills/core/cda-dev/scripts/lib/agents.sh`, `orch.sh`, `orch-auto.sh`,
   `skills/core/cda-dev/config/tiers.tsv`
 - Operator docs: [`doc/orchestration.md`](../../doc/orchestration.md),

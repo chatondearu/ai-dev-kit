@@ -66,6 +66,10 @@ runs outside bubblewrap. Decision: [ADR-007](../foam/decisions/ADR-007-cdamux-se
 Store plans under `plans/graph/` or `.orch/graph/` (gitignored). Example:
 [`skills/core/cda-graph/templates/graph-plan.example.json`](../skills/core/cda-graph/templates/graph-plan.example.json).
 
+Each task may set `tier` (`small`, `medium`, `large`): the tier its worker starts at
+([ADR-010](../foam/decisions/ADR-010-worker-cli-inheritance-and-tiers.md)); it still
+escalates one tier per failure up to `ORCH_TIER_MAX`. Unset → the role default.
+
 **Parallel safety:** tasks must not share overlapping `paths` prefixes. Validate:
 
 ```bash

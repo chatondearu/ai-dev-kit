@@ -99,6 +99,10 @@ if [ -n "${ORCH_TIERS_FILE:-}" ] && [ ! -r "$ORCH_TIERS_FILE" ]; then
   echo "orch: ORCH_TIERS_FILE not readable: $ORCH_TIERS_FILE" >&2
   exit 2
 fi
+case "${ORCH_TIER_MAX:-large}" in small|medium|large) ;; *)
+  echo "orch: ORCH_TIER_MAX must be small, medium or large (got: $ORCH_TIER_MAX)" >&2
+  exit 2 ;;
+esac
 if [ "${ORCH_TMUX:-0}" = 1 ]; then
   [ "$SANDBOX" != 1 ] || echo "orch: ORCH_TMUX ignored with --sandbox (tmux runs agents outside bwrap)" >&2
 fi
@@ -262,8 +266,8 @@ orch_ready_pickup_one() {
   local worker_env="ORCH_WT=\"$path\" ORCH_WORKER_ID=\"$id\" ORCH_REPO=\"$ORCH_REPO\" ORCH_PROGRESS=\"${ORCH_PROGRESS:-auto}\" ORCH_ALLOW_NO_VERIFY=\"$allow_no_verify\""
   orch_sandbox_wrap bash -c "$worker_env orch_loop_worker \"$path\" \"$worker_prompt\"" || loop_rc=$?
   if [ "$loop_rc" -ne 0 ]; then
-    # rc 3 = no verify command (loop already set the progress reason).
-    if [ "$loop_rc" -ne 3 ]; then
+    # rc 3 = no verify command, rc 4 = tier ceiling (loop already set the progress reason).
+    if [ "$loop_rc" -ne 3 ] && [ "$loop_rc" -ne 4 ]; then
       orch_progress_set "$id" blocked "worker loop failed"
     fi
     if ! orch_progress_enabled; then

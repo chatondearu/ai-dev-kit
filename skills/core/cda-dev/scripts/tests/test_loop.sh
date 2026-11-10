@@ -173,6 +173,85 @@ rm -rf "$TMP2F"
 assert_eq "$rc_nov" "1" "missing verifier prompt -> loop fails"
 assert_contains "$out_nov" "verifier prompt missing" "logs the missing verifier prompt"
 
+# Test 2g: a failed iteration re-runs one tier up (ADR-010); a failure at ORCH_TIER_MAX ends blocked
+TMP2G="$(mktemp -d)"
+printf '{"scripts":{"test":"npm test"}}\n' >"$TMP2G/package.json"
+cat >"$FAKE/npm" <<EOF
+#!$STUB_BASH
+exit 1
+EOF
+cat >"$FAKE/claude" <<EOF
+#!$STUB_BASH
+echo "\$*" >>"$TMP2G/calls.txt"
+exit 0
+EOF
+set +e
+out_esc="$(ORCH_AGENT=claude ORCH_MAX_ITER=5 orch_loop_worker "$TMP2G" "$PROMPT" 2>&1)"
+rc_esc=$?
+set -e
+assert_eq "$rc_esc" "4" "failure at the tier ceiling -> rc 4"
+assert_eq "$(wc -l <"$TMP2G/calls.txt" | tr -d ' ')" "2" "medium then large, then blocked (not 5 iterations)"
+assert_contains "$(sed -n 1p "$TMP2G/calls.txt")" "--model sonnet --effort high" "iteration 1 runs at medium"
+assert_contains "$(sed -n 2p "$TMP2G/calls.txt")" "--model opus" "iteration 2 runs at large"
+assert_contains "$out_esc" "blocked: tier ceiling large reached: verify failed" "ceiling reason names tier and failure"
+
+rm -f "$TMP2G/calls.txt"
+set +e
+out_esc="$(ORCH_AGENT=claude ORCH_MAX_ITER=5 ORCH_TIER_MAX=medium orch_loop_worker "$TMP2G" "$PROMPT" 2>&1)"
+rc_esc=$?
+set -e
+assert_eq "$rc_esc" "4" "ORCH_TIER_MAX=medium -> blocked after one failure"
+assert_eq "$(wc -l <"$TMP2G/calls.txt" | tr -d ' ')" "1" "ORCH_TIER_MAX=medium runs one iteration"
+assert_contains "$out_esc" "tier ceiling medium reached" "ceiling reason at medium"
+
+# A start tier (graph-plan task) is the first tier tried.
+rm -f "$TMP2G/calls.txt"
+out_esc="$(ORCH_AGENT=claude ORCH_MAX_ITER=5 ORCH_TIER=small orch_loop_worker "$TMP2G" "$PROMPT" 2>&1 || true)"
+assert_eq "$(wc -l <"$TMP2G/calls.txt" | tr -d ' ')" "3" "small, medium, large"
+assert_contains "$(sed -n 1p "$TMP2G/calls.txt")" "--effort low" "start tier small"
+
+# Pinned command: no escalation, ORCH_MAX_ITER only.
+rm -f "$TMP2G/calls.txt"
+set +e
+out_esc="$(ORCH_AGENT="claude --model haiku" ORCH_MAX_ITER=3 orch_loop_worker "$TMP2G" "$PROMPT" 2>&1)"
+rc_esc=$?
+set -e
+assert_eq "$rc_esc" "1" "pinned role ends on max iter, not on a tier ceiling"
+assert_eq "$(wc -l <"$TMP2G/calls.txt" | tr -d ' ')" "3" "pinned role runs every iteration"
+assert_eq "$(grep -c -- '--model opus' "$TMP2G/calls.txt" || true)" "0" "pinned role never escalates"
+rm -rf "$TMP2G"
+
+# Test 2h: after the worker escalated, the grounding verifier keeps its own tier (ADR-010)
+TMP2H="$(mktemp -d)"
+printf '{"scripts":{"test":"npm test"}}\n' >"$TMP2H/package.json"
+mkdir -p "$TMP2H/prompts"
+printf '# Verifier (grounding node)\n' >"$TMP2H/prompts/verifier.md"
+cat >"$FAKE/npm" <<EOF
+#!$STUB_BASH
+# Red on the first run only.
+[ -f "$TMP2H/verified-once" ] && exit 0
+touch "$TMP2H/verified-once"
+exit 1
+EOF
+cat >"$FAKE/claude" <<EOF
+#!$STUB_BASH
+case "\$(cat)" in
+  *"Verifier (grounding node)"*) echo "verifier \$*" >>"$TMP2H/calls.txt"; touch .orch/verifier-ok ;;
+  *) echo "worker \$*" >>"$TMP2H/calls.txt" ;;
+esac
+exit 0
+EOF
+set +e
+ORCH_GRAPH_VERIFY=1 ORCH_PROMPTS_DIR="$TMP2H/prompts" ORCH_REPO="$TMP2H" ORCH_AGENT=claude \
+  ORCH_MAX_ITER=3 orch_loop_worker "$TMP2H" "$PROMPT" >/dev/null 2>&1
+rc_ver=$?
+set -e
+assert_eq "$rc_ver" "0" "loop passes once verify turns green"
+assert_contains "$(sed -n 2p "$TMP2H/calls.txt")" "--model opus" "worker escalated to large"
+assert_eq "$(sed -n 3p "$TMP2H/calls.txt" | cut -d" " -f1)" "verifier" "third call is the verifier"
+assert_contains "$(sed -n 3p "$TMP2H/calls.txt")" "--model sonnet --effort high" "verifier stays at medium"
+rm -rf "$TMP2H"
+
 # Test 3: Prompt substitution helper
 TMP_TPL="$(mktemp)"
 TMP_DEST="$(mktemp -u)"

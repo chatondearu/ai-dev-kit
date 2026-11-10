@@ -49,6 +49,12 @@ defaults to `small`, the others to `medium`), turned into CLI flags by
 already passes `--model` / `-m` is `pinned`. `--dry-run` adds a
 `tier[<role>]: <tier> <flags>` line per role.
 
+**Escalation**: in the worker and `pr-fix` loops each failed iteration (red verify or failed
+grounding verifier) re-runs one tier up (`small` → `medium` → `large`), bounded by
+`ORCH_TIER_MAX` (default `large`). A failure at the ceiling ends the worker `blocked`
+with `tier ceiling <tier> reached: <failure>`; a pinned command only stops at
+`ORCH_MAX_ITER`. `status.json` and graph nodes show the tier of the latest run.
+
 `pr-fix` only works on same-repo PRs: a cross-repository (fork) PR, a PR whose
 head branch is the default branch, or unreadable PR metadata ends `blocked`
 before any agent run (and before the PR is checked out).

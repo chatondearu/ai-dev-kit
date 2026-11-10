@@ -28,6 +28,8 @@ n="$(jq '.tasks | length' "$PLAN")"
 issue="$(jq -r '.issue // empty' "$PLAN")"
 printf 'plan issue=%s tasks=%s\n' "${issue:-?}" "$n"
 
+orch_graph_plan_validate_tiers "$PLAN" || exit 1
+
 if orch_graph_plan_validate_disjoint "$PLAN"; then
   printf 'paths: disjoint (safe for ORCH_GRAPH_PLAN_PARALLEL=auto|parallel)\n'
 else
@@ -37,5 +39,6 @@ fi
 for i in $(seq 0 $((n - 1))); do
   tid="$(jq -r ".tasks[$i].id" "$PLAN")"
   paths="$(jq -r ".tasks[$i].paths | join(\", \")" "$PLAN")"
-  printf '  - %s: %s\n' "$tid" "$paths"
+  tier="$(jq -r ".tasks[$i].tier // empty" "$PLAN")"
+  printf '  - %s: %s%s\n' "$tid" "$paths" "${tier:+ (tier $tier)}"
 done

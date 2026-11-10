@@ -63,7 +63,8 @@ session that launched the run, with explicit overrides per role.
     (`tier ceiling <tier> reached: <failure>`, loop rc 4) even with iterations left; on the
     last iteration `max iter exhausted` stays the reason. Pinned commands, CLIs with no
     table row and tiers outside `small|medium|large` never escalate. The review gate keeps
-    its one fix iteration.
+    its one fix iteration. Only the worker / pr-fix calls use the escalated or task tier:
+    the grounding verifier runs with `ORCH_TIER` cleared, so it keeps its own role tier.
 13. **Task tier**: a graph-plan task may set `tier`; its worker starts there.
 
 ## Alternatives considered

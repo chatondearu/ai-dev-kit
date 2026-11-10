@@ -392,7 +392,8 @@ orch_graph_verifier_pass() {
 
   # Markers from a previous pass (review fix, reused worktree) must not decide this one.
   rm -f "$wt/.orch/agent-ok" "$wt/.orch/verifier-ok" "$wt/.orch/verifier-fail" 2>/dev/null || true
-  if ORCH_ROLE=verifier orch_agent_run "$wt" "$vprompt"; then
+  # Empty ORCH_TIER: the worker's escalated/task tier must not leak into the verifier (ADR-010).
+  if ORCH_TIER= ORCH_ROLE=verifier orch_agent_run "$wt" "$vprompt"; then
     if [ -f "$wt/.orch/verifier-ok" ]; then
       orch_graph_upsert_node "$vnode" verifier grounding done "grounded" "$parent" agent
       return 0

@@ -221,6 +221,37 @@ assert_eq "$(wc -l <"$TMP2G/calls.txt" | tr -d ' ')" "3" "pinned role runs every
 assert_eq "$(grep -c -- '--model opus' "$TMP2G/calls.txt" || true)" "0" "pinned role never escalates"
 rm -rf "$TMP2G"
 
+# Test 2h: after the worker escalated, the grounding verifier keeps its own tier (ADR-010)
+TMP2H="$(mktemp -d)"
+printf '{"scripts":{"test":"npm test"}}\n' >"$TMP2H/package.json"
+mkdir -p "$TMP2H/prompts"
+printf '# Verifier (grounding node)\n' >"$TMP2H/prompts/verifier.md"
+cat >"$FAKE/npm" <<EOF
+#!$STUB_BASH
+# Red on the first run only.
+[ -f "$TMP2H/verified-once" ] && exit 0
+touch "$TMP2H/verified-once"
+exit 1
+EOF
+cat >"$FAKE/claude" <<EOF
+#!$STUB_BASH
+case "\$(cat)" in
+  *"Verifier (grounding node)"*) echo "verifier \$*" >>"$TMP2H/calls.txt"; touch .orch/verifier-ok ;;
+  *) echo "worker \$*" >>"$TMP2H/calls.txt" ;;
+esac
+exit 0
+EOF
+set +e
+ORCH_GRAPH_VERIFY=1 ORCH_PROMPTS_DIR="$TMP2H/prompts" ORCH_REPO="$TMP2H" ORCH_AGENT=claude \
+  ORCH_MAX_ITER=3 orch_loop_worker "$TMP2H" "$PROMPT" >/dev/null 2>&1
+rc_ver=$?
+set -e
+assert_eq "$rc_ver" "0" "loop passes once verify turns green"
+assert_contains "$(sed -n 2p "$TMP2H/calls.txt")" "--model opus" "worker escalated to large"
+assert_eq "$(sed -n 3p "$TMP2H/calls.txt" | cut -d" " -f1)" "verifier" "third call is the verifier"
+assert_contains "$(sed -n 3p "$TMP2H/calls.txt")" "--model sonnet --effort high" "verifier stays at medium"
+rm -rf "$TMP2H"
+
 # Test 3: Prompt substitution helper
 TMP_TPL="$(mktemp)"
 TMP_DEST="$(mktemp -u)"

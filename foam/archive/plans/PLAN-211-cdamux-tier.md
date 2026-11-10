@@ -1,7 +1,7 @@
 # PLAN-211 — cdamux shows cli, model and tier on worker rows
 
-- **Status**: ready
-- **PRD**: [[../prd/PRD-206-cli-inheritance-tiers|PRD-206]]
+- **Status**: done
+- **PRD**: [[../../prd/PRD-206-cli-inheritance-tiers|PRD-206]]
 - **GitHub**: [#211](https://github.com/chatondearu/ai-dev-kit/issues/211)
 - **Date**: 2026-11-09
 - **Blocked by**: #208
@@ -31,11 +31,11 @@ Operators see which CLI/model/tier each orch worker runs, and when it escalated.
 
 ## Tasks
 
-- [ ] struct fields + serde default
-- [ ] TUI rendering
-- [ ] tests
+- [x] struct fields + serde default
+- [x] TUI rendering
+- [x] tests
 
 ## Test plan
 
-- [ ] unit test: old status file without the fields parses; new one exposes them
-- [ ] `nix develop -c bash scripts/verify.sh` (cargo tests)
+- [x] unit test: old status file without the fields parses; new one exposes them
+- [x] `nix develop -c bash scripts/verify.sh` (cargo tests)

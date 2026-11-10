@@ -1,7 +1,7 @@
 # PLAN-209 — Escalate one tier per failure; graph-plan task tier
 
-- **Status**: verify
-- **PRD**: [[../prd/PRD-206-cli-inheritance-tiers|PRD-206]]
+- **Status**: done
+- **PRD**: [[../../prd/PRD-206-cli-inheritance-tiers|PRD-206]]
 - **GitHub**: [#209](https://github.com/chatondearu/ai-dev-kit/issues/209)
 - **Date**: 2026-11-09
 - **Blocked by**: #208

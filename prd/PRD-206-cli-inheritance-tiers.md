@@ -1,6 +1,6 @@
 # PRD-206 — Workers inherit the parent CLI and run at model/effort tiers
 
-- **Status**: approved
+- **Status**: shipped
 - **GitHub**: [#206](https://github.com/chatondearu/ai-dev-kit/issues/206)
 - **Date**: 2026-11-09
 - **Tags**: #product #orchestration #cost
@@ -15,11 +15,11 @@ and no way to spend more only where a task actually fails.
 
 ## Goals
 
-- [ ] Workers use the CLI of the session that launched the orchestrator, unless
+- [x] Workers use the CLI of the session that launched the orchestrator, unless
       the user says otherwise in that session.
-- [ ] Each role runs at a cost-bounded tier; a tier is a CLI-specific model/effort.
-- [ ] A failing worker escalates one tier per failure, bounded by a ceiling.
-- [ ] The operator sees which CLI/model/effort/tier each worker used.
+- [x] Each role runs at a cost-bounded tier; a tier is a CLI-specific model/effort.
+- [x] A failing worker escalates one tier per failure, bounded by a ceiling.
+- [x] The operator sees which CLI/model/effort/tier each worker used.
 
 ## Non-goals
 
@@ -42,23 +42,23 @@ and no way to spend more only where a task actually fails.
 
 ### Functional
 
-- [ ] #207 — CLI resolution `ORCH_AGENT_<ROLE>` > `ORCH_AGENT` > parent CLI (env
+- [x] #207 — CLI resolution `ORCH_AGENT_<ROLE>` > `ORCH_AGENT` > parent CLI (env
       markers, else `ps` ancestry) > PATH; `orch-auto` requires `ORCH_AGENT`;
       SKILL.md override translation; ADR-010.
-- [ ] #208 — `config/tiers.tsv`, `ORCH_TIERS_FILE`, `ORCH_TIER_<ROLE>`, role
+- [x] #208 — `config/tiers.tsv`, `ORCH_TIERS_FILE`, `ORCH_TIER_<ROLE>`, role
       defaults (integrator `small`, others `medium`), explicit `--model` bypass,
       unknown-CLI warning, `cli/model/effort/tier` in status.json and graph nodes.
-- [ ] #209 — one tier up per failure in worker and pr-fix loops up to
+- [x] #209 — one tier up per failure in worker and pr-fix loops up to
       `ORCH_TIER_MAX` (default `large`), then `blocked`; graph-plan task `tier`.
-- [ ] #210 — doctor warns on Cursor ids missing from `--list-models`.
-- [ ] #211 — cdamux Fleet shows cli/model/tier.
+- [x] #210 — doctor warns on Cursor ids missing from `--list-models`.
+- [x] #211 — cdamux Fleet shows cli/model/tier.
 
 ### Non-functional
 
-- [ ] Tests use stub CLIs and temp dirs; never the live config.
-- [ ] Default behaviour with `ORCH_AGENT` set and no tier env stays compatible
+- [x] Tests use stub CLIs and temp dirs; never the live config.
+- [x] Default behaviour with `ORCH_AGENT` set and no tier env stays compatible
       except for the added tier flags.
-- [ ] `nix develop -c bash scripts/verify.sh` green.
+- [x] `nix develop -c bash scripts/verify.sh` green.
 
 ## Tier table (initial)
 
@@ -89,6 +89,6 @@ change the model.
 
 ## Implementation pointer
 
-`plans/PLAN-207-worker-cli-inheritance.md`, `plans/PLAN-208-model-tiers.md`,
-`plans/PLAN-209-tier-escalation.md`, `plans/PLAN-210-tiers-doctor.md`,
-`plans/PLAN-211-cdamux-tier.md`
+`foam/archive/plans/PLAN-207-worker-cli-inheritance.md`, `foam/archive/plans/PLAN-208-model-tiers.md`,
+`foam/archive/plans/PLAN-209-tier-escalation.md`, `foam/archive/plans/PLAN-210-tiers-doctor.md`,
+`foam/archive/plans/PLAN-211-cdamux-tier.md`

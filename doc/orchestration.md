@@ -82,7 +82,8 @@ tail -f .orch/orch-<issue>.log     # if you tee'd a log
 Each worker entry also has `phases`: one `{phase, started_at}` (epoch seconds) per
 phase change, oldest first; `pending` resets it. cdamux builds its step bar and
 durations from it. `cli`, `model`, `effort` and `tier` record what the worker's
-agent (role `worker` / `pr-fix`) last ran; `effort` is absent when the CLI takes none.
+own agent (not its reviewer / verifier) last ran; `effort` is absent when the CLI takes
+none, and `pending` clears them for a new run.
 
 Empty `gh pr checks` without `ORCH_ALLOW_NO_CHECKS=1` / `orch: allow-no-checks`
 exits immediately with status `none` (does not wait for CI that will never start).

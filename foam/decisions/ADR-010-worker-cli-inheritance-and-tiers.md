@@ -50,7 +50,8 @@ session that launched the run, with explicit overrides per role.
    flags and is recorded as tier `pinned`.
 10. **Unknown CLI**: a CLI with no row runs without flags and warns once per run.
 11. **Visibility**: `cli`, `model`, `effort`, `tier` are written to the worker entry of
-    `.orch/run/status.json` (roles `worker` / `pr-fix`) and to graph nodes of agent runs;
+    `.orch/run/status.json` (the worker's own agent, not its reviewer / verifier) and to
+    graph nodes of agent runs;
     `--dry-run` prints `tier[<role>]: <tier> <flags>`.
 
 ## Alternatives considered

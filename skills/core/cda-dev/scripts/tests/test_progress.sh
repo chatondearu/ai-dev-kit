@@ -79,6 +79,8 @@ if command -v jq >/dev/null 2>&1; then
   ORCH_AGENT_CLI=agent ORCH_AGENT_MODEL=auto ORCH_AGENT_EFFORT= ORCH_AGENT_TIER=pinned orch_progress_agent 8
   assert_eq "$(jq -c '[.cli, .model, has("effort"), .tier, .message]' "$TMP/.orch/run/8.json")" \
     '["agent","auto",false,"pinned","make test"]' "orch_progress_agent replaces fields, drops empty, keeps message"
+  orch_progress_set 8 pending "queued" 2>/dev/null
+  assert_eq "$(jq -r 'has("tier")' "$TMP/.orch/run/8.json")" "false" "pending (new run) clears the agent fields"
 fi
 
 summary

@@ -39,8 +39,10 @@ orch_progress_write_json() {
     # are real. Older files lack it; `pending` starts a new run and resets it.
     prev="$(jq -c '.phases // []' "$json_file" 2>/dev/null || true)"
     [ -n "$prev" ] || prev='[]'
-    # cli/model/effort/tier: kept from the previous file, replaced by $4 (orch_progress_agent).
-    agent="$(jq -c '{cli, model, effort, tier} | with_entries(select(.value != null))' "$json_file" 2>/dev/null || true)"
+    # cli/model/effort/tier: kept from the previous file (until `pending` starts a new
+    # run), replaced by $4 (orch_progress_agent).
+    agent='{}'
+    [ "$phase" = pending ] || agent="$(jq -c '{cli, model, effort, tier} | with_entries(select(.value != null))' "$json_file" 2>/dev/null || true)"
     agent="$(jq -cn --argjson a "${agent:-{\}}" --argjson b "${4:-{\}}" '$a + $b | with_entries(select(.value != null))')"
     jq -n \
       --arg id "$id" \

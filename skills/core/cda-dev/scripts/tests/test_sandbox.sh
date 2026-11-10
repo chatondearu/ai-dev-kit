@@ -33,6 +33,13 @@ else
   FAILS=$((FAILS + 1))
   printf 'FAIL expected refusal message\n' >&2
 fi
+
+# The tier table (ORCH_TIERS_FILE, else the kit one) is bound read-only for the agent.
+printf '#!%s\necho "bwrap $*"\n' "$(command -v bash)" >"$FAKE/bwrap"
+chmod +x "$FAKE/bwrap"
+: >"$FAKE/tiers.tsv"
+out="$(PATH="$FAKE:$PATH" ORCH_SANDBOX=1 ORCH_WT=/tmp ORCH_TIERS_FILE="$FAKE/tiers.tsv" orch_sandbox_wrap true)"
+assert_contains "$out" "--ro-bind $FAKE/tiers.tsv $FAKE/tiers.tsv" "sandbox binds the tier table"
 rm -rf "$FAKE"
 
 summary

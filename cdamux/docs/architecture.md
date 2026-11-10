@@ -68,6 +68,9 @@ See `config/cdamux.example.toml`. Highlights:
 - **Steps** — each worker entry of `status.json` has `phases` (`{phase, started_at}`);
   `cdamux-core::orch_steps` maps them to implement / verify / review / CI / PR with state and
   duration. Shown under the node detail in the Graph view and as a list in the Worker sidecar.
+- **Agent** — a worker entry may also carry `cli`, `model`, `effort`, `tier` (ADR-010; all
+  optional, older files parse). The Worker row ends with `[cli·tier]`; the sidecar leads with
+  `cli·tier model effort`. `GET /v1/orch-status` passes them through. Read-only.
 - **Refresh** — `refresh.rs` is the one scheduler: injectable-clock intervals, `status.json`
   parsed only when its mtime moves, session chrome fetched only for a session row, redraw
   only when something changed.

@@ -33,6 +33,8 @@ bash "$SKILL/scripts/orch.sh" --repo "$REPO" --mode ready-pickup --issue 42 \
 
 Nodes of an agent run (implement / fix, verifier, integrator) carry `cli`, `model`,
 `effort` and `tier` ([ADR-010](../foam/decisions/ADR-010-worker-cli-inheritance-and-tiers.md)).
+The same four optional fields sit on each `.orch/run/status.json` worker entry; cdamux shows
+`[cli·tier]` on the Fleet worker row and `model` / `effort` in the worker sidecar.
 
 ## Environment variables
 

@@ -78,7 +78,11 @@ fn now_secs() -> u64 {
 /// Vertical step list for a Worker row's sidecar (its width is unknown here, so no bar).
 pub(crate) fn worker_steps_text(worker: Option<&OrchWorkerStatus>) -> String {
     worker
-        .map(|w| worker_steps(w, None, now_secs()).iter().map(Step::text).collect::<Vec<_>>().join("\n"))
+        .map(|w| {
+            let steps = worker_steps(w, None, now_secs()).iter().map(Step::text).collect::<Vec<_>>();
+            // Agent line (cli·tier model effort) first, when status.json carries it.
+            w.agent_detail().into_iter().chain(steps).collect::<Vec<_>>().join("\n")
+        })
         .unwrap_or_default()
 }
 
@@ -353,6 +357,10 @@ mod tests {
         assert!(text.starts_with("✓ implement 2m00s\n✓ verify 10s\n✓ review"), "{text}");
         assert!(text.contains("\n◎ CI ") && text.ends_with("· PR"), "{text}");
         assert_eq!(worker_steps_text(None), "");
+        let mut w = w;
+        w.cli = Some("claude".into());
+        w.model = Some("opus".into());
+        assert!(worker_steps_text(Some(&w)).starts_with("claude opus\n✓ implement"));
     }
 
     #[test]

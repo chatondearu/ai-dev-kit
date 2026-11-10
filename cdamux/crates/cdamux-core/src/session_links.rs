@@ -50,11 +50,14 @@ impl ChildRow {
             "pending" => SessionState::Idle,
             _ => SessionState::Active,
         };
-        let label = if w.message.is_empty() {
+        let mut label = if w.message.is_empty() {
             w.phase.clone()
         } else {
             format!("{}  {}", w.phase, w.message)
         };
+        if let Some(tag) = w.agent_tag() {
+            label.push_str(&format!("  [{tag}]"));
+        }
         Self {
             id: w.id.clone(),
             label,
@@ -207,6 +210,19 @@ mod tests {
         assert_eq!(row.state, SessionState::Error);
         assert_eq!(row.label, "blocked  waiting on review");
         assert_eq!(row.preview, PreviewSource::None);
+    }
+
+    #[test]
+    fn worker_label_shows_cli_and_tier() {
+        let w = OrchWorkerStatus {
+            id: "8".into(),
+            phase: "agent".into(),
+            message: "iter 1/10".into(),
+            cli: Some("claude".into()),
+            tier: Some("hard".into()),
+            ..Default::default()
+        };
+        assert_eq!(ChildRow::from_orch_worker(&w, false).label, "agent  iter 1/10  [claude·hard]");
     }
 
     #[test]

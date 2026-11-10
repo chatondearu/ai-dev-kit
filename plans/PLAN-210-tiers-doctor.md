@@ -33,8 +33,8 @@ silent AFK worker failure into a readable warning.
 
 ## Tasks
 
-- [ ] check in doctor.sh
-- [ ] `scripts/tests/test_doctor.sh` case with a stub `cursor-agent`
+- [x] check in doctor.sh
+- [x] `scripts/tests/test_doctor.sh` case with a stub `cursor-agent`
 
 ## Test plan
 

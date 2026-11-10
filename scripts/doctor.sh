@@ -60,6 +60,53 @@ if [ "$AGENT_HIT" -eq 0 ]; then
   printf '       Set ORCH_AGENT or install a CLI; see docs/recommended.md\n'
 fi
 
+# Cursor has no model aliases: a pinned id in the tier table rots silently (ADR-010).
+# Warn only; offline / logged out is one info line. Skipped without a Cursor CLI.
+CUR=''
+for c in agent cursor-agent; do
+  if have "$c"; then CUR="$c"; break; fi
+done
+if [ -n "$CUR" ]; then
+  TIERS="${ORCH_TIERS_FILE:-$ROOT/skills/core/cda-dev/config/tiers.tsv}"
+  printf '\nCursor models (%s)\n' "$TIERS"
+  _models=''
+  if have timeout; then
+    _models="$(timeout 20 "$CUR" --list-models 2>/dev/null)" || _models=''
+  else
+    _models="$("$CUR" --list-models 2>/dev/null)" || _models=''
+  fi
+  if [ -z "$_models" ] || [ ! -r "$TIERS" ]; then
+    printf '  —    %s --list-models unavailable (offline / logged out?) or tiers file unreadable; skipped\n' "$CUR"
+  else
+    # Drop ANSI colour codes, then match each id as a whole word of some line.
+    _models="$(printf '%s\n' "$_models" | sed "s/$(printf '\033')\[[0-9;]*m//g")"
+    while IFS="$(printf '\t')" read -r _cli _tier _flags || [ -n "${_cli:-}" ]; do
+      [ "${_cli:-}" = cursor ] || continue
+      _id=''
+      _prev=''
+      for _w in $_flags; do
+        [ "$_prev" = --model ] && _id="$_w"
+        case "$_w" in --model=*) _id="${_w#--model=}" ;; esac
+        _prev="$_w"
+      done
+      [ -n "$_id" ] && [ "$_id" != auto ] || continue
+      _hit=0
+      while IFS= read -r _line; do
+        for _w in $_line; do
+          [ "$_w" = "$_id" ] && _hit=1
+        done
+      done <<EOF
+$_models
+EOF
+      if [ "$_hit" -eq 1 ]; then
+        ok "cursor/$_tier: $_id"
+      else
+        warn "cursor/$_tier: model '$_id' not in $CUR --list-models (update $TIERS)"
+      fi
+    done <"$TIERS"
+  fi
+fi
+
 printf '\nOptional\n'
 if have bwrap; then ok 'bwrap (orch --sandbox)'; else printf '  —    bwrap (optional sandbox)\n'; fi
 if have llama-swap; then ok "llama-swap ($(command -v llama-swap))"; else printf '  —    llama-swap (local models)\n'; fi

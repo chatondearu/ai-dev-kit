@@ -10,7 +10,9 @@
 | `bwrap` (required for `--sandbox`) | `--sandbox` exits if missing (no unsandboxed fallback) |
 
 See [`docs/recommended.md`](../docs/recommended.md). The kit never installs
-these (`./scripts/doctor.sh` only checks `PATH`).
+these (`./scripts/doctor.sh` only checks `PATH`). With a Cursor CLI present it also runs
+`--list-models` once and warns for each `cursor` model id of the active tier table
+(`ORCH_TIERS_FILE` or the kit default) that is not listed; warning only, exit status unchanged.
 
 ## Environment variables
 

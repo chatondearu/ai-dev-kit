@@ -95,6 +95,32 @@ if [ -x /bin/bash ] && [ "$(/bin/bash -c 'echo ${BASH_VERSINFO[0]}')" -lt 4 ]; t
   assert_contains "$out3" "orch.sh needs bash 4+" "warns on bash < 4"
 fi
 
+# Cursor model ids in the tier table (ADR-010): warn on a missing id, never fail.
+printf 'cursor\tsmall\t--model composer-2.5\ncursor\tmedium\t--model auto\ncursor\tlarge\t--model gone-model-1\n' >"$FAKE/tiers.tsv"
+cat >"$FAKE/cursor-agent" <<EOF
+#!$STUB_BASH
+[ "\$1" = --list-models ] || exit 2
+[ -z "\${STUB_FAIL:-}" ] || exit 1
+printf 'Available models\n\n\033[1mauto\033[0m - Auto\ncomposer-2.5 - Composer 2.5\n'
+[ -z "\${STUB_FULL:-}" ] || printf 'gone-model-1 - Gone\n'
+EOF
+chmod +x "$FAKE/cursor-agent"
+DPATH="$(stub_path)"
+cur_doctor() { PATH="$DPATH" HOME="$FAKE/home" CURSOR_HOME="$FAKE/home/.cursor" ORCH_TIERS_FILE="$FAKE/tiers.tsv" "$STUB_BASH" "$ROOT/scripts/doctor.sh" 2>&1; }
+out_c="$(cur_doctor)" && rc_c=0 || rc_c=$?
+assert_contains "$out_c" "warn cursor/large: model 'gone-model-1'" "warns on a model missing from --list-models"
+assert_contains "$out_c" "ok   cursor/small: composer-2.5" "known model is ok"
+assert_eq "$rc_c" "0" "missing cursor model does not change exit status"
+out_c="$(STUB_FULL=1 cur_doctor)"
+assert_eq "$(printf '%s' "$out_c" | grep -c 'warn cursor' || true)" "0" "no warning when every id is listed"
+out_c="$(STUB_FAIL=1 cur_doctor)"
+assert_contains "$out_c" "unavailable" "one info line when --list-models fails"
+assert_eq "$(printf '%s' "$out_c" | grep -c 'warn cursor' || true)" "0" "no warning when --list-models fails"
+rm "$FAKE/cursor-agent"
+DPATH="$(stub_path)"
+out_c="$(cur_doctor)"
+assert_eq "$(printf '%s' "$out_c" | grep -c 'Cursor models' || true)" "0" "no cursor section without a Cursor CLI"
+
 if [ "$FAILS" -gt 0 ]; then
   echo "FAILS=$FAILS" >&2
   exit 1

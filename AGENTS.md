@@ -14,7 +14,8 @@ must follow this sequence:
    `cda-dev` intake (`cda-dev/prompts/intake.md`): one round of questions, a
    breakdown, GO. A single child issue is fine. Do not start coding from chat.
 3. For non-trivial scope, before coding a Kanban issue, `prd/PRD-<n>-*.md` and
-   `plans/PLAN-<n>-*.md` exist (create the missing ones).
+   `plans/PLAN-<n>-*.md` exist (create the missing ones). A fast-lane Ready
+   issue may use its triage agent brief instead (`cda-dev`, `cda-triage`).
 4. After shipping or deciding: update foam (ADR, PRD status, feature lists) and
    refresh this file when stack or skills change.
 
@@ -80,7 +81,8 @@ or PRDs/plans outside `prd/` / `plans/` (see `foam/product/documentation-layout.
 Closed issue plans: `foam/archive/plans/`.
 
 **cdamux** (Rust agent/tmux orchestrator, ADR-004): in-tree at `cdamux/` until v0;
-see `cdamux/AGENTS.md` and `cdamux/docs/research.md`. Not packaged in `aitools` yet.
+see `cdamux/AGENTS.md` and `cdamux/docs/research.md`. Nix package: `nix build .#cdamux`
+(opt-in `cda.aitools.cdamux.*`, see `aitools/README.md`).
 
 Experimental opt-in companion: `aitools/` (`cda.aitools` Nix modules, ADR-003).
 Never enabled by `install.sh`. Relocatable root: `CDA_AITOOLS_HOME`.
@@ -97,12 +99,13 @@ nix develop -c bash scripts/verify.sh
   override `HOME`, `CLAUDE_CONFIG_DIR`, `CURSOR_HOME`, `XDG_CONFIG_HOME` with temp dirs.
 - The live Claude config on the maintainer's machine is `CLAUDE_CONFIG_DIR=/cda/.claude`.
 - The kiss hooks run on every session: keep them local-only, fail-open, fast.
-- cdamux session hierarchy (ADR-007): `install.sh --cdamux-hooks` is opt-in and plain
-  `install.sh` never wires it; tests of `ORCH_TMUX=1` use a throwaway tmux server
+- cdamux session hierarchy (ADR-007): `install.sh --cdamux-hooks` (or Nix
+  `cda.aitools.cdamux.hooks.enable`) is opt-in and plain `install.sh` never wires it; tests of `ORCH_TMUX=1` use a throwaway tmux server
   (`TMUX_TMPDIR` temp dir + `-L <name>`), never the live one.
 - AFK Ready pickup: `orch-auto.sh` + optional systemd templates under
   `skills/core/cda-dev/templates/systemd/` (ADR-002). Do not enable from
   `install.sh`. Stop the timer to free the machine; prefer a dedicated host.
+  Set `ORCH_AGENT` in its env file: with no parent session it exits 2 (ADR-010).
 - `headless.sh` does **not** open PRs from issues (ADR-001); use orch / orch-auto.
 - This repo has **no** GitHub Actions PR checks. Orch treats empty checks as green when:
   orch: allow-no-checks

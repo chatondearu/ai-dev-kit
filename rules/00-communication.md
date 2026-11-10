@@ -15,7 +15,12 @@
 ## Commits and PRs
 
 - Use **Conventional Commits** (`feat:`, `fix:`, `docs:`, `refactor:`, etc.).
-- Only create commits when the user asks.
+- On any non-default branch (feature/fix branch, worktree), commit and push
+  freely and incrementally as you progress — no need to ask.
+- On the default branch (`main`, `master`, or the repo's default such as
+  `develop`), never commit or push without explicit user approval — create a
+  branch instead.
+- Never force-push a shared branch or rewrite published history without asking.
 - Use `gh` for GitHub operations (issues, PRs, checks).
 
 ## Code principles
@@ -28,6 +33,5 @@
 ## Exception: cda-dev workers
 
 When the prompt starts with "You are a cda-dev worker" (or is a cda-dev
-pr-fix/worker prompt), commit and push on the worker branch without asking,
-write code, comments, commit and PR text in **English**, and follow the worker
-prompt over the rules above.
+pr-fix/worker prompt), write code, comments, commit and PR text in **English**,
+and follow the worker prompt over the rules above.

@@ -146,6 +146,8 @@ bash ~/.cursor/skills/cda-agents/scripts/setup-agents.sh --type auto --force
 | ---- | ----- |
 | `rules/00-communication.md` | French replies, Vue/Nuxt, commits |
 | `rules/01-project-workflow.md` | Mandatory foam + kanban on every project |
+| `rules/02-adhd-output.md` | ADHD-friendly reply shape |
+| `rules/03-graphify.md` | Graphify code graph (opt-in) |
 | `rules/nix-develop-shell.md` | Nix develop wrapper |
 
 Claude receives the same content in `claude/CLAUDE.md` (assembled).

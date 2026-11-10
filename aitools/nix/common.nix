@@ -65,6 +65,24 @@
       description = "Host-specific primary [[projects.roots]] path in config.toml (required when deploy.enable).";
       example = "/hdd/dev";
     };
+
+    hooks = {
+      enable = lib.mkEnableOption ''
+        cdamux agent hooks (sub-agent ledger + session id capture) for Claude Code,
+        Cursor and opencode: an activation oneshot runs `cdamux-hooks wire` at every
+        rebuild/login, so hook updates follow the cdamux package. Running agents
+        keep the old hooks until restarted (`cdamux restart --all`)'';
+
+      claudeConfigDir = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        description = ''
+          CLAUDE_CONFIG_DIR for the activation oneshot. launchd/systemd units do not
+          inherit the login shell, so without it the hooks land in ~/.claude.
+        '';
+        example = "/cda/.claude";
+      };
+    };
   };
 
   tmux = {

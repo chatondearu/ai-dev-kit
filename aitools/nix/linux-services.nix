@@ -45,6 +45,29 @@
     ))
     (lib.mkIf (
       config.cda.aitools.enable
+      && config.cda.aitools.cdamux.hooks.enable
+      && config.cda.aitools.user != null
+      && config.cda.aitools.systemdUser.enable
+      && cdamuxPkg != null
+    ) {
+      systemd.user.services.cda-cdamux-hooks = {
+        description = "Wire cdamux agent hooks (idempotent)";
+        wantedBy = ["default.target"];
+        serviceConfig = {
+          Type = "oneshot";
+          RemainAfterExit = true;
+          ExecStart = import ./cdamux-hooks-activation.nix {
+            inherit pkgs lib cdamuxPkg;
+            a = config.cda.aitools;
+          };
+        };
+      }
+      // lib.optionalAttrs (config.cda.aitools.systemdUser.conditionUser != null) {
+        unitConfig.ConditionUser = config.cda.aitools.systemdUser.conditionUser;
+      };
+    })
+    (lib.mkIf (
+      config.cda.aitools.enable
       && config.cda.aitools.systemdUser.enable
       && config.cda.aitools.cdamuxd.enable
       && cdamuxPkg != null

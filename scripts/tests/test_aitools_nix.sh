@@ -122,6 +122,60 @@ nix eval --impure --expr "
     \"ok\"
 "
 
+echo "== cdamux hooks module on/off (nixos + darwin) =="
+# Same host-option stub idea as above; off by default, unit only when enabled.
+nix eval --impure --expr "
+  let
+    flake = builtins.getFlake \"path:$ROOT\";
+    lib = flake.inputs.nixpkgs.lib;
+    pkgs = import flake.inputs.nixpkgs { system = builtins.currentSystem; };
+    any = lib.mkOption { type = lib.types.attrsOf lib.types.unspecified; default = {}; };
+    stub = {
+      options = {
+        assertions = lib.mkOption { type = lib.types.listOf lib.types.unspecified; default = []; };
+        environment.systemPackages = lib.mkOption { type = lib.types.listOf lib.types.package; default = []; };
+        environment.variables = any;
+        environment.etc = any;
+        users.users = any;
+        systemd.user.services = any;
+        systemd.tmpfiles.rules = lib.mkOption { type = lib.types.listOf lib.types.str; default = []; };
+        programs.mosh.enable = lib.mkOption { type = lib.types.bool; default = false; };
+        launchd.user.agents = any;
+      };
+      config._module.args.pkgs = pkgs;
+    };
+    evalPlatform = { isDarwin, hooks }:
+      let
+        mod = if isDarwin then flake.darwinModules.cdaAitools else flake.nixosModules.cdaAitools;
+        cfg = (lib.evalModules {
+          modules = [ stub mod {
+            cda.aitools = { enable = true; user = \"tester\"; installMethod = \"none\"; }
+              // lib.optionalAttrs hooks { cdamux.hooks = { enable = true; claudeConfigDir = \"/cfg/claude\"; }; };
+          } ];
+        }).config;
+        units = if isDarwin then cfg.launchd.user.agents else cfg.systemd.user.services;
+      in
+        assert builtins.filter (a: !(a.assertion)) cfg.assertions == [];
+        assert (units ? cda-cdamux-hooks) == hooks;
+        # nix-darwin types ProgramArguments as listOf str (the stub does not).
+        assert !hooks || !isDarwin || builtins.all builtins.isString units.cda-cdamux-hooks.serviceConfig.ProgramArguments;
+        \"ok\";
+    # Units do not inherit the login shell: activation must carry CLAUDE_CONFIG_DIR.
+    script = import $ROOT/aitools/nix/cdamux-hooks-activation.nix {
+      inherit pkgs lib;
+      cdamuxPkg = \"/pkg\";
+      a.cdamux.hooks.claudeConfigDir = \"/cfg/claude\";
+    };
+  in
+    assert lib.hasInfix \"CLAUDE_CONFIG_DIR=/cfg/claude\" script.text;
+    assert lib.hasInfix \"/pkg/bin/cdamux-hooks wire\" script.text;
+    assert evalPlatform { isDarwin = false; hooks = false; } == \"ok\";
+    assert evalPlatform { isDarwin = false; hooks = true; } == \"ok\";
+    assert evalPlatform { isDarwin = true; hooks = false; } == \"ok\";
+    assert evalPlatform { isDarwin = true; hooks = true; } == \"ok\";
+    \"ok\"
+"
+
 echo "== graphify package parses =="
 nix-instantiate --parse "$ROOT/aitools/nix/graphify-package.nix" >/dev/null
 nix-instantiate --parse "$ROOT/aitools/nix/graphify-activation.nix" >/dev/null

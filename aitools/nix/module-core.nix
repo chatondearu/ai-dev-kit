@@ -56,6 +56,13 @@ in {
         {
           assertion =
             !config.cda.aitools.enable
+            || !config.cda.aitools.cdamux.hooks.enable
+            || (config.cda.aitools.user != null && cdamuxPkg != null);
+          message = "cda.aitools.cdamux.hooks.enable needs cda.aitools.user and the in-tree cdamux package.";
+        }
+        {
+          assertion =
+            !config.cda.aitools.enable
             || !config.cda.aitools.deploy.enable
             || config.cda.aitools.user != null;
           message = "cda.aitools.user required when deploy.enable.";

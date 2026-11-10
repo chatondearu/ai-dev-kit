@@ -33,6 +33,24 @@
         };
       }
     ))
+    (lib.mkIf (
+      config.cda.aitools.enable
+      && config.cda.aitools.cdamux.hooks.enable
+      && config.cda.aitools.user != null
+      && cdamuxPkg != null
+    ) {
+      # Reloaded (so re-run) whenever the cdamux store path changes, and at login.
+      launchd.user.agents.cda-cdamux-hooks = {
+        serviceConfig = {
+          ProgramArguments = ["${import ./cdamux-hooks-activation.nix {
+            inherit pkgs lib cdamuxPkg;
+            a = config.cda.aitools;
+          }}"];
+          RunAtLoad = true;
+          KeepAlive = false;
+        };
+      };
+    })
     (lib.mkIf (config.cda.aitools.enable && config.cda.aitools.cdamuxd.enable) (
       let
         a = config.cda.aitools;

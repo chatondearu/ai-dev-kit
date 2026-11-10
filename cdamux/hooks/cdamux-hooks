@@ -1,0 +1,122 @@
+#!/usr/bin/env bash
+# cdamux-hooks — wire / unwire the cdamux adapters (sub-agent ledger + session id
+# capture, cdamux/docs/subagents.md) into the agent CLIs. One merge logic for
+# `install.sh --cdamux-hooks` (kit checkout) and the Nix `cda.aitools` activation.
+#
+# Usage: cdamux-hooks wire|unwire [claude] [cursor] [opencode]
+#   No target = every tool whose config dir exists.
+# Config dirs: ${CLAUDE_CONFIG_DIR:-~/.claude}, ${CURSOR_HOME:-~/.cursor},
+#   ${XDG_CONFIG_HOME:-~/.config}/opencode.
+#
+# Packaged (a `node` sits next to this script, see cdamux/nix/package.nix): wire
+# points ${XDG_DATA_HOME:-~/.local/share}/cdamux/hooks at this dir and writes only
+# that stable path (+ its `node`) into the settings, so a rebuild does not churn
+# them. Checkout: `node "<this dir>/x.js"`, as before.
+#
+# Before wiring, every entry whose command contains /cdamux/hooks/ is stripped (old
+# checkout or stable path: one source at a time). kiss and foreign entries are kept.
+# Needs jq; fail-open (a bad JSON file is warned about and left unchanged).
+set -euo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+MATCH="/cdamux/hooks/"
+CLAUDE_HOME="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+CURSOR_HOME="${CURSOR_HOME:-$HOME/.cursor}"
+XDG="${XDG_CONFIG_HOME:-$HOME/.config}"
+STABLE="${XDG_DATA_HOME:-$HOME/.local/share}/cdamux/hooks"
+OC_PLUGIN="$XDG/opencode/plugins/cdamux-subagent.js"
+
+log() { printf '%s\n' "$*"; }
+
+jq_inplace() { # $1=file  $2=jq-program  (rest: jq args)
+  local file="$1" prog="$2"; shift 2
+  local tmp="$file.cdamux.tmp"
+  if jq "$@" "$prog" "$file" > "$tmp" 2>/dev/null; then mv "$tmp" "$file"
+  else rm -f "$tmp"; log "warn: $file is not valid JSON — left unchanged, hooks not (un)wired"; return 1; fi
+}
+
+link() { # $1=src  $2=target: replace a symlink, back up anything else
+  local src="$1" target="$2"
+  if [ -L "$target" ] && [ "$(readlink "$target")" = "$src" ]; then log "ok   $target"; return; fi
+  mkdir -p "$(dirname "$target")"
+  if [ -L "$target" ]; then rm "$target"
+  elif [ -e "$target" ]; then
+    local bak; bak="$target.bak-$(date +%Y%m%d%H%M%S)"
+    log "back $target -> $bak"; mv "$target" "$bak"
+  fi
+  ln -s "$src" "$target"
+  log "link $target -> $src"
+}
+
+# Paths written into the settings: the stable link when packaged, else this dir.
+if [ -e "$HERE/node" ]; then DIR="$STABLE"; NODE="\"$DIR/node\""; else DIR="$HERE"; NODE="node"; fi
+cmd() { printf '%s "%s/%s"' "$NODE" "$DIR" "$1"; }
+
+wire_claude() {
+  local f="$CLAUDE_HOME/settings.json"
+  mkdir -p "$CLAUDE_HOME"; [ -f "$f" ] || printf '{}\n' > "$f"
+  jq_inplace "$f" '
+    def strip(ev): (.hooks[ev] // []) | map(select(any(.hooks[]?; (.command? // "") | contains($m)) | not));
+    .hooks //= {}
+    | .hooks.SubagentStart = (strip("SubagentStart") + [{hooks:[{type:"command", command:$cmd, timeout:5}]}])
+    | .hooks.SubagentStop  = (strip("SubagentStop")  + [{hooks:[{type:"command", command:$cmd, timeout:5}]}])
+    | .hooks.SessionStart  = (strip("SessionStart")  + [{hooks:[{type:"command", command:$ss, timeout:5}]}])
+  ' --arg m "$MATCH" --arg cmd "$(cmd claude-subagent.js)" --arg ss "$(cmd session-start.js)" || return 0
+  log "hook $f (cdamux: SubagentStart/SubagentStop/SessionStart)"
+}
+
+wire_cursor() {
+  local f="$CURSOR_HOME/hooks.json"
+  mkdir -p "$CURSOR_HOME"; [ -f "$f" ] || printf '{"version":1,"hooks":{}}\n' > "$f"
+  jq_inplace "$f" '
+    def strip(ev): (.hooks[ev] // []) | map(select((.command? // "") | contains($m) | not));
+    .version //= 1 | .hooks //= {}
+    | .hooks.subagentStart = (strip("subagentStart") + [{command:$cmd, timeout:5}])
+    | .hooks.subagentStop  = (strip("subagentStop")  + [{command:$cmd, timeout:5}])
+    | .hooks.sessionStart  = (strip("sessionStart")  + [{command:$ss, timeout:5}])
+  ' --arg m "$MATCH" --arg cmd "$(cmd cursor-subagent.js)" --arg ss "$(cmd session-start.js)" || return 0
+  log "hook $f (cdamux: subagentStart/subagentStop/sessionStart)"
+}
+
+unwire_file() { # strip cdamux entries (both hook-file shapes), drop now-empty events
+  local f="$1"
+  [ -f "$f" ] || return 0
+  jq_inplace "$f" '
+    .hooks //= {}
+    | .hooks |= with_entries(.value |= map(select(
+        ((.command? // "") | contains($m)) or (any(.hooks[]?; (.command? // "") | contains($m))) | not)))
+    | .hooks |= with_entries(select(.value | length > 0))
+  ' --arg m "$MATCH" || return 0
+  log "unhook $f (cdamux removed)"
+}
+
+target_on() { # explicit target list, or auto = the tool's config dir exists
+  case " $TARGETS " in *" $1 "*) return 0;; esac
+  [ -z "$TARGETS" ] || return 1
+  case "$1" in
+    claude) [ -d "$CLAUDE_HOME" ];;
+    cursor) [ -d "$CURSOR_HOME" ];;
+    opencode) [ -d "$XDG/opencode" ];;
+  esac
+}
+
+ACTION="${1:-}"; shift || true
+for t in "$@"; do
+  case "$t" in claude|cursor|opencode) ;; *) log "unknown target: $t"; exit 2;; esac
+done
+TARGETS="$*"
+case "$ACTION" in wire|unwire) ;; *) log "usage: cdamux-hooks wire|unwire [claude] [cursor] [opencode]"; exit 2;; esac
+command -v jq >/dev/null 2>&1 || { log "skip cdamux hooks: jq not found"; exit 0; }
+
+if [ "$ACTION" = wire ]; then
+  [ "$DIR" = "$HERE" ] || link "$HERE" "$STABLE"
+  if target_on claude; then wire_claude; fi
+  if target_on cursor; then wire_cursor; fi
+  if target_on opencode; then link "$DIR/opencode-subagent.js" "$OC_PLUGIN"; fi
+else
+  if target_on claude; then unwire_file "$CLAUDE_HOME/settings.json"; fi
+  if target_on cursor; then unwire_file "$CURSOR_HOME/hooks.json"; fi
+  if target_on opencode && [ -L "$OC_PLUGIN" ]; then
+    case "$(readlink "$OC_PLUGIN")" in *"$MATCH"*) rm "$OC_PLUGIN"; log "rm   $OC_PLUGIN";; esac
+  fi
+fi

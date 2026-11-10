@@ -25,6 +25,20 @@ Install (opt-in): `./install.sh --cdamux-hooks` wires every enabled tool (Claude
 `./install.sh --uninstall` removes them. A plain `./install.sh` neither adds nor
 removes them.
 
+Both installers run one script, `cdamux/hooks/cdamux-hooks wire|unwire [claude]
+[cursor] [opencode]` (no target: every tool whose config dir exists; needs `jq`).
+Before wiring it strips every entry whose command contains `/cdamux/hooks/`, so
+only one source is wired at a time; kiss and foreign entries are kept.
+
+Nix (opt-in): `cda.aitools.cdamux.hooks.enable = true` (see `aitools/README.md`).
+The cdamux package ships the hooks in `share/cdamux/hooks` with a `node` link and
+`bin/cdamux-hooks`; a launchd / systemd user oneshot runs `cdamux-hooks wire` at
+each rebuild that changes cdamux (darwin) and at login. Settings reference only
+`${XDG_DATA_HOME:-~/.local/share}/cdamux/hooks` (a link to the current store dir,
+refreshed on every wire), as `"<that dir>/node" "<that dir>/x.js"`: no host `node`
+needed and no settings churn per rebuild. Running agents keep the old hooks until
+restarted (`cdamux restart --all`).
+
 ## Session id capture (restore registry)
 
 The same opt-in hooks keep `agent_session_id` current in the restore record
@@ -47,7 +61,7 @@ Rules (on top of the adapter rules below):
   atomically (tmp file + rename); a record that is not a JSON object is left as is.
 - Claude: the hook prints nothing (its `SessionStart` stdout would become context).
   Its entry sits next to the kiss `SessionStart` entry in `settings.json`; each
-  installer only strips entries under its own hooks dir.
+  installer only strips its own entries (kiss: its hooks dir; cdamux: `/cdamux/hooks/`).
 - Cursor: prints `{}` (`sessionStart` is fire-and-forget, not a permission hook).
 - Only the pane's top-level CLI writes. A nested CLI started from the pane (a
   `claude -p` or a headless orch worker run from a tool call, which inherit

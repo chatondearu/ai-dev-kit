@@ -177,38 +177,12 @@ wire_cursor_hooks() {
 }
 
 # cdamux adapters (opt-in): sub-agent ledger + restore-registry session id (ADR-009).
-# Same merge rules as the kiss hooks; strip() only touches entries under cdamux/hooks,
-# so the cdamux SessionStart entry sits next to the kiss one.
-CDAMUX_HOOKS_DIR="$REPO_DIR/cdamux/hooks"
-
-wire_cdamux_claude_hooks() {
-  local f="$CLAUDE_HOME/settings.json" dir="$CDAMUX_HOOKS_DIR"
-  command -v jq >/dev/null 2>&1 || { log "skip cdamux hooks (claude): jq not found"; return 0; }
-  if [ "$DRY" = 1 ]; then log "DRY  wire cdamux hooks → $f"; return 0; fi
-  mkdir -p "$CLAUDE_HOME"; [ -f "$f" ] || printf '{}\n' > "$f"
-  _kiss_jq_inplace "$f" '
-    def strip(ev): (.hooks[ev] // []) | map(select(any(.hooks[]?; (.command? // "") | contains($dir)) | not));
-    .hooks //= {}
-    | .hooks.SubagentStart = (strip("SubagentStart") + [{hooks:[{type:"command", command:$cmd, timeout:5}]}])
-    | .hooks.SubagentStop  = (strip("SubagentStop")  + [{hooks:[{type:"command", command:$cmd, timeout:5}]}])
-    | .hooks.SessionStart  = (strip("SessionStart")  + [{hooks:[{type:"command", command:$ss, timeout:5}]}])
-  ' --arg dir "$dir" --arg cmd "node \"$dir/claude-subagent.js\"" --arg ss "node \"$dir/session-start.js\"" || return 0
-  log "hook $f (cdamux: SubagentStart/SubagentStop/SessionStart)"
-}
-
-wire_cdamux_cursor_hooks() {
-  local f="$CURSOR_HOME/hooks.json" dir="$CDAMUX_HOOKS_DIR"
-  command -v jq >/dev/null 2>&1 || { log "skip cdamux hooks (cursor): jq not found"; return 0; }
-  if [ "$DRY" = 1 ]; then log "DRY  wire cdamux hooks → $f"; return 0; fi
-  mkdir -p "$CURSOR_HOME"; [ -f "$f" ] || printf '{"version":1,"hooks":{}}\n' > "$f"
-  _kiss_jq_inplace "$f" '
-    def strip(ev): (.hooks[ev] // []) | map(select((.command? // "") | contains($dir) | not));
-    .version //= 1 | .hooks //= {}
-    | .hooks.subagentStart = (strip("subagentStart") + [{command:$cmd, timeout:5}])
-    | .hooks.subagentStop  = (strip("subagentStop")  + [{command:$cmd, timeout:5}])
-    | .hooks.sessionStart  = (strip("sessionStart")  + [{command:$ss, timeout:5}])
-  ' --arg dir "$dir" --arg cmd "node \"$dir/cursor-subagent.js\"" --arg ss "node \"$dir/session-start.js\"" || return 0
-  log "hook $f (cdamux: subagentStart/subagentStop/sessionStart)"
+# Delegated to cdamux/hooks/cdamux-hooks (shared with the Nix package); it strips
+# only entries under /cdamux/hooks/, so the cdamux SessionStart entry sits next to kiss.
+cdamux_hooks() { # $1=wire|unwire  $2=claude|cursor|opencode
+  if [ "$DRY" = 1 ]; then log "DRY  cdamux-hooks $1 $2"; return 0; fi
+  CLAUDE_CONFIG_DIR="$CLAUDE_HOME" CURSOR_HOME="$CURSOR_HOME" XDG_CONFIG_HOME="$XDG" \
+    bash "$REPO_DIR/cdamux/hooks/cdamux-hooks" "$1" "$2"
 }
 
 unwire_hooks() { # strip one hook dir's entries (default: kiss) from a tool's hook file, drop now-empty events
@@ -309,19 +283,11 @@ main() {
 
   # cdamux sub-agent ledger adapters: opt-in with --cdamux-hooks, always removed by --uninstall
   if [ "$HOOKS" = 1 ]; then
-    local ocp="$REPO_DIR/cdamux/hooks/opencode-subagent.js" ocl="$XDG/opencode/plugins/cdamux-subagent.js"
-    if is_enabled claude; then
-      if [ "$UNINSTALL" = 1 ]; then unwire_hooks "$CLAUDE_HOME/settings.json" "$CDAMUX_HOOKS_DIR"
-      elif [ "$CDAMUX_HOOKS" = 1 ]; then log "# cdamux hooks → claude"; wire_cdamux_claude_hooks; fi
-    fi
-    if is_enabled cursor; then
-      if [ "$UNINSTALL" = 1 ]; then unwire_hooks "$CURSOR_HOME/hooks.json" "$CDAMUX_HOOKS_DIR"
-      elif [ "$CDAMUX_HOOKS" = 1 ]; then log "# cdamux hooks → cursor"; wire_cdamux_cursor_hooks; fi
-    fi
-    if is_enabled opencode; then
-      if [ "$UNINSTALL" = 1 ]; then unlink_one "$ocp" "$ocl"
-      elif [ "$CDAMUX_HOOKS" = 1 ]; then log "# cdamux plugin → opencode"; link_one "$ocp" "$ocl"; fi
-    fi
+    for tool in claude cursor opencode; do
+      is_enabled "$tool" || continue
+      if [ "$UNINSTALL" = 1 ]; then cdamux_hooks unwire "$tool"
+      elif [ "$CDAMUX_HOOKS" = 1 ]; then log "# cdamux hooks → $tool"; cdamux_hooks wire "$tool"; fi
+    done
   fi
 
   log ""

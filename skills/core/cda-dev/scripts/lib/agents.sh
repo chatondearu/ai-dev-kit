@@ -50,12 +50,87 @@ orch_parent_agent() {
   return 1
 }
 
-# --dry-run: one `agent[<role>]: <cli> (<source>)` line per role.
+# Kit tier table; exported so sandboxed / tmux-replayed shells still find it.
+_ORCH_KIT_TIERS="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/config/tiers.tsv"
+export _ORCH_KIT_TIERS
+
+# Tier of role $1: ORCH_TIER (current tier, raised on failure by #209) >
+# ORCH_TIER_<ROLE> > default (integrator small, other roles medium). ADR-010.
+orch_tier_for_role() {
+  local role="${1:-worker}" var
+  var="ORCH_TIER_${role^^}"
+  var="${var//-/_}"
+  if [ -n "${ORCH_TIER:-}" ]; then
+    printf '%s\n' "$ORCH_TIER"
+  elif [ -n "${!var:-}" ]; then
+    printf '%s\n' "${!var}"
+  elif [ "$role" = integrator ]; then
+    echo small
+  else
+    echo medium
+  fi
+}
+
+# Flags of cli $1 at tier $2 from ORCH_TIERS_FILE (else the kit table). agent and
+# cursor-agent share the `cursor` rows. Returns 1 when the table is missing, 3 when
+# it has no row for the pair.
+orch_tier_flags() {
+  local cli="$1" tier="$2" f="${ORCH_TIERS_FILE:-$_ORCH_KIT_TIERS}"
+  case "$cli" in agent|cursor-agent) cli=cursor ;; esac
+  if [ ! -r "$f" ]; then
+    printf 'orch: tiers file not readable: %s\n' "$f" >&2
+    return 1
+  fi
+  awk -F'\t' -v c="$cli" -v t="$tier" \
+    '$1 !~ /^#/ && $1 == c && $2 == t { print $3; found = 1; exit } END { exit found ? 0 : 3 }' "$f"
+}
+
+# Tier and flags for agent command $1 run as role $2, printed as "<tier>\t<flags>".
+# A command that already picks a model (--model / -m) is `pinned`: no tier flags.
+# A CLI with no row gets no flags and one warning per run.
+orch_agent_tier() {
+  local cmd="$1" role="$2" tier flags w rc=0 cli marker
+  for w in $cmd; do
+    case "$w" in --model|--model=*|-m) printf 'pinned\t\n'; return 0 ;; esac
+  done
+  tier="$(orch_tier_for_role "$role")"
+  cli="$(command -p basename "${cmd%% *}")"
+  flags="$(orch_tier_flags "$cli" "$tier")" || rc=$?
+  [ "$rc" = 1 ] && return 1
+  if [ "$rc" = 3 ]; then
+    # Outside an orch run (no ORCH_RUN_ID) every call warns.
+    marker="${ORCH_REPO:-.}/.orch/run/.tier-warned-${ORCH_RUN_ID:-}-${cli//[^A-Za-z0-9_-]/_}"
+    if [ -z "${ORCH_RUN_ID:-}" ] || [ ! -e "$marker" ]; then
+      [ -z "${ORCH_RUN_ID:-}" ] || { mkdir -p "${marker%/*}" && : >"$marker"; } 2>/dev/null || true
+      printf 'orch: warn: no tier row for %s/%s; running it without model flags\n' "$cli" "$tier" >&2
+    fi
+  fi
+  printf '%s\t%s\n' "$tier" "$flags"
+}
+
+# Model and effort named by agent words $1, printed as "<model>\t<effort>".
+orch_model_effort() {
+  local m="" e="" prev="" w
+  for w in $1; do
+    case "$prev" in
+      --model|-m) m="$w" ;;
+      --effort|--variant) e="$w" ;;
+      -c) case "$w" in model_reasoning_effort=*) e="${w#*=}" ;; esac ;;
+    esac
+    case "$w" in --model=*) m="${w#*=}" ;; esac
+    prev="$w"
+  done
+  printf '%s\t%s\n' "$m" "$e"
+}
+
+# --dry-run: per role, `agent[<role>]: <cli> (<source>)` then `tier[<role>]: <tier> <flags>`.
 orch_print_agents() {
-  local role r
+  local role r t
   for role in worker reviewer verifier integrator pr-fix; do
     r="$(orch_resolve_agent "$role" 2>/dev/null)" || r="none"$'\t'"unresolved"
     printf 'agent[%s]: %s (%s)\n' "$role" "${r%%$'\t'*}" "${r#*$'\t'}"
+    t="$(orch_agent_tier "${r%%$'\t'*}" "$role")" || t="error"$'\t'
+    printf 'tier[%s]: %s %s\n' "$role" "${t%%$'\t'*}" "${t#*$'\t'}"
   done
 }
 
@@ -77,9 +152,25 @@ orch_detect_agent() {
 
 # Run the agent CLI of role ORCH_ROLE (default worker) on prompt file $2 in worktree $1.
 orch_agent_run() {
-  local wt="$1" prompt_file="$2" r
-  r="$(orch_resolve_agent "${ORCH_ROLE:-worker}")" || return 1
+  local wt="$1" prompt_file="$2" r t role="${ORCH_ROLE:-worker}" me
+  unset ORCH_AGENT_CLI ORCH_AGENT_MODEL ORCH_AGENT_EFFORT ORCH_AGENT_TIER
+  r="$(orch_resolve_agent "$role")" || return 1
   export ORCH_AGENT_BIN="${r%%$'\t'*}"
+  t="$(orch_agent_tier "$ORCH_AGENT_BIN" "$role")" || return 1
+  # Exported: the tmux runner replays the environment, not our functions.
+  export ORCH_TIER_FLAGS="${t#*$'\t'}"
+  # What this call runs, for status.json (worker / pr-fix) and graph nodes.
+  me="$(orch_model_effort "$ORCH_AGENT_BIN $ORCH_TIER_FLAGS")"
+  ORCH_AGENT_CLI="$(command -p basename "${ORCH_AGENT_BIN%% *}")"
+  export ORCH_AGENT_CLI ORCH_AGENT_MODEL="${me%%$'\t'*}" ORCH_AGENT_EFFORT="${me#*$'\t'}" \
+    ORCH_AGENT_TIER="${t%%$'\t'*}"
+  case "$role" in
+    worker|pr-fix)
+      if [ -n "${ORCH_WORKER_ID:-}" ] && declare -F orch_progress_agent >/dev/null; then
+        orch_progress_agent "$ORCH_WORKER_ID"
+      fi
+      ;;
+  esac
   if [ -n "${ORCH_WORKER_ID:-}" ] && orch_tmux_on; then
     orch_tmux_agent_run "$wt" "$prompt_file"
     return
@@ -90,24 +181,24 @@ orch_agent_run() {
 # Run $ORCH_AGENT_BIN on a prompt file in worktree $1 (stdout/stderr inherited).
 _orch_agent_exec() {
   local wt="$1" prompt_file="$2"
-  local bin=( $ORCH_AGENT_BIN )
+  local bin=( $ORCH_AGENT_BIN ) tf=( ${ORCH_TIER_FLAGS:-} )
   local name
   name=$(command -p basename "${bin[0]}")
   case "$name" in
     claude)
       # Non-interactive print mode; flags may need adjust per claude version
-      (cd "$wt" && "${bin[@]}" -p --dangerously-skip-permissions <"$prompt_file")
+      (cd "$wt" && "${bin[@]}" -p --dangerously-skip-permissions ${tf[@]+"${tf[@]}"} <"$prompt_file")
       ;;
     opencode)
-      (cd "$wt" && "${bin[@]}" run <"$prompt_file")
+      (cd "$wt" && "${bin[@]}" run ${tf[@]+"${tf[@]}"} <"$prompt_file")
       ;;
     codex)
       # `exec -` reads the prompt from stdin; like claude above, no approval prompts.
-      (cd "$wt" && "${bin[@]}" exec --dangerously-bypass-approvals-and-sandbox - <"$prompt_file")
+      (cd "$wt" && "${bin[@]}" exec --dangerously-bypass-approvals-and-sandbox ${tf[@]+"${tf[@]}"} - <"$prompt_file")
       ;;
     agent|cursor-agent)
       # --print for scripts; --force avoids interactive approval hangs in headless
-      (cd "$wt" && "${bin[@]}" -p --force "$(cat "$prompt_file")")
+      (cd "$wt" && "${bin[@]}" -p --force ${tf[@]+"${tf[@]}"} "$(cat "$prompt_file")")
       ;;
     *)
       (cd "$wt" && "${bin[@]}" <"$prompt_file")

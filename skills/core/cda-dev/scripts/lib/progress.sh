@@ -20,7 +20,7 @@ orch_progress_enabled() {
 # Machine-readable status for waiting agents (poll `.orch/run/status.json`).
 orch_progress_write_json() {
   local id="$1" phase="$2" msg="$3"
-  local dir ts json_file agg tmp prev
+  local dir ts json_file agg tmp prev agent
   dir="$(orch_progress_dir)"
   mkdir -p "$dir"
   ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date -u)"
@@ -39,6 +39,11 @@ orch_progress_write_json() {
     # are real. Older files lack it; `pending` starts a new run and resets it.
     prev="$(jq -c '.phases // []' "$json_file" 2>/dev/null || true)"
     [ -n "$prev" ] || prev='[]'
+    # cli/model/effort/tier: kept from the previous file (until `pending` starts a new
+    # run), replaced by $4 (orch_progress_agent).
+    agent='{}'
+    [ "$phase" = pending ] || agent="$(jq -c '{cli, model, effort, tier} | with_entries(select(.value != null))' "$json_file" 2>/dev/null || true)"
+    agent="$(jq -cn --argjson a "${agent:-{\}}" --argjson b "${4:-{\}}" '$a + $b | with_entries(select(.value != null))')"
     jq -n \
       --arg id "$id" \
       --arg phase "$phase" \
@@ -48,11 +53,12 @@ orch_progress_write_json() {
       --argjson now "$(date +%s)" \
       --arg tmux_session "$tmux_session" \
       --arg log "$log" \
+      --argjson agent "$agent" \
       '{id:$id, phase:$phase, message:$message, updated_at:$updated_at,
         phases: (if $phase == "pending" then [{phase:$phase, started_at:$now}]
                  elif ($prev | length) > 0 and $prev[-1].phase == $phase then $prev
                  else ($prev + [{phase:$phase, started_at:$now}])[-40:] end)}
-       + (if $tmux_session == "" then {} else {tmux_session:$tmux_session, log:$log} end)' \
+       + (if $tmux_session == "" then {} else {tmux_session:$tmux_session, log:$log} end) + $agent' \
       >"$tmp" && mv "$tmp" "$json_file"
     # Aggregate all workers into one file agents can poll.
     agg="$dir/status.json"
@@ -92,6 +98,19 @@ orch_progress_set() {
   if ! orch_progress_enabled; then
     printf '[#%s] %s: %s\n' "$id" "$phase" "$msg" >&2
   fi
+}
+
+# Record what worker $1 runs (ORCH_AGENT_CLI/MODEL/EFFORT/TIER, set by orch_agent_run)
+# in its json and status.json; phase and message stay as they are. Empty values → null.
+orch_progress_agent() {
+  local id="$1" line=""
+  command -v jq >/dev/null 2>&1 || return 0
+  [ -f "$(orch_progress_dir)/${id}.status" ] && line="$(cat "$(orch_progress_dir)/${id}.status")"
+  [ -n "$line" ] || line="agent|starting"
+  orch_progress_write_json "$id" "${line%%|*}" "${line#*|}" "$(jq -cn \
+    --arg cli "${ORCH_AGENT_CLI:-}" --arg model "${ORCH_AGENT_MODEL:-}" \
+    --arg effort "${ORCH_AGENT_EFFORT:-}" --arg tier "${ORCH_AGENT_TIER:-}" \
+    '{cli:$cli, model:$model, effort:$effort, tier:$tier} | map_values(if . == "" then null else . end)')"
 }
 
 # ORCH_TMUX=1: mirror the phase as @cdamux_state on the worker's session; no-op without one.

@@ -68,4 +68,19 @@ if command -v jq >/dev/null 2>&1; then
   assert_eq "$(jq -r '.run_id' "$TMP/.orch/run/status.json")" "r9" "status.json carries run_id"
 fi
 
+# cli/model/effort/tier: set by orch_progress_agent, kept across later phase writes.
+if command -v jq >/dev/null 2>&1; then
+  orch_progress_set 8 agent "starting" 2>/dev/null
+  ORCH_AGENT_CLI=claude ORCH_AGENT_MODEL=sonnet ORCH_AGENT_EFFORT=high ORCH_AGENT_TIER=medium \
+    orch_progress_agent 8
+  orch_progress_set 8 verify "make test" 2>/dev/null
+  assert_eq "$(jq -c '.workers[] | select(.id=="8") | [.cli, .model, .effort, .tier, .phase]' "$TMP/.orch/run/status.json")" \
+    '["claude","sonnet","high","medium","verify"]' "status.json keeps cli/model/effort/tier"
+  ORCH_AGENT_CLI=agent ORCH_AGENT_MODEL=auto ORCH_AGENT_EFFORT= ORCH_AGENT_TIER=pinned orch_progress_agent 8
+  assert_eq "$(jq -c '[.cli, .model, has("effort"), .tier, .message]' "$TMP/.orch/run/8.json")" \
+    '["agent","auto",false,"pinned","make test"]' "orch_progress_agent replaces fields, drops empty, keeps message"
+  orch_progress_set 8 pending "queued" 2>/dev/null
+  assert_eq "$(jq -r 'has("tier")' "$TMP/.orch/run/8.json")" "false" "pending (new run) clears the agent fields"
+fi
+
 summary

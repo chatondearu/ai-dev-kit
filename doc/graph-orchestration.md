@@ -31,6 +31,9 @@ bash "$SKILL/scripts/orch.sh" --repo "$REPO" --mode ready-pickup --issue 42 \
 | `.orch/graph/runs/<run_id>.json` | Finished runs (last 20); `live/` files with a dead pid and no write for 24 h move here on the next init |
 | `.orch/integrator-report.md` | Human-readable synthesis after multi-worker runs |
 
+Nodes of an agent run (implement / fix, verifier, integrator) carry `cli`, `model`,
+`effort` and `tier` ([ADR-010](../foam/decisions/ADR-010-worker-cli-inheritance-and-tiers.md)).
+
 ## Environment variables
 
 | Variable | Default | Meaning |

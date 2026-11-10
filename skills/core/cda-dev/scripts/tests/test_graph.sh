@@ -34,6 +34,13 @@ orch_graph_upsert_node "worker-1" worker done done "finished" ""
 phase="$(jq -r '.nodes[] | select(.id=="worker-1") | .status' "$TMP/.orch/graph/current.json")"
 assert_eq "$phase" "done" "upsert updates status"
 
+# `agent` arg: cli/model/effort/tier of the last orch_agent_run (empty → null).
+ORCH_AGENT_CLI=claude ORCH_AGENT_MODEL=sonnet ORCH_AGENT_EFFORT= ORCH_AGENT_TIER=medium \
+  orch_graph_upsert_node "worker-1-implement-1" agent implement done "agent exit 0" worker-1 agent
+assert_eq "$(jq -c '.nodes[] | select(.id=="worker-1-implement-1") | [.cli, .model, .effort, .tier]' "$TMP/.orch/graph/current.json")" \
+  '["claude","sonnet",null,"medium"]' "agent node carries cli/model/effort/tier"
+assert_eq "$(jq -r '.nodes[] | select(.id=="worker-1") | has("tier")' "$TMP/.orch/graph/current.json")" "false" "no agent arg → no tier field"
+
 # Workers run under bash -c with exported functions (orch.sh). Regression for missing export -f.
 export -f orch_graph_enabled orch_graph_file orch_graph_now orch_graph_init orch_graph_session
 export -f orch_graph_point_current orch_graph_archive orch_graph_archive_stale

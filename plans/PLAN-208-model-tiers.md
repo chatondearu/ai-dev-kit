@@ -1,6 +1,6 @@
 # PLAN-208 — Run each role at a model/effort tier
 
-- **Status**: ready
+- **Status**: verify
 - **PRD**: [[../prd/PRD-206-cli-inheritance-tiers|PRD-206]]
 - **GitHub**: [#208](https://github.com/chatondearu/ai-dev-kit/issues/208)
 - **Date**: 2026-11-09
@@ -42,12 +42,12 @@ the chosen cli/model/effort/tier is visible to operators.
 
 ## Tasks
 
-- [ ] tiers.tsv + parser (bash, no deps)
-- [ ] flags in `_orch_agent_exec` for claude / cursor / opencode / codex
-- [ ] bypass + unknown-CLI warning
-- [ ] status.json + graph node fields + schema
-- [ ] dry-run prints tier and flags per role
-- [ ] docs + ADR-010 section
+- [x] tiers.tsv + parser (bash, no deps)
+- [x] flags in `_orch_agent_exec` for claude / cursor / opencode / codex
+- [x] bypass + unknown-CLI warning
+- [x] status.json + graph node fields + schema
+- [x] dry-run prints tier and flags per role
+- [x] docs + ADR-010 section
 
 ## Risks & mitigations
 
@@ -58,6 +58,6 @@ the chosen cli/model/effort/tier is visible to operators.
 
 ## Test plan
 
-- [ ] `tests/test_agents.sh` (or new `test_tiers.sh`): flags per cli/tier via a recording stub; role defaults; `ORCH_TIER_<ROLE>`; `ORCH_TIERS_FILE`; `--model` bypass; unknown CLI warns once
-- [ ] status.json contains the four fields (`test_progress.sh`)
-- [ ] `nix develop -c bash scripts/verify.sh`
+- [x] `tests/test_agents.sh` (or new `test_tiers.sh`): flags per cli/tier via a recording stub; role defaults; `ORCH_TIER_<ROLE>`; `ORCH_TIERS_FILE`; `--model` bypass; unknown CLI warns once
+- [x] status.json contains the four fields (`test_progress.sh`)
+- [x] `nix develop -c bash scripts/verify.sh`

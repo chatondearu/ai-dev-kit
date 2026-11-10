@@ -31,6 +31,11 @@ orch_sandbox_wrap() {
   if [ -n "${ORCH_PROMPTS_DIR:-}" ] && [ -d "$ORCH_PROMPTS_DIR" ]; then
     args+=(--ro-bind "$ORCH_PROMPTS_DIR" "$ORCH_PROMPTS_DIR")
   fi
+  # Agents read the tier table (lib/agents.sh) inside the sandbox.
+  local tiers="${ORCH_TIERS_FILE:-${_ORCH_KIT_TIERS:-}}"
+  if [ -n "$tiers" ] && [ -r "$tiers" ]; then
+    args+=(--ro-bind "$tiers" "$tiers")
+  fi
   args+=(--dev /dev --proc /proc --tmpfs /tmp)
   bwrap "${args[@]}" "$@"
 }

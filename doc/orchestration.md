@@ -41,6 +41,14 @@ prints one `agent[<role>]: <cli> (<source>)` line per role, source being
 ORCH_AGENT_VERIFIER=codex bash "$SKILL/scripts/orch.sh" --mode ready-pickup --issue 12 --dry-run
 ```
 
+Each role also runs at a **tier** (`small`, `medium`, `large`; `integrator`
+defaults to `small`, the others to `medium`), turned into CLI flags by
+[`config/tiers.tsv`](../skills/core/cda-dev/config/tiers.tsv) — e.g. `claude` at
+`medium` runs `claude -p --model sonnet --effort high`. `ORCH_TIER_<ROLE>` and
+`ORCH_TIERS_FILE` change it ([configuration](configuration.md)); an agent command that
+already passes `--model` / `-m` is `pinned`. `--dry-run` adds a
+`tier[<role>]: <tier> <flags>` line per role.
+
 `pr-fix` only works on same-repo PRs: a cross-repository (fork) PR, a PR whose
 head branch is the default branch, or unreadable PR metadata ends `blocked`
 before any agent run (and before the PR is checked out).
@@ -73,7 +81,9 @@ tail -f .orch/orch-<issue>.log     # if you tee'd a log
 
 Each worker entry also has `phases`: one `{phase, started_at}` (epoch seconds) per
 phase change, oldest first; `pending` resets it. cdamux builds its step bar and
-durations from it.
+durations from it. `cli`, `model`, `effort` and `tier` record what the worker's
+own agent (not its reviewer / verifier) last ran; `effort` is absent when the CLI takes
+none, and `pending` clears them for a new run.
 
 Empty `gh pr checks` without `ORCH_ALLOW_NO_CHECKS=1` / `orch: allow-no-checks`
 exits immediately with status `none` (does not wait for CI that will never start).

@@ -42,6 +42,8 @@ cda.aitools = {
   # Optional code graph (ADR-008); off by default
   # graphify = { enable = true; installMethod = "auto"; claudeConfigDir = "/cda/.claude"; };
   # foamHome = "/cda/foam";
+  # Agent hooks (sub-agent ledger + session id), refreshed at each rebuild; off by default
+  # cdamux.hooks = { enable = true; claudeConfigDir = "/cda/.claude"; };
 };
 ```
 
@@ -49,6 +51,20 @@ Legacy option names `ccmux.*` / `ccmuxd.*` are renamed automatically (see `mkRen
 
 **nix-darwin** — `darwinModules.cdaAitools`; `tmux.clipboard = "darwin"`,
 `installMethod = "nix"` or `auto` (in-tree package). Optional `darwin.cdamuxdPath` if not using Nix.
+
+### cdamux agent hooks (`cda.aitools.cdamux.hooks`)
+
+| Option | Meaning |
+| ------ | ------- |
+| `cdamux.hooks.enable` | default `false`; activation oneshot runs `cdamux-hooks wire` (Claude Code, Cursor, opencode). Needs `user` |
+| `cdamux.hooks.claudeConfigDir` | `CLAUDE_CONFIG_DIR` for activation (units do not inherit the shell); null = `~/.claude` |
+
+Settings point at the stable `~/.local/share/cdamux/hooks` link (refreshed to the
+current package on each run) with the packaged `node`, and any older
+`/cdamux/hooks/` entry (e.g. from `install.sh --cdamux-hooks`) is replaced. darwin
+re-runs it when cdamux changes; NixOS at login (or `systemctl --user restart
+cda-cdamux-hooks`). Agents are never restarted: run `cdamux restart --all`.
+Details: `cdamux/docs/subagents.md`.
 
 ### Graphify (`cda.aitools.graphify`)
 
@@ -75,6 +91,7 @@ writes; see ADR-008.
 | mosh server | `mosh.enable` | — | brew / apt |
 | moshi-hook | systemd + hook oneshots | launchd | `moshi-hook service install` |
 | graphify skill register | systemd oneshot | launchd oneshot | `graphify-activate.sh` |
+| cdamux agent hooks | systemd oneshot | launchd oneshot | `install.sh --cdamux-hooks` |
 
 Secrets (Moshi token, SSH keys) stay **per host** — not in the kit.
 

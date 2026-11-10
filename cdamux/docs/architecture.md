@@ -199,7 +199,7 @@ Operator curl examples: [tailnet-api.md](tailnet-api.md).
   `restarting in the background (current session)`, `error: …`); exit 1 if any failed.
 - CLI sub-agents come from the per-session ledger fed by hook adapters
   (sub-agent rows under a session): [subagents.md](subagents.md). Hooks are opt-in
-  (`./install.sh --cdamux-hooks`).
+  (`./install.sh --cdamux-hooks`, or Nix `cda.aitools.cdamux.hooks.enable`).
 
 ## Open design choices
 

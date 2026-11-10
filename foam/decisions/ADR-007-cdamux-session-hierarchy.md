@@ -129,6 +129,12 @@ made autonomy opt-in. The hierarchy has to respect all three.
   the same `run_id` and the worker sessions tagged `@cdamux_run`. Graph selection:
   run row → that run; session → its newest own live run, else its `@cdamux_run`;
   project → latest (`current.json`). Graph view `Tab` cycles a session's runs.
+- **2026-11-10** ([#213](https://github.com/chatondearu/ai-dev-kit/issues/213)):
+  adapter install (decision 7) has a second explicit path, still opt-in:
+  `cda.aitools.cdamux.hooks.enable` (default false) runs `cdamux-hooks wire` from
+  the cdamux Nix package at each activation. Both paths share that script; it
+  strips every `/cdamux/hooks/` entry before wiring (one source at a time) and
+  settings reference only the stable `~/.local/share/cdamux/hooks` link.
 
 ## References
 

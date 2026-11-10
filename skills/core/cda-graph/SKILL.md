@@ -90,7 +90,8 @@ bash "$SKILL/scripts/orch.sh" --no-graph --mode ready-pickup --issue 12
 | `ORCH_GRAPH_PLAN_PARALLEL=auto` | Parallel graph-plan tasks if paths disjoint |
 | `ORCH_GRAPH_PLAN_PARALLEL=parallel` | Parallel; fail if paths overlap |
 | `ORCH_GRAPH_PLAN_MAX_PARALLEL` | Cap parallel plan tasks (default `ORCH_MAX_PARALLEL`) |
-| `--graph-plan FILE` | Intra-issue task fan-out |
+| `--graph-plan FILE` | Intra-issue task fan-out; a task may set `tier` (`small\|medium\|large`) as its start tier |
+| `ORCH_TIER_MAX` | Escalation ceiling (default `large`); a failed iteration re-runs one tier up |
 
 ## JSON schemas
 

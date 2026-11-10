@@ -4,6 +4,7 @@
     {
       "id": "api",
       "paths": ["src/api/"],
+      "tier": "large",
       "prompt": "Implement the API changes from PLAN-42. Run project verify."
     },
     {

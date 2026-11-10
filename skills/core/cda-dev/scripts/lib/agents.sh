@@ -54,7 +54,7 @@ orch_parent_agent() {
 _ORCH_KIT_TIERS="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/config/tiers.tsv"
 export _ORCH_KIT_TIERS
 
-# Tier of role $1: ORCH_TIER (current tier, raised on failure by #209) >
+# Tier of role $1: ORCH_TIER (current tier, raised on failure by orch_tier_escalate) >
 # ORCH_TIER_<ROLE> > default (integrator small, other roles medium). ADR-010.
 orch_tier_for_role() {
   local role="${1:-worker}" var
@@ -69,6 +69,27 @@ orch_tier_for_role() {
   else
     echo medium
   fi
+}
+
+# Position of tier $1 in small < medium < large; fails for any other value.
+orch_tier_rank() {
+  case "$1" in small) echo 0 ;; medium) echo 1 ;; large) echo 2 ;; *) return 1 ;; esac
+}
+
+# After a failure of role $1: raise it one tier by exporting ORCH_TIER, bounded by
+# ORCH_TIER_MAX (default large). Returns 0 raised, 1 already at the ceiling, 2 tiers
+# do not apply (pinned command, CLI with no table row, tier outside small|medium|large).
+# Call it in the shell that runs the loop, never in a `$(...)`. ADR-010.
+orch_tier_escalate() {
+  local role="$1" r t cur rank max_rank tiers=(small medium large)
+  r="$(orch_resolve_agent "$role")" || return 2
+  t="$(orch_agent_tier "${r%%$'\t'*}" "$role")" || return 2
+  [ -n "${t#*$'\t'}" ] || return 2
+  cur="${t%%$'\t'*}"
+  rank="$(orch_tier_rank "$cur")" || return 2
+  max_rank="$(orch_tier_rank "${ORCH_TIER_MAX:-large}")" || max_rank=2
+  [ "$rank" -lt "$max_rank" ] || return 1
+  export ORCH_TIER="${tiers[rank + 1]}"
 }
 
 # Flags of cli $1 at tier $2 from ORCH_TIERS_FILE (else the kit table). agent and

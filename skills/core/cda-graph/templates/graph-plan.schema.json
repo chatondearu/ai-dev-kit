@@ -18,7 +18,8 @@
             "minItems": 1,
             "items": { "type": "string" }
           },
-          "prompt": { "type": "string" }
+          "prompt": { "type": "string" },
+          "tier": { "enum": ["small", "medium", "large"] }
         }
       }
     }

@@ -26,12 +26,13 @@ git -C "$TMP" add README
 git -C "$TMP" commit -qm init
 
 export ORCH_REPO="$TMP" ORCH_PROMPTS_DIR=/nonexistent ORCH_PROGRESS=0
-export STUB_LOG="$TMP/worker.log"
+export STUB_LOG="$TMP/worker.log" STUB_TIERS="$TMP/tiers.log"
 
 # Stub worker: log start/end markers, optionally write STUB_WRITE (relative to the worktree).
 orch_graph_worker() {
   local wt="$1"
   echo "start $ORCH_WORKER_ID" >>"$STUB_LOG"
+  echo "$ORCH_WORKER_ID ${ORCH_TIER:-none}" >>"$STUB_TIERS"
   sleep 0.3
   if [ -n "${STUB_WRITE:-}" ]; then
     mkdir -p "$wt/$(dirname "$STUB_WRITE")"
@@ -77,5 +78,11 @@ rc=0
 STUB_WRITE="src/a/ok.txt" orch_graph_plan_run "$PLAN1" 14 2>/dev/null || rc=$?
 assert_eq "$rc" "0" "inside paths: plan ok"
 assert_eq "$(node_msg task-a)" "done complete" "inside paths: node done"
+
+# (d) task `tier` becomes the worker's start tier; a task without one sets none.
+echo '{"issue":15,"tasks":[{"id":"a","paths":["src/a/"],"prompt":"a","tier":"large"},{"id":"b","paths":["src/b/"],"prompt":"b"}]}' >"$PLAN1"
+: >"$STUB_TIERS"
+ORCH_GRAPH_PLAN_PARALLEL=0 orch_graph_plan_run "$PLAN1" 15 2>/dev/null
+assert_eq "$(paste -sd, "$STUB_TIERS")" "task-a large,task-b none" "task tier is the worker start tier"
 
 summary

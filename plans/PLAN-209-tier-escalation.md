@@ -1,6 +1,6 @@
 # PLAN-209 — Escalate one tier per failure; graph-plan task tier
 
-- **Status**: ready
+- **Status**: verify
 - **PRD**: [[../prd/PRD-206-cli-inheritance-tiers|PRD-206]]
 - **GitHub**: [#209](https://github.com/chatondearu/ai-dev-kit/issues/209)
 - **Date**: 2026-11-09
@@ -41,10 +41,10 @@ tier up, bounded by `ORCH_TIER_MAX`; graph-plan tasks may set their start tier.
 
 ## Tasks
 
-- [ ] next-tier helper + ceiling check
-- [ ] wire into worker loop and pr-fix loop
-- [ ] graph-plan `tier` (schema, validator, runner)
-- [ ] docs
+- [x] next-tier helper + ceiling check
+- [x] wire into worker loop and pr-fix loop
+- [x] graph-plan `tier` (schema, validator, runner)
+- [x] docs
 
 ## Risks & mitigations
 
@@ -55,6 +55,6 @@ tier up, bounded by `ORCH_TIER_MAX`; graph-plan tasks may set their start tier.
 
 ## Test plan
 
-- [ ] `tests/test_loop.sh`: stub agent + failing verify → tiers medium, large, then blocked with the ceiling reason; `ORCH_TIER_MAX=medium` → blocked after one failure; pinned role → no escalation
-- [ ] validator accepts `tier`, rejects an unknown value
-- [ ] `nix develop -c bash scripts/verify.sh`
+- [x] `tests/test_loop.sh`: stub agent + failing verify → tiers medium, large, then blocked with the ceiling reason; `ORCH_TIER_MAX=medium` → blocked after one failure; pinned role → no escalation
+- [x] validator accepts `tier`, rejects an unknown value
+- [x] `nix develop -c bash scripts/verify.sh`

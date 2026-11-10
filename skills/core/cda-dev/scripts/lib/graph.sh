@@ -236,6 +236,7 @@ orch_graph_worker() {
   local wt="$1" prompt="$2"
   local max="${ORCH_MAX_ITER:-10}" i=1
   local agent_rc verify_rc vcmd wid="${ORCH_WORKER_ID:-worker}"
+  local role="${ORCH_ROLE:-worker}" fail esc_rc reason
   local node_prefix="worker-${wid}"
   local base_prompt="$prompt" vlog="$wt/.orch/verify.log"
 
@@ -259,7 +260,7 @@ orch_graph_worker() {
     rm -f "$wt/.orch/agent-ok" 2>/dev/null || true
     agent_rc=0
     # pr-fix runs this same loop with ORCH_ROLE=pr-fix (orch.sh).
-    ORCH_ROLE="${ORCH_ROLE:-worker}" orch_agent_run "$wt" "$prompt" || agent_rc=$?
+    ORCH_ROLE="$role" orch_agent_run "$wt" "$prompt" || agent_rc=$?
 
     orch_graph_upsert_node "$agent_node" agent "$phase" done "agent exit $agent_rc" "$node_prefix" agent
 
@@ -306,7 +307,8 @@ orch_graph_worker() {
             [ -n "${ORCH_WORKER_ID:-}" ] || printf 'verify ok\n' >&2
             return 0
           fi
-          orch_graph_upsert_node "$node_prefix" worker verify blocked "grounding verifier failed" ""
+          fail="grounding verifier failed"
+          orch_graph_upsert_node "$node_prefix" worker verify blocked "$fail" ""
           # Retry with the verifier's reasons instead of re-sending the same prompt blind.
           if type orch_verifier_retry_prompt >/dev/null 2>&1; then
             prompt="$(orch_verifier_retry_prompt "$base_prompt" "$wt")"
@@ -320,11 +322,29 @@ orch_graph_worker() {
           ;;
       esac
     else
-      orch_graph_upsert_node "$verify_node" verify verify failed "verify failed" "$node_prefix"
+      fail="verify failed"
+      orch_graph_upsert_node "$verify_node" verify verify failed "$fail" "$node_prefix"
       orch_graph_upsert_node "$node_prefix" worker verify retry "verify failed iter $i" ""
       # Retry with the failing output instead of re-sending the same prompt blind.
       if type orch_verify_retry_prompt >/dev/null 2>&1; then
         prompt="$(orch_verify_retry_prompt "$base_prompt" "$wt" "$vlog")"
+      fi
+    fi
+    # Red verify or failed verifier: the next iteration runs one tier up, bounded by
+    # ORCH_TIER_MAX (ADR-010). Pinned roles never escalate. Nothing to raise on the last
+    # iteration: max iter exhausted is the reason then.
+    if [ "$i" -lt "$max" ]; then
+      esc_rc=0
+      orch_tier_escalate "$role" || esc_rc=$?
+      if [ "$esc_rc" -eq 1 ]; then
+        reason="tier ceiling $(orch_tier_for_role "$role") reached: $fail"
+        orch_graph_upsert_node "$node_prefix" worker blocked blocked "$reason" ""
+        if type orch_progress_set >/dev/null 2>&1 && [ -n "${ORCH_WORKER_ID:-}" ]; then
+          orch_progress_set "$ORCH_WORKER_ID" blocked "$reason"
+        else
+          printf 'blocked: %s\n' "$reason" >&2
+        fi
+        return 4
       fi
     fi
     i=$((i + 1))
@@ -491,6 +511,15 @@ orch_graph_plan_validate_disjoint() {
   return 0
 }
 
+# Exit 1 if a task `tier` is not small|medium|large.
+orch_graph_plan_validate_tiers() {
+  local bad
+  bad="$(jq -r '.tasks[] | select(has("tier") and (.tier | IN("small","medium","large") | not)) | "\(.id // "?"): \(.tier)"' "$1")"
+  [ -z "$bad" ] && return 0
+  printf 'graph-plan: tier must be small, medium or large (task %s)\n' "$(paste -sd, - <<<"$bad")" >&2
+  return 1
+}
+
 # 1 = run tasks in parallel when paths are disjoint; 0 = always sequential.
 orch_graph_plan_wants_parallel() {
   case "${ORCH_GRAPH_PLAN_PARALLEL:-auto}" in
@@ -548,8 +577,10 @@ orch_graph_paths_violations() {
 
 orch_graph_plan_run_task() {
   local plan_file="$1" path="$2" issue="$3" i="$4" parallel="${5:-0}"
-  local tid body paths prompt_file rc_task base baseline bad
+  local tid body paths prompt_file rc_task base baseline bad tier
   tid="$(jq -r ".tasks[$i].id" "$plan_file")"
+  # Optional start tier of the task; the loop may still escalate from it (ORCH_TIER_MAX).
+  tier="$(jq -r ".tasks[$i].tier // empty" "$plan_file")"
   body="$(jq -r ".tasks[$i].prompt" "$plan_file")"
   paths="$(jq -r ".tasks[$i].paths | join(\", \")" "$plan_file")"
   [ -n "$tid" ] && [ "$tid" != "null" ] || tid="task-$i"
@@ -571,7 +602,7 @@ orch_graph_plan_run_task() {
   export ORCH_WT="$path"
   export ORCH_WORKER_ID="task-${tid}"
   orch_progress_set "$issue" agent "task ${tid}"
-  if ! orch_sandbox_wrap bash -c "ORCH_WT=\"$path\" ORCH_WORKER_ID=\"task-${tid}\" ORCH_REPO=\"$ORCH_REPO\" orch_graph_worker \"$path\" \"$prompt_file\""; then
+  if ! orch_sandbox_wrap bash -c "${tier:+ORCH_TIER=$tier }ORCH_WT=\"$path\" ORCH_WORKER_ID=\"task-${tid}\" ORCH_REPO=\"$ORCH_REPO\" orch_graph_worker \"$path\" \"$prompt_file\""; then
     orch_graph_upsert_node "task-${tid}" worker task failed "agent failed" ""
     printf '1' >"$rc_task"
     return 1
@@ -617,6 +648,8 @@ orch_graph_plan_run() {
     printf 'graph-plan: tasks array empty\n' >&2
     return 1
   fi
+
+  orch_graph_plan_validate_tiers "$plan_file" || return 1
 
   if orch_graph_plan_wants_parallel "$plan_file"; then
     parallel=1

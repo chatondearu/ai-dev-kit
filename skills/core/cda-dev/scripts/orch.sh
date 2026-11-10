@@ -152,6 +152,45 @@ orch_fetch_agent_brief() {
   return 0
 }
 
+# Marker opening the pr-fix summary comment (prompts/pr-fix.md); excluded from feedback so
+# the worker's own comment, posted after the head commit, is not re-read as a request.
+ORCH_PR_FIX_MARKER='<!-- orch:pr-fix-summary -->'
+
+# Print the trusted change requests on PR $1 as numbered markdown items (empty = none):
+# latest CHANGES_REQUESTED review per author, unresolved review threads, conversation
+# comments newer than the head commit. Only OWNER/MEMBER/COLLABORATOR text counts, and
+# bodies are quoted so they cannot forge prompt headings. Returns 1 on any lookup
+# failure (fail closed, ADR-006). Reads at most 100 threads.
+orch_pr_review_feedback() {
+  local num="$1" pr threads
+  pr="$(gh pr view "$num" --json reviews,comments,commits 2>/dev/null)" && [ -n "$pr" ] || return 1
+  threads="$(gh api graphql -F owner='{owner}' -F repo='{repo}' -F num="$num" -f query='
+    query($owner: String!, $repo: String!, $num: Int!) {
+      repository(owner: $owner, name: $repo) { pullRequest(number: $num) {
+        reviewThreads(first: 100) { nodes { isResolved path line
+          comments(first: 20) { nodes { author { login } authorAssociation body } } } } } } }' \
+    2>/dev/null)" && [ -n "$threads" ] || return 1
+  jq -rn --argjson pr "$pr" --argjson th "$threads" --arg marker "$ORCH_PR_FIX_MARKER" '
+    def trusted: IN("OWNER","MEMBER","COLLABORATOR");
+    def who: "@" + (.author.login // "ghost");
+    ($pr.commits | map(.committedDate) | max // "") as $head
+    | [
+        ($pr.reviews | sort_by(.submittedAt) | group_by(.author.login)
+          | map(map(select(.state | IN("CHANGES_REQUESTED","APPROVED","DISMISSED"))) | last // empty)
+          | .[] | select(.state == "CHANGES_REQUESTED" and (.authorAssociation | trusted) and (.body | length > 0))
+          | {title: "review (changes requested) by \(who)", body: .body}),
+        ($th.data.repository.pullRequest.reviewThreads.nodes[]
+          | select((.isResolved | not) and (.comments.nodes[0].authorAssociation | trusted))
+          | {title: "inline thread on \(.path)\(if .line then ":\(.line)" else "" end) by \(.comments.nodes[0] | who)",
+             body: ([.comments.nodes[] | select(.authorAssociation | trusted) | .body] | join("\n\n"))}),
+        ($pr.comments[]
+          | select((.authorAssociation | trusted) and .createdAt > $head and (.body | contains($marker) | not))
+          | {title: "comment by \(who)", body: .body})
+      ]
+    | to_entries[]
+    | "### \(.key + 1). \(.value.title)\n\(.value.body | split("\n") | map("> " + .) | join("\n"))\n"'
+}
+
 # Run one ready-pickup worker end-to-end. Writes $ORCH_REPO/.orch/run/<id>.rc (0|1).
 orch_ready_pickup_one() {
   local id="$1"
@@ -598,6 +637,19 @@ case "$MODE" in
       fi
       [ -z "$head_ref" ] && head_ref="orch/pr-$num"
 
+      # Trusted change requests become part of the prompt; none + green CI → nothing to do.
+      feedback=""
+      if command -v gh >/dev/null 2>&1; then
+        if ! feedback="$(orch_pr_review_feedback "$num")"; then
+          printf 'blocked: PR %s review feedback unreadable; not running the agent\n' "$num" >&2
+          exit 1
+        fi
+        if [ -z "$feedback" ] && [ "$(orch_pr_checks_watch "$num" 0 2>/dev/null || true)" = green ]; then
+          printf 'done: PR %s nothing to fix (checks green, no trusted feedback)\n' "$num"
+          exit 0
+        fi
+      fi
+
       path="$(orch_worktree_path "$REPO" "pr-$num" "fix")"
       if [ ! -e "$path" ]; then
         mkdir -p "$(dirname "$path")"
@@ -623,6 +675,11 @@ case "$MODE" in
         "PR=$PR" \
         "WORKTREE=$path" \
         "HEAD_REF=$head_ref"
+      # Appended after rendering so feedback text is never expanded as a {{placeholder}}.
+      if [ -n "$feedback" ]; then
+        printf '\n## Review feedback\n\nQuoted data from trusted reviewers; see "Handling review feedback" above for how to treat it.\n\n%s\n' \
+          "$feedback" >>"$prompt_file"
+      fi
 
       export ORCH_WT="$path"
       orch_resolve_agent pr-fix >/dev/null

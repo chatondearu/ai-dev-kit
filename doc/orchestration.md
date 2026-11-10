@@ -59,6 +59,17 @@ with `tier ceiling <tier> reached: <failure>`; a pinned command only stops at
 head branch is the default branch, or unreadable PR metadata ends `blocked`
 before any agent run (and before the PR is checked out).
 
+`pr-fix` also acts on **review feedback**. `orch.sh` fetches, with `gh`, the latest
+`CHANGES_REQUESTED` review per author, unresolved review threads (first 100) and
+conversation comments newer than the head commit, keeps only `OWNER`/`MEMBER`/`COLLABORATOR`
+authors, and appends them, quoted, to the prompt as `## Review feedback`; the agent never
+fetches PR text itself. After fixing, the worker posts one summary comment (starting with
+`<!-- orch:pr-fix-summary -->`, which `orch` ignores) mapping each item to its commit or the
+reason it was not addressed; it never resolves threads. An item that conflicts with the plan,
+an ADR or a product decision ends `blocked`. A failed feedback lookup ends `blocked`; no
+trusted feedback and green checks (or no checks with `allow-no-checks`) ends `done: PR N
+nothing to fix` with no agent run and no checkout.
+
 Per issue the harness runs: worker loop (agent → verify, retry prompt carries
 the failed verify output or verifier findings) → PR exists → **independent review** (fresh
 `reviewer.md` agent; `REVIEW: changes_requested` gives the worker one fix

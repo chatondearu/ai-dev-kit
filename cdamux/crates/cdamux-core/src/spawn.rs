@@ -248,6 +248,12 @@ fn with_agent_id_env(command: &str, cdamux_id: Option<&str>) -> String {
     }
 }
 
+/// Resolve a fork parent's tmux session name to its agent id (ADR-011 §1).
+/// Missing registry / id → `None` (persist JSON null until the parent is known).
+fn parent_agent_id(parent_session: Option<&str>) -> Option<String> {
+    parent_session.and_then(|name| session_registry::load(name)?.cdamux_id)
+}
+
 fn write_agent_state(
     session_name: &str,
     agent_label: Option<&str>,
@@ -258,7 +264,8 @@ fn write_agent_state(
         return;
     };
     let role = role_for(agent_label);
-    let value = initial_agent_value(id, client, session_name, role, parent);
+    let parent_id = parent_agent_id(parent);
+    let value = initial_agent_value(id, client, session_name, role, parent_id.as_deref());
     let _ = state_set(StateKind::Agents, id, &value);
 }
 
@@ -400,6 +407,31 @@ mod tests {
             link_options(Some("shell"), None, None),
             vec![("@cdamux_agent", "shell"), ("@cdamux_role", "shell")]
         );
+    }
+
+    #[test]
+    fn parent_agent_id_resolves_registry_or_null() {
+        use crate::paths::env_lock;
+        let _g = env_lock();
+        let dir = tempfile::tempdir().unwrap();
+        std::env::set_var("CDAMUX_HOME", dir.path());
+        assert_eq!(parent_agent_id(None), None);
+        assert_eq!(parent_agent_id(Some("c-missing")), None);
+        session_registry::record(&session_registry::SessionRecord {
+            name: "c-main".into(),
+            cwd: "/tmp/p".into(),
+            agent: "claude".into(),
+            agent_session_id: None,
+            cdamux_id: Some("a-parent".into()),
+            parent: None,
+            role: "agent".into(),
+            layout: PaneLayout::Single,
+            created_ts: 1,
+            updated_ts: 1,
+        })
+        .unwrap();
+        assert_eq!(parent_agent_id(Some("c-main")).as_deref(), Some("a-parent"));
+        std::env::remove_var("CDAMUX_HOME");
     }
 
     #[test]

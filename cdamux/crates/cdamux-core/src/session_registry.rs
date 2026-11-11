@@ -5,8 +5,10 @@
 
 use crate::paths::cdamux_state_dir;
 use crate::spawn::PaneLayout;
+use crate::state::{state_append, StateKind};
 use crate::subagent_ledger::session_file_name;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::io;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -105,6 +107,7 @@ pub fn remove(name: &str) -> io::Result<()> {
 }
 
 /// Move the record of `old` to `new` (tmux rename); no record → nothing to do.
+/// Updates `host` on `agents/<cdamux_id>.json` when present; never moves that file.
 pub fn rename(old: &str, new: &str) -> io::Result<()> {
     let Some(mut rec) = load(old) else {
         return Ok(());
@@ -112,7 +115,11 @@ pub fn rename(old: &str, new: &str) -> io::Result<()> {
     rec.name = new.to_string();
     rec.updated_ts = now_secs();
     record(&rec)?;
-    remove(old)
+    remove(old)?;
+    if let Some(id) = rec.cdamux_id.as_deref() {
+        let _ = state_append(StateKind::Agents, id, &json!({ "host": new }));
+    }
+    Ok(())
 }
 
 /// Store the agent conversation id of `name`; `NotFound` when it has no record.

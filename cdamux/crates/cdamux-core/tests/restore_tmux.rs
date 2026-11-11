@@ -5,7 +5,7 @@ use cdamux_core::{
     restore_one, session_registry, spawn_tmux_session_with_layout, AgentEntry, AgentsConfig,
     PaneLayout, RestoreOutcome,
 };
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
 
@@ -68,6 +68,20 @@ fn spawn_kill_restore_resumes_claude_conversation() {
         .expect("spawn");
     let before = session_registry::load(name).expect("recorded");
     let id = before.agent_session_id.clone().expect("pre-assigned id");
+    let cdamux_id = before.cdamux_id.clone().expect("cdamux_id");
+    assert_eq!(
+        tmux(&["show-options", "-v", "-t", name, "@cdamux_id"]).trim(),
+        cdamux_id.as_str()
+    );
+    let agent_path = PathBuf::from(std::env::var_os("XDG_STATE_HOME").unwrap())
+        .join("cdamux/agents")
+        .join(format!("{cdamux_id}.json"));
+    let agent_doc: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&agent_path).expect("agent state file")).unwrap();
+    assert_eq!(agent_doc["id"], cdamux_id);
+    assert_eq!(agent_doc["host"], name);
+    // Parent session has no registry entry → entity parent is null (not the tmux name).
+    assert!(agent_doc["parent"].is_null(), "parent={:?}", agent_doc["parent"]);
 
     let result = std::panic::catch_unwind(|| {
         assert_eq!(restore_one(&before, &agents).unwrap(), RestoreOutcome::SkippedLive);
@@ -84,10 +98,16 @@ fn spawn_kill_restore_resumes_claude_conversation() {
         assert_eq!(tmux(&["list-panes", "-t", &format!("={name}:"), "-F", "x"]).lines().count(), 2);
         assert_eq!(tmux(&["show-options", "-v", "-t", name, "@cdamux_parent"]).trim(), "c-main");
         assert_eq!(tmux(&["show-options", "-v", "-t", name, "@cdamux_agent"]).trim(), "claude");
+        assert_eq!(
+            tmux(&["show-options", "-v", "-t", name, "@cdamux_id"]).trim(),
+            cdamux_id.as_str()
+        );
 
         let after = session_registry::load(name).unwrap();
         assert_eq!(after.agent_session_id.as_deref(), Some(id.as_str()));
+        assert_eq!(after.cdamux_id.as_deref(), Some(cdamux_id.as_str()));
         assert_eq!(after.created_ts, before.created_ts);
+        assert!(agent_path.is_file(), "agent file survives restore");
     });
 
     // Kill only our private server, after checking its socket lives under tmp

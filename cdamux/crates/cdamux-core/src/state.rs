@@ -219,6 +219,9 @@ mod tests {
     #[test]
     fn rename_does_not_move_agent_file() {
         with_temp_home(|home| {
+            use crate::session_registry::{self, SessionRecord};
+            use crate::spawn::PaneLayout;
+
             let id = "a-stay1";
             state_set(
                 StateKind::Agents,
@@ -226,21 +229,29 @@ mod tests {
                 &initial_agent_value(id, "cursor", "c-old", "agent", None),
             )
             .unwrap();
-            let before = std::fs::read_to_string(home.join("agents").join(format!("{id}.json"))).unwrap();
-            // Simulate a tmux rename: only the host label would change via append; path stays.
-            state_append(
-                StateKind::Agents,
-                id,
-                &serde_json::json!({"host": "c-new"}),
-            )
+            session_registry::record(&SessionRecord {
+                name: "c-old".into(),
+                cwd: "/tmp/p".into(),
+                agent: "cursor".into(),
+                agent_session_id: None,
+                cdamux_id: Some(id.into()),
+                parent: None,
+                role: "agent".into(),
+                layout: PaneLayout::Single,
+                created_ts: 1,
+                updated_ts: 1,
+            })
             .unwrap();
+
+            session_registry::rename("c-old", "c-new").unwrap();
+
             let after_path = home.join("agents").join(format!("{id}.json"));
             assert!(after_path.is_file());
             assert!(!home.join("agents/c-new.json").exists());
             assert!(!home.join("agents/c-old.json").exists());
-            let after = std::fs::read_to_string(&after_path).unwrap();
-            assert!(after.contains("c-new"));
-            assert_ne!(before, after);
+            let after: Value = serde_json::from_str(&std::fs::read_to_string(&after_path).unwrap()).unwrap();
+            assert_eq!(after["host"], "c-new");
+            assert_eq!(after["id"], id);
         });
     }
 }

@@ -57,7 +57,11 @@ $CDAMUX_HOME/
 Writers use `cdamux state set|get|append` (private JSON). Spawn mints `a-xxxxx`,
 sets `@cdamux_id`, exports `CDAMUX_AGENT_ID`, and records the product client name
 (`claude` | `cursor` | `opencode` | `codex`; aliases like `agent` / `cursor-agent`
-normalise on write). Renaming a tmux session does not move `agents/<id>.json`.
+normalise on write — orch `@cdamux_agent` uses the same product names). Entity
+`parent` is the parent's agent id (resolved from the registry), or `null` when
+unknown; `@cdamux_parent` stays the tmux session name for Fleet nesting. Renaming
+a tmux session updates `host` via `session_registry::rename` and does not move
+`agents/<id>.json`.
 
 ## Config (`~/.config/cdamux/config.toml`)
 

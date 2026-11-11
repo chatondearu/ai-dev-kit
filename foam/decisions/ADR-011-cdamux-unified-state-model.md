@@ -68,6 +68,29 @@ This ADR grows one section per resolved decision ticket of the map; it becomes
 - **Concurrency**: one writer per entity file; inbox appends are small (< 4 KB) single
   `O_APPEND` writes. No global lock.
 
+### 3. Status set and precedence ([#233](https://github.com/chatondearu/ai-dev-kit/issues/233))
+
+- **One status set for every Agent**:
+
+  | Status | Reported by | Event |
+  | ------ | ----------- | ----- |
+  | `working` | client hook | prompt submit |
+  | `idle` | client hook | turn end, session start |
+  | `needs_input` | client hook | permission / notification (Cursor: pane heuristic, no event) |
+  | `blocked` | worker CLI, `orch.sh` | waiting on the orchestrator or a dependency — not on the user |
+  | `done` | worker CLI, `orch.sh` | `report --done`, PR opened |
+  | `error` | worker CLI, `orch.sh` | failure, crash |
+  | `dormant` | computed by readers | no live host, resumable (ADR-009) |
+
+  All writes go through `cdamux state set` (§2).
+- **Precedence**: the reported status wins. Pane heuristics (`window_activity`, prompt
+  detection) apply only to an Agent with no hook signal, or for `needs_input` on clients
+  without that event. An Agent `working` with no pane output for more than N minutes is
+  shown `working ⚠` (possible hang or crash) without changing the stored status.
+- **Stickiness**: `done` and `error` stay until the next prompt submit on that Agent.
+- **Install**: the status hooks join `install.sh --cdamux-hooks` and
+  `cda.aitools.cdamux.hooks.enable`, which stay opt-in (ADR-007).
+
 ## Alternatives considered
 
 | Alternative | Why rejected |
@@ -82,6 +105,10 @@ This ADR grows one section per resolved decision ticket of the map; it becomes
 | Event log only | Costly reads, retention to design; kept as an optional journal |
 | Keep runs in the repo `.orch/` | Two places to read (repo + state root) |
 | Public file format, direct writes | Format becomes a hard-to-change contract |
+| Merge `blocked` into `needs_input` | Hides whether the user or another agent must act |
+| Hooks always win, no heuristic | A crashed agent stays `working` forever |
+| `done` lasts one turn | Finished work disappears before the user looks |
+| Status hooks installed by default | Breaks the ADR-007 opt-in and the ADR-001 host-tool boundary |
 
 ## Consequences
 
@@ -91,8 +118,9 @@ This ADR grows one section per resolved decision ticket of the map; it becomes
   changes `orch.sh` behaviour for existing users.
 - **Negative**: every writer depends on the `cdamux` binary (silent no-op without it);
   readers of `.orch/graph` and `/v1/orch-*` must move to the state root.
-- **Constraint**: status enum, message transport and `orch.sh` integration are decided
-  by tickets #233–#235 and appended here.
+- **Negative**: statuses stay heuristic until the user enables `--cdamux-hooks`.
+- **Constraint**: message transport and `orch.sh` integration are decided by tickets
+  #234–#235 and appended here.
 
 ## References
 

@@ -1,7 +1,9 @@
 //! Spawn tmux sessions with configured agent commands.
 
+use crate::client_name::normalize_client_name;
 use crate::session_manage::is_home_session;
 use crate::session_registry::{self, now_secs, SessionRecord};
+use crate::state::{generate_agent_id, initial_agent_value, state_set, StateKind};
 use crate::tmux::pane_target;
 use crate::{AgentEntry, AgentsConfig};
 use serde::{Deserialize, Serialize};
@@ -35,7 +37,7 @@ pub fn session_name_for_path(path: &Path) -> String {
 }
 
 pub(crate) fn agent_entry<'a>(agents: &'a AgentsConfig, name: &str) -> Option<&'a AgentEntry> {
-    match name {
+    match normalize_client_name(name) {
         "cursor" => agents.cursor.as_ref(),
         "opencode" => agents.opencode.as_ref(),
         "claude" => agents.claude.as_ref(),
@@ -45,8 +47,9 @@ pub(crate) fn agent_entry<'a>(agents: &'a AgentsConfig, name: &str) -> Option<&'
 }
 
 pub fn resolve_agent_command(agents: &AgentsConfig, name: &str) -> Result<String, SpawnError> {
-    match agent_entry(agents, name) {
-        Some(entry) => Ok(agent_executable(&entry.command, name)),
+    let product = normalize_client_name(name);
+    match agent_entry(agents, product) {
+        Some(entry) => Ok(agent_executable(&entry.command, product)),
         None => Err(SpawnError::UnknownAgent(name.to_string())),
     }
 }
@@ -106,7 +109,11 @@ pub fn spawn_tmux_session_with_layout(
     agent_label: Option<&str>,
     parent: Option<&str>,
 ) -> Result<SpawnOutcome, SpawnError> {
-    let (primary_command, agent_session_id) = with_claude_session_id(primary_command, agent_label);
+    let agent_label = agent_label.map(normalize_client_name);
+    let cdamux_id = agent_label.and_then(|_| generate_agent_id());
+    let (primary_command, agent_session_id) =
+        with_claude_session_id(primary_command, agent_label);
+    let primary_command = with_agent_id_env(&primary_command, cdamux_id.as_deref());
     create_tmux_session(
         session_name,
         path,
@@ -115,8 +122,18 @@ pub fn spawn_tmux_session_with_layout(
         switch_to_session,
         agent_label,
         parent,
+        cdamux_id.as_deref(),
     )?;
-    let rec = registry_record(session_name, path, agent_label, parent, layout, agent_session_id);
+    write_agent_state(session_name, agent_label, parent, cdamux_id.as_deref());
+    let rec = registry_record(
+        session_name,
+        path,
+        agent_label,
+        parent,
+        layout,
+        agent_session_id,
+        cdamux_id,
+    );
     Ok(record_outcome(rec))
 }
 
@@ -124,15 +141,23 @@ pub fn spawn_tmux_session_with_layout(
 /// `primary_command`; the record keeps its `created_ts`, `updated_ts` is bumped.
 /// No `--session-id` is added here: the caller built the exact command (restore).
 pub(crate) fn respawn_recorded(rec: &SessionRecord, primary_command: &str) -> Result<SpawnOutcome, SpawnError> {
+    let primary_command = with_agent_id_env(primary_command, rec.cdamux_id.as_deref());
     create_tmux_session(
         &rec.name,
         &rec.cwd,
-        primary_command,
+        &primary_command,
         rec.layout,
         false,
         Some(&rec.agent),
         rec.parent.as_deref(),
+        rec.cdamux_id.as_deref(),
     )?;
+    write_agent_state(
+        &rec.name,
+        Some(rec.agent.as_str()),
+        rec.parent.as_deref(),
+        rec.cdamux_id.as_deref(),
+    );
     let mut rec = rec.clone();
     rec.updated_ts = now_secs();
     Ok(record_outcome(Some(rec)))
@@ -153,6 +178,7 @@ fn create_tmux_session(
     switch_to_session: bool,
     agent_label: Option<&str>,
     parent: Option<&str>,
+    cdamux_id: Option<&str>,
 ) -> Result<(), SpawnError> {
     if !path.exists() {
         return Err(SpawnError::PathNotFound(path.to_path_buf()));
@@ -179,6 +205,12 @@ fn create_tmux_session(
         return Err(SpawnError::TmuxFailed);
     }
 
+    if let Some(id) = cdamux_id {
+        let _ = Command::new("tmux")
+            .args(["set-environment", "-t", session_name, "CDAMUX_AGENT_ID", id])
+            .status();
+    }
+
     if primary_command != shell {
         let send = Command::new("tmux")
             .args(["send-keys", "-t", &pane_target(session_name), primary_command, "Enter"])
@@ -193,7 +225,7 @@ fn create_tmux_session(
         apply_pane_split(session_name, layout)?;
     }
 
-    for (option, value) in link_options(agent_label, parent) {
+    for (option, value) in link_options(agent_label, parent, cdamux_id) {
         let _ = Command::new("tmux")
             .args(["set-option", "-t", session_name, option, value])
             .status();
@@ -205,6 +237,29 @@ fn create_tmux_session(
             .status();
     }
     Ok(())
+}
+
+/// Prefix the pane command so the agent process sees `CDAMUX_AGENT_ID` even when the
+/// shell was started before `set-environment`.
+fn with_agent_id_env(command: &str, cdamux_id: Option<&str>) -> String {
+    match cdamux_id {
+        Some(id) if !id.is_empty() => format!("CDAMUX_AGENT_ID={id} {command}"),
+        _ => command.to_string(),
+    }
+}
+
+fn write_agent_state(
+    session_name: &str,
+    agent_label: Option<&str>,
+    parent: Option<&str>,
+    cdamux_id: Option<&str>,
+) {
+    let (Some(id), Some(client)) = (cdamux_id, agent_label) else {
+        return;
+    };
+    let role = role_for(agent_label);
+    let value = initial_agent_value(id, client, session_name, role, parent);
+    let _ = state_set(StateKind::Agents, id, &value);
 }
 
 /// `claude` → command plus `--session-id <uuid>`, and that uuid; other agents untouched.
@@ -235,6 +290,7 @@ fn registry_record(
     parent: Option<&str>,
     layout: PaneLayout,
     agent_session_id: Option<String>,
+    cdamux_id: Option<String>,
 ) -> Option<SessionRecord> {
     let agent = agent_label?;
     if is_home_session(name) {
@@ -244,8 +300,9 @@ fn registry_record(
     Some(SessionRecord {
         name: name.to_string(),
         cwd: path.to_path_buf(),
-        agent: agent.to_string(),
+        agent: normalize_client_name(agent).to_string(),
         agent_session_id,
+        cdamux_id,
         parent: parent.map(str::to_string),
         role: role_for(agent_label).to_string(),
         layout,
@@ -258,13 +315,20 @@ fn role_for(agent_label: Option<&str>) -> &'static str {
     if agent_label == Some("shell") { "shell" } else { "agent" }
 }
 
-/// Session user options set at spawn: agent label, role, and the fork parent.
-fn link_options<'a>(agent_label: Option<&'a str>, parent: Option<&'a str>) -> Vec<(&'static str, &'a str)> {
+/// Session user options set at spawn: agent label, role, stable id, and the fork parent.
+fn link_options<'a>(
+    agent_label: Option<&'a str>,
+    parent: Option<&'a str>,
+    cdamux_id: Option<&'a str>,
+) -> Vec<(&'static str, &'a str)> {
     let mut out = Vec::new();
     if let Some(label) = agent_label {
         out.push(("@cdamux_agent", label));
     }
     out.push(("@cdamux_role", role_for(agent_label)));
+    if let Some(id) = cdamux_id {
+        out.push(("@cdamux_id", id));
+    }
     if let Some(p) = parent {
         out.push(("@cdamux_parent", p));
     }
@@ -324,17 +388,34 @@ mod tests {
     #[test]
     fn fork_sets_parent_and_agent_role() {
         assert_eq!(
-            link_options(Some("claude"), Some("c-main")),
+            link_options(Some("claude"), Some("c-main"), Some("a-7f3k2")),
             vec![
                 ("@cdamux_agent", "claude"),
                 ("@cdamux_role", "agent"),
+                ("@cdamux_id", "a-7f3k2"),
                 ("@cdamux_parent", "c-main"),
             ]
         );
         assert_eq!(
-            link_options(Some("shell"), None),
+            link_options(Some("shell"), None, None),
             vec![("@cdamux_agent", "shell"), ("@cdamux_role", "shell")]
         );
+    }
+
+    #[test]
+    fn resolve_accepts_cursor_aliases() {
+        let agents = AgentsConfig {
+            default: "cursor".into(),
+            cursor: Some(AgentEntry {
+                command: "cursor-agent".into(),
+                resume: None,
+            }),
+            opencode: None,
+            claude: None,
+            pi: None,
+        };
+        assert_eq!(resolve_agent_command(&agents, "agent").unwrap(), "cursor-agent");
+        assert_eq!(resolve_agent_command(&agents, "cursor-agent").unwrap(), "cursor-agent");
     }
 
     #[test]
@@ -356,20 +437,51 @@ mod tests {
     #[test]
     fn registry_record_skips_home_and_unlabelled() {
         let p = Path::new("/tmp/p");
-        assert!(registry_record("cdamux", p, Some("claude"), None, PaneLayout::Single, None).is_none());
-        assert!(registry_record("c-p", p, None, None, PaneLayout::Single, None).is_none());
-        let r = registry_record("c-p", p, Some("shell"), Some("c-main"), PaneLayout::Vertical, None)
-            .unwrap();
+        assert!(registry_record(
+            "cdamux",
+            p,
+            Some("claude"),
+            None,
+            PaneLayout::Single,
+            None,
+            None
+        )
+        .is_none());
+        assert!(registry_record("c-p", p, None, None, PaneLayout::Single, None, None).is_none());
+        let r = registry_record(
+            "c-p",
+            p,
+            Some("shell"),
+            Some("c-main"),
+            PaneLayout::Vertical,
+            None,
+            Some("a-shell".into()),
+        )
+        .unwrap();
         assert_eq!(
-            (r.agent.as_str(), r.role.as_str(), r.parent.as_deref(), r.layout),
-            ("shell", "shell", Some("c-main"), PaneLayout::Vertical)
+            (
+                r.agent.as_str(),
+                r.role.as_str(),
+                r.parent.as_deref(),
+                r.layout,
+                r.cdamux_id.as_deref()
+            ),
+            ("shell", "shell", Some("c-main"), PaneLayout::Vertical, Some("a-shell"))
         );
         assert_eq!(
-            registry_record("c-p", p, Some("claude"), None, PaneLayout::Single, Some("u".into()))
-                .unwrap()
-                .agent_session_id
-                .as_deref(),
-            Some("u")
+            registry_record(
+                "c-p",
+                p,
+                Some("cursor-agent"),
+                None,
+                PaneLayout::Single,
+                Some("u".into()),
+                Some("a-xyz12".into()),
+            )
+            .unwrap()
+            .agent
+            .as_str(),
+            "cursor"
         );
     }
 

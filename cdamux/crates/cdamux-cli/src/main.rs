@@ -15,15 +15,14 @@ mod tui;
 mod widgets;
 
 use cdamux_core::{
-    command_on_path, config_path, configured_agent_ids, default_agent_name, discover_projects,
-    ensure_note_file,
-    grouped_for_list, git_diff_unified, git_toplevel, home_session_new_argv, list_tmux_sessions,
-    list_worktrees, load_config, note_refs_for_projects,
-    current_tmux_session, kill_tmux_session, list_panes_all, restart_plan,
-    parents_first, parse_unified_diff, resolve_agent_command, restore_one, session_registry, resolve_note_path, send_to_session,
-    session_name_for_path, spawn_tmux_session_with_layout, unique_session_name, AttachMode, DiffError,
-    GroupBy, SendError,
-    PaneLayout, SpawnError,
+    cdamux_home, command_on_path, config_path, configured_agent_ids, default_agent_name,
+    discover_projects, ensure_note_file, grouped_for_list, git_diff_unified, git_toplevel,
+    home_session_new_argv, list_tmux_sessions, list_worktrees, load_config, note_refs_for_projects,
+    current_tmux_session, kill_tmux_session, list_panes_all, restart_plan, parents_first,
+    parse_unified_diff, resolve_agent_command, restore_one, session_registry, resolve_note_path,
+    send_to_session, session_name_for_path, spawn_tmux_session_with_layout, state_append, state_get,
+    state_set, unique_session_name, AttachMode, DiffError, GroupBy, PaneLayout, SendError,
+    SpawnError, StateKind,
 };
 use clap::{Parser, Subcommand};
 use skim::prelude::*;
@@ -124,6 +123,35 @@ enum Commands {
     Worktree {
         #[command(subcommand)]
         command: WorktreeCommands,
+    },
+    /// Read/write agent and run state under `CDAMUX_HOME` (ADR-011).
+    State {
+        #[command(subcommand)]
+        command: StateCommands,
+    },
+}
+
+#[derive(Subcommand)]
+enum StateCommands {
+    /// Atomically replace `agents/<id>.json` or `runs/<id>.json`.
+    Set {
+        /// `agents` or `runs`.
+        kind: String,
+        /// Entity id (`a-xxxxx`, run id, …).
+        id: String,
+        /// JSON document (private format).
+        json: String,
+    },
+    /// Print the entity JSON to stdout.
+    Get {
+        kind: String,
+        id: String,
+    },
+    /// Shallow-merge JSON object keys into the entity file.
+    Append {
+        kind: String,
+        id: String,
+        json: String,
     },
 }
 
@@ -229,6 +257,90 @@ fn main() -> ExitCode {
         Some(Commands::Worktree { command }) => match command {
             WorktreeCommands::List { path } => cmd_worktree_list(path),
         },
+        Some(Commands::State { command }) => match command {
+            StateCommands::Set { kind, id, json } => cmd_state_set(&kind, &id, &json),
+            StateCommands::Get { kind, id } => cmd_state_get(&kind, &id),
+            StateCommands::Append { kind, id, json } => cmd_state_append(&kind, &id, &json),
+        },
+    }
+}
+
+fn parse_state_kind(kind: &str) -> Result<StateKind, ExitCode> {
+    StateKind::parse(kind).ok_or_else(|| {
+        eprintln!("state: kind must be 'agents' or 'runs' (got '{kind}')");
+        ExitCode::from(2)
+    })
+}
+
+fn parse_state_json(json: &str) -> Result<serde_json::Value, ExitCode> {
+    serde_json::from_str(json).map_err(|e| {
+        eprintln!("state: invalid JSON: {e}");
+        ExitCode::from(2)
+    })
+}
+
+fn cmd_state_set(kind: &str, id: &str, json: &str) -> ExitCode {
+    let kind = match parse_state_kind(kind) {
+        Ok(k) => k,
+        Err(c) => return c,
+    };
+    let value = match parse_state_json(json) {
+        Ok(v) => v,
+        Err(c) => return c,
+    };
+    match state_set(kind, id, &value) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("state set: {e}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+fn cmd_state_get(kind: &str, id: &str) -> ExitCode {
+    let kind = match parse_state_kind(kind) {
+        Ok(k) => k,
+        Err(c) => return c,
+    };
+    match state_get(kind, id) {
+        Ok(Some(v)) => {
+            match serde_json::to_string_pretty(&v) {
+                Ok(s) => {
+                    println!("{s}");
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("state get: {e}");
+                    ExitCode::from(1)
+                }
+            }
+        }
+        Ok(None) => {
+            eprintln!("state get: not found");
+            ExitCode::from(1)
+        }
+        Err(e) => {
+            eprintln!("state get: {e}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+fn cmd_state_append(kind: &str, id: &str, json: &str) -> ExitCode {
+    let kind = match parse_state_kind(kind) {
+        Ok(k) => k,
+        Err(c) => return c,
+    };
+    let value = match parse_state_json(json) {
+        Ok(v) => v,
+        Err(c) => return c,
+    };
+    match state_append(kind, id, &value) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("state append: {e}");
+            ExitCode::from(1)
+        }
     }
 }
 
@@ -279,9 +391,13 @@ fn cmd_doctor() -> ExitCode {
         }
     }
 
+    match cdamux_home() {
+        Some(p) => println!("CDAMUX_HOME: {}", p.display()),
+        None => eprintln!("CDAMUX_HOME: cannot resolve (set CDAMUX_HOME, XDG_STATE_HOME, or HOME)"),
+    }
     match config_path() {
         Some(p) => println!("config: {}", p.display()),
-        None => eprintln!("config: cannot resolve XDG path"),
+        None => eprintln!("config: cannot resolve (set CDAMUX_CONFIG, XDG_CONFIG_HOME, or HOME)"),
     }
 
     let mut doctor_ok = true;

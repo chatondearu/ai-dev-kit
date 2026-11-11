@@ -42,7 +42,10 @@ function isPaneTopLevel(panePid, pid) {
   return false;
 }
 
-const stateDir = (env, sub) => path.join(env.XDG_STATE_HOME || path.join(os.homedir(), '.local', 'state'), 'cdamux', sub);
+const stateDir = (env, sub) => path.join(
+  env.CDAMUX_HOME || path.join(env.XDG_STATE_HOME || path.join(os.homedir(), '.local', 'state'), 'cdamux'),
+  sub,
+);
 
 function trim(file) {
   const lines = fs.readFileSync(file, 'utf8').split('\n').filter(Boolean);

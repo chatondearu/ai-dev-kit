@@ -42,7 +42,8 @@ restarted (`cdamux restart --all`).
 ## Session id capture (restore registry)
 
 The same opt-in hooks keep `agent_session_id` current in the restore record
-`${XDG_STATE_HOME:-$HOME/.local/state}/cdamux/sessions/<tmux-session>.json`
+`$CDAMUX_HOME/sessions/<tmux-session>.json` (`CDAMUX_HOME` defaults to
+`${XDG_STATE_HOME:-$HOME/.local/state}/cdamux`)
 ([ADR-009](../../foam/decisions/ADR-009-cdamux-session-restore-registry.md)), so a
 restore resumes the conversation that was live, not the one the session started
 with (`/clear`, `/resume`, a new chat). Writer: `setAgentSessionId` in `ledger.js`.
@@ -84,7 +85,7 @@ Rules (on top of the adapter rules below):
 ## Path
 
 ```text
-${XDG_STATE_HOME:-$HOME/.local/state}/cdamux/agents/<tmux-session>.jsonl
+$CDAMUX_HOME/agents/<tmux-session>.jsonl
 ```
 
 - `<tmux-session>` is the name of the session the CLI runs in, read at hook time

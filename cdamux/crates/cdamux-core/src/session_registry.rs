@@ -1,10 +1,11 @@
 //! Session restore registry (ADR-009): one JSON file per session cdamux spawned,
-//! `${XDG_STATE_HOME:-~/.local/state}/cdamux/sessions/<session>.json`.
+//! `$CDAMUX_HOME/sessions/<session>.json`.
 //! A restore snapshot only: tmux stays the truth for what runs, so nothing here
 //! is read to decide whether a session is live. Schema in `docs/architecture.md`.
 
+use crate::paths::cdamux_state_dir;
 use crate::spawn::PaneLayout;
-use crate::subagent_ledger::{cdamux_state_dir, session_file_name};
+use crate::subagent_ledger::session_file_name;
 use serde::{Deserialize, Serialize};
 use std::io;
 use std::path::PathBuf;
@@ -16,11 +17,14 @@ pub struct SessionRecord {
     /// tmux session name.
     pub name: String,
     pub cwd: PathBuf,
-    /// Config agent id (`claude`, `cursor`, ...) or `shell`.
+    /// Product client id (`claude`, `cursor`, …) or `shell`.
     pub agent: String,
     /// The agent CLI's conversation id, when known (resume target).
     #[serde(default)]
     pub agent_session_id: Option<String>,
+    /// Stable cdamux agent id (`a-xxxxx`); tmux rename never moves its state file.
+    #[serde(default)]
+    pub cdamux_id: Option<String>,
     /// Fork source session (`@cdamux_parent`).
     #[serde(default)]
     pub parent: Option<String>,
@@ -46,8 +50,12 @@ pub fn registry_dir() -> Option<PathBuf> {
 }
 
 fn record_path(name: &str) -> io::Result<PathBuf> {
-    let dir = registry_dir()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "neither XDG_STATE_HOME nor HOME is set"))?;
+    let dir = registry_dir().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::NotFound,
+            "CDAMUX_HOME / XDG_STATE_HOME / HOME unset",
+        )
+    })?;
     Ok(dir.join(session_file_name(name, "json")))
 }
 
@@ -126,6 +134,7 @@ mod tests {
             cwd: "/tmp/proj".into(),
             agent: "claude".into(),
             agent_session_id: None,
+            cdamux_id: Some("a-abc12".into()),
             parent: Some("c-main".into()),
             role: "agent".into(),
             layout: PaneLayout::Horizontal,
@@ -134,18 +143,19 @@ mod tests {
         }
     }
 
-    // The only core test that sets XDG_STATE_HOME, so no other test races on it.
+    // Sets CDAMUX_HOME; serialised with other env-sensitive tests via paths::env_lock.
     #[test]
     fn registry_round_trip_rename_remove_and_slash_names() {
+        let _g = crate::paths::env_lock();
         let dir = tempfile::tempdir().unwrap();
-        std::env::set_var("XDG_STATE_HOME", dir.path());
+        std::env::set_var("CDAMUX_HOME", dir.path());
 
         record(&rec("c-a")).unwrap();
         assert_eq!(load("c-a"), Some(rec("c-a")));
 
         // `/` stays inside the sessions dir.
         record(&rec("feat/x")).unwrap();
-        assert!(dir.path().join("cdamux/sessions/feat_x.json").is_file());
+        assert!(dir.path().join("sessions/feat_x.json").is_file());
         assert_eq!(load("feat/x").unwrap().name, "feat/x");
 
         set_agent_session_id("c-a", "abc").unwrap();
@@ -155,10 +165,13 @@ mod tests {
         rename("c-a", "c-b").unwrap();
         assert_eq!(load("c-a"), None);
         let b = load("c-b").unwrap();
-        assert_eq!((b.name.as_str(), b.agent_session_id.as_deref()), ("c-b", Some("abc")));
+        assert_eq!(
+            (b.name.as_str(), b.agent_session_id.as_deref(), b.cdamux_id.as_deref()),
+            ("c-b", Some("abc"), Some("a-abc12"))
+        );
         rename("missing", "other").unwrap();
 
-        std::fs::write(dir.path().join("cdamux/sessions/bad.json"), "{").unwrap();
+        std::fs::write(dir.path().join("sessions/bad.json"), "{").unwrap();
         let names: Vec<String> = load_all().into_iter().map(|r| r.name).collect();
         assert_eq!(names, ["c-b", "feat/x"]);
 
@@ -166,11 +179,12 @@ mod tests {
         remove("c-b").unwrap();
         assert_eq!(load("c-b"), None);
         // No tmp file left behind by the atomic writes.
-        let leftovers = std::fs::read_dir(dir.path().join("cdamux/sessions"))
+        let leftovers = std::fs::read_dir(dir.path().join("sessions"))
             .unwrap()
             .flatten()
             .filter(|e| e.file_name().to_string_lossy().contains(".tmp."))
             .count();
         assert_eq!(leftovers, 0);
+        std::env::remove_var("CDAMUX_HOME");
     }
 }

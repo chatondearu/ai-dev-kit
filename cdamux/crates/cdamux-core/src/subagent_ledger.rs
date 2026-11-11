@@ -1,7 +1,9 @@
-//! CLI sub-agent ledger: `${XDG_STATE_HOME:-~/.local/state}/cdamux/agents/<session>.jsonl`,
+//! CLI sub-agent ledger: `$CDAMUX_HOME/agents/<session>.jsonl`,
 //! appended by per-CLI hook adapters (schema in `docs/subagents.md`), read into
 //! [`ChildRow`]s under the tmux session, plus the transcript tail used as preview.
+//! Agent entity files (`agents/<a-xxxxx>.json`) share this directory (ADR-011).
 
+use crate::paths::cdamux_state_dir;
 use crate::session::SessionState;
 use crate::session_links::{read_tail, ChildKind, ChildRow, PreviewSource};
 use serde::Deserialize;
@@ -40,18 +42,9 @@ struct LedgerAgent {
     failed: bool,
 }
 
-/// Ledger file of a tmux session; `None` without `XDG_STATE_HOME` or `HOME`.
+/// Ledger file of a tmux session; `None` without a resolvable `CDAMUX_HOME`.
 pub fn subagent_ledger_path(session: &str) -> Option<PathBuf> {
     Some(cdamux_state_dir("agents")?.join(session_file_name(session, "jsonl")))
-}
-
-/// `${XDG_STATE_HOME:-$HOME/.local/state}/cdamux/<sub>`; `None` without either variable.
-pub(crate) fn cdamux_state_dir(sub: &str) -> Option<PathBuf> {
-    let base = match std::env::var_os("XDG_STATE_HOME").filter(|v| !v.is_empty()) {
-        Some(x) => PathBuf::from(x),
-        None => PathBuf::from(std::env::var_os("HOME")?).join(".local/state"),
-    };
-    Some(base.join("cdamux").join(sub))
 }
 
 /// Same rule as the hook adapters: a `/` in a session name must not leave the dir.

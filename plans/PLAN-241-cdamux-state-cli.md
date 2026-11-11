@@ -1,6 +1,6 @@
 # PLAN-241 — Add CDAMUX_HOME state CLI and stable agent ids
 
-- **Status**: draft
+- **Status**: implemented
 - **PRD**: [[../prd/PRD-239-orchestrator-session|PRD-239]]
 - **GitHub**: [#241](https://github.com/chatondearu/ai-dev-kit/issues/241)
 - **Date**: 2026-11-11
@@ -49,12 +49,12 @@ place used by spawn and registry.
 
 ## Tasks
 
-- [ ] **State root**: `CDAMUX_HOME` / `CDAMUX_CONFIG` resolve with the ADR defaults; existing registry and ledger paths use the same root (acceptance: env override in a temp dir relocates all reads/writes)
-- [ ] **CLI write path**: `cdamux state set|get|append` round-trips agent and run JSON with atomic tmp+rename for set; append is safe for the documented shapes (acceptance: CLI help + unit/integration tests on temp home)
-- [ ] **Stable agent id**: creating an agent assigns `a-xxxxx`, sets `@cdamux_id`, exports `CDAMUX_AGENT_ID`; renaming the tmux session does not move or duplicate the agent file (acceptance: rename test)
-- [ ] **Client names**: spawn/orch/registry accept aliases but persist only `claude|cursor|opencode|codex` (acceptance: table-driven normalisation tests)
-- [ ] **Docs touch**: note `CDAMUX_HOME` / `state` in cdamux architecture or CLI help so operators can find the root
-- [ ] **Verify**: `nix develop -c bash scripts/verify.sh` green
+- [x] **State root**: `CDAMUX_HOME` / `CDAMUX_CONFIG` resolve with the ADR defaults; existing registry and ledger paths use the same root (acceptance: env override in a temp dir relocates all reads/writes)
+- [x] **CLI write path**: `cdamux state set|get|append` round-trips agent and run JSON with atomic tmp+rename for set; append is safe for the documented shapes (acceptance: CLI help + unit/integration tests on temp home)
+- [x] **Stable agent id**: creating an agent assigns `a-xxxxx`, sets `@cdamux_id`, exports `CDAMUX_AGENT_ID`; renaming the tmux session does not move or duplicate the agent file (acceptance: rename test)
+- [x] **Client names**: spawn/orch/registry accept aliases but persist only `claude|cursor|opencode|codex` (acceptance: table-driven normalisation tests)
+- [x] **Docs touch**: note `CDAMUX_HOME` / `state` in cdamux architecture or CLI help so operators can find the root
+- [x] **Verify**: `nix develop -c bash scripts/verify.sh` green
 
 ## Risks & mitigations
 
@@ -68,12 +68,12 @@ place used by spawn and registry.
 
 Seams: (1) env → path resolution, (2) `cdamux state` CLI I/O, (3) agent id + rename invariance, (4) client name normalisation.
 
-- [ ] Temp `CDAMUX_HOME` unit/CLI tests for set/get/append and atomic replace
-- [ ] Rename-does-not-move-state check
-- [ ] Client alias → product name table
-- [ ] `nix develop -c bash scripts/verify.sh`
+- [x] Temp `CDAMUX_HOME` unit/CLI tests for set/get/append and atomic replace
+- [x] Rename-does-not-move-state check
+- [x] Client alias → product name table
+- [x] `nix develop -c bash scripts/verify.sh`
 
 ## Verification
 
-- [ ] Lint / test / build per project conventions
-- [ ] Update foam / ADR only if a new decision was made
+- [x] Lint / test / build per project conventions
+- [x] Update foam / ADR only if a new decision was made

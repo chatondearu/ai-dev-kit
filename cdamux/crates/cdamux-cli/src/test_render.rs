@@ -256,6 +256,7 @@ pub(crate) fn record(name: &str, cwd: &str, agent: &str) -> SessionRecord {
         cwd: cwd.into(),
         agent: agent.into(),
         agent_session_id: None,
+        cdamux_id: None,
         parent: None,
         role: "agent".into(),
         layout: PaneLayout::Single,

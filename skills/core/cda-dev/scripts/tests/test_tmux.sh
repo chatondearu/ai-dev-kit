@@ -47,6 +47,12 @@ export ORCH_TMUX=1 ORCH_RUN_ID=r1 ORCH_WORKER_ID=42 ORCH_REPO="$TMP/repo"
 export ORCH_AGENT="$TMP/bin/stub-agent" MARKER=m1
 S=orch-r1-42
 
+# Prime the throwaway server with a clean client env. Otherwise the first
+# `STUB_RC=7 orch_agent_run` starts the server and freezes STUB_RC into the
+# global environment, so later panes inherit exit 7.
+tmux new-session -d -s _boot true
+tmux kill-session -t =_boot:
+
 rc=0
 out="$(STUB_RC=7 orch_agent_run "$TMP/repo" "$TMP/prompt")" || rc=$?
 assert_eq "$rc" "7" "agent exit code propagated"
@@ -63,7 +69,9 @@ assert_eq "$rc" "1" "session removed after the agent exits"
 assert_eq "$(find "$TMP/tmpdir" -type f | wc -l | tr -d ' ')" "0" "runner and rc files removed"
 
 # KEEP: session survives with the final state; progress mirrors phases; kill_run cleans up.
-ORCH_TMUX_KEEP=1 orch_agent_run "$TMP/repo" "$TMP/prompt" >/dev/null
+rc=0
+ORCH_TMUX_KEEP=1 orch_agent_run "$TMP/repo" "$TMP/prompt" >/dev/null || rc=$?
+assert_eq "$rc" "0" "keep run exit 0"
 assert_eq "$(tmux show-options -t "=$S:" -v @cdamux_state)" "done" "kept session marked done"
 ORCH_PROGRESS=0 orch_progress_set 42 blocked "ci failed" 2>/dev/null
 assert_eq "$(tmux show-options -t "=$S:" -v @cdamux_state)" "error" "progress blocked -> error"

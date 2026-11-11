@@ -91,6 +91,30 @@ This ADR grows one section per resolved decision ticket of the map; it becomes
 - **Install**: the status hooks join `install.sh --cdamux-hooks` and
   `cda.aitools.cdamux.hooks.enable`, which stay opt-in (ADR-007).
 
+### 4. Orchestrator ↔ worker messages ([#234](https://github.com/chatondearu/ai-dev-kit/issues/234))
+
+Client capabilities: [research #230](https://github.com/chatondearu/ai-dev-kit/blob/research/client-capabilities/research/client-capabilities.md).
+Every client has a turn-end hook that can continue the turn; only Claude Code and
+opencode can wake an idle session.
+
+- **Message**: one JSON line ≤ 2 KB in `$CDAMUX_HOME/inbox/<agent-id>.jsonl` — `id`,
+  `ts`, `from`, `to`, `kind` (`report` | `ask` | `done` | `error` | `relay` | `answer`),
+  `text`, optional `ref` (path to `worker-result.json` or a log). Never raw output. Ack is
+  the reader's `<agent-id>.cursor`. Written with `cdamux msg send`, read with
+  `cdamux msg read [--ack]`.
+- **Orchestrator → worker**: `cdamux msg send --to <worker>` pastes into the worker pane
+  (`send_to_session`; Claude Code queues input mid-turn) and logs it in the worker inbox.
+- **Worker → orchestrator**: append to the orchestrator inbox, delivered three ways:
+  1. orchestrator busy → its turn-end hook continues the turn with the unread digest;
+  2. orchestrator idle → the sender types a one-line nudge
+     (`📨 N messages — cdamux msg read`) into its pane when its status is `idle` and the
+     pane had no activity for 10 s. No daemon; works for every client;
+  3. user writes → the prompt-submit hook adds the unread digest (clients that support it).
+  Native wake (Claude Code background `cdamux msg read --wait`, opencode plugin) is an
+  optional upgrade on the same inbox.
+- **Worker questions**: `--kind ask` sets the worker `blocked`. The orchestrator answers
+  when it can; otherwise it asks the user and goes `needs_input`.
+
 ## Alternatives considered
 
 | Alternative | Why rejected |
@@ -109,6 +133,11 @@ This ADR grows one section per resolved decision ticket of the map; it becomes
 | Hooks always win, no heuristic | A crashed agent stays `working` forever |
 | `done` lasts one turn | Finished work disappears before the user looks |
 | Status hooks installed by default | Breaks the ADR-007 opt-in and the ADR-001 host-tool boundary |
+| Inbox + hooks for orchestrator → worker | An idle worker would not see the message without a nudge |
+| Hooks only, never type into the orchestrator pane | An idle orchestrator sleeps until the user writes |
+| `cdamuxd` watcher for the nudge | Requires the daemon to run |
+| Every worker question goes to the user | The orchestrator exists to absorb what it can answer |
+| MCP transport | Cannot start a turn on any client (#230); still needs the nudge |
 
 ## Consequences
 
@@ -119,8 +148,9 @@ This ADR grows one section per resolved decision ticket of the map; it becomes
 - **Negative**: every writer depends on the `cdamux` binary (silent no-op without it);
   readers of `.orch/graph` and `/v1/orch-*` must move to the state root.
 - **Negative**: statuses stay heuristic until the user enables `--cdamux-hooks`.
-- **Constraint**: message transport and `orch.sh` integration are decided by tickets
-  #234–#235 and appended here.
+- **Negative**: the idle nudge types into the orchestrator pane; a user typing after
+  10 s of silence can collide with it.
+- **Constraint**: `orch.sh` integration is decided by ticket #235 and appended here.
 
 ## References
 

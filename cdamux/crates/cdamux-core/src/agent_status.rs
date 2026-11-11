@@ -1,7 +1,12 @@
 //! Agent status set, precedence and stickiness (ADR-011 §3).
-//! Reported status wins; pane heuristics only when none is stored. `done` /
-//! `error` stick until the next prompt submit (`working`). A quiet `working`
-//! pane past the warn threshold is shown as `working ⚠` without rewriting state.
+//! Reported status wins; pane heuristics apply when none is stored, and
+//! `needs_input` from the pane can still override reported `idle`/`working`
+//! (Cursor has no permission event). `done` / `error` stick until the next
+//! prompt submit (`working`). A quiet `working` pane past the warn threshold
+//! is shown as `working ⚠` without rewriting state.
+//!
+//! `may_overwrite` is used by JS hooks (`ledger.js`); Rust `state append`/`set`
+//! stickiness is deferred to slice 2/3.
 
 use crate::session::SessionState;
 use crate::state::{state_get, StateKind};
@@ -51,11 +56,22 @@ fn status_from_value(value: &Value) -> Option<SessionState> {
         .and_then(parse_reported_status)
 }
 
+/// Whether pane heuristics should still run for this reported status.
+/// `idle`/`working` keep the Cursor `needs_input` path (ADR-011 §3).
+pub fn heuristic_applies(reported: Option<SessionState>) -> bool {
+    match reported {
+        None => true,
+        Some(SessionState::Idle | SessionState::Working) => true,
+        Some(_) => false,
+    }
+}
+
 /// Resolve display status for an agent.
 ///
-/// Precedence: no live host → `dormant`; else reported (file / hook) wins;
-/// else pane heuristic. When reported is `working` and the pane has been quiet
-/// longer than `working_warn_seconds`, `working_stale` is true (display only).
+/// Precedence: no live host → `dormant`; else reported (file / hook) wins,
+/// except pane `needs_input` overrides reported `idle`/`working`; else pane
+/// heuristic. When reported is `working` and the pane has been quiet longer
+/// than `working_warn_seconds`, `working_stale` is true (display only).
 pub fn resolve_display_status(
     host_alive: bool,
     reported: Option<SessionState>,
@@ -67,6 +83,11 @@ pub fn resolve_display_status(
         return (SessionState::Dormant, false);
     }
     let state = match reported {
+        Some(SessionState::Idle | SessionState::Working)
+            if heuristic == SessionState::NeedsInput =>
+        {
+            SessionState::NeedsInput
+        }
         Some(s) => s,
         None => heuristic,
     };
@@ -118,6 +139,51 @@ mod tests {
         );
         assert_eq!(s, SessionState::Idle);
         assert!(!stale);
+    }
+
+    #[test]
+    fn needs_input_heuristic_overrides_idle_and_working() {
+        let (s, stale) = resolve_display_status(
+            true,
+            Some(SessionState::Idle),
+            SessionState::NeedsInput,
+            Some(10),
+            600,
+        );
+        assert_eq!(s, SessionState::NeedsInput);
+        assert!(!stale);
+
+        let (s2, stale2) = resolve_display_status(
+            true,
+            Some(SessionState::Working),
+            SessionState::NeedsInput,
+            Some(601),
+            600,
+        );
+        assert_eq!(s2, SessionState::NeedsInput);
+        assert!(!stale2);
+    }
+
+    #[test]
+    fn sticky_reported_ignores_needs_input_heuristic() {
+        for sticky in [
+            SessionState::Done,
+            SessionState::Error,
+            SessionState::Blocked,
+        ] {
+            let (s, _) = resolve_display_status(
+                true,
+                Some(sticky),
+                SessionState::NeedsInput,
+                Some(10),
+                600,
+            );
+            assert_eq!(s, sticky);
+            assert!(!heuristic_applies(Some(sticky)));
+        }
+        assert!(heuristic_applies(None));
+        assert!(heuristic_applies(Some(SessionState::Idle)));
+        assert!(heuristic_applies(Some(SessionState::Working)));
     }
 
     #[test]

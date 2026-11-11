@@ -46,7 +46,8 @@ pub use session_links::{
 pub use subagent_ledger::{session_subagents, subagent_ledger_path, transcript_tail};
 pub use session_chrome::{session_agent_label, SessionChrome, AGENT_LABEL_MISSING};
 pub use agent_status::{
-    load_reported_status, may_overwrite, parse_reported_status, resolve_display_status,
+    heuristic_applies, load_reported_status, may_overwrite, parse_reported_status,
+    resolve_display_status,
     DEFAULT_WORKING_WARN_SECONDS,
 };
 pub use session::{

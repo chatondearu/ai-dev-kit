@@ -78,9 +78,10 @@ See `config/cdamux.example.toml`. Highlights:
   `$CDAMUX_HOME/agents/<id>.json` (`status` field, written by opt-in hooks via
   `cdamux state append`); transitional `@cdamux_state` is next; else pane heuristics
   from `now - #{window_activity}` (tmux has no `pane_idle_time`). Unknown idle → Idle
-  (fail closed). Reported `working` with a quiet pane past
-  `daemon.working_warn_seconds` (default 600) shows `working ⚠` without rewriting state.
-  `done` / `error` stick until the next prompt submit.
+  (fail closed). Reported `idle`/`working` still run pane heuristics so Cursor
+  (no permission event) can become `needs_input`. Reported `working` with a quiet
+  pane past `daemon.working_warn_seconds` (default 600) shows `working ⚠` without
+  rewriting state. `done` / `error` stick until the next prompt submit.
 - **Agent tag** — spawn sets `@cdamux_agent` (legacy `@ccmux_agent`); Fleet session rows
   and Preview chrome show that label, or `—` when unset.
 - **Session links** — spawn sets `@cdamux_role` (`agent`/`shell`); fork also sets
@@ -244,5 +245,5 @@ Operator curl examples: [tailnet-api.md](tailnet-api.md).
 | Topic | Options | Default proposal |
 | ----- | ------- | ------------------ |
 | tmux socket | User default vs `-L cdamux` | User default v0 (see existing `c-*` sessions) |
-| Status source | Reported vs heuristics | **`$CDAMUX_HOME/agents/<id>.json`** wins; transitional **`@cdamux_state`** next; else pane heuristics. Quiet reported `working` past `daemon.working_warn_seconds` → `working ⚠` (display only) |
+| Status source | Reported vs heuristics | **`$CDAMUX_HOME/agents/<id>.json`** wins; transitional **`@cdamux_state`** next; else pane heuristics. Pane `needs_input` still overrides reported `idle`/`working` (Cursor). Quiet reported `working` past `daemon.working_warn_seconds` → `working ⚠` (display only). Rust `may_overwrite` stickiness deferred to slice 2/3 (hooks use `ledger.js`) |
 | TUI stack | ratatui vs skim in `--pick` | skim-style minimal v0, ratatui dashboard v0.1 |

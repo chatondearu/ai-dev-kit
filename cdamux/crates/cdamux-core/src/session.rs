@@ -1,7 +1,7 @@
 //! Session list enrichment and grouping.
 
 use crate::agent_status::{
-    load_reported_status, parse_reported_status, resolve_display_status,
+    heuristic_applies, load_reported_status, parse_reported_status, resolve_display_status,
     DEFAULT_WORKING_WARN_SECONDS,
 };
 use crate::session_chrome::{resolve_agent_label, AGENT_LABEL_MISSING};
@@ -108,8 +108,8 @@ pub fn classify_session_ex(
         .and_then(load_reported_status)
         .or_else(|| info.hook_state.as_deref().and_then(parse_hook_session_state));
 
-    let heuristic = if reported.is_some() {
-        // Stickiness / reported win: skip capture-pane when we already have a signal.
+    // ADR-011 §3: still capture-pane for idle/working so Cursor can become needs_input.
+    let heuristic = if !heuristic_applies(reported) {
         SessionState::Idle
     } else if info.idle_seconds.is_none() {
         SessionState::Idle
@@ -272,6 +272,22 @@ mod hook_tests {
         assert_eq!(state, SessionState::Working);
         assert!(stale);
         std::env::remove_var("CDAMUX_HOME");
+    }
+
+    #[test]
+    fn idle_agent_file_plus_queue_prompt_is_needs_input() {
+        use crate::agent_status::resolve_display_status;
+        use crate::tmux::classify_pane_heuristics;
+        // Agent file idle + pane queue/prompt heuristic (Cursor has no needs_input event).
+        let reported = Some(SessionState::Idle);
+        let heuristic = classify_pane_heuristics(
+            Some(5),
+            "Waiting for your input:\n>",
+            3,
+        );
+        assert_eq!(heuristic, SessionState::NeedsInput);
+        let (state, _) = resolve_display_status(true, reported, heuristic, Some(5), 600);
+        assert_eq!(state, SessionState::NeedsInput);
     }
 }
 

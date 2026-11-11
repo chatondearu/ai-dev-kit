@@ -155,7 +155,7 @@ Document that fix in `.envrc` comments when the project uses Python wheels on Ni
 
 - Add and commit `flake.nix`, `flake.lock`, `.envrc`.
 - Ensure `.gitignore` contains `.envrc.local` (not `.envrc`).
-- Do **not** commit unless the user asked.
+- Commit on a feature branch; on the default branch ask first.
 
 ### Step 6 — direnv (interactive)
 

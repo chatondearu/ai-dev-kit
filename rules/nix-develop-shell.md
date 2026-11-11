@@ -1,9 +1,5 @@
 # Nix development shell (global user rule)
 
-Copy the block below into **Cursor Settings → Rules → User Rules** if it is not already applied via the `nix-develop-shell` skill.
-
----
-
 Before running project commands (install, build, test, lint, format, scripts, etc.) in a workspace:
 
 1. Check if the project root has `flake.nix` or `.envrc` / `.envrc.local` (direnv).

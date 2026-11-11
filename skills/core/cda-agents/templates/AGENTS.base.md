@@ -14,9 +14,11 @@ must follow this sequence:
    proposal with recorded decisions, cite sources.
 2. Any feature or fix requested in chat — one subject or several — goes through
    `cda-dev` intake (`cda-dev/prompts/intake.md`): one round of questions, a
-   breakdown, GO. A single child issue is fine. Do not start coding from chat.
+   breakdown, GO. A single child issue is fine. Do not start coding from chat,
+   except a trivial fix (typo, one-liner, obvious small fix): branch → commit → PR.
 3. For non-trivial scope, before coding a Kanban issue, `prd/PRD-<n>-*.md` and
-   `plans/PLAN-<n>-*.md` exist (create the missing ones).
+   `plans/PLAN-<n>-*.md` exist (create the missing ones). A fast-lane Ready
+   issue may use its triage agent brief instead (`cda-dev`, `cda-triage`).
 4. After shipping or deciding: update foam (ADR, PRD status, feature lists) and
    refresh this file when stack or skills change.
 

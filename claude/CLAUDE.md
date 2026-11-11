@@ -30,7 +30,12 @@ lives in each project's `AGENTS.md` (bootstrap with skill `cda-agents`).
 ## Commits and PRs
 
 - Use **Conventional Commits** (`feat:`, `fix:`, `docs:`, `refactor:`, etc.).
-- Only create commits when the user asks.
+- On any non-default branch (feature/fix branch, worktree), commit and push
+  freely and incrementally as you progress — no need to ask.
+- On the default branch (`main`, `master`, or the repo's default such as
+  `develop`), never commit or push without explicit user approval — create a
+  branch instead.
+- Never force-push a shared branch or rewrite published history without asking.
 - Use `gh` for GitHub operations (issues, PRs, checks).
 
 ## Code principles
@@ -43,9 +48,8 @@ lives in each project's `AGENTS.md` (bootstrap with skill `cda-agents`).
 ## Exception: cda-dev workers
 
 When the prompt starts with "You are a cda-dev worker" (or is a cda-dev
-pr-fix/worker prompt), commit and push on the worker branch without asking,
-write code, comments, commit and PR text in **English**, and follow the worker
-prompt over the rules above.
+pr-fix/worker prompt), write code, comments, commit and PR text in **English**,
+and follow the worker prompt over the rules above.
 
 ---
 
@@ -53,14 +57,17 @@ prompt over the rules above.
 
 In **every** repository you work on:
 
-1. **Bootstrap** if missing: run `cda-agents/scripts/setup-agents.sh`
-   (and `--init-foam` when `foam/` does not exist).
+1. **Bootstrap** if missing: propose `cda-agents/scripts/setup-agents.sh`
+   (and `--init-foam` when `foam/` does not exist) and wait for the user's OK
+   before creating or committing `AGENTS.md` / `foam/`.
 2. **Before** planning, implementing, or any technical, product, or design
    decision: follow the foam protocol (`cda-foam` § Protocol) — read memory,
    search ADRs and GitHub issues/PRs, **confront** the proposal.
-3. **During** work: keep PRD/plan/ADR artifacts aligned (`cda-foam`,
+3. **Chat requests** go through `cda-dev` intake, except a trivial fix (typo,
+   one-liner, obvious small fix): branch → commit → PR.
+4. **During** work: keep PRD/plan/ADR artifacts aligned (`cda-foam`,
    `cda-kanban`).
-4. **After** shipping or deciding: update foam (ADR, PRD status, feature lists)
+5. **After** shipping or deciding: update foam (ADR, PRD status, feature lists)
    and `AGENTS.md` when stack, skills, or protocols change.
 
 Skills (ai-dev-kit): `cda-foam`, `cda-prd`, `cda-plan`, `cda-dev`,
@@ -121,10 +128,6 @@ When `CDA_GRAPHIFY=1` and `<repo>/graphify-out/graph.json` exists:
 ---
 
 # Nix development shell (global user rule)
-
-Copy the block below into **Cursor Settings → Rules → User Rules** if it is not already applied via the `nix-develop-shell` skill.
-
----
 
 Before running project commands (install, build, test, lint, format, scripts, etc.) in a workspace:
 

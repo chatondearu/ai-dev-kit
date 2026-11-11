@@ -17,7 +17,8 @@ Before implementing features or making technical/product/design decisions:
    create `docs/superpowers/` or duplicate specs outside foam/`prd`/`plans`/`doc`.
 4. Any feature or fix requested in chat — one subject or several — goes through
    `cda-dev` intake (`cda-dev/prompts/intake.md`): one round of questions, a
-   breakdown, GO. A single child issue is fine. Do not start coding from chat.
+   breakdown, GO. A single child issue is fine. Do not start coding from chat,
+   except a trivial fix (typo, one-liner, obvious small fix): branch → commit → PR.
 
 ## Challenge the user when
 

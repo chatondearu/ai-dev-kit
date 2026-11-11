@@ -1,6 +1,6 @@
 # PRD-239 — Orchestrator session on the unified cdamux state model
 
-- **Status**: review
+- **Status**: approved
 - **GitHub**: [#239](https://github.com/chatondearu/ai-dev-kit/issues/239)
 - **Date**: 2026-11-11
 - **Tags**: #product #orchestration #cdamux

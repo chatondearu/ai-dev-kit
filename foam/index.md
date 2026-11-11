@@ -49,7 +49,7 @@ Index: [[decisions/index|All ADRs]]
 
 | PRD | Status |
 | --- | ------ |
-| [[../prd/PRD-239-orchestrator-session|PRD-239]] orchestrator session (unified state) | review |
+| [[../prd/PRD-239-orchestrator-session|PRD-239]] orchestrator session (unified state) | approved |
 | [[../prd/PRD-33-cda-aitools|PRD-33]] cda.aitools companion | shipped |
 | [[../prd/PRD-25-kiss-audit-orch-gh-board|PRD-25]] kiss-audit orch+gh-board | shipped |
 | [[../prd/PRD-6-kiss-audit-fixes|PRD-6]] prior kiss-audit batch | shipped |

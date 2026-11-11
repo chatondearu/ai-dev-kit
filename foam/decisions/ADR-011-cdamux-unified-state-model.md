@@ -44,6 +44,30 @@ This ADR grows one section per resolved decision ticket of the map; it becomes
 - `orch.sh` workers run in tmux by default (`ORCH_TMUX=1`); headless mode stays for tests
   and `--sandbox`.
 
+### 2. State root, format and write path ([#232](https://github.com/chatondearu/ai-dev-kit/issues/232))
+
+- **State root**: `CDAMUX_HOME`, default `${XDG_STATE_HOME:-~/.local/state}/cdamux`
+  (today's `cdamux_state_dir`). Optional `CDAMUX_CONFIG` overrides the config file path,
+  default unchanged (`${XDG_CONFIG_HOME:-~/.config}/cdamux/config.toml`).
+- **Layout** (JSON / JSONL files, readable with `cat`/`jq`):
+
+  ```
+  $CDAMUX_HOME/
+  ├── agents/<agent-id>.json    current Agent state, atomic write (tmp + rename)
+  ├── runs/<run-id>.json        run + its nodes, with a `repo` field
+  ├── inbox/<agent-id>.jsonl    messages received, append-only; <agent-id>.cursor = ack
+  └── events.jsonl              optional append-only journal (debug, web)
+  ```
+
+- **Runs move out of the repo**: run, node and worker states live under
+  `$CDAMUX_HOME/runs/`. `.orch/` in the repo keeps only work artefacts (logs,
+  `worker-result.json`, worktrees). Fleet, the API and the orchestrator read one place.
+- **Single write path**: hooks, `orch.sh` and workers write only through the CLI
+  (`cdamux state set|append|get`). The file format stays private. Without `cdamux` on
+  `PATH`, writers no-op silently (hooks stay fail-open).
+- **Concurrency**: one writer per entity file; inbox appends are small (< 4 KB) single
+  `O_APPEND` writes. No global lock.
+
 ## Alternatives considered
 
 | Alternative | Why rejected |
@@ -53,6 +77,11 @@ This ADR grows one section per resolved decision ticket of the map; it becomes
 | Client resume id as id | Unknown before the first turn, not uniform across clients |
 | Parent/child links only, no Run | `orch.sh` runs stay a separate concept with their own store |
 | Binary names for clients | `agent` vs `cursor-agent` changes across Cursor versions |
+| One root for config + state | Leaves the XDG split; forces a config migration |
+| SQLite | Every hook needs `sqlite3` or a binary; files no longer readable directly |
+| Event log only | Costly reads, retention to design; kept as an optional journal |
+| Keep runs in the repo `.orch/` | Two places to read (repo + state root) |
+| Public file format, direct writes | Format becomes a hard-to-change contract |
 
 ## Consequences
 
@@ -60,8 +89,10 @@ This ADR grows one section per resolved decision ticket of the map; it becomes
   renames and reboots stop losing state; every orchestrated worker can be opened.
 - **Negative**: migration of the 27 stores (fog on map #228); `ORCH_TMUX=1` by default
   changes `orch.sh` behaviour for existing users.
-- **Constraint**: storage layout, status enum, message transport and `orch.sh`
-  integration are decided by tickets #232–#235 and appended here.
+- **Negative**: every writer depends on the `cdamux` binary (silent no-op without it);
+  readers of `.orch/graph` and `/v1/orch-*` must move to the state root.
+- **Constraint**: status enum, message transport and `orch.sh` integration are decided
+  by tickets #233–#235 and appended here.
 
 ## References
 

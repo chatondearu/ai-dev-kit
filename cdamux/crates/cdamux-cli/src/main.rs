@@ -16,7 +16,7 @@ mod widgets;
 
 use cdamux_core::{
     cdamux_home, command_on_path, config_path, configured_agent_ids, default_agent_name,
-    discover_projects, ensure_note_file, grouped_for_list, git_diff_unified, git_toplevel,
+    discover_projects, ensure_note_file, git_diff_unified, git_toplevel,
     home_session_new_argv, list_tmux_sessions, list_worktrees, load_config, note_refs_for_projects,
     current_tmux_session, kill_tmux_session, list_panes_all, restart_plan, parents_first,
     parse_unified_diff, resolve_agent_command, restore_one, session_registry, resolve_note_path,
@@ -474,10 +474,11 @@ fn cmd_list(json: bool, group_by: GroupBy) -> ExitCode {
         }
     };
 
-    let grouped = grouped_for_list(
+    let grouped = cdamux_core::grouped_for_list_ex(
         group_by,
         &cfg.projects,
         cfg.daemon.idle_seconds_for_needs_input,
+        cfg.daemon.working_warn_seconds,
     );
 
     if json {
@@ -500,7 +501,12 @@ fn cmd_list(json: bool, group_by: GroupBy) -> ExitCode {
             println!("## {}", group.key);
         }
         for s in &group.sessions {
-            println!("{}\t{}\t{}", s.name, s.path, format_state(s.state));
+            let st = if s.working_stale {
+                format!("{} ⚠", format_state(s.state))
+            } else {
+                format_state(s.state).to_string()
+            };
+            println!("{}\t{}\t{}", s.name, s.path, st);
         }
     }
     ExitCode::SUCCESS
@@ -510,10 +516,12 @@ fn format_state(state: cdamux_core::SessionState) -> &'static str {
     use cdamux_core::SessionState;
     match state {
         SessionState::Idle => "idle",
-        SessionState::Active => "active",
+        SessionState::Working => "working",
         SessionState::NeedsInput => "needs_input",
+        SessionState::Blocked => "blocked",
         SessionState::Done => "done",
         SessionState::Error => "error",
+        SessionState::Dormant => "dormant",
     }
 }
 

@@ -39,6 +39,21 @@ refreshed on every wire), as `"<that dir>/node" "<that dir>/x.js"`: no host `nod
 needed and no settings churn per rebuild. Running agents keep the old hooks until
 restarted (`cdamux restart --all`).
 
+## Agent status (ADR-011 §3)
+
+The same opt-in `--cdamux-hooks` wire also reports agent status into
+`$CDAMUX_HOME/agents/<id>.json` via `cdamux state append` (`status.js` +
+`setAgentStatus` in `ledger.js`). Fleet prefers that field over `@cdamux_state`.
+No-op without `CDAMUX_AGENT_ID` / `@cdamux_id` or without `cdamux` on `PATH`.
+`done` / `error` stick until the next `working` (prompt submit).
+
+| CLI | Events → status |
+| --- | --------------- |
+| Claude Code | `UserPromptSubmit` → `working`; `Stop` → `idle`; `SessionStart` → `idle` (via `session-start.js`); `Notification` / `PermissionRequest` → `needs_input` |
+| Cursor | `beforeSubmitPrompt` → `working`; `sessionStart` / `sessionEnd` → `idle`; no permission event (pane heuristic). **Print-mode (`cursor-agent -p`) may omit `beforeSubmitPrompt`** — rely on sessionStart/End |
+| Codex | `UserPromptSubmit` → `working`; `Stop` → `idle`; `SessionStart` / `SessionEnd` → `idle`; `PermissionRequest` → `needs_input` (`~/.codex/hooks.json`) |
+| opencode | plugin: main `session.created` / `session.idle` → `idle`; `session.error` → `error` (no prompt-submit event in the plugin API) |
+
 ## Session id capture (restore registry)
 
 The same opt-in hooks keep `agent_session_id` current in the restore record

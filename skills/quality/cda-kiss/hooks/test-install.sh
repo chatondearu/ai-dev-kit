@@ -45,7 +45,7 @@ D="$PWD/cdamux/hooks"
 dcount() { jq --arg d "$D" "[$claude_cmds | select(contains(\$d))] | length" "$S"; }
 inst; [ "$(dcount)" = 0 ] || fail "cdamux hooks wired without --cdamux-hooks"
 inst --cdamux-hooks; inst --cdamux-hooks
-[ "$(dcount)" = 3 ] || fail "cdamux hooks not exactly once"
+[ "$(dcount)" = 7 ] || fail "cdamux hooks not exactly once"
 jq -e --arg d "$D" '[.hooks.SubagentStop[].hooks[].command | select(contains($d))] | length == 1' "$S" >/dev/null || fail "no cdamux SubagentStop hook"
 [ "$(count "$S" "$claude_cmds")" = 3 ] || fail "kiss hooks changed by --cdamux-hooks"
 # SessionStart: foreign + kiss + cdamux side by side; a plain re-install (kiss rewire) keeps cdamux
@@ -54,7 +54,7 @@ ss_ok() { jq -e --arg d "$D" --arg k "$K" '[.hooks.SessionStart[].hooks[].comman
 ss_ok || fail "claude SessionStart: kiss and cdamux not both present once"
 inst; ss_ok || fail "plain install dropped the cdamux SessionStart hook"
 ccount() { jq --arg d "$D" "[$cursor_cmds | select(contains(\$d))] | length" "$C"; }
-[ "$(ccount)" = 3 ] || fail "cursor cdamux hooks not exactly once"
+[ "$(ccount)" = 5 ] || fail "cursor cdamux hooks not exactly once"
 jq -e --arg d "$D" '[.hooks.subagentStop[].command | select(contains($d))] | length == 1' "$C" >/dev/null || fail "no cdamux subagentStop hook"
 jq -e --arg d "$D" --arg k "$K" '[.hooks.sessionStart[].command] as $c
   | ([$c[] | select(contains($k))] | length == 1) and ([$c[] | select(contains($d))] | length == 1)' "$C" >/dev/null || fail "cursor sessionStart: kiss and cdamux not both present once"

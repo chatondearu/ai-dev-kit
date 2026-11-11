@@ -102,7 +102,7 @@ pub(crate) fn fixture_rows() -> Vec<TreeRow> {
             worker_count: 2,
             expanded: true,
         },
-        row(session("alpha-main", "/src/alpha", SessionState::Active, "claude", None), 1, None),
+        row(session("alpha-main", "/src/alpha", SessionState::Working, "claude", None), 1, None),
         row(session("alpha-42", "/src/alpha", SessionState::NeedsInput, "cursor", Some(42)), 1, None),
         worker("7", "running", "implementing parser"),
         worker("8", "blocked", "waiting on review"),
@@ -131,7 +131,7 @@ pub(crate) fn fixture_nested_rows() -> Vec<TreeRow> {
             worker_count: 0,
             expanded: true,
         },
-        row(session("alpha-main", "/src/alpha", SessionState::Active, "claude", None), 1, Some(true)),
+        row(session("alpha-main", "/src/alpha", SessionState::Working, "claude", None), 1, Some(true)),
         row(session("alpha-fork", "/src/alpha", SessionState::NeedsInput, "claude", Some(42)), 2, Some(true)),
         row(session("alpha-fork-2", "/src/alpha", SessionState::Idle, "cursor", None), 3, None),
         row(session("alpha-side", "/src/alpha", SessionState::Done, "claude", None), 1, Some(false)),
@@ -178,8 +178,8 @@ pub(crate) fn fixture_children_rows() -> Vec<TreeRow> {
             project_path: "/src/alpha".into(),
             run: None,
         },
-        row(session("alpha-main", "/src/alpha", SessionState::Active, "claude", None), 1, Some(true)),
-        subagent("a1b2c3d4e5f6", "Explore", SessionState::Active),
+        row(session("alpha-main", "/src/alpha", SessionState::Working, "claude", None), 1, Some(true)),
+        subagent("a1b2c3d4e5f6", "Explore", SessionState::Working),
         subagent("f6e5d4c3b2a1", "cda-review", SessionState::Done),
     ]
 }
@@ -203,8 +203,8 @@ pub(crate) fn fixture_runs() -> (ProjectSessionTree, StatusCache) {
             project: Project { name: "alpha".into(), path: "/src/alpha".into(), root_label: "src".into() },
             sessions: vec![
                 s("alpha-42", SessionState::NeedsInput, "cursor", None, None),
-                s("alpha-main", SessionState::Active, "claude", None, None),
-                s(&worker_session, SessionState::Active, "claude", Some("alpha-main"), Some(RUN_MAIN)),
+                s("alpha-main", SessionState::Working, "claude", None, None),
+                s(&worker_session, SessionState::Working, "claude", Some("alpha-main"), Some(RUN_MAIN)),
             ],
         }],
         unassigned: vec![],
@@ -271,7 +271,7 @@ pub(crate) fn fixture_dormant() -> (ProjectSessionTree, StatusCache) {
     let tree = ProjectSessionTree {
         nodes: vec![ProjectTreeNode {
             project: Project { name: "alpha".into(), path: "/src/alpha".into(), root_label: "src".into() },
-            sessions: vec![session("alpha-main", "/src/alpha", SessionState::Active, "claude", None)],
+            sessions: vec![session("alpha-main", "/src/alpha", SessionState::Working, "claude", None)],
         }],
         unassigned: vec![],
     };

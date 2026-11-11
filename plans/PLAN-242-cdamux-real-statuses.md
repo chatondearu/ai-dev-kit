@@ -1,6 +1,6 @@
 # PLAN-242 — Wire real agent statuses and client status hooks
 
-- **Status**: draft
+- **Status**: done
 - **PRD**: [[../prd/PRD-239-orchestrator-session|PRD-239]]
 - **GitHub**: [#242](https://github.com/chatondearu/ai-dev-kit/issues/242)
 - **Blocked by**: #241
@@ -54,12 +54,12 @@ if cheap, but interactive hooked sessions must not need it.
 
 ## Tasks
 
-- [ ] **Status model**: store and read the seven statuses with precedence and stickiness rules from ADR-011 §3 (acceptance: unit tests for winner, sticky done/error, dormant when host missing)
-- [ ] **`working ⚠`**: when reported `working` and pane quiet longer than config default 10 min, display warning without changing stored status (acceptance: test with injectable clock / activity stamp)
-- [ ] **Hooks**: prompt-submit → `working`, turn-end → `idle`, permission/notification → `needs_input` where the client exposes the event; wire through existing `--cdamux-hooks` / Nix enable; fail-open < 50 ms typical; no-op without `cdamux` (acceptance: hook unit tests + wire test on temp config dirs)
-- [ ] **Cursor specifics**: map `sessionStart`/`sessionEnd` → `idle`, `beforeSubmitPrompt` → `working`; document that `cursor-agent -p` may omit `beforeSubmitPrompt` (acceptance: docs + hook tests with fixture payloads)
-- [ ] **Fleet**: prefer `CDAMUX_HOME` agent status over `@cdamux_state` for display (acceptance: Fleet/list test with temp home + mocked agent file)
-- [ ] **Verify**: `nix develop -c bash scripts/verify.sh` green; never run install against live `HOME` / `CLAUDE_CONFIG_DIR` / `CURSOR_HOME`
+- [x] **Status model**: store and read the seven statuses with precedence and stickiness rules from ADR-011 §3 (acceptance: unit tests for winner, sticky done/error, dormant when host missing)
+- [x] **`working ⚠`**: when reported `working` and pane quiet longer than config default 10 min, display warning without changing stored status (acceptance: test with injectable clock / activity stamp)
+- [x] **Hooks**: prompt-submit → `working`, turn-end → `idle`, permission/notification → `needs_input` where the client exposes the event; wire through existing `--cdamux-hooks` / Nix enable; fail-open < 50 ms typical; no-op without `cdamux` (acceptance: hook unit tests + wire test on temp config dirs)
+- [x] **Cursor specifics**: map `sessionStart`/`sessionEnd` → `idle`, `beforeSubmitPrompt` → `working`; document that `cursor-agent -p` may omit `beforeSubmitPrompt` (acceptance: docs + hook tests with fixture payloads)
+- [x] **Fleet**: prefer `CDAMUX_HOME` agent status over `@cdamux_state` for display (acceptance: Fleet/list test with temp home + mocked agent file)
+- [x] **Verify**: `nix develop -c bash scripts/verify.sh` green; never run install against live `HOME` / `CLAUDE_CONFIG_DIR` / `CURSOR_HOME`
 
 ## Risks & mitigations
 
@@ -73,13 +73,13 @@ if cheap, but interactive hooked sessions must not need it.
 
 Seams: (1) status precedence/stickiness, (2) hook → `cdamux state set`, (3) wire/unwire on temp configs, (4) Fleet/list status source.
 
-- [ ] Precedence + stickiness + `working ⚠` unit tests
-- [ ] Per-client hook payload fixtures → expected status writes
-- [ ] Wire/unwire on temp `HOME` / config dirs (never live)
-- [ ] Fleet/list reads agent file from temp `CDAMUX_HOME`
-- [ ] `nix develop -c bash scripts/verify.sh`
+- [x] Precedence + stickiness + `working ⚠` unit tests
+- [x] Per-client hook payload fixtures → expected status writes
+- [x] Wire/unwire on temp `HOME` / config dirs (never live)
+- [x] Fleet/list reads agent file from temp `CDAMUX_HOME`
+- [x] `nix develop -c bash scripts/verify.sh`
 
 ## Verification
 
-- [ ] Lint / test / build per project conventions
-- [ ] Update foam / ADR only if a new decision was made
+- [x] Lint / test / build per project conventions
+- [x] Update foam / ADR only if a new decision was made (none — ADR-011 already covers this)

@@ -46,9 +46,9 @@ impl ChildRow {
     pub fn from_orch_worker(w: &OrchWorkerStatus, session_live: bool) -> Self {
         let state = match w.phase.as_str() {
             "done" => SessionState::Done,
-            "blocked" => SessionState::Error,
+            "blocked" => SessionState::Blocked,
             "pending" => SessionState::Idle,
-            _ => SessionState::Active,
+            _ => SessionState::Working,
         };
         let mut label = if w.message.is_empty() {
             w.phase.clone()
@@ -78,8 +78,8 @@ impl ChildRow {
         let status = run.status.as_deref().filter(|s| !s.is_empty()).unwrap_or("running");
         let state = match status {
             "ok" | "done" => SessionState::Done,
-            "blocked" => SessionState::Error,
-            _ => SessionState::Active,
+            "blocked" => SessionState::Blocked,
+            _ => SessionState::Working,
         };
         Self {
             id: run.run_id.clone(),
@@ -207,7 +207,7 @@ mod tests {
             ..Default::default()
         };
         let row = ChildRow::from_orch_worker(&w, false);
-        assert_eq!(row.state, SessionState::Error);
+        assert_eq!(row.state, SessionState::Blocked);
         assert_eq!(row.label, "blocked  waiting on review");
         assert_eq!(row.preview, PreviewSource::None);
     }

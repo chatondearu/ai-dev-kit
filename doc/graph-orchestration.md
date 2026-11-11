@@ -87,7 +87,7 @@ bash ~/.cursor/skills/cda-graph/scripts/graph-plan-validate.sh my-plan.json
 | **cdamuxd web** | Tailnet dashboard → session → **Orch graph** (canvas, polls API) |
 | **API** | `GET /v1/sessions/{tmux-name}/orch-graph` |
 | **API (project)** | `GET /v1/orch-graph?repo=[&run=]` (default: latest run) · `GET /v1/orch-status?repo=` · `GET /v1/orch-runs?repo=` (live runs with `session`, then archived finishes under `.orch/graph/runs/`; `live` flag) |
-| **Session hooks** | `tmux set-option -t SESSION @cdamux_state running\|waiting\|done\|error` — cdamux Fleet prefers this over pane heuristics (set automatically with `ORCH_TMUX=1`) |
+| **Session hooks** | Opt-in `./install.sh --cdamux-hooks` writes agent status to `$CDAMUX_HOME/agents/<id>.json` via `cdamux state append` (Fleet prefers that). Transitional `@cdamux_state` (set by `ORCH_TMUX=1`) remains a fallback before pane heuristics — see `cdamux/docs/subagents.md` |
 | **GitHub issue** | Fleet `o` opens `gh issue view N --web` when branch is `feat/<n>-*` or worker id is numeric |
 
 ## Cursor-only (no harness)

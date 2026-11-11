@@ -89,10 +89,12 @@ pub fn list_tmux_sessions() -> Result<Vec<TmuxSession>, TmuxError> {
 /// Per-session snapshot from one `tmux list-panes -a` call (idle + hook user options).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SessionPaneInfo {
-    /// Seconds since the active pane's window last had output; `None` when unknown (do not treat as 0 → Active).
+    /// Seconds since the active pane's window last had output; `None` when unknown (do not treat as 0 → Working).
     pub idle_seconds: Option<u32>,
-    /// Raw `@cdamux_state` set by hooks, if any.
+    /// Raw `@cdamux_state` set by hooks, if any (transitional until hooks write `CDAMUX_HOME`).
     pub hook_state: Option<String>,
+    /// Stable agent id (`@cdamux_id`); used to read `agents/<id>.json` status.
+    pub cdamux_id: Option<String>,
     pub cdamux_agent: Option<String>,
     pub ccmux_agent: Option<String>,
 }
@@ -101,7 +103,7 @@ pub struct SessionPaneInfo {
 /// tmux has no pane idle format (`pane_idle_time` does not exist and expands empty):
 /// idle is `now - window_activity` (epoch of the window's last pane output).
 const LIST_PANES_ALL_FORMAT: &str =
-    "#{session_name}\t#{pane_active}\t#{window_activity}\t#{@cdamux_state}\t#{@cdamux_agent}\t#{@ccmux_agent}";
+    "#{session_name}\t#{pane_active}\t#{window_activity}\t#{@cdamux_state}\t#{@cdamux_id}\t#{@cdamux_agent}\t#{@ccmux_agent}";
 
 fn non_empty(s: &str) -> Option<String> {
     let t = s.trim();
@@ -127,6 +129,7 @@ pub fn parse_list_panes_all(stdout: &str, now: u64) -> HashMap<String, SessionPa
                 .map(|t| u32::try_from(now.saturating_sub(t)).unwrap_or(u32::MAX));
         }
         info.hook_state = f.next().and_then(non_empty);
+        info.cdamux_id = f.next().and_then(non_empty);
         info.cdamux_agent = f.next().and_then(non_empty);
         info.ccmux_agent = f.next().and_then(non_empty);
     }
@@ -185,13 +188,13 @@ pub fn tmux_user_option(session_name: &str, option: &str) -> Option<String> {
     }
 }
 
-/// Pane heuristics; prefer `@cdamux_state` when hooks set it (see architecture.md).
+/// Pane heuristics when no reported agent status exists (see architecture.md).
 pub fn classify_pane_heuristics(
     idle_seconds: Option<u32>,
     pane_tail: &str,
     idle_seconds_for_needs_input: u32,
 ) -> SessionState {
-    // Unknown idle → Idle (fail closed), never Active-via-zero.
+    // Unknown idle → Idle (fail closed), never Working-via-zero.
     let Some(idle_seconds) = idle_seconds else {
         return SessionState::Idle;
     };
@@ -200,10 +203,10 @@ pub fn classify_pane_heuristics(
         return SessionState::NeedsInput;
     }
     if idle_seconds <= 1 {
-        return SessionState::Active;
+        return SessionState::Working;
     }
     if idle_seconds < threshold {
-        return SessionState::Active;
+        return SessionState::Working;
     }
     SessionState::Idle
 }
@@ -406,7 +409,7 @@ mod tests {
     fn classify_active_when_recent() {
         assert_eq!(
             classify_pane_heuristics(Some(0), "working…\n", 3),
-            SessionState::Active
+            SessionState::Working
         );
     }
 
@@ -423,7 +426,7 @@ mod tests {
         let tail = "user> ";
         assert_eq!(
             classify_pane_heuristics(Some(0), tail, 3),
-            SessionState::Active
+            SessionState::Working
         );
     }
 
@@ -431,23 +434,26 @@ mod tests {
     fn parse_list_panes_all_keys_by_session() {
         // Third field is window_activity (epoch); idle = now - it. Active pane wins;
         // blank activity → None; blank options → None.
-        let raw = "a\t0\t901\t\t\t\nb\t1\t958\twaiting\tclaude\tcursor\nb\t0\t993\twaiting\tclaude\tcursor\na\t1\t\t\t\tpi\n";
+        // Fields: name, active, window_activity, @cdamux_state, @cdamux_id, @cdamux_agent, @ccmux_agent
+        let raw = "a\t0\t901\t\t\t\t\nb\t1\t958\twaiting\ta-1\tclaude\tcursor\nb\t0\t993\twaiting\ta-1\tclaude\tcursor\na\t1\t\t\t\t\tpi\n";
         let map = parse_list_panes_all(raw, 1000);
         assert_eq!(map.len(), 2);
         let a = &map["a"];
         assert_eq!(a.idle_seconds, None);
         assert_eq!(a.hook_state, None);
+        assert_eq!(a.cdamux_id, None);
         assert_eq!(a.cdamux_agent, None);
         assert_eq!(a.ccmux_agent.as_deref(), Some("pi"));
         let b = &map["b"];
         assert_eq!(b.idle_seconds, Some(42));
         assert_eq!(b.hook_state.as_deref(), Some("waiting"));
+        assert_eq!(b.cdamux_id.as_deref(), Some("a-1"));
         assert_eq!(b.cdamux_agent.as_deref(), Some("claude"));
         // No active pane → first pane's idle.
-        let first = parse_list_panes_all("c\t0\t995\t\t\t\nc\t0\t991\t\t\t\n", 1000);
+        let first = parse_list_panes_all("c\t0\t995\t\t\t\t\nc\t0\t991\t\t\t\t\n", 1000);
         assert_eq!(first["c"].idle_seconds, Some(5));
         // Activity stamped after `now` (clock race) saturates to 0, not a panic.
-        assert_eq!(parse_list_panes_all("d\t1\t1002\t\t\t\n", 1000)["d"].idle_seconds, Some(0));
+        assert_eq!(parse_list_panes_all("d\t1\t1002\t\t\t\t\n", 1000)["d"].idle_seconds, Some(0));
         assert!(parse_list_panes_all("", 1000).is_empty());
     }
 

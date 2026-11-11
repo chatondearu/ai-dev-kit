@@ -21,7 +21,7 @@ pub(crate) fn session_passes_waiting_filter(session: &EnrichedSession, waiting_o
     !waiting_only
         || matches!(
             session.state,
-            SessionState::NeedsInput | SessionState::Error
+            SessionState::NeedsInput | SessionState::Blocked | SessionState::Error
         )
 }
 
@@ -181,7 +181,10 @@ pub(crate) fn flatten_tree(
                 let live = w.tmux_session.as_deref().is_some_and(|s| live.contains(s));
                 ChildRow::from_orch_worker(w, live)
             })
-            .filter(|w| !waiting_only || w.state == SessionState::Error)
+            .filter(|w| {
+                !waiting_only
+                    || matches!(w.state, SessionState::Blocked | SessionState::Error)
+            })
             .collect();
         if waiting_only && visible.is_empty() && visible_workers.is_empty() {
             continue;
@@ -416,13 +419,14 @@ pub(crate) fn fleet_attention_hint(rows: &[TreeRow]) -> String {
             TreeRow::Session { session, .. }
                 if matches!(
                     session.state,
-                    SessionState::NeedsInput | SessionState::Error
+                    SessionState::NeedsInput | SessionState::Blocked | SessionState::Error
                 ) =>
             {
                 need_input += 1;
             }
             TreeRow::Child { row, .. }
-                if row.kind == ChildKind::Worker && row.state == SessionState::Error =>
+                if row.kind == ChildKind::Worker
+                    && matches!(row.state, SessionState::Blocked | SessionState::Error) =>
             {
                 blocked += 1
             }

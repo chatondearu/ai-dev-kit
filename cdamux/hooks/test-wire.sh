@@ -7,8 +7,8 @@ CHECKOUT="$PWD"
 
 tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
 export HOME="$tmp/home" CLAUDE_CONFIG_DIR="$tmp/claude" CURSOR_HOME="$tmp/cursor" \
-  XDG_CONFIG_HOME="$tmp/xdg" XDG_DATA_HOME="$tmp/data"
-mkdir -p "$HOME" "$CLAUDE_CONFIG_DIR" "$CURSOR_HOME" "$XDG_CONFIG_HOME/opencode"
+  XDG_CONFIG_HOME="$tmp/xdg" XDG_DATA_HOME="$tmp/data" CODEX_HOME="$tmp/codex"
+mkdir -p "$HOME" "$CLAUDE_CONFIG_DIR" "$CURSOR_HOME" "$XDG_CONFIG_HOME/opencode" "$CODEX_HOME"
 S="$CLAUDE_CONFIG_DIR/settings.json" C="$CURSOR_HOME/hooks.json"
 OCL="$XDG_CONFIG_HOME/opencode/plugins/cdamux-subagent.js"
 STABLE="$XDG_DATA_HOME/cdamux/hooks"
@@ -40,8 +40,10 @@ cmp -s "$S" "$tmp/s1" && cmp -s "$C" "$tmp/c1" || fail "second wire is not a no-
 [ "$(readlink "$OCL")" = "$STABLE/opencode-subagent.js" ] || fail "opencode plugin not relinked to the stable path"
 
 [ "$(n "$S" /old/kit/ "$claude_cmds")" = 0 ] && [ "$(n "$C" /old/kit/ "$cursor_cmds")" = 0 ] || fail "old checkout entries kept"
-[ "$(n "$S" "$STABLE/" "$claude_cmds")" = 3 ] || fail "claude: expected 3 cdamux entries on the stable path"
-[ "$(n "$C" "$STABLE/" "$cursor_cmds")" = 3 ] || fail "cursor: expected 3 cdamux entries on the stable path"
+[ "$(n "$S" "$STABLE/" "$claude_cmds")" = 7 ] || fail "claude: expected 7 cdamux entries on the stable path"
+[ "$(n "$C" "$STABLE/" "$cursor_cmds")" = 5 ] || fail "cursor: expected 5 cdamux entries on the stable path"
+CX="$CODEX_HOME/hooks.json"
+[ "$(n "$CX" "$STABLE/" "$claude_cmds")" = 5 ] || fail "codex: expected 5 cdamux entries on the stable path"
 [ "$(n "$S" "$tmp/store" "$claude_cmds")" = 0 ] && [ "$(n "$C" "$tmp/store" "$cursor_cmds")" = 0 ] || fail "store path written into settings"
 [ "$(n "$S" cda-kiss "$claude_cmds")" = 1 ] && [ "$(n "$C" cda-kiss "$cursor_cmds")" = 1 ] || fail "kiss entry changed"
 [ "$(n "$S" "echo mine" "$claude_cmds")" = 1 ] && [ "$(n "$C" "echo mine" "$cursor_cmds")" = 1 ] || fail "foreign entry lost"

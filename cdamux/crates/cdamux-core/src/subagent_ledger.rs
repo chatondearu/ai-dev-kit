@@ -92,7 +92,7 @@ fn agent_rows(agents: &[LedgerAgent], now: u64) -> Vec<ChildRow> {
             label: if a.name.is_empty() { "subagent".into() } else { a.name.clone() },
             kind: ChildKind::Subagent,
             state: match (a.stopped_at, a.failed) {
-                (None, _) => SessionState::Active,
+                (None, _) => SessionState::Working,
                 (Some(_), true) => SessionState::Error,
                 (Some(_), false) => SessionState::Done,
             },
@@ -224,7 +224,7 @@ not json
         assert_eq!(
             states,
             [
-                ("a1", SessionState::Active),
+                ("a1", SessionState::Working),
                 ("a2", SessionState::Done),
                 ("a3", SessionState::Error)
             ]

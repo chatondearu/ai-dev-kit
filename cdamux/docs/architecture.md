@@ -74,8 +74,13 @@ See `config/cdamux.example.toml`. Highlights:
   Fleet omits projects/groups with **no tmux sessions** (full discover list stays on Projects tab).
 - **Preview** — `tmux capture-pane -p -e -S -<n>` in the sidecar (snapshot, not a live PTY;
   no `-E -1`, which blanks panes with `history_size=0`). CLI renders ANSI via `ansi-to-tui`;
-  **Enter** attaches for full interactive tmux. Session Active/Idle uses `now - #{window_activity}`
-  (tmux has no `pane_idle_time`); unknown → Idle (fail closed), not Active-via-zero.
+  **Enter** attaches for full interactive tmux. Session status prefers
+  `$CDAMUX_HOME/agents/<id>.json` (`status` field, written by opt-in hooks via
+  `cdamux state append`); transitional `@cdamux_state` is next; else pane heuristics
+  from `now - #{window_activity}` (tmux has no `pane_idle_time`). Unknown idle → Idle
+  (fail closed). Reported `working` with a quiet pane past
+  `daemon.working_warn_seconds` (default 600) shows `working ⚠` without rewriting state.
+  `done` / `error` stick until the next prompt submit.
 - **Agent tag** — spawn sets `@cdamux_agent` (legacy `@ccmux_agent`); Fleet session rows
   and Preview chrome show that label, or `—` when unset.
 - **Session links** — spawn sets `@cdamux_role` (`agent`/`shell`); fork also sets

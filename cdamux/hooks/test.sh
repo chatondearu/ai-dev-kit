@@ -157,4 +157,47 @@ await event({ event: { type: "session.created", properties: { info: { id: "ses_n
 ' "$PWD/opencode-subagent.js" || fail "opencode plugin threw"
 jq -e '.agent_session_id=="ses_main"' "$R" >/dev/null || fail "nested opencode overwrote the id"
 
-echo "ok: cdamux sub-agent + session id adapters"
+# Status hooks (ADR-011 §3): stub `cdamux` logs argv and merges status into the agent file.
+ST="$PWD/status.js"
+AF="$tmp/state/cdamux/agents/a-hook1.json"
+cat > "$tmp/bin/merge-status.js" <<'JS'
+const fs = require('fs');
+const f = process.argv[2];
+const p = JSON.parse(process.argv[3]);
+let o = {};
+try { o = JSON.parse(fs.readFileSync(f, 'utf8')); } catch (e) { /* create */ }
+Object.assign(o, p);
+fs.mkdirSync(require('path').dirname(f), { recursive: true });
+fs.writeFileSync(f, JSON.stringify(o));
+JS
+cat > "$tmp/bin/cdamux" <<CD
+#!/bin/sh
+echo "\$@" >> "\$CDAMUX_LOG"
+[ "\$1 \$2 \$3" = "state append agents" ] || exit 0
+f="\$XDG_STATE_HOME/cdamux/agents/\$4.json"
+node "$tmp/bin/merge-status.js" "\$f" "\$5"
+CD
+chmod +x "$tmp/bin/cdamux"
+export CDAMUX_AGENT_ID=a-hook1 CDAMUX_LOG="$tmp/cdamux.log"
+printf '{"id":"a-hook1","status":"done"}\n' > "$AF"
+run_status() { printf '%s' "$1" | node "$ST" || fail "status hook exited non-zero"; }
+: > "$CDAMUX_LOG"
+run_status '{"hook_event_name":"Stop"}' >/dev/null
+[ ! -s "$CDAMUX_LOG" ] || fail "sticky done should block idle write"
+out="$(run_status '{"hook_event_name":"beforeSubmitPrompt"}')"
+[ "$out" = '{"continue":true}' ] || fail "cursor beforeSubmitPrompt output, got: $out"
+grep -q 'state append agents a-hook1 {"status":"working"}' "$CDAMUX_LOG" || fail "working not written"
+[ "$(jq -r .status "$AF")" = working ] || fail "agent file status not working"
+run_status '{"hook_event_name":"Notification"}' >/dev/null
+[ "$(jq -r .status "$AF")" = needs_input ] || fail "needs_input not sticky-cleared after working"
+out="$(run_status '{"hook_event_name":"sessionEnd"}')"
+[ "$out" = '{}' ] || fail "sessionEnd must print {}, got: $out"
+[ "$(jq -r .status "$AF")" = idle ] || fail "sessionEnd did not set idle"
+# No agent id → no-op (also drop TMUX so the stub cannot fake @cdamux_id)
+: > "$CDAMUX_LOG"
+( unset CDAMUX_AGENT_ID TMUX; run_status '{"hook_event_name":"UserPromptSubmit"}' >/dev/null )
+[ ! -s "$CDAMUX_LOG" ] || fail "status wrote without agent id"
+# No cdamux on PATH → fail-open exit 0 (keep host node; drop the stub bin dir)
+PATH="$(dirname "$(command -v node)"):/usr/bin:/bin" run_status '{"hook_event_name":"UserPromptSubmit"}' >/dev/null || fail "missing cdamux must still exit 0"
+
+echo "ok: cdamux sub-agent + session id + status adapters"

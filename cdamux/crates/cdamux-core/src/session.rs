@@ -1,5 +1,9 @@
 //! Session list enrichment and grouping.
 
+use crate::agent_status::{
+    load_reported_status, parse_reported_status, resolve_display_status,
+    DEFAULT_WORKING_WARN_SECONDS,
+};
 use crate::session_chrome::{resolve_agent_label, AGENT_LABEL_MISSING};
 use crate::project_tree::project_for_path;
 use crate::tmux::{list_panes_all, SessionPaneInfo};
@@ -8,17 +12,21 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::Path;
 
-/// Daemon-side session state (v0: stub classification).
+/// Agent / session display status (ADR-011 §3).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SessionState {
     Idle,
-    Active,
+    Working,
     NeedsInput,
-    /// Hook `@cdamux_state=done` (agent finished).
+    /// Waiting on the orchestrator or a dependency (not the user).
+    Blocked,
+    /// Hook / worker reported finished.
     Done,
-    /// Hook `@cdamux_state=error` (agent failed / needs human).
+    /// Hook / worker reported failure.
     Error,
+    /// No live host; resumable (ADR-009). Reader-computed when host is missing.
+    Dormant,
 }
 
 impl Default for SessionState {
@@ -37,6 +45,9 @@ pub struct EnrichedSession {
     pub path: String,
     pub group_key: String,
     pub state: SessionState,
+    /// Reported `working` with a quiet pane past the warn threshold (display only).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub working_stale: bool,
     /// From `@cdamux_agent` / `@ccmux_agent`; [`AGENT_LABEL_MISSING`] when unset.
     #[serde(default = "default_agent_label")]
     pub agent: String,
@@ -64,39 +75,62 @@ pub struct GroupedSessions {
     pub groups: Vec<SessionGroup>,
 }
 
-/// Map `@cdamux_state` / `@cdamux_state` hook values → [`SessionState`].
+/// Map `@cdamux_state` / reported status strings → [`SessionState`].
 pub fn parse_hook_session_state(raw: &str) -> Option<SessionState> {
-    match raw.trim().to_ascii_lowercase().as_str() {
-        "running" | "active" => Some(SessionState::Active),
-        "waiting" | "needs_input" | "needs-input" => Some(SessionState::NeedsInput),
-        "done" => Some(SessionState::Done),
-        "idle" => Some(SessionState::Idle),
-        "error" | "failed" | "blocked" => Some(SessionState::Error),
-        _ => None,
-    }
+    parse_reported_status(raw)
 }
 
-/// Hook `@cdamux_state` wins; otherwise pane heuristics (one `capture-pane` only when idle is known).
+/// Prefer `CDAMUX_HOME` agent status, then transitional `@cdamux_state`, else pane heuristics.
 pub fn classify_session(
     session: &TmuxSession,
     info: &SessionPaneInfo,
     idle_seconds_for_needs_input: u32,
 ) -> SessionState {
-    if let Some(state) = info.hook_state.as_deref().and_then(parse_hook_session_state) {
-        return state;
-    }
-    // Unknown idle classifies Idle whatever the tail says: skip the capture spawn.
-    if info.idle_seconds.is_none() {
-        return SessionState::Idle;
-    }
-    match crate::tmux::pane_tail(&session.name) {
-        Some(tail) => crate::tmux::classify_pane_heuristics(
-            info.idle_seconds,
-            &tail,
-            idle_seconds_for_needs_input,
-        ),
-        None => SessionState::Idle,
-    }
+    classify_session_ex(
+        session,
+        info,
+        idle_seconds_for_needs_input,
+        DEFAULT_WORKING_WARN_SECONDS,
+    )
+    .0
+}
+
+/// Like [`classify_session`], also returning the `working ⚠` display flag.
+pub fn classify_session_ex(
+    session: &TmuxSession,
+    info: &SessionPaneInfo,
+    idle_seconds_for_needs_input: u32,
+    working_warn_seconds: u32,
+) -> (SessionState, bool) {
+    let reported = info
+        .cdamux_id
+        .as_deref()
+        .and_then(load_reported_status)
+        .or_else(|| info.hook_state.as_deref().and_then(parse_hook_session_state));
+
+    let heuristic = if reported.is_some() {
+        // Stickiness / reported win: skip capture-pane when we already have a signal.
+        SessionState::Idle
+    } else if info.idle_seconds.is_none() {
+        SessionState::Idle
+    } else {
+        match crate::tmux::pane_tail(&session.name) {
+            Some(tail) => crate::tmux::classify_pane_heuristics(
+                info.idle_seconds,
+                &tail,
+                idle_seconds_for_needs_input,
+            ),
+            None => SessionState::Idle,
+        }
+    };
+
+    resolve_display_status(
+        true,
+        reported,
+        heuristic,
+        info.idle_seconds,
+        working_warn_seconds,
+    )
 }
 
 pub fn enrich_sessions(
@@ -104,6 +138,22 @@ pub fn enrich_sessions(
     group_by: GroupBy,
     projects_cfg: &ProjectsConfig,
     idle_seconds_for_needs_input: u32,
+) -> Vec<EnrichedSession> {
+    enrich_sessions_ex(
+        raw,
+        group_by,
+        projects_cfg,
+        idle_seconds_for_needs_input,
+        DEFAULT_WORKING_WARN_SECONDS,
+    )
+}
+
+pub fn enrich_sessions_ex(
+    raw: &[TmuxSession],
+    group_by: GroupBy,
+    projects_cfg: &ProjectsConfig,
+    idle_seconds_for_needs_input: u32,
+    working_warn_seconds: u32,
 ) -> Vec<EnrichedSession> {
     // Only GroupPath needs the project list; the tree builder discovers for Project itself.
     let projects = if group_by == GroupBy::GroupPath {
@@ -118,11 +168,14 @@ pub fn enrich_sessions(
             let key = group_key_for(s, group_by, &projects);
             let branch = crate::session_chrome::branch_for_cwd(&s.path);
             let issue = crate::issue_ref::issue_from_branch_or_path(&branch, &s.path);
+            let (state, working_stale) =
+                classify_session_ex(s, &info, idle_seconds_for_needs_input, working_warn_seconds);
             EnrichedSession {
                 name: s.name.clone(),
                 path: s.path.clone(),
                 group_key: key,
-                state: classify_session(s, &info, idle_seconds_for_needs_input),
+                state,
+                working_stale,
                 agent: resolve_agent_label(
                     info.cdamux_agent.as_deref(),
                     info.ccmux_agent.as_deref(),
@@ -173,15 +226,52 @@ mod hook_tests {
     fn hook_state_parsing() {
         assert_eq!(
             parse_hook_session_state("running"),
-            Some(SessionState::Active)
+            Some(SessionState::Working)
         );
         assert_eq!(
             parse_hook_session_state("waiting"),
             Some(SessionState::NeedsInput)
         );
+        assert_eq!(parse_hook_session_state("blocked"), Some(SessionState::Blocked));
         assert_eq!(parse_hook_session_state("done"), Some(SessionState::Done));
         assert_eq!(parse_hook_session_state("error"), Some(SessionState::Error));
         assert_eq!(parse_hook_session_state("nope"), None);
+    }
+
+    #[test]
+    fn agent_file_status_beats_hook_state() {
+        use crate::paths::env_lock;
+        use crate::state::{state_append, state_set, StateKind};
+        let _g = env_lock();
+        let dir = tempfile::tempdir().unwrap();
+        std::env::set_var("CDAMUX_HOME", dir.path());
+        let id = "a-fleet1";
+        state_set(
+            StateKind::Agents,
+            id,
+            &serde_json::json!({"id": id, "client": "claude"}),
+        )
+        .unwrap();
+        state_append(
+            StateKind::Agents,
+            id,
+            &serde_json::json!({"status": "working"}),
+        )
+        .unwrap();
+        let session = TmuxSession {
+            name: "s1".into(),
+            ..Default::default()
+        };
+        let info = SessionPaneInfo {
+            idle_seconds: Some(9999),
+            hook_state: Some("idle".into()),
+            cdamux_id: Some(id.into()),
+            ..Default::default()
+        };
+        let (state, stale) = classify_session_ex(&session, &info, 3, 600);
+        assert_eq!(state, SessionState::Working);
+        assert!(stale);
+        std::env::remove_var("CDAMUX_HOME");
     }
 }
 

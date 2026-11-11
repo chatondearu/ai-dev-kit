@@ -42,6 +42,7 @@ Index: [[decisions/index|All ADRs]]
 - [[decisions/ADR-008-graphify-code-graph|ADR-008 — Graphify code graph via cda.aitools]]
 - [[decisions/ADR-009-cdamux-session-restore-registry|ADR-009 — cdamux session restore registry]]
 - [[decisions/ADR-010-worker-cli-inheritance-and-tiers|ADR-010 — Worker CLI inheritance and tiers]]
+- [[decisions/ADR-011-cdamux-unified-state-model|ADR-011 — cdamux unified state model]]
 - [[graph/README|Foam machine graph + orch overlay]]
 
 ## PRDs & plans

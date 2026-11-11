@@ -115,6 +115,25 @@ opencode can wake an idle session.
 - **Worker questions**: `--kind ask` sets the worker `blocked`. The orchestrator answers
   when it can; otherwise it asks the user and goes `needs_input`.
 
+### 5. `orch.sh` integration ([#235](https://github.com/chatondearu/ai-dev-kit/issues/235))
+
+- **Publish through the model**: `orch.sh` writes its run, nodes and one Agent per
+  worker with `cdamux state` (§1–3). With `CDAMUX_AGENT_ID` in the environment (launched
+  by an orchestrator), the run is a sub-run of that Agent.
+- **Hard cut**: `orch.sh` stops writing `.orch/run/status.json` and
+  `.orch/graph/live|runs|current.json`; Fleet and `/v1/orch-*` read
+  `$CDAMUX_HOME/runs/`. No double-write period.
+- **Repo artefacts stay**: `.orch/run/<id>.rc`, logs, `worker-result.json`,
+  `integrator-report.md` and worktrees remain in the repo as work artefacts, not state.
+- **Without `cdamux`**: the pipeline runs unchanged (worktrees, verify, PRs); state
+  writes no-op, so there is no Fleet visibility. The kit keeps no dependency on cdamux
+  (ADR-001).
+- **Messages to the parent orchestrator**: one `cdamux msg` per worker reaching `done`
+  (PR opened), `blocked` or `error`, and one at run end with `ref` to the integrator
+  report.
+- **`graph-node.sh`** stays as a thin wrapper: same `init` / `node` / `edge` / `finish`
+  commands, calling `cdamux state`.
+
 ## Alternatives considered
 
 | Alternative | Why rejected |
@@ -138,6 +157,10 @@ opencode can wake an idle session.
 | `cdamuxd` watcher for the nudge | Requires the daemon to run |
 | Every worker question goes to the user | The orchestrator exists to absorb what it can answer |
 | MCP transport | Cannot start a turn on any client (#230); still needs the nudge |
+| Double-write `.orch/` + state root for one release | Prolongs the duplication; single user, no other reader |
+| `orch.sh` file fallback without cdamux | Recreates a second source of truth |
+| One message per run end only | The orchestrator misses a blocked worker until the run ends |
+| Delete `graph-node.sh` | Breaks existing skills and prompts for no gain |
 
 ## Consequences
 
@@ -150,7 +173,10 @@ opencode can wake an idle session.
 - **Negative**: statuses stay heuristic until the user enables `--cdamux-hooks`.
 - **Negative**: the idle nudge types into the orchestrator pane; a user typing after
   10 s of silence can collide with it.
-- **Constraint**: `orch.sh` integration is decided by ticket #235 and appended here.
+- **Negative**: `orch.sh` runs are invisible in Fleet without `cdamux` on `PATH`; the hard
+  cut rewrites the graph/status readers in one series of PRs.
+- **Constraint**: the orchestrator v0 PRD builds on §1–5; Fleet UI, migration details,
+  restore of an orchestrator with its workers and state GC are left to it (map #228 fog).
 
 ## References
 

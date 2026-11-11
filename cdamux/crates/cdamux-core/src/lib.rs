@@ -1,6 +1,7 @@
 //! Shared configuration and domain types for cdamux.
 
 mod agents_util;
+mod client_name;
 mod daemon;
 mod diff;
 mod notes;
@@ -9,6 +10,7 @@ mod orch_graph;
 mod orch_graph_layout;
 mod orch_status;
 mod orch_steps;
+mod paths;
 mod project_tree;
 mod restore;
 mod send;
@@ -18,6 +20,7 @@ mod session_links;
 mod session_manage;
 pub mod session_registry;
 mod spawn;
+mod state;
 mod subagent_ledger;
 mod worktree;
 mod tailnet_api;
@@ -66,6 +69,12 @@ pub use orch_status::{
 pub use orch_steps::{step_worker_id, worker_steps, Step};
 pub use agents_util::{
     command_on_path, preferred_spawn_agent, preferred_spawn_agent_index,
+};
+pub use client_name::{is_product_client, normalize_client_name};
+pub use paths::{cdamux_home, cdamux_state_dir};
+pub use state::{
+    agent_state_path, generate_agent_id, initial_agent_value, state_append, state_get, state_set,
+    valid_state_id, StateKind,
 };
 pub use restore::{
     dormant, is_busy_state, parents_first, restart_plan, restore_one, resume_command, RestoreError,
@@ -372,6 +381,9 @@ pub struct Project {
 }
 
 pub fn config_path() -> Option<PathBuf> {
+    if let Some(p) = std::env::var_os("CDAMUX_CONFIG").filter(|v| !v.is_empty()) {
+        return Some(PathBuf::from(p));
+    }
     std::env::var_os("XDG_CONFIG_HOME")
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))

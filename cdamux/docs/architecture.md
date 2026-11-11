@@ -38,6 +38,31 @@
 | `cdamuxd` | Tailnet HTTP API server |
 | `cdamux-cli` | clap, `list`/`attach`/`spawn`/`doctor`, `--pick` TUI |
 
+## State root (`CDAMUX_HOME`)
+
+Default `${XDG_STATE_HOME:-~/.local/state}/cdamux`. Override with `CDAMUX_HOME`.
+Config stays on the XDG config path (`~/.config/cdamux/config.toml`) unless
+`CDAMUX_CONFIG` points at a file. Layout (ADR-011):
+
+```text
+$CDAMUX_HOME/
+├── agents/<agent-id>.json     # Agent entity (a-xxxxx); atomic write
+├── agents/<session>.jsonl     # CLI sub-agent ledger (hooks; separate from entities)
+├── runs/<run-id>.json         # Run + nodes
+├── sessions/<session>.json    # Restore registry (ADR-009)
+├── inbox/                     # (later) messages
+└── events.jsonl               # (optional journal)
+```
+
+Writers use `cdamux state set|get|append` (private JSON). Spawn mints `a-xxxxx`,
+sets `@cdamux_id`, exports `CDAMUX_AGENT_ID`, and records the product client name
+(`claude` | `cursor` | `opencode` | `codex`; aliases like `agent` / `cursor-agent`
+normalise on write — orch `@cdamux_agent` uses the same product names). Entity
+`parent` is the parent's agent id (resolved from the registry), or `null` when
+unknown; `@cdamux_parent` stays the tmux session name for Fleet nesting. Renaming
+a tmux session updates `host` via `session_registry::rename` and does not move
+`agents/<id>.json`.
+
 ## Config (`~/.config/cdamux/config.toml`)
 
 See `config/cdamux.example.toml`. Highlights:
@@ -144,13 +169,13 @@ Operator curl examples: [tailnet-api.md](tailnet-api.md).
   and fall back to the indented text tree when the layers do not fit the width.
   Execution stays in `orch.sh`; cdamux does not start workers.
 - **Restore registry** ([ADR-009](../../foam/decisions/ADR-009-cdamux-session-restore-registry.md)):
-  spawn and fork write `${XDG_STATE_HOME:-~/.local/state}/cdamux/sessions/<session>.json`
+  spawn and fork write `$CDAMUX_HOME/sessions/<session>.json`
   (`/` → `_`, atomic tmp + rename; home session and orch workers excluded). A snapshot
   for restore only, never read for liveness. Closing / renaming from cdamux removes /
-  renames the file; an external kill keeps it. `claude` spawns get
-  `--session-id <uuid>`, recorded as `agent_session_id`. API in
-  `cdamux_core::session_registry`: `record`, `load`, `load_all`, `remove`, `rename`,
-  `set_agent_session_id`. Schema (all keys always written):
+  renames the file; an external kill keeps it. The stable agent id (`cdamux_id`) is
+  not renamed with the session. `claude` spawns get `--session-id <uuid>`, recorded as
+  `agent_session_id`. API in `cdamux_core::session_registry`: `record`, `load`,
+  `load_all`, `remove`, `rename`, `set_agent_session_id`. Schema:
 
   ```json
   {
@@ -158,6 +183,7 @@ Operator curl examples: [tailnet-api.md](tailnet-api.md).
     "cwd": "/home/me/dev/proj",
     "agent": "claude",
     "agent_session_id": "1772424a-d356-4b01-b206-647737b3def4",
+    "cdamux_id": "a-7f3k2",
     "parent": null,
     "role": "agent",
     "layout": "single",
@@ -166,9 +192,9 @@ Operator curl examples: [tailnet-api.md](tailnet-api.md).
   }
   ```
 
-  `agent`: config agent id or `shell`; `role`: `agent` | `shell`; `layout`:
-  `single` | `horizontal` | `vertical`; `agent_session_id` and `parent` may be `null`;
-  timestamps are Unix seconds.
+  `agent`: product client or `shell`; `role`: `agent` | `shell`; `layout`:
+  `single` | `horizontal` | `vertical`; `agent_session_id`, `cdamux_id` and `parent`
+  may be `null`; timestamps are Unix seconds.
 - **Restore** (`cdamux restore <name>` / `--all`, `cdamux_core::restore`): recreates a
   recorded session that has no live tmux session of that name, through the spawn path
   (same name, cwd, layout, `@cdamux_agent` / `@cdamux_role` / `@cdamux_parent`), never
@@ -199,7 +225,7 @@ Operator curl examples: [tailnet-api.md](tailnet-api.md).
   `--force`. Parents first, the current client's session last. Killing the session the
   CLI runs in would hang the CLI up, so that one is handed to a detached
   `nohup cdamux restart <name> --force` (own process group,
-  `CDAMUX_RESTART_DETACHED=1`, output appended to `${XDG_STATE_HOME}/cdamux/restart.log`);
+  `CDAMUX_RESTART_DETACHED=1`, output appended to `$CDAMUX_HOME/restart.log`);
   the client lands on the next session (`detach-on-destroy`) and is not switched back.
   One line per session (`restarted, <restore label>`, `skipped (<reason>)`,
   `restarting in the background (current session)`, `error: …`); exit 1 if any failed.

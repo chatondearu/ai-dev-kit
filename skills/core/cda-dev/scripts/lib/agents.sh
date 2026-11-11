@@ -155,6 +155,20 @@ orch_print_agents() {
   done
 }
 
+# Product client name for @cdamux_agent (ADR-011 §1): claude|cursor|opencode|codex.
+# Unknown basenames pass through (tests / custom stubs).
+orch_cdamux_agent_name() {
+  local base
+  base="$(command -p basename "${1}")"
+  case "$base" in
+    agent|cursor-agent) printf 'cursor\n';;
+    claude|claude-code) printf 'claude\n';;
+    opencode) printf 'opencode\n';;
+    codex) printf 'codex\n';;
+    *) printf '%s\n' "$base";;
+  esac
+}
+
 # Kept for headless.sh: prints the kind (custom|cursor|claude|opencode|codex) and
 # exports ORCH_AGENT_BIN.
 orch_detect_agent() {
@@ -268,7 +282,7 @@ orch_tmux_agent_run() {
   fi
   tmux set-option -t "=$s:" @cdamux_run "${ORCH_RUN_ID:-run}" \; \
     set-option -t "=$s:" @cdamux_role worker \; \
-    set-option -t "=$s:" @cdamux_agent "$(command -p basename "${bin[0]}")" \; \
+    set-option -t "=$s:" @cdamux_agent "$(orch_cdamux_agent_name "${bin[0]}")" \; \
     set-option -t "=$s:" @cdamux_state running >/dev/null
   [ -z "$parent" ] || tmux set-option -t "=$s:" @cdamux_parent "$parent" >/dev/null
 

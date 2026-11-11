@@ -49,6 +49,15 @@ these (`./scripts/doctor.sh` only checks `PATH`). With a Cursor CLI present it a
 | `CDA_FOAM_HOME` | unset | Shared foam home (`cda.aitools.foamHome`); `cda-floorplan` writes `$CDA_FOAM_HOME/projects/<repo>/floorplan/` when the project has no `foam/` |
 | `FLOORPLAN_ENGINE` / `FLOORPLAN_AGENT` | auto | Override Ask / build agent for `cda-floorplan` (`agent`, `cursor-agent`, `claude`, `opencode`, `codex`) |
 | `CDA_AITOOLS_HOME` | `~/.config/cda-aitools` | Companion config root (`cda.aitools.configRoot` or env) |
+| `CDAMUX_HOME` | `${XDG_STATE_HOME:-~/.local/state}/cdamux` | cdamux state root (`agents/`, `runs/`, restore registry, …). [ADR-011](../foam/decisions/ADR-011-cdamux-unified-state-model.md) |
+| `CDAMUX_CONFIG` | `${XDG_CONFIG_HOME:-~/.config}/cdamux/config.toml` | Override path to the cdamux TOML config file |
+| `CDAMUX_AGENT_ID` | unset (set by cdamux at spawn) | Stable agent id (`a-xxxxx`) exported into the agent process / pane env |
+
+### cdamux state
+
+Hooks, orch and workers write agent/run JSON only through `cdamux state set|get|append`
+under `$CDAMUX_HOME` (format private). Layout, ids and restore behaviour:
+[cdamux/docs/architecture.md](../cdamux/docs/architecture.md) § State root.
 
 See [graph-orchestration.md](graph-orchestration.md).
 Graphify install stays in **aitools** only — never `install.sh`

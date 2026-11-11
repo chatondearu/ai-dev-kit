@@ -1,6 +1,7 @@
 //! Restore recorded sessions (ADR-009): recreate a dormant session from its registry
 //! record and resume the agent on the same conversation when the agent supports it.
 
+use crate::client_name::normalize_client_name;
 use crate::send::tmux_has_session;
 use crate::session_manage::is_home_session;
 use crate::session_registry::SessionRecord;
@@ -56,12 +57,13 @@ enum Plan {
 /// `[agents.<agent>]` with `{id}` replaced, else the built-in default on the configured
 /// executable. `None` when the agent has no resume (pi, `resume = ""`, unknown agent).
 pub fn resume_command(agents: &AgentsConfig, agent: &str, id: &str) -> Option<String> {
-    let entry = agent_entry(agents, agent)?;
+    let product = normalize_client_name(agent);
+    let entry = agent_entry(agents, product)?;
     let template = match &entry.resume {
         Some(t) => t.clone(),
         None => {
-            let cmd = resolve_agent_command(agents, agent).ok()?;
-            match agent {
+            let cmd = resolve_agent_command(agents, product).ok()?;
+            match product {
                 "claude" => format!("{cmd} --resume {{id}}"),
                 "cursor" => format!("{cmd} --resume={{id}}"),
                 "opencode" => format!("{cmd} --session {{id}}"),
@@ -205,6 +207,7 @@ mod tests {
             cwd: "/tmp".into(),
             agent: agent.into(),
             agent_session_id: id.map(str::to_string),
+            cdamux_id: None,
             parent: parent.map(str::to_string),
             role: if agent == "shell" { "shell" } else { "agent" }.into(),
             layout: PaneLayout::Single,

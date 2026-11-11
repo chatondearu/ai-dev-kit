@@ -226,8 +226,9 @@ Operator curl examples: [tailnet-api.md](tailnet-api.md).
 - **Restart** (`cdamux restart <name>` / `--all` [`--force`], `restart_plan`): for each
   live recorded session, kill (`kill_tmux_session`, record kept) then `restore_one`.
   Skipped: dormant records (use `restore`), the home session, shell entries, and
-  sessions whose `@cdamux_state` is `running` / `active` / `working` / `busy` unless
-  `--force`. Parents first, the current client's session last. Killing the session the
+  busy sessions — reported `working` in `agents/<id>.json`, or transitional
+  `@cdamux_state` of `running` / `active` / `working` / `busy` — unless `--force`.
+  Parents first, the current client's session last. Killing the session the
   CLI runs in would hang the CLI up, so that one is handed to a detached
   `nohup cdamux restart <name> --force` (own process group,
   `CDAMUX_RESTART_DETACHED=1`, output appended to `$CDAMUX_HOME/restart.log`);
@@ -243,5 +244,5 @@ Operator curl examples: [tailnet-api.md](tailnet-api.md).
 | Topic | Options | Default proposal |
 | ----- | ------- | ------------------ |
 | tmux socket | User default vs `-L cdamux` | User default v0 (see existing `c-*` sessions) |
-| Status source | Hooks vs pane heuristics | Heuristics default; **`@cdamux_state`** overrides when set (`running`/`waiting`/`done`/`error`/`idle`) |
+| Status source | Reported vs heuristics | **`$CDAMUX_HOME/agents/<id>.json`** wins; transitional **`@cdamux_state`** next; else pane heuristics. Quiet reported `working` past `daemon.working_warn_seconds` → `working ⚠` (display only) |
 | TUI stack | ratatui vs skim in `--pick` | skim-style minimal v0, ratatui dashboard v0.1 |

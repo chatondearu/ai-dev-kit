@@ -8,6 +8,8 @@
   --accent: #7cacf8;
   --needs: #f4b400;
   --active: #34a853;
+  --blocked: #e8710a;
+  --dormant: #9aa0a6;
   font-family: system-ui, sans-serif;
 }
 
@@ -114,8 +116,17 @@ header h1 {
   color: var(--needs);
 }
 
+.state-working,
 .state-active {
   color: var(--active);
+}
+
+.state-blocked {
+  color: var(--blocked);
+}
+
+.state-dormant {
+  color: var(--dormant);
 }
 
 .pane {

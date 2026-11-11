@@ -1,8 +1,10 @@
 //! Restore recorded sessions (ADR-009): recreate a dormant session from its registry
 //! record and resume the agent on the same conversation when the agent supports it.
 
+use crate::agent_status::load_reported_status;
 use crate::client_name::normalize_client_name;
 use crate::send::tmux_has_session;
+use crate::session::SessionState;
 use crate::session_manage::is_home_session;
 use crate::session_registry::SessionRecord;
 use crate::spawn::{
@@ -149,6 +151,17 @@ pub fn is_busy_state(raw: Option<&str>) -> bool {
     raw.is_some_and(|s| matches!(s.trim().to_ascii_lowercase().as_str(), "running" | "active" | "working" | "busy"))
 }
 
+/// Busy when transitional `@cdamux_state` says so, or when `agents/<id>.json` reports
+/// `working` (hooks write there; ADR-011 reported-wins).
+fn is_busy_session(info: &SessionPaneInfo, record_id: Option<&str>) -> bool {
+    if is_busy_state(info.hook_state.as_deref()) {
+        return true;
+    }
+    let id = info.cdamux_id.as_deref().or(record_id);
+    id.and_then(load_reported_status)
+        .is_some_and(|s| s == SessionState::Working)
+}
+
 /// What `cdamux restart` does with each live record of `records` (dormant ones are
 /// dropped): `Ok` = kill then [`restore_one`], `Err` = skip reason. Parents come first
 /// and `current` (the client's session) last, so the client keeps its session the longest.
@@ -162,11 +175,12 @@ pub fn restart_plan(
     let mut plan: Vec<_> = parents_first(records.into_iter().filter(|r| live.contains_key(&r.name)).collect())
         .into_iter()
         .map(|r| {
+            let info = &live[&r.name];
             let step = if is_home_session(&r.name) {
                 Err("home session")
             } else if r.role != "agent" || r.agent == "shell" {
                 Err("shell session")
-            } else if !force && is_busy_state(live[&r.name].hook_state.as_deref()) {
+            } else if !force && is_busy_session(info, r.cdamux_id.as_deref()) {
                 Err("busy; --force restarts it")
             } else {
                 Ok(())
@@ -181,7 +195,9 @@ pub fn restart_plan(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::paths::env_lock;
     use crate::spawn::PaneLayout;
+    use crate::state::{initial_agent_value, state_append, state_set, StateKind};
     use crate::AgentEntry;
 
     fn entry(command: &str, resume: Option<&str>) -> Option<AgentEntry> {
@@ -313,6 +329,47 @@ mod tests {
         assert_eq!(step(&forced, "b-busy"), Ok(()));
         assert_eq!(step(&forced, "cdamux"), Err("home session"), "--force never kills home");
         assert!(is_busy_state(Some(" Working ")) && !is_busy_state(Some("done")) && !is_busy_state(None));
+    }
+
+    #[test]
+    fn restart_plan_skips_reported_working_without_hook_state() {
+        let _g = env_lock();
+        let dir = tempfile::tempdir().unwrap();
+        std::env::set_var("CDAMUX_HOME", dir.path());
+        let id = "a-rep1";
+        state_set(
+            StateKind::Agents,
+            id,
+            &initial_agent_value(id, "claude", "s-rep", "agent", None),
+        )
+        .unwrap();
+        state_append(
+            StateKind::Agents,
+            id,
+            &serde_json::json!({"status": "working"}),
+        )
+        .unwrap();
+
+        let live: HashMap<String, SessionPaneInfo> = [(
+            "s-rep".to_string(),
+            SessionPaneInfo {
+                hook_state: None,
+                cdamux_id: Some(id.into()),
+                ..Default::default()
+            },
+        )]
+        .into_iter()
+        .collect();
+        let mut record = rec("s-rep", "claude", None, None);
+        record.cdamux_id = Some(id.into());
+        let plan = restart_plan(vec![record.clone()], &live, None, false);
+        assert_eq!(plan.len(), 1);
+        assert_eq!(plan[0].1, Err("busy; --force restarts it"));
+        assert_eq!(
+            restart_plan(vec![record], &live, None, true)[0].1,
+            Ok(())
+        );
+        std::env::remove_var("CDAMUX_HOME");
     }
 
     #[test]

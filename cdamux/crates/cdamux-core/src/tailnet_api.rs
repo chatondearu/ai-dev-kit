@@ -6,7 +6,7 @@ use crate::orch_graph::{
 };
 use crate::orch_status::load_orch_run_status;
 use crate::tmux::{capture_pane_text, list_tmux_sessions, send_line_to_session};
-use crate::{grouped_for_list, GroupedSessions, ProjectsConfig, SessionsConfig};
+use crate::{grouped_for_list_ex, GroupedSessions, ProjectsConfig, SessionsConfig};
 use serde::{Deserialize, Serialize};
 use std::net::IpAddr;
 use std::path::{Path, PathBuf};
@@ -201,6 +201,7 @@ pub struct LiveTailnetBackend {
     projects: ProjectsConfig,
     sessions: SessionsConfig,
     idle_seconds_for_needs_input: u32,
+    working_warn_seconds: u32,
 }
 
 impl LiveTailnetBackend {
@@ -209,12 +210,14 @@ impl LiveTailnetBackend {
         projects: ProjectsConfig,
         sessions: SessionsConfig,
         idle_seconds_for_needs_input: u32,
+        working_warn_seconds: u32,
     ) -> Self {
         Self {
             version,
             projects,
             sessions,
             idle_seconds_for_needs_input,
+            working_warn_seconds,
         }
     }
 }
@@ -229,10 +232,11 @@ impl TailnetApiBackend for LiveTailnetBackend {
     }
 
     fn sessions_grouped(&self) -> GroupedSessions {
-        grouped_for_list(
+        grouped_for_list_ex(
             self.sessions.group_by,
             &self.projects,
             self.idle_seconds_for_needs_input,
+            self.working_warn_seconds,
         )
     }
 

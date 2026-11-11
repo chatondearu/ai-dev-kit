@@ -3,7 +3,9 @@
 use crate::client_name::normalize_client_name;
 use crate::session_manage::is_home_session;
 use crate::session_registry::{self, now_secs, SessionRecord};
-use crate::state::{generate_agent_id, initial_agent_value, state_set, StateKind};
+use crate::state::{
+    generate_agent_id, initial_agent_value, state_append, state_get, state_set, StateKind,
+};
 use crate::tmux::pane_target;
 use crate::{AgentEntry, AgentsConfig};
 use serde::{Deserialize, Serialize};
@@ -152,7 +154,8 @@ pub(crate) fn respawn_recorded(rec: &SessionRecord, primary_command: &str) -> Re
         rec.parent.as_deref(),
         rec.cdamux_id.as_deref(),
     )?;
-    write_agent_state(
+    // Merge, do not replace: append-only keys (status, resume ids, …) must survive restore.
+    refresh_agent_state_on_restore(
         &rec.name,
         Some(rec.agent.as_str()),
         rec.parent.as_deref(),
@@ -267,6 +270,45 @@ fn write_agent_state(
     let parent_id = parent_agent_id(parent);
     let value = initial_agent_value(id, client, session_name, role, parent_id.as_deref());
     let _ = state_set(StateKind::Agents, id, &value);
+}
+
+/// On restore: refresh `host` and fill only missing baseline fields so keys added via
+/// `cdamux state append` (status, resume ids, …) survive (ADR-011 resilience).
+fn refresh_agent_state_on_restore(
+    session_name: &str,
+    agent_label: Option<&str>,
+    parent: Option<&str>,
+    cdamux_id: Option<&str>,
+) {
+    let (Some(id), Some(client)) = (cdamux_id, agent_label) else {
+        return;
+    };
+    let role = role_for(agent_label);
+    let parent_id = parent_agent_id(parent);
+    let baseline = initial_agent_value(id, client, session_name, role, parent_id.as_deref());
+    match state_get(StateKind::Agents, id) {
+        Ok(Some(existing)) => {
+            let patch = match (&existing, &baseline) {
+                (serde_json::Value::Object(ex), serde_json::Value::Object(base)) => {
+                    let mut patch = serde_json::Map::new();
+                    if let Some(host) = base.get("host") {
+                        patch.insert("host".into(), host.clone());
+                    }
+                    for (k, v) in base {
+                        if k != "host" && !ex.contains_key(k) {
+                            patch.insert(k.clone(), v.clone());
+                        }
+                    }
+                    serde_json::Value::Object(patch)
+                }
+                _ => baseline,
+            };
+            let _ = state_append(StateKind::Agents, id, &patch);
+        }
+        _ => {
+            let _ = state_set(StateKind::Agents, id, &baseline);
+        }
+    }
 }
 
 /// `claude` → command plus `--session-id <uuid>`, and that uuid; other agents untouched.
@@ -431,6 +473,37 @@ mod tests {
         })
         .unwrap();
         assert_eq!(parent_agent_id(Some("c-main")).as_deref(), Some("a-parent"));
+        std::env::remove_var("CDAMUX_HOME");
+    }
+
+    #[test]
+    fn restore_refresh_preserves_appended_fields() {
+        use crate::paths::env_lock;
+        use crate::state::state_get;
+        let _g = env_lock();
+        let dir = tempfile::tempdir().unwrap();
+        std::env::set_var("CDAMUX_HOME", dir.path());
+
+        let id = "a-keep1";
+        write_agent_state("c-old", Some("claude"), None, Some(id));
+        state_append(
+            StateKind::Agents,
+            id,
+            &serde_json::json!({"status": "idle", "resume_id": "conv-9"}),
+        )
+        .unwrap();
+
+        refresh_agent_state_on_restore("c-new", Some("claude"), None, Some(id));
+
+        let got = state_get(StateKind::Agents, id).unwrap().unwrap();
+        assert_eq!(got["host"], "c-new");
+        assert_eq!(got["status"], "idle");
+        assert_eq!(got["resume_id"], "conv-9");
+        assert_eq!(got["id"], id);
+        assert_eq!(got["client"], "claude");
+        // Baseline `run` was already present → not overwritten to null.
+        assert!(got["run"].is_null());
+
         std::env::remove_var("CDAMUX_HOME");
     }
 

@@ -2,8 +2,8 @@
 //! § Testing against tmux). The only test in this binary: it sets process env vars.
 
 use cdamux_core::{
-    restore_one, session_registry, spawn_tmux_session_with_layout, AgentEntry, AgentsConfig,
-    PaneLayout, RestoreOutcome,
+    restore_one, session_registry, spawn_tmux_session_with_layout, state_append, AgentEntry,
+    AgentsConfig, PaneLayout, RestoreOutcome, StateKind,
 };
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -82,6 +82,12 @@ fn spawn_kill_restore_resumes_claude_conversation() {
     assert_eq!(agent_doc["host"], name);
     // Parent session has no registry entry → entity parent is null (not the tmux name).
     assert!(agent_doc["parent"].is_null(), "parent={:?}", agent_doc["parent"]);
+    state_append(
+        StateKind::Agents,
+        &cdamux_id,
+        &serde_json::json!({"status": "idle", "resume_id": "keep-me"}),
+    )
+    .expect("append before restore");
 
     let result = std::panic::catch_unwind(|| {
         assert_eq!(restore_one(&before, &agents).unwrap(), RestoreOutcome::SkippedLive);
@@ -108,6 +114,11 @@ fn spawn_kill_restore_resumes_claude_conversation() {
         assert_eq!(after.cdamux_id.as_deref(), Some(cdamux_id.as_str()));
         assert_eq!(after.created_ts, before.created_ts);
         assert!(agent_path.is_file(), "agent file survives restore");
+        let after_doc: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&agent_path).unwrap()).unwrap();
+        assert_eq!(after_doc["status"], "idle");
+        assert_eq!(after_doc["resume_id"], "keep-me");
+        assert_eq!(after_doc["host"], name);
     });
 
     // Kill only our private server, after checking its socket lives under tmp

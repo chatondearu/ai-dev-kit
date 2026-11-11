@@ -64,8 +64,37 @@ pub(crate) struct ModalState {
     message: String,
 }
 
+/// Fleet selection the modal opens for: the session to copy and the agents its project uses.
+#[derive(Default)]
+pub(crate) struct SpawnHint {
+    /// Running session to preselect as the path (the selected one, else one of its project).
+    pub(crate) session: Option<String>,
+    /// Agent of the selected (live or dormant) session.
+    pub(crate) agent: Option<String>,
+    /// Agents of the project's sessions, tree order.
+    pub(crate) project_agents: Vec<String>,
+}
+
+/// Index in `ids` of the agent a new session should default to: the selected session's,
+/// else the most used in its project (first seen wins a tie); `None` when neither is configured.
+pub(crate) fn hinted_agent_index(hint: &SpawnHint, ids: &[String]) -> Option<usize> {
+    let pos = |a: &str| ids.iter().position(|id| id == a);
+    if let Some(i) = hint.agent.as_deref().and_then(pos) {
+        return Some(i);
+    }
+    let mut best: Option<(usize, usize)> = None; // (count, id index)
+    for a in &hint.project_agents {
+        let Some(i) = pos(a) else { continue };
+        let n = hint.project_agents.iter().filter(|b| *b == a).count();
+        if best.is_none_or(|(m, _)| n > m) {
+            best = Some((n, i));
+        }
+    }
+    best.map(|(_, i)| i)
+}
+
 impl ModalState {
-    pub(crate) fn new(cfg: &Config) -> Self {
+    pub(crate) fn new(cfg: &Config, hint: &SpawnHint) -> Self {
         let running: Vec<(String, PathBuf)> = list_tmux_sessions()
             .unwrap_or_default()
             .into_iter()
@@ -77,7 +106,13 @@ impl ModalState {
             .map(|p| p.path)
             .collect();
         let agents = configured_agent_ids(&cfg.agents);
-        let agent_index = preferred_spawn_agent_index(&cfg.agents, &agents);
+        let agent_index = hinted_agent_index(hint, &agents)
+            .unwrap_or_else(|| preferred_spawn_agent_index(&cfg.agents, &agents));
+        let pick_index = hint
+            .session
+            .as_deref()
+            .and_then(|h| running.iter().position(|(name, _)| name == h))
+            .unwrap_or(0);
         let mut state = Self {
             path_mode: if running.is_empty() {
                 PathMode::Discovered
@@ -86,7 +121,7 @@ impl ModalState {
             },
             running,
             discovered,
-            pick_index: 0,
+            pick_index,
             list_offset: 0,
             custom_path: String::new(),
             shell_only: false,
@@ -185,7 +220,8 @@ impl ModalState {
 pub(crate) enum SpawnModalAction {
     Continue,
     DismissCancel,
-    DismissDone { status: String },
+    /// Created `session`; the caller switches the client to it.
+    DismissDone { status: String, session: String },
 }
 
 pub(crate) fn on_key(cfg: &Config, state: &mut ModalState, key: KeyEvent) -> SpawnModalAction {
@@ -286,7 +322,7 @@ pub(crate) fn on_key(cfg: &Config, state: &mut ModalState, key: KeyEvent) -> Spa
         KeyCode::Enter => {
             if let Some(path) = state.resolved_path() {
                 match execute_spawn(cfg, state, path, false) {
-                    Ok(msg) => SpawnModalAction::DismissDone { status: msg },
+                    Ok((status, session)) => SpawnModalAction::DismissDone { status, session },
                     Err(e) => {
                         state.message = e;
                         SpawnModalAction::Continue
@@ -306,7 +342,7 @@ fn execute_spawn(
     state: &ModalState,
     path: PathBuf,
     switch_to_session: bool,
-) -> Result<String, String> {
+) -> Result<(String, String), String> {
     let command = if state.shell_only {
         default_shell_command()
     } else {
@@ -360,12 +396,15 @@ fn execute_spawn(
         agent_label,
         None,
     ) {
-        Ok(o) => Ok(format!(
-            "spawned '{}' in {} ({}){}",
+        Ok(o) => Ok((
+            format!(
+                "spawned '{}' in {} ({}){}",
+                session_name,
+                spawn_path.display(),
+                state.layout_label(),
+                o.note()
+            ),
             session_name,
-            spawn_path.display(),
-            state.layout_label(),
-            o.note()
         )),
         Err(e) => Err(e.to_string()),
     }
@@ -641,6 +680,25 @@ mod tests {
         assert_eq!(state.pick_index, 26);
         term.draw(|f| draw_modal(f, &mut state)).unwrap();
         assert!(rendered(&term).iter().any(|l| l.contains("› /nonexistent/p26")));
+    }
+
+    #[test]
+    fn agent_hint_prefers_selected_then_most_used_in_project() {
+        let ids: Vec<String> = ["claude", "cursor", "codex"].map(String::from).to_vec();
+        let hint = |agent: Option<&str>, project: &[&str]| SpawnHint {
+            session: None,
+            agent: agent.map(String::from),
+            project_agents: project.iter().map(|s| s.to_string()).collect(),
+        };
+        // Selected session wins over the project majority.
+        assert_eq!(hinted_agent_index(&hint(Some("codex"), &["cursor", "cursor"]), &ids), Some(2));
+        // Unknown selected agent ("—", "shell"): most used configured agent of the project.
+        assert_eq!(hinted_agent_index(&hint(Some("—"), &["claude", "cursor", "—", "cursor"]), &ids), Some(1));
+        // Tie: first seen.
+        assert_eq!(hinted_agent_index(&hint(None, &["codex", "claude"]), &ids), Some(2));
+        // Nothing known: caller falls back to the config default.
+        assert_eq!(hinted_agent_index(&hint(None, &["shell"]), &ids), None);
+        assert_eq!(hinted_agent_index(&SpawnHint::default(), &ids), None);
     }
 
     #[test]

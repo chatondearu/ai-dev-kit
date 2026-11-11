@@ -608,6 +608,29 @@ mod tests {
         assert_eq!(open.len(), 2);
     }
 
+    #[test]
+    fn focus_current_session_unfolds_its_project() {
+        // Startup preselect (popup over `s2`): project collapsed, `s2` second in it.
+        let tree = ProjectSessionTree {
+            nodes: vec![cdamux_core::ProjectTreeNode {
+                project: Project {
+                    name: "p".into(),
+                    path: PathBuf::from("/tmp/p"),
+                    root_label: "dev".into(),
+                },
+                sessions: vec![sess("s1"), sess("s2")],
+            }],
+            unassigned: vec![],
+        };
+        let mut exp = HashSet::new();
+        let idx = focus_session_in_tree(&tree, &mut exp, "s2", GroupBy::Project, false, &no_status());
+        assert_eq!(idx, 2);
+        let rows = flatten_tree(&tree, &exp, GroupBy::Project, false, &no_status());
+        assert_eq!(session_at_row(&rows, idx).map(|s| s.name.as_str()), Some("s2"));
+        // Unknown current session (home `cdamux`): first row.
+        assert_eq!(focus_session_in_tree(&tree, &mut exp, "cdamux", GroupBy::Project, false, &no_status()), 0);
+    }
+
     fn sess(name: &str) -> cdamux_core::EnrichedSession {
         cdamux_core::EnrichedSession {
             name: name.into(),

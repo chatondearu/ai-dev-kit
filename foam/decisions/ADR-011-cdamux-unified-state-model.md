@@ -1,6 +1,6 @@
 # ADR-011 — cdamux unified state model
 
-- **Status**: proposed
+- **Status**: accepted
 - **Date**: 2026-11-11
 - **Tags**: #architecture #tooling #autonomy #resilience
 
@@ -16,8 +16,7 @@ found 27 stores; a worker's state is duplicated in 6 places, a run id in 4, agen
 identity in 5 with two vocabularies (`cursor` vs `cursor-agent`). The session registry
 follows a tmux rename but the sub-agent ledger does not.
 
-This ADR grows one section per resolved decision ticket of the map; it becomes
-`accepted` when the map hands off to the PRD.
+Each section below records one resolved decision ticket of the map.
 
 ## Decision
 

@@ -78,7 +78,7 @@ relative_path = ".cdamux/notes.md"
 # editor = "nvim"  # default: $EDITOR or vi
 
 # Retention for `cdamux state gc`: archive then remove done/error agents and
-# finished runs with no live host older than this many days. Dormant resumable
-# agents (session restore registry) are kept.
+# finished runs with no live host older than this many days (must be >= 1).
+# Dormant resumable agents (session restore registry) are kept.
 [state]
 retention_days = 14

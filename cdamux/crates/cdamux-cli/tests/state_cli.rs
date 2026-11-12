@@ -99,3 +99,63 @@ fn state_gc_archives_old_done_agent() {
     assert!(!path.exists());
     assert!(home.join("archive/agents/a-oldgc.json").is_file());
 }
+
+#[test]
+fn state_gc_rejects_zero_retention_days() {
+    let tmp = tempfile::tempdir().unwrap();
+    let home = tmp.path().join("home");
+    let bin = env!("CARGO_BIN_EXE_cdamux");
+    let gc = Command::new(bin)
+        .args(["state", "gc", "--retention-days", "0"])
+        .env("CDAMUX_HOME", &home)
+        .output()
+        .expect("spawn cdamux");
+    assert!(
+        !gc.status.success(),
+        "expected clap reject for --retention-days 0"
+    );
+}
+
+#[test]
+fn state_gc_aborts_when_tmux_unavailable() {
+    let tmp = tempfile::tempdir().unwrap();
+    let home = tmp.path().join("home");
+    let bin = env!("CARGO_BIN_EXE_cdamux");
+
+    let set = Command::new(bin)
+        .args([
+            "state",
+            "set",
+            "agents",
+            "a-notmux",
+            r#"{"id":"a-notmux","status":"done"}"#,
+        ])
+        .env("CDAMUX_HOME", &home)
+        .output()
+        .expect("spawn cdamux");
+    assert!(set.status.success());
+    let path = home.join("agents/a-notmux.json");
+    let mtime = SystemTime::now() - Duration::from_secs(20 * 24 * 60 * 60);
+    fs::File::open(&path).unwrap().set_modified(mtime).unwrap();
+
+    let gc = Command::new(bin)
+        .args(["state", "gc", "--retention-days", "1"])
+        .env("CDAMUX_HOME", &home)
+        .env("PATH", "/nonexistent")
+        .output()
+        .expect("spawn cdamux");
+    assert!(
+        !gc.status.success(),
+        "gc without tmux should abort: {}",
+        String::from_utf8_lossy(&gc.stderr)
+    );
+    let err = String::from_utf8_lossy(&gc.stderr);
+    assert!(
+        err.contains("cannot probe tmux") || err.contains("tmux"),
+        "{err}"
+    );
+    assert!(
+        path.exists(),
+        "agent must remain when gc aborts on tmux failure"
+    );
+}

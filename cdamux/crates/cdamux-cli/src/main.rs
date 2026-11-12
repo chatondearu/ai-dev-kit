@@ -212,8 +212,8 @@ enum StateCommands {
     },
     /// Archive then remove done/error agents and finished runs past retention.
     Gc {
-        /// Override `[state].retention_days` from config.
-        #[arg(long)]
+        /// Override `[state].retention_days` from config (must be ≥ 1).
+        #[arg(long, value_parser = clap::value_parser!(u32).range(1..))]
         retention_days: Option<u32>,
     },
 }
@@ -698,7 +698,16 @@ fn cmd_state_gc(retention_days: Option<u32>) -> ExitCode {
             .map(|c| c.state.retention_days)
             .unwrap_or(cdamux_core::DEFAULT_RETENTION_DAYS)
     });
-    let host_alive = |host: &str| tmux_has_session(host).unwrap_or(false);
+    // Fail closed: refuse destructive GC when tmux cannot be probed.
+    if let Err(e) = tmux_has_session("__cdamux_gc_probe__") {
+        eprintln!("state gc: cannot probe tmux sessions ({e}); aborting");
+        return ExitCode::from(1);
+    }
+    let host_alive = |host: &str| match tmux_has_session(host) {
+        Ok(alive) => alive,
+        // Rare after preflight; treat as alive so we never archive on probe failure.
+        Err(_) => true,
+    };
     match run_gc(days, std::time::SystemTime::now(), &host_alive) {
         Ok(report) => {
             println!(

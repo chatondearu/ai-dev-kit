@@ -190,12 +190,20 @@ fn scan_json_dir(dir: &Path) -> Vec<(String, PathBuf, Value)> {
 }
 
 /// Scan `$CDAMUX_HOME` agents/runs, archive then remove eligible entities.
+///
+/// `retention_days` must be ≥ 1 (`0` is rejected).
 pub fn run_gc(
     retention_days: u32,
     now: SystemTime,
     host_alive: &dyn Fn(&str) -> bool,
 ) -> io::Result<GcReport> {
-    let days = retention_days.max(1);
+    if retention_days == 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "retention_days must be >= 1",
+        ));
+    }
+    let days = retention_days;
     let registry = session_registry::load_all();
     let mut report = GcReport::default();
 
@@ -353,6 +361,47 @@ mod tests {
             assert_eq!(report.skipped_dormant, vec!["a-keep"]);
             assert!(home.join("agents/a-keep.json").is_file());
             assert!(!home.join("agents/a-gone.json").exists());
+        });
+    }
+
+    #[test]
+    fn gc_keeps_finished_run_with_live_session() {
+        with_temp_home(|home| {
+            let now = SystemTime::now();
+            let alive = |h: &str| h == "live-sess";
+
+            set_aged_run(
+                "r-live",
+                serde_json::json!({
+                    "run_id": "r-live",
+                    "status": "ok",
+                    "session": "live-sess"
+                }),
+                30,
+            );
+            set_aged_run(
+                "r-dead",
+                serde_json::json!({
+                    "run_id": "r-dead",
+                    "status": "ok",
+                    "session": "dead-sess"
+                }),
+                30,
+            );
+
+            let report = run_gc(14, now, &alive).unwrap();
+            assert_eq!(report.archived_runs, vec!["r-dead"]);
+            assert!(home.join("runs/r-live.json").is_file());
+            assert!(!home.join("runs/r-dead.json").exists());
+            assert!(home.join("archive/runs/r-dead.json").is_file());
+        });
+    }
+
+    #[test]
+    fn run_gc_rejects_zero_retention() {
+        with_temp_home(|_| {
+            let err = run_gc(0, SystemTime::now(), &|_| false).unwrap_err();
+            assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
         });
     }
 

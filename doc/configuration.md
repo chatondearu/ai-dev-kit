@@ -75,9 +75,10 @@ workers with a pending `ask`; answering from the composer / send form uses
 `[worktrees].root` or `$CDAMUX_HOME/worktrees`; default first message includes the
 worker preamble for `cdamux msg`). `cdamux restore <orch>` rebuilds the
 orchestrator host and its workers (resume by id when recorded). Retention:
-`cdamux state gc` (optional `--retention-days N`) archives then removes done/error
-agents and finished runs with no live host older than `[state].retention_days`
-(default 14) into `$CDAMUX_HOME/archive/`; dormant resumable agents stay.
+`cdamux state gc` (optional `--retention-days N`, N ≥ 1) archives then removes
+done/error agents and finished runs with no live host older than
+`[state].retention_days` (default 14, must be ≥ 1) into `$CDAMUX_HOME/archive/`;
+dormant resumable agents stay. Aborts if tmux cannot be probed.
 Layout, ids, delivery and restore: [cdamux/docs/architecture.md](../cdamux/docs/architecture.md)
 § State root.
 

@@ -5,7 +5,7 @@
 
 use crate::paths::cdamux_state_dir;
 use crate::spawn::PaneLayout;
-use crate::state::{state_append, StateKind};
+use crate::state::{state_append, write_atomic, StateKind};
 use crate::subagent_ledger::session_file_name;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -64,15 +64,7 @@ fn record_path(name: &str) -> io::Result<PathBuf> {
 /// Write (or overwrite) the record of `rec.name`; tmp file + rename, so a reader
 /// never sees a half-written file.
 pub fn record(rec: &SessionRecord) -> io::Result<()> {
-    let path = record_path(&rec.name)?;
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)?;
-    }
-    let tmp = path.with_extension(format!("json.tmp.{}", std::process::id()));
-    std::fs::write(&tmp, serde_json::to_vec_pretty(rec)?)?;
-    std::fs::rename(&tmp, &path).inspect_err(|_| {
-        let _ = std::fs::remove_file(&tmp);
-    })
+    write_atomic(&record_path(&rec.name)?, &serde_json::to_vec_pretty(rec)?)
 }
 
 /// The record of `name`; `None` when missing or unreadable.

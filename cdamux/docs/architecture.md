@@ -50,7 +50,7 @@ $CDAMUX_HOME/
 ├── agents/<session>.jsonl     # CLI sub-agent ledger (hooks; separate from entities)
 ├── runs/<run-id>.json         # Run + nodes
 ├── sessions/<session>.json    # Restore registry (ADR-009)
-├── archive/agents|runs/       # Retention sink (`cdamux state gc`)
+├── archive/agents|runs|inbox/ # Retention sink (`cdamux state gc`)
 ├── inbox/<agent-id>.jsonl     # messages received (append-only, ≤ 2 KB/line)
 ├── inbox/<agent-id>.cursor    # ack byte offset for `msg read --ack`
 └── events.jsonl               # (optional journal)
@@ -60,8 +60,12 @@ Writers use `cdamux state set|get|append` and `cdamux msg send|read` (private JS
 `cdamux state gc` archives then removes `done`/`error` agents and finished runs
 (`ok`/`blocked`/`done`/`error`) with no live host whose file mtime is older than
 `[state].retention_days` (default 14, must be ≥ 1) in `config.toml`. Aborts when
-tmux cannot be probed (fail closed). Dormant resumable agents (session restore
+tmux cannot be probed (fail closed). An archived agent's `inbox/<id>.jsonl` and
+`.cursor` move to `archive/inbox/`; an existing archive of the same name is kept and
+the new one gets a `.<unix_secs>` suffix. Dormant resumable agents (session restore
 registry, ADR-009) are never GC'd. Manual only (no timer in v0).
+State files are written tmp + rename (`<file>.tmp.<pid>.<n>`). New agent ids skip any
+id that already has `agents/<id>.json` or `inbox/<id>.jsonl`.
 `orch.sh` / `graph-node.sh` publish run + nodes and one Agent per worker through
 `cdamux state` only (hard cut #252; silent no-op without the binary). Repo
 `.orch/` keeps work artefacts (locks, worker logs, progress) — not Fleet state.
@@ -92,7 +96,9 @@ Delivery:
   quiet ≥ 10 s, types `📨 N messages — cdamux msg read` into the pane (no daemon).
 
 `cdamux msg read [--agent id] [--ack] [--digest]` prints unread lines after the
-ack cursor; `--ack` advances `inbox/<id>.cursor`. `kind=ask` sets the sender
+ack cursor; `--ack` advances `inbox/<id>.cursor` to the end of the last complete line
+read (a line still being written stays unread). Each line is appended with a single
+`write(2)`, so concurrent senders do not interleave. `kind=ask` sets the sender
 `blocked`; `kind=answer` clears the recipient to `idle`.
 
 ### Orchestrator session (`cdamux orch`)
@@ -112,8 +118,10 @@ Requires `$CDAMUX_AGENT_ID` (caller must be an orchestrator session).
 
 - `cdamux worker spawn <name> [--agent X] [--prompt-file f] [--here]` — tmux host with
   `role=worker`, `parent` = caller id, `run` = caller's long-lived run (minted if
-  missing). Default: new git worktree + branch `worker/<name>` under
-  `[worktrees].root` or `$CDAMUX_HOME/worktrees`. `--here` reuses the caller's cwd.
+  missing). Default: new git worktree `<root>/<run>/<name>` + branch
+  `worker/<run>/<name>`, with `<root>` = `[worktrees].root` or `$CDAMUX_HOME/worktrees`
+  (per-run, so two orchestrators can each spawn `api`). `--prompt-file` is read before
+  the worktree is created. `--here` reuses the caller's cwd.
   Client defaults to the caller's product name unless `--agent` is set. Every spawn
   prefixes the first message with `cdamux/prompts/worker-preamble.md` (report via
   `cdamux msg`); `--prompt-file` content is appended. opencode's first message uses

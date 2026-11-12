@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # CLI wrapper over cda-dev lib/graph.sh for Cursor session fallback (no free-form JSON).
+# Same init|node|edge|finish surface; dual-writes via `cdamux state` (ADR-011 §5, #251).
 set -euo pipefail
 DEV_LIB="$(cd "$(dirname "$0")/../../cda-dev/scripts/lib" && pwd)"
 # shellcheck source=../../cda-dev/scripts/lib/graph.sh
@@ -8,6 +9,7 @@ source "$DEV_LIB/graph.sh"
 usage() {
   cat <<'EOF'
 graph-node.sh — write .orch/graph/live/<run_id>.json (schema: templates/orch-graph.schema.json)
+  and mirror the run via `cdamux state` under $CDAMUX_HOME when cdamux is on PATH.
 
   graph-node.sh init [--repo DIR] [--run-id ID]      new run; prints its file (basename = run id)
   graph-node.sh node --id ID --kind KIND --phase PHASE --status STATUS [--message MSG] [--parent ID] [--repo DIR] [--run-id ID]
@@ -17,7 +19,7 @@ graph-node.sh — write .orch/graph/live/<run_id>.json (schema: templates/orch-g
 node/edge/finish target --run-id, else $ORCH_RUN_ID, else the newest live run created
 from the current tmux session.
 
-Env: ORCH_REPO (default .), ORCH_GRAPH=1, ORCH_RUN_ID
+Env: ORCH_REPO (default .), ORCH_GRAPH=1, ORCH_RUN_ID, CDAMUX_HOME, CDAMUX_AGENT_ID
 EOF
 }
 

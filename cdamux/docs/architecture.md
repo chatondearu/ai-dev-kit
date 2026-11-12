@@ -56,7 +56,10 @@ $CDAMUX_HOME/
 ```
 
 Writers use `cdamux state set|get|append` and `cdamux msg send|read` (private JSON).
-Spawn mints `a-xxxxx`,
+`orch.sh` / `graph-node.sh` publish run + nodes and one Agent per worker through
+`cdamux state` (silent no-op without the binary). Until #252 they dual-write
+repo `.orch/graph` + `status.json`; with `$CDAMUX_AGENT_ID` set the run's
+`parent` is that agent (sub-run). Spawn mints `a-xxxxx`,
 sets `@cdamux_id`, exports `CDAMUX_AGENT_ID`, and records the product client name
 (`claude` | `cursor` | `opencode` | `codex`; aliases like `agent` / `cursor-agent`
 normalise on write — orch `@cdamux_agent` uses the same product names). Entity

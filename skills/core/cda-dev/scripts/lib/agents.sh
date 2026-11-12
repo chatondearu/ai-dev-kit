@@ -155,19 +155,15 @@ orch_print_agents() {
   done
 }
 
-# Product client name for @cdamux_agent (ADR-011 §1): claude|cursor|opencode|codex.
-# Unknown basenames pass through (tests / custom stubs).
-orch_cdamux_agent_name() {
-  local base
-  base="$(command -p basename "${1}")"
-  case "$base" in
-    agent|cursor-agent) printf 'cursor\n';;
-    claude|claude-code) printf 'claude\n';;
-    opencode) printf 'opencode\n';;
-    codex) printf 'codex\n';;
-    *) printf '%s\n' "$base";;
-  esac
-}
+# Product client name (ADR-011 §1) — defined in cdamux_state.sh; source if missing
+# (agents.sh alone, e.g. headless / unit tests).
+if ! declare -F orch_cdamux_agent_name >/dev/null; then
+  _ORCH_CDAMUX_STATE_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/cdamux_state.sh"
+  # shellcheck source=cdamux_state.sh
+  # shellcheck disable=SC1091
+  [ -f "$_ORCH_CDAMUX_STATE_LIB" ] && source "$_ORCH_CDAMUX_STATE_LIB"
+  unset _ORCH_CDAMUX_STATE_LIB
+fi
 
 # Kept for headless.sh: prints the kind (custom|cursor|claude|opencode|codex) and
 # exports ORCH_AGENT_BIN.

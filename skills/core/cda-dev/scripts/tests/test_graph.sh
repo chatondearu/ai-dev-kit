@@ -45,6 +45,9 @@ assert_eq "$(jq -r '.nodes[] | select(.id=="worker-1") | has("tier")' "$TMP/.orc
 export -f orch_graph_enabled orch_graph_file orch_graph_now orch_graph_init orch_graph_session
 export -f orch_graph_point_current orch_graph_archive orch_graph_archive_stale
 export -f orch_graph_locked_jq orch_graph_upsert_node orch_graph_add_edge orch_graph_finish
+export -f orch_cdamux_available orch_cdamux_state_set orch_cdamux_agent_name
+export -f orch_cdamux_publish_run orch_cdamux_publish_worker
+export -f orch_cdamux_mint_agent_id orch_cdamux_worker_agent_id orch_cdamux_status_from_phase
 bash -c 'orch_graph_upsert_node "worker-sub" worker agent running "from-subshell" ""'
 sub="$(jq -r '.nodes[] | select(.id=="worker-sub") | .message' "$TMP/.orch/graph/current.json")"
 assert_eq "$sub" "from-subshell" "upsert via bash -c writes node"

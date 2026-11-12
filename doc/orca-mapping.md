@@ -16,7 +16,7 @@ tools and planning incremental parity where it pays off.
 | Desktop shell (editor, GPU terminal, browser) | Native app | tmux + cdamux TUI / tailnet web |
 | Git worktrees per task | First-class UI + CLI | `orch.sh` worktrees; cdamux optional spawn |
 | GitHub / Linear task UI | In-app | `gh` + Kanban skills; no in-app board |
-| Multi-agent orchestration contract | Run / Task / Dispatch / inbox | `orch.sh` + `.orch/graph/current.json` |
+| Multi-agent orchestration contract | Run / Task / Dispatch / inbox | `orch.sh` + `.orch/graph/current.json`, dual-written to `$CDAMUX_HOME/runs/` via `cdamux state` until #252 |
 | Project memory (ADRs, PRDs) | Notes / generic | foam + `cda-foam` |
 | CI-green PR pipeline | Operator workflow | `cda-dev` verify loop, frontier, integrator |
 
@@ -34,7 +34,7 @@ vs kit graph orchestration ([graph-orchestration.md](graph-orchestration.md), AD
 | **worker_done** | Required completion with `taskId` + `dispatchId` | `.orch/worker-result.json` (convention); `.orch/run/<id>.rc` | No stale-dispatch guard; schema not enforced in harness |
 | **heartbeat** | Long-run liveness | None | Optional future: `.orch/run/<id>.heartbeat` |
 | **ask / decision gate** | Block task until coordinator answers | `ORCH_GRAPH_VERIFY` verifier; human in chat | No `gate-create` / `gate-resolve` API |
-| **worker-start** | Supervised agent on worktree | `cdamux worker spawn` (interactive) + `orch_ready_pickup_one` | orch.sh still does not call cdamux (slice 3) |
+| **worker-start** | Supervised agent on worktree | `cdamux worker spawn` (interactive) + `orch_ready_pickup_one`; `orch.sh` publishes run/nodes/Agents via `cdamux state` (dual-write until #252; no-op without binary) | Hard cut of `.orch` graph/status writers is #252 |
 | **Integrator** | Coordinator synthesis | `orch_graph_integrator_run` (2+ issues or graph-plan) | Same idea; different trigger rules |
 | **Frontier / deps** | Task `blocked` until deps done | Issue body `Blocked by: #n` + `orch_frontier_partition` | Same dependency idea, GitHub-native |
 
@@ -48,7 +48,7 @@ vs kit graph orchestration ([graph-orchestration.md](graph-orchestration.md), AD
 | Preview / status | Pane capture, idle / needs_input | — |
 | Diff review → agent | `cdamux review` (hunks) | `cda-review` on PR |
 | Inline diff line comments | Rich diff UI | Hunk-based review only |
-| Orch graph view | Sidecar + `GET …/orch-graph` | Writes `.orch/graph/current.json` |
+| Orch graph view | Sidecar + `GET …/orch-graph` | Dual-writes `.orch/graph/current.json` + `$CDAMUX_HOME/runs/` via `cdamux state` (until #252) |
 | SSH remote worktrees | Tailnet API (read/send); Mosh doc | No remote file/git IDE |
 | Mobile app | Web UI on tailnet (partial) | — |
 | GitHub / Linear in-app | — | `cda-kanban`, `gh-board.sh` |

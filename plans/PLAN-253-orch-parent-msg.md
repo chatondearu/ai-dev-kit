@@ -1,6 +1,6 @@
 # PLAN-253 — Send parent cdamux msg on worker/run completion
 
-- **Status**: draft
+- **Status**: done
 - **PRD**: [[../prd/PRD-239-orchestrator-session|PRD-239]]
 - **GitHub**: [#253](https://github.com/chatondearu/ai-dev-kit/issues/253)
 - **Blocked by**: #252
@@ -42,10 +42,10 @@ toward the parent agent id from the environment / run record.
 
 ## Tasks
 
-- [ ] **Worker terminal msgs**: on done/blocked/error, send msg to parent when `CDAMUX_AGENT_ID` set (acceptance: stub orch test asserts msg file / CLI invocation)
-- [ ] **Run-end msg**: one message with `ref` to integrator report (acceptance: test)
-- [ ] **No-op**: missing cdamux or parent → silent (acceptance: test)
-- [ ] **Verify**: `nix develop -c bash scripts/verify.sh` green
+- [x] **Worker terminal msgs**: on done/blocked/error, send msg to parent when `CDAMUX_AGENT_ID` set (acceptance: stub orch test asserts msg file / CLI invocation)
+- [x] **Run-end msg**: one message with `ref` to integrator report (acceptance: test)
+- [x] **No-op**: missing cdamux or parent → silent (acceptance: test)
+- [x] **Verify**: `nix develop -c bash scripts/verify.sh` green
 
 ## Risks & mitigations
 
@@ -57,10 +57,10 @@ toward the parent agent id from the environment / run record.
 
 Seams: (1) worker terminal → msg, (2) run end → msg+ref, (3) no-op paths.
 
-- [ ] Temp `CDAMUX_HOME` inbox assertions
-- [ ] Full verify
+- [x] Temp `CDAMUX_HOME` inbox assertions
+- [x] Full verify
 
 ## Verification
 
-- [ ] Lint / test / build per project conventions
-- [ ] Update foam / ADR only if a new decision was made
+- [x] Lint / test / build per project conventions
+- [x] Update foam / ADR only if a new decision was made

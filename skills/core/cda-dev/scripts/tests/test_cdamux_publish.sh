@@ -74,6 +74,7 @@ if command -v flock >/dev/null 2>&1; then
   export -f orch_cdamux_publish_run orch_cdamux_publish_run_json orch_cdamux_publish_worker
   export -f orch_cdamux_mint_agent_id orch_cdamux_worker_agent_id orch_cdamux_status_from_phase
   export -f orch_cdamux_run_path orch_cdamux_run_lock orch_cdamux_agent_name
+  export -f orch_cdamux_msg_send orch_cdamux_parent_msg_worker orch_cdamux_parent_msg_run_end
   unset ORCH_RUN_ID
   orch_graph_init "run-race-1"
   export CDAMUX_STUB_SLEEP_RUNS=invert

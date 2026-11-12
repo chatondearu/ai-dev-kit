@@ -54,6 +54,7 @@ export -f orch_cdamux_available orch_cdamux_state_set orch_cdamux_state_get orch
 export -f orch_cdamux_publish_run orch_cdamux_publish_run_json orch_cdamux_publish_worker
 export -f orch_cdamux_mint_agent_id orch_cdamux_worker_agent_id orch_cdamux_status_from_phase
 export -f orch_cdamux_run_path orch_cdamux_run_lock orch_cdamux_agent_name
+export -f orch_cdamux_msg_send orch_cdamux_parent_msg_worker orch_cdamux_parent_msg_run_end
 bash -c 'orch_graph_upsert_node "worker-sub" worker agent running "from-subshell" ""'
 sub="$(jq -r '.nodes[] | select(.id=="worker-sub") | .message' "$gf")"
 assert_eq "$sub" "from-subshell" "upsert via bash -c writes node"

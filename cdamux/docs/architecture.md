@@ -67,6 +67,10 @@ product names). Entity `parent` is the parent's agent id (resolved from the
 registry), or `null` when unknown; `@cdamux_parent` stays the tmux session name
 for Fleet nesting. Renaming a tmux session updates `host` via
 `session_registry::rename` and does not move `agents/<id>.json`.
+When orch is a sub-run, it also `cdamux msg send`s to the parent: one message per
+worker reaching `done` / `blocked` / `error`, and one at run end with `ref` to
+`.orch/integrator-report.md` (at-most-once markers under `.orch/run/`; no-op
+without the binary or parent id).
 
 ### Inbox messages (ADR-011 §4)
 

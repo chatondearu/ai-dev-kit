@@ -168,4 +168,65 @@ orch_cdamux_publish_worker() {
      + (if $tmux_session=="" then {} else {tmux_session:$tmux_session, log:$log} end)
      + ($extra | with_entries(select(.value != null)))')" || return 0
   orch_cdamux_state_set agents "$aid" "$json"
+  orch_cdamux_parent_msg_worker "$wid" "$phase" "$msg"
+}
+
+# Fail-open `cdamux msg send`. Args: to kind text [from] [ref]
+orch_cdamux_msg_send() {
+  local to="$1" kind="$2" text="$3" from="${4:-}" ref="${5:-}"
+  local args=()
+  orch_cdamux_available || return 0
+  [ -n "$to" ] && [ -n "$kind" ] && [ -n "$text" ] || return 0
+  args=(msg send --to "$to" --kind "$kind")
+  [ -n "$from" ] && args+=(--from "$from")
+  [ -n "$ref" ] && args+=(--ref "$ref")
+  args+=("$text")
+  cdamux "${args[@]}" >/dev/null 2>&1 || true
+}
+
+# One parent inbox msg when a worker hits done/blocked/error (ADR-011 §5).
+# At-most-once best effort via .orch/run/<id>.parent_msg marker.
+orch_cdamux_parent_msg_worker() {
+  local wid="$1" phase="$2" msg="${3:-}"
+  local parent kind from ref marker wt dir
+  parent="${CDAMUX_AGENT_ID:-}"
+  [ -n "$parent" ] || return 0
+  orch_cdamux_available || return 0
+  [ -n "$wid" ] || return 0
+  case "$phase" in
+    done) kind=done ;;
+    blocked|error) kind=error ;;
+    *) return 0 ;;
+  esac
+  dir="${ORCH_REPO:-.}/.orch/run"
+  mkdir -p "$dir"
+  marker="$dir/${wid}.parent_msg"
+  [ -f "$marker" ] && return 0
+  from="$(orch_cdamux_worker_agent_id "$wid")"
+  ref=""
+  if declare -F orch_worktree_path >/dev/null 2>&1; then
+    wt="$(orch_worktree_path "${ORCH_REPO:-.}" "$wid" "issue-$wid")"
+    [ -f "$wt/.orch/worker-result.json" ] && ref="$wt/.orch/worker-result.json"
+  fi
+  [ -n "$msg" ] || msg="worker #$wid $phase"
+  orch_cdamux_msg_send "$parent" "$kind" "worker #$wid $phase: $msg" "$from" "$ref"
+  printf '%s\n' "$kind" >"$marker"
+}
+
+# One parent inbox msg at run end with ref to integrator report (ADR-011 §5).
+orch_cdamux_parent_msg_run_end() {
+  local status="${1:-ok}" parent ref marker dir text
+  parent="${CDAMUX_AGENT_ID:-}"
+  [ -n "$parent" ] || return 0
+  orch_cdamux_available || return 0
+  [ -n "${ORCH_RUN_ID:-}" ] || return 0
+  dir="${ORCH_REPO:-.}/.orch/run"
+  mkdir -p "$dir"
+  marker="$dir/${ORCH_RUN_ID}.parent_msg_run"
+  [ -f "$marker" ] && return 0
+  ref="${ORCH_REPO:-.}/.orch/integrator-report.md"
+  text="run $ORCH_RUN_ID finished: $status"
+  # from=parent: orch harness has no separate run Agent; inbox still gets the line.
+  orch_cdamux_msg_send "$parent" report "$text" "$parent" "$ref"
+  printf '%s\n' "$status" >"$marker"
 }

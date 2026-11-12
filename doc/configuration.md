@@ -60,7 +60,10 @@ under `$CDAMUX_HOME` (format private). Hard cut (#252): `orch.sh` / `graph-node.
 write runs and one Agent per worker there when `cdamux` is on `PATH`; missing binary →
 silent no-op (no in-repo `.orch/graph` / `status.json`). Fleet and `/v1/orch-*` read
 `$CDAMUX_HOME/runs/` (+ agents). With `$CDAMUX_AGENT_ID` set, the orch run records that
-agent as `parent` (sub-run).
+agent as `parent` (sub-run). Under a parent, `orch.sh` also sends `cdamux msg` to that
+agent: one per worker terminal `done` / `blocked` / `error`, and one at run end with
+`ref` pointing at `.orch/integrator-report.md` (silent no-op without `cdamux` or
+parent id — [ADR-011](../foam/decisions/ADR-011-cdamux-unified-state-model.md) §5).
 Orchestrator ↔ worker messages use `cdamux msg send|read` (`inbox/<agent-id>.jsonl` +
 `.cursor`, ≤ 2 KB/line). Start an orchestrator with `cdamux orch new` (or Fleet spawn
 role *orchestrator*) — skill `cda-orchestrator`. Interactive workers:

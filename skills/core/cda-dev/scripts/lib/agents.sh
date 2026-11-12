@@ -183,7 +183,7 @@ orch_detect_agent() {
 
 # Run the agent CLI of role ORCH_ROLE (default worker) on prompt file $2 in worktree $1.
 orch_agent_run() {
-  local wt="$1" prompt_file="$2" r t role="${ORCH_ROLE:-worker}" me
+  local wt="$1" prompt_file="$2" r t role="${ORCH_ROLE:-worker}" me aid
   unset ORCH_AGENT_CLI ORCH_AGENT_MODEL ORCH_AGENT_EFFORT ORCH_AGENT_TIER
   r="$(orch_resolve_agent "$role")" || return 1
   export ORCH_AGENT_BIN="${r%%$'\t'*}"
@@ -202,11 +202,24 @@ orch_agent_run() {
       fi
       ;;
   esac
+  aid=""
+  if [ -n "${ORCH_WORKER_ID:-}" ] && declare -F orch_cdamux_worker_agent_id >/dev/null; then
+    aid="$(orch_cdamux_worker_agent_id "$ORCH_WORKER_ID")"
+  fi
   if [ -n "${ORCH_WORKER_ID:-}" ] && orch_tmux_on; then
-    orch_tmux_agent_run "$wt" "$prompt_file"
+    orch_tmux_agent_run "$wt" "$prompt_file" "$aid"
     return
   fi
-  _orch_agent_exec "$wt" "$prompt_file"
+  _orch_agent_exec_as "$wt" "$prompt_file" "$aid"
+}
+
+# _orch_agent_exec as agent id $3 (unset when empty), never as orch: the agent's
+# cdamux hooks and `cdamux msg` default to CDAMUX_AGENT_ID, which is orch's own id.
+_orch_agent_exec_as() {
+  (
+    if [ -n "${3:-}" ]; then export CDAMUX_AGENT_ID="$3"; else unset CDAMUX_AGENT_ID; fi
+    _orch_agent_exec "$1" "$2"
+  )
 }
 
 # Run $ORCH_AGENT_BIN on a prompt file in worktree $1 (stdout/stderr inherited).
@@ -255,8 +268,9 @@ orch_tmux_log() {
 # Run the agent in the worker's session, wait for its exit code, append its output to
 # the worker log and echo it back on stdout (callers parse it, e.g. the review verdict).
 # The session is killed after the agent exits unless ORCH_TMUX_KEEP=1.
+# $3: agent id the agent runs as (see _orch_agent_exec_as).
 orch_tmux_agent_run() {
-  local wt="$1" prompt_file="$2"
+  local wt="$1" prompt_file="$2" aid="${3:-}"
   local s log rcf runner off rc parent="" bin=( $ORCH_AGENT_BIN )
   s="$(orch_tmux_session "$ORCH_WORKER_ID")"
   log="$(orch_tmux_log "$ORCH_WORKER_ID")"
@@ -266,7 +280,7 @@ orch_tmux_agent_run() {
     # Placeholder command so remain-on-exit is set before the agent can exit.
     if ! tmux new-session -d -s "$s" -c "$wt" cat 2>/dev/null; then
       printf 'orch: tmux new-session %s failed; running the agent inline\n' "$s" >&2
-      _orch_agent_exec "$wt" "$prompt_file"
+      _orch_agent_exec_as "$wt" "$prompt_file" "$aid"
       return
     fi
     tmux set-option -w -t "=$s:" remain-on-exit on >/dev/null
@@ -288,8 +302,8 @@ orch_tmux_agent_run() {
     printf 'rm -f -- "$0"\n_t=${TMUX-} _tp=${TMUX_PANE-}\n{\n'
     export -p
     printf '} 2>/dev/null\nexport TMUX="$_t" TMUX_PANE="$_tp"\n'
-    declare -f _orch_agent_exec
-    printf '_orch_agent_exec %q %q 2>&1 | tee -a %q\n' "$wt" "$prompt_file" "$log"
+    declare -f _orch_agent_exec _orch_agent_exec_as
+    printf '_orch_agent_exec_as %q %q %q 2>&1 | tee -a %q\n' "$wt" "$prompt_file" "$aid" "$log"
     printf 'echo "${PIPESTATUS[0]}" >%q\n' "$rcf"
   } >"$runner"
   off="$(wc -c <"$log" | tr -d ' ')"

@@ -38,6 +38,7 @@ cat >"$TMP/bin/cursor-agent" <<EOF
 #!$STUB_BASH
 tmux show-options -t "\$(tmux display -p '#{session_name}'):" | grep cdamux >"$TMP/opts"
 echo "stub-out marker=\$MARKER"
+echo "aid=\${CDAMUX_AGENT_ID-unset}"
 printf '%s\n' "\$*"
 exit "\${STUB_RC:-0}"
 EOF
@@ -45,7 +46,7 @@ chmod +x "$TMP/bin/tmux" "$TMP/bin/cursor-agent"
 echo "prompt-body" >"$TMP/prompt"
 export PATH="$TMP/bin:$PATH" TMPDIR="$TMP/tmpdir"
 export ORCH_TMUX=1 ORCH_RUN_ID=r1 ORCH_WORKER_ID=42 ORCH_REPO="$TMP/repo"
-export ORCH_AGENT="$TMP/bin/cursor-agent" MARKER=m1
+export ORCH_AGENT="$TMP/bin/cursor-agent" MARKER=m1 CDAMUX_AGENT_ID=a-parent
 S=orch-r1-42
 
 # Prime the throwaway server with a clean client env. Otherwise the first
@@ -59,6 +60,8 @@ out="$(STUB_RC=7 orch_agent_run "$TMP/repo" "$TMP/prompt")" || rc=$?
 assert_eq "$rc" "7" "agent exit code propagated"
 assert_contains "$out" "stub-out marker=m1" "output echoed back, caller env replayed"
 assert_contains "$out" "prompt-body" "prompt passed as argv (cursor path)"
+assert_contains "$out" "aid=$(cat "$TMP/repo/.orch/run/42.agent_id")" "agent runs as the worker agent id"
+assert_eq "$CDAMUX_AGENT_ID" "a-parent" "orch keeps its own CDAMUX_AGENT_ID"
 assert_contains "$(cat "$TMP/repo/.orch/run/42.log")" "stub-out marker=m1" "worker log written"
 opts="$(cat "$TMP/opts")"
 assert_contains "$opts" "@cdamux_role worker" "role option"

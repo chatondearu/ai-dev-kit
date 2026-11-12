@@ -298,7 +298,7 @@ pub(crate) fn graph_target_at_row(
             match (own.is_empty(), &s.run, repo) {
                 (false, _, Some((path, _))) => runs_from(&path.to_string_lossy(), own),
                 (true, Some(run), _) => runs_from(&s.path, vec![run.clone()]),
-                (true, None, Some((_, r))) if r.per_run => GraphTarget::NoRun,
+                (true, None, Some(_)) => GraphTarget::NoRun,
                 _ => GraphTarget::Latest(s.path.clone()),
             }
         }
@@ -883,15 +883,11 @@ mod tests {
         let mut newer = runs2.live[1].clone();
         newer.run_id = "newer".into();
         runs2.live.insert(0, newer);
-        status2.insert_fixture(Path::new("/src/alpha"), Default::default(), runs2.clone());
+        status2.insert_fixture(Path::new("/src/alpha"), Default::default(), runs2);
         let rows2 = flatten_tree(&tree2, &["/src/alpha".to_string()].into_iter().collect(), GroupBy::Project, false, &status2);
         let main = row_index_for_session(&rows2, "alpha-main").unwrap();
         let solo = row_index_for_session(&rows2, "solo").unwrap();
         assert_eq!(graph_target_at_row(&rows2, main, &tree2, &status2), runs("/src/alpha", &["newer", RUN_MAIN]));
         assert_eq!(graph_target_at_row(&rows2, solo, &tree2, &status2), GraphTarget::NoRun);
-        // Pre-#178 harness (no live/ dir): the old shared graph.
-        runs2.per_run = false;
-        status2.insert_fixture(Path::new("/src/alpha"), Default::default(), runs2);
-        assert_eq!(graph_target_at_row(&rows2, solo, &tree2, &status2), GraphTarget::Latest("/tmp/p".into()));
     }
 }

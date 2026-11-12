@@ -70,12 +70,10 @@ pub(crate) fn sidecar_step(
 pub(crate) struct RepoRuns {
     pub(crate) live: Vec<OrchGraphRunSummary>,
     pub(crate) recent: Vec<OrchGraphRunSummary>,
-    /// Always true after #252 (one file per run under `$CDAMUX_HOME/runs/`).
-    pub(crate) per_run: bool,
 }
 
 /// mtime of `$CDAMUX_HOME/runs` (shared across repos; list filters by `repo` field).
-type RunsStamp = [Option<SystemTime>; 1];
+type RunsStamp = Option<SystemTime>;
 
 fn mtime(path: &Path) -> Option<SystemTime> {
     fs::metadata(path).and_then(|m| m.modified()).ok()
@@ -202,7 +200,7 @@ impl StatusCache {
     #[cfg(test)]
     pub(crate) fn insert_fixture(&mut self, repo: &Path, status: OrchRunStatusFile, runs: RepoRuns) {
         self.entries.insert(repo.to_path_buf(), (None, status));
-        self.runs.insert(repo.to_path_buf(), ([None; 1], runs));
+        self.runs.insert(repo.to_path_buf(), (None, runs));
     }
 
     /// Re-list the runs of each repo once per interval, only when `$CDAMUX_HOME/runs` moved.
@@ -215,7 +213,6 @@ impl StatusCache {
         self.refresh_runs_with(repos, now, |p| RepoRuns {
             live: list_live_orch_runs(p),
             recent: list_orch_graph_runs(p, 5),
-            per_run: true,
         })
     }
 
@@ -231,7 +228,7 @@ impl StatusCache {
         self.runs_iv.mark(now);
         let mut next = HashMap::new();
         let mut changed = false;
-        let stamp = [mtime(&orch_graph_runs_dir(Path::new(".")))];
+        let stamp = mtime(&orch_graph_runs_dir(Path::new(".")));
         for repo in repos {
             let entry = match self.runs.remove(repo) {
                 Some(old) if old.0 == stamp => old,
@@ -369,10 +366,7 @@ mod tests {
         let loads = Cell::new(0);
         let load = |_: &Path| {
             loads.set(loads.get() + 1);
-            RepoRuns {
-                per_run: true,
-                ..RepoRuns::default()
-            }
+            RepoRuns::default()
         };
         let _guard = cdamux_core::env_lock();
         std::env::set_var("CDAMUX_HOME", &dir);
@@ -386,7 +380,7 @@ mod tests {
             assert!(!run(&mut cache, i * 100));
         }
         assert_eq!(loads.get(), 1);
-        assert!(cache.runs(&repo).unwrap().per_run);
+        assert!(cache.runs(&repo).is_some());
         let f = fs::File::open(&runs_dir).unwrap();
         f.set_modified(SystemTime::now() + Duration::from_secs(5)).unwrap();
         for i in 30..40 {

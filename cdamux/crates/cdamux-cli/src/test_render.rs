@@ -240,7 +240,6 @@ pub(crate) fn fixture_runs() -> (ProjectSessionTree, StatusCache) {
         RepoRuns {
             live: vec![run(RUN_42, Some("alpha-42")), run(RUN_MAIN, Some("alpha-main")), run(RUN_HEADLESS, None)],
             recent: vec![],
-            per_run: true,
         },
     );
     (tree, status)

@@ -67,9 +67,10 @@ a tmux session updates `host` via `session_registry::rename` and does not move
 
 ### Inbox messages (ADR-011 §4)
 
-`cdamux msg send --to <id|host> --kind report|ask|done|error|relay|answer [--ref path] "text"`
+`cdamux msg send --to <id|host|name> --kind report|ask|done|error|relay|answer [--ref path] "text"`
 appends one JSON line to `$CDAMUX_HOME/inbox/<to>.jsonl` (`id`, `ts`, `from`, `to`,
-`kind`, `text`, optional `ref`). `from` defaults to `$CDAMUX_AGENT_ID`.
+`kind`, `text`, optional `ref`). `from` defaults to `$CDAMUX_AGENT_ID`. Target may be
+an agent id, tmux host, or worker `name` (slice 2).
 
 Delivery:
 
@@ -80,6 +81,19 @@ Delivery:
 `cdamux msg read [--agent id] [--ack] [--digest]` prints unread lines after the
 ack cursor; `--ack` advances `inbox/<id>.cursor`. `kind=ask` sets the sender
 `blocked`; `kind=answer` clears the recipient to `idle`.
+
+### Interactive workers (`cdamux worker`)
+
+Requires `$CDAMUX_AGENT_ID` (caller must be an orchestrator session).
+
+- `cdamux worker spawn <name> [--agent X] [--prompt-file f] [--here]` — tmux host with
+  `role=worker`, `parent` = caller id, `run` = caller's long-lived run (minted if
+  missing). Default: new git worktree + branch `worker/<name>` under
+  `[worktrees].root` or `$CDAMUX_HOME/worktrees`. `--here` reuses the caller's cwd.
+  Client defaults to the caller's product name unless `--agent` is set. opencode's
+  first message uses `--prompt`; other clients get a pane paste after launch.
+- `cdamux worker ls` — workers whose `parent` is the caller.
+- `cdamux worker peek <name> [--lines N]` — last N pane lines.
 
 Opt-in hooks (`--cdamux-hooks`) inject an unread digest on turn-end (Claude `Stop`
 `additionalContext`, Cursor `stop` `followup_message`) and on Claude

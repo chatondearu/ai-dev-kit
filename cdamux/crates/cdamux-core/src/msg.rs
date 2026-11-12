@@ -154,7 +154,9 @@ pub fn resolve_agent_id(to: &str) -> Result<String, MsgError> {
                 let Ok(v): Result<Value, _> = serde_json::from_str(&text) else {
                     continue;
                 };
-                if v.get("host").and_then(|h| h.as_str()) == Some(to) {
+                let host = v.get("host").and_then(|h| h.as_str());
+                let name = v.get("name").and_then(|n| n.as_str());
+                if host == Some(to) || name == Some(to) {
                     if let Some(id) = v.get("id").and_then(|i| i.as_str()) {
                         return Ok(id.to_string());
                     }

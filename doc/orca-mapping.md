@@ -34,7 +34,7 @@ vs kit graph orchestration ([graph-orchestration.md](graph-orchestration.md), AD
 | **worker_done** | Required completion with `taskId` + `dispatchId` | `.orch/worker-result.json` (convention); `.orch/run/<id>.rc` | No stale-dispatch guard; schema not enforced in harness |
 | **heartbeat** | Long-run liveness | None | Optional future: `.orch/run/<id>.heartbeat` |
 | **ask / decision gate** | Block task until coordinator answers | `ORCH_GRAPH_VERIFY` verifier; human in chat | No `gate-create` / `gate-resolve` API |
-| **worker-start** | Supervised agent on worktree | `orch_ready_pickup_one` + tmux agent (manual) or stub in tests | cdamux spawns sessions; orch does not call cdamux |
+| **worker-start** | Supervised agent on worktree | `cdamux worker spawn` (interactive) + `orch_ready_pickup_one` | orch.sh still does not call cdamux (slice 3) |
 | **Integrator** | Coordinator synthesis | `orch_graph_integrator_run` (2+ issues or graph-plan) | Same idea; different trigger rules |
 | **Frontier / deps** | Task `blocked` until deps done | Issue body `Blocked by: #n` + `orch_frontier_partition` | Same dependency idea, GitHub-native |
 

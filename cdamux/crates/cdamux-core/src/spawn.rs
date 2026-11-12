@@ -98,6 +98,19 @@ pub fn default_shell_command() -> String {
     std::env::var("SHELL").unwrap_or_else(|_| "bash".to_string())
 }
 
+/// Optional role / run / parent-agent overrides for worker and orchestrator spawns.
+#[derive(Debug, Clone, Default)]
+pub struct SpawnExtra<'a> {
+    /// `@cdamux_role` and agent `role` (default: agent/shell from label).
+    pub role: Option<&'a str>,
+    /// `@cdamux_run` and agent `run`.
+    pub run: Option<&'a str>,
+    /// Agent-state `parent` (agent id). When set, skips registry lookup of `parent` session.
+    pub parent_agent_id: Option<&'a str>,
+    /// Optional logical name (worker spawn `<name>`) stored on the agent doc.
+    pub name: Option<&'a str>,
+}
+
 /// Primary pane runs `primary_command`; optional split adds a second pane with a shell.
 /// `parent` (fork source) becomes `@cdamux_parent` so the Fleet nests the new session.
 /// A labelled session is recorded in the restore registry (ADR-009); `claude` gets a
@@ -110,6 +123,29 @@ pub fn spawn_tmux_session_with_layout(
     switch_to_session: bool,
     agent_label: Option<&str>,
     parent: Option<&str>,
+) -> Result<SpawnOutcome, SpawnError> {
+    spawn_tmux_session_ex(
+        session_name,
+        path,
+        primary_command,
+        layout,
+        switch_to_session,
+        agent_label,
+        parent,
+        SpawnExtra::default(),
+    )
+}
+
+/// Like [`spawn_tmux_session_with_layout`] with role / run / parent-agent overrides.
+pub fn spawn_tmux_session_ex(
+    session_name: &str,
+    path: &Path,
+    primary_command: &str,
+    layout: PaneLayout,
+    switch_to_session: bool,
+    agent_label: Option<&str>,
+    parent: Option<&str>,
+    extra: SpawnExtra<'_>,
 ) -> Result<SpawnOutcome, SpawnError> {
     let agent_label = agent_label.map(normalize_client_name);
     let cdamux_id = agent_label.and_then(|_| generate_agent_id());
@@ -125,8 +161,9 @@ pub fn spawn_tmux_session_with_layout(
         agent_label,
         parent,
         cdamux_id.as_deref(),
+        &extra,
     )?;
-    write_agent_state(session_name, agent_label, parent, cdamux_id.as_deref());
+    write_agent_state(session_name, agent_label, parent, cdamux_id.as_deref(), &extra);
     let rec = registry_record(
         session_name,
         path,
@@ -135,6 +172,7 @@ pub fn spawn_tmux_session_with_layout(
         layout,
         agent_session_id,
         cdamux_id,
+        &extra,
     );
     Ok(record_outcome(rec))
 }
@@ -144,6 +182,10 @@ pub fn spawn_tmux_session_with_layout(
 /// No `--session-id` is added here: the caller built the exact command (restore).
 pub(crate) fn respawn_recorded(rec: &SessionRecord, primary_command: &str) -> Result<SpawnOutcome, SpawnError> {
     let primary_command = with_agent_id_env(primary_command, rec.cdamux_id.as_deref());
+    let extra = SpawnExtra {
+        role: Some(rec.role.as_str()),
+        ..Default::default()
+    };
     create_tmux_session(
         &rec.name,
         &rec.cwd,
@@ -153,6 +195,7 @@ pub(crate) fn respawn_recorded(rec: &SessionRecord, primary_command: &str) -> Re
         Some(&rec.agent),
         rec.parent.as_deref(),
         rec.cdamux_id.as_deref(),
+        &extra,
     )?;
     // Merge, do not replace: append-only keys (status, resume ids, …) must survive restore.
     refresh_agent_state_on_restore(
@@ -160,6 +203,7 @@ pub(crate) fn respawn_recorded(rec: &SessionRecord, primary_command: &str) -> Re
         Some(rec.agent.as_str()),
         rec.parent.as_deref(),
         rec.cdamux_id.as_deref(),
+        &extra,
     );
     let mut rec = rec.clone();
     rec.updated_ts = now_secs();
@@ -182,6 +226,7 @@ fn create_tmux_session(
     agent_label: Option<&str>,
     parent: Option<&str>,
     cdamux_id: Option<&str>,
+    extra: &SpawnExtra<'_>,
 ) -> Result<(), SpawnError> {
     if !path.exists() {
         return Err(SpawnError::PathNotFound(path.to_path_buf()));
@@ -228,7 +273,7 @@ fn create_tmux_session(
         apply_pane_split(session_name, layout)?;
     }
 
-    for (option, value) in link_options(agent_label, parent, cdamux_id) {
+    for (option, value) in link_options(agent_label, parent, cdamux_id, extra) {
         let _ = Command::new("tmux")
             .args(["set-option", "-t", session_name, option, value])
             .status();
@@ -262,13 +307,27 @@ fn write_agent_state(
     agent_label: Option<&str>,
     parent: Option<&str>,
     cdamux_id: Option<&str>,
+    extra: &SpawnExtra<'_>,
 ) {
     let (Some(id), Some(client)) = (cdamux_id, agent_label) else {
         return;
     };
-    let role = role_for(agent_label);
-    let parent_id = parent_agent_id(parent);
-    let value = initial_agent_value(id, client, session_name, role, parent_id.as_deref());
+    let role = resolve_role(agent_label, extra);
+    let parent_id = extra
+        .parent_agent_id
+        .map(str::to_string)
+        .or_else(|| parent_agent_id(parent));
+    let mut value = initial_agent_value(id, client, session_name, role, parent_id.as_deref());
+    if let Some(run) = extra.run.filter(|s| !s.is_empty()) {
+        value
+            .as_object_mut()
+            .map(|m| m.insert("run".into(), serde_json::Value::String(run.into())));
+    }
+    if let Some(name) = extra.name.filter(|s| !s.is_empty()) {
+        value
+            .as_object_mut()
+            .map(|m| m.insert("name".into(), serde_json::Value::String(name.into())));
+    }
     let _ = state_set(StateKind::Agents, id, &value);
 }
 
@@ -279,12 +338,16 @@ fn refresh_agent_state_on_restore(
     agent_label: Option<&str>,
     parent: Option<&str>,
     cdamux_id: Option<&str>,
+    extra: &SpawnExtra<'_>,
 ) {
     let (Some(id), Some(client)) = (cdamux_id, agent_label) else {
         return;
     };
-    let role = role_for(agent_label);
-    let parent_id = parent_agent_id(parent);
+    let role = resolve_role(agent_label, extra);
+    let parent_id = extra
+        .parent_agent_id
+        .map(str::to_string)
+        .or_else(|| parent_agent_id(parent));
     let baseline = initial_agent_value(id, client, session_name, role, parent_id.as_deref());
     match state_get(StateKind::Agents, id) {
         Ok(Some(existing)) => {
@@ -340,6 +403,7 @@ fn registry_record(
     layout: PaneLayout,
     agent_session_id: Option<String>,
     cdamux_id: Option<String>,
+    extra: &SpawnExtra<'_>,
 ) -> Option<SessionRecord> {
     let agent = agent_label?;
     if is_home_session(name) {
@@ -353,7 +417,7 @@ fn registry_record(
         agent_session_id,
         cdamux_id,
         parent: parent.map(str::to_string),
-        role: role_for(agent_label).to_string(),
+        role: resolve_role(agent_label, extra).to_string(),
         layout,
         created_ts: now,
         updated_ts: now,
@@ -361,25 +425,37 @@ fn registry_record(
 }
 
 fn role_for(agent_label: Option<&str>) -> &'static str {
-    if agent_label == Some("shell") { "shell" } else { "agent" }
+    if agent_label == Some("shell") {
+        "shell"
+    } else {
+        "agent"
+    }
 }
 
-/// Session user options set at spawn: agent label, role, stable id, and the fork parent.
+fn resolve_role<'a>(agent_label: Option<&str>, extra: &SpawnExtra<'a>) -> &'a str {
+    extra.role.unwrap_or_else(|| role_for(agent_label))
+}
+
+/// Session user options set at spawn: agent label, role, stable id, run, and the fork parent.
 fn link_options<'a>(
     agent_label: Option<&'a str>,
     parent: Option<&'a str>,
     cdamux_id: Option<&'a str>,
+    extra: &SpawnExtra<'a>,
 ) -> Vec<(&'static str, &'a str)> {
     let mut out = Vec::new();
     if let Some(label) = agent_label {
         out.push(("@cdamux_agent", label));
     }
-    out.push(("@cdamux_role", role_for(agent_label)));
+    out.push(("@cdamux_role", resolve_role(agent_label, extra)));
     if let Some(id) = cdamux_id {
         out.push(("@cdamux_id", id));
     }
     if let Some(p) = parent {
         out.push(("@cdamux_parent", p));
+    }
+    if let Some(run) = extra.run.filter(|s| !s.is_empty()) {
+        out.push(("@cdamux_run", run));
     }
     out
 }
@@ -436,8 +512,9 @@ mod tests {
 
     #[test]
     fn fork_sets_parent_and_agent_role() {
+        let extra = SpawnExtra::default();
         assert_eq!(
-            link_options(Some("claude"), Some("c-main"), Some("a-7f3k2")),
+            link_options(Some("claude"), Some("c-main"), Some("a-7f3k2"), &extra),
             vec![
                 ("@cdamux_agent", "claude"),
                 ("@cdamux_role", "agent"),
@@ -446,8 +523,23 @@ mod tests {
             ]
         );
         assert_eq!(
-            link_options(Some("shell"), None, None),
+            link_options(Some("shell"), None, None, &extra),
             vec![("@cdamux_agent", "shell"), ("@cdamux_role", "shell")]
+        );
+        let worker = SpawnExtra {
+            role: Some("worker"),
+            run: Some("r-abc12"),
+            ..Default::default()
+        };
+        assert_eq!(
+            link_options(Some("claude"), Some("c-orch"), Some("a-w1"), &worker),
+            vec![
+                ("@cdamux_agent", "claude"),
+                ("@cdamux_role", "worker"),
+                ("@cdamux_id", "a-w1"),
+                ("@cdamux_parent", "c-orch"),
+                ("@cdamux_run", "r-abc12"),
+            ]
         );
     }
 
@@ -485,7 +577,8 @@ mod tests {
         std::env::set_var("CDAMUX_HOME", dir.path());
 
         let id = "a-keep1";
-        write_agent_state("c-old", Some("claude"), None, Some(id));
+        let extra = SpawnExtra::default();
+        write_agent_state("c-old", Some("claude"), None, Some(id), &extra);
         state_append(
             StateKind::Agents,
             id,
@@ -493,7 +586,7 @@ mod tests {
         )
         .unwrap();
 
-        refresh_agent_state_on_restore("c-new", Some("claude"), None, Some(id));
+        refresh_agent_state_on_restore("c-new", Some("claude"), None, Some(id), &extra);
 
         let got = state_get(StateKind::Agents, id).unwrap().unwrap();
         assert_eq!(got["host"], "c-new");
@@ -542,6 +635,7 @@ mod tests {
     #[test]
     fn registry_record_skips_home_and_unlabelled() {
         let p = Path::new("/tmp/p");
+        let extra = SpawnExtra::default();
         assert!(registry_record(
             "cdamux",
             p,
@@ -549,10 +643,21 @@ mod tests {
             None,
             PaneLayout::Single,
             None,
-            None
+            None,
+            &extra,
         )
         .is_none());
-        assert!(registry_record("c-p", p, None, None, PaneLayout::Single, None, None).is_none());
+        assert!(registry_record(
+            "c-p",
+            p,
+            None,
+            None,
+            PaneLayout::Single,
+            None,
+            None,
+            &extra
+        )
+        .is_none());
         let r = registry_record(
             "c-p",
             p,
@@ -561,6 +666,7 @@ mod tests {
             PaneLayout::Vertical,
             None,
             Some("a-shell".into()),
+            &extra,
         )
         .unwrap();
         assert_eq!(
@@ -582,6 +688,7 @@ mod tests {
                 PaneLayout::Single,
                 Some("u".into()),
                 Some("a-xyz12".into()),
+                &extra,
             )
             .unwrap()
             .agent

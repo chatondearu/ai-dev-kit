@@ -148,6 +148,53 @@ function setAgentStatus(env, status) {
   }
 }
 
+function readCursor(file) {
+  try {
+    const n = parseInt(fs.readFileSync(file, 'utf8').trim(), 10);
+    return Number.isFinite(n) && n >= 0 ? n : 0;
+  } catch (e) {
+    return 0;
+  }
+}
+
+/// Unread inbox lines after the ack cursor (direct read — hooks stay fast / fail-open).
+function readUnreadMessages(env, id) {
+  if (!id) return [];
+  try {
+    const dir = stateDir(env, 'inbox');
+    const jsonl = path.join(dir, `${id}.jsonl`);
+    const cursor = readCursor(path.join(dir, `${id}.cursor`));
+    const fd = fs.openSync(jsonl, 'r');
+    try {
+      const len = fs.fstatSync(fd).size;
+      if (cursor >= len) return [];
+      const buf = Buffer.alloc(len - cursor);
+      fs.readSync(fd, buf, 0, buf.length, cursor);
+      return buf.toString('utf8').split('\n').filter(Boolean).map((line) => {
+        try { return JSON.parse(line); } catch (e) { return null; }
+      }).filter(Boolean);
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch (e) {
+    return [];
+  }
+}
+
+/// One-line-ish digest for turn-end / prompt-submit hooks. Empty when nothing unread.
+function unreadDigest(env) {
+  const id = resolveAgentId(env);
+  const msgs = readUnreadMessages(env, id);
+  if (!msgs.length) return '';
+  const lines = [`cdamux: ${msgs.length} unread message(s) — run: cdamux msg read --ack`];
+  for (const m of msgs.slice(0, 5)) {
+    const text = String(m.text || '').slice(0, 80);
+    lines.push(`- [${m.kind || '?'}] from ${m.from || '?'}: ${text}`);
+  }
+  if (msgs.length > 5) lines.push(`- …and ${msgs.length - 5} more`);
+  return lines.join('\n');
+}
+
 module.exports = {
   append,
   expandHome,
@@ -155,5 +202,7 @@ module.exports = {
   resolveAgentId,
   readAgentStatus,
   setAgentStatus,
+  readUnreadMessages,
+  unreadDigest,
   stateDir,
 };

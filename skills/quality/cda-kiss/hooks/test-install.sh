@@ -54,7 +54,7 @@ ss_ok() { jq -e --arg d "$D" --arg k "$K" '[.hooks.SessionStart[].hooks[].comman
 ss_ok || fail "claude SessionStart: kiss and cdamux not both present once"
 inst; ss_ok || fail "plain install dropped the cdamux SessionStart hook"
 ccount() { jq --arg d "$D" "[$cursor_cmds | select(contains(\$d))] | length" "$C"; }
-[ "$(ccount)" = 5 ] || fail "cursor cdamux hooks not exactly once"
+[ "$(ccount)" = 6 ] || fail "cursor cdamux hooks not exactly once"
 jq -e --arg d "$D" '[.hooks.subagentStop[].command | select(contains($d))] | length == 1' "$C" >/dev/null || fail "no cdamux subagentStop hook"
 jq -e --arg d "$D" --arg k "$K" '[.hooks.sessionStart[].command] as $c
   | ([$c[] | select(contains($k))] | length == 1) and ([$c[] | select(contains($d))] | length == 1)' "$C" >/dev/null || fail "cursor sessionStart: kiss and cdamux not both present once"

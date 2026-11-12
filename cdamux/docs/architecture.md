@@ -50,11 +50,13 @@ $CDAMUX_HOME/
 ├── agents/<session>.jsonl     # CLI sub-agent ledger (hooks; separate from entities)
 ├── runs/<run-id>.json         # Run + nodes
 ├── sessions/<session>.json    # Restore registry (ADR-009)
-├── inbox/                     # (later) messages
+├── inbox/<agent-id>.jsonl     # messages received (append-only, ≤ 2 KB/line)
+├── inbox/<agent-id>.cursor    # ack byte offset for `msg read --ack`
 └── events.jsonl               # (optional journal)
 ```
 
-Writers use `cdamux state set|get|append` (private JSON). Spawn mints `a-xxxxx`,
+Writers use `cdamux state set|get|append` and `cdamux msg send|read` (private JSON).
+Spawn mints `a-xxxxx`,
 sets `@cdamux_id`, exports `CDAMUX_AGENT_ID`, and records the product client name
 (`claude` | `cursor` | `opencode` | `codex`; aliases like `agent` / `cursor-agent`
 normalise on write — orch `@cdamux_agent` uses the same product names). Entity
@@ -62,6 +64,27 @@ normalise on write — orch `@cdamux_agent` uses the same product names). Entity
 unknown; `@cdamux_parent` stays the tmux session name for Fleet nesting. Renaming
 a tmux session updates `host` via `session_registry::rename` and does not move
 `agents/<id>.json`.
+
+### Inbox messages (ADR-011 §4)
+
+`cdamux msg send --to <id|host> --kind report|ask|done|error|relay|answer [--ref path] "text"`
+appends one JSON line to `$CDAMUX_HOME/inbox/<to>.jsonl` (`id`, `ts`, `from`, `to`,
+`kind`, `text`, optional `ref`). `from` defaults to `$CDAMUX_AGENT_ID`.
+
+Delivery:
+
+- **Worker** (`role=worker`): also pastes `text` into the worker pane (`send_to_session`).
+- **Orchestrator / other**: append only; when status is `idle` and the pane has been
+  quiet ≥ 10 s, types `📨 N messages — cdamux msg read` into the pane (no daemon).
+
+`cdamux msg read [--agent id] [--ack] [--digest]` prints unread lines after the
+ack cursor; `--ack` advances `inbox/<id>.cursor`. `kind=ask` sets the sender
+`blocked`; `kind=answer` clears the recipient to `idle`.
+
+Opt-in hooks (`--cdamux-hooks`) inject an unread digest on turn-end (Claude `Stop`
+`additionalContext`, Cursor `stop` `followup_message`) and on Claude
+`UserPromptSubmit`. Cursor `beforeSubmitPrompt` cannot inject context — status
+only; rely on `stop` + idle nudge. Details: [subagents.md](subagents.md).
 
 ## Config (`~/.config/cdamux/config.toml`)
 

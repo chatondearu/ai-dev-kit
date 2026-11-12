@@ -30,7 +30,7 @@ vs kit graph orchestration ([graph-orchestration.md](graph-orchestration.md), AD
 | **Run** | Durable namespace + coordinator inbox | One `orch.sh` invocation; `run_id` in `current.json` | No persistent inbox across runs; no `run-create` CLI |
 | **Task** | Spec, deps, status lifecycle | GitHub issue + optional `plans/graph/*.json` tasks | Status not stored as Orca enum; use issue state + `.orch/run/*.status` |
 | **Dispatch** | One attempt; authority for completion | One worker worktree / one graph-plan task attempt | No `dispatchId`; retries are new agent iterations inside `orch_graph_worker` |
-| **Message / Delivery** | FIFO inbox, `check --wait --ack` | None | No ack/replay protocol |
+| **Message / Delivery** | FIFO inbox, `check --wait --ack` | `cdamux msg send\|read [--ack]` under `$CDAMUX_HOME/inbox/` (ADR-011 §4); idle nudge + turn-end digest hooks | No native `--wait` wake yet; Cursor `beforeSubmitPrompt` cannot inject |
 | **worker_done** | Required completion with `taskId` + `dispatchId` | `.orch/worker-result.json` (convention); `.orch/run/<id>.rc` | No stale-dispatch guard; schema not enforced in harness |
 | **heartbeat** | Long-run liveness | None | Optional future: `.orch/run/<id>.heartbeat` |
 | **ask / decision gate** | Block task until coordinator answers | `ORCH_GRAPH_VERIFY` verifier; human in chat | No `gate-create` / `gate-resolve` API |
@@ -76,7 +76,7 @@ Rough “same intent” paths (Orca → CDA). Orca commands require the Orca app
 ## What we deliberately do not mirror
 
 - Full ADE (embedded browser, design mode, VS Code-class editor).
-- Orca’s message inbox and dispatch IDs (high implementation cost; tmux-centric model).
+- Orca dispatch IDs / decision gates beyond `ask`/`answer` (tmux-centric model; inbox is now on cdamux).
 - Native iOS/Android app (tailnet web is the lightweight remote path).
 - Linear UI (GitHub-first kit).
 - Hosted Orca cloud VMs (operator-owned machines only).
@@ -106,7 +106,7 @@ Shipped (P1.5 / P2 slice):
 
 Still deferred (full P2):
 
-1. Orca-style attention inbox with ack (beyond footer hint).
+1. ~~Orca-style attention inbox with ack~~ — `cdamux msg` (+ idle nudge / turn-end digest); native `--wait` wake still deferred.
 2. Per-node `started_at` timestamps in graph JSON.
 
 ## References

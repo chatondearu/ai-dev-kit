@@ -200,4 +200,34 @@ out="$(run_status '{"hook_event_name":"sessionEnd"}')"
 # No cdamux on PATH → fail-open exit 0 (keep host node; drop the stub bin dir)
 PATH="$(dirname "$(command -v node)"):/usr/bin:/bin" run_status '{"hook_event_name":"UserPromptSubmit"}' >/dev/null || fail "missing cdamux must still exit 0"
 
+# Unread digest (ADR-011 §4): seed inbox after cursor; turn-end / prompt-submit inject.
+INBOX="$tmp/state/cdamux/inbox"
+mkdir -p "$INBOX"
+printf '{"id":"m-1","ts":1,"from":"a-w","to":"a-hook1","kind":"done","text":"pr opened"}\n' > "$INBOX/a-hook1.jsonl"
+printf '0\n' > "$INBOX/a-hook1.cursor"
+: > "$CDAMUX_LOG"
+out="$(run_status '{"hook_event_name":"Stop"}')"
+echo "$out" | jq -e '.hookSpecificOutput.hookEventName=="Stop"
+  and (.hookSpecificOutput.additionalContext|test("1 unread"))
+  and (.hookSpecificOutput.additionalContext|test("pr opened"))' >/dev/null \
+  || fail "Stop digest missing, got: $out"
+out="$(run_status '{"hook_event_name":"Stop","stop_hook_active":true}')"
+[ -z "$out" ] || fail "Stop with stop_hook_active must stay silent, got: $out"
+out="$(run_status '{"hook_event_name":"UserPromptSubmit"}')"
+echo "$out" | jq -e '.hookSpecificOutput.hookEventName=="UserPromptSubmit"
+  and (.hookSpecificOutput.additionalContext|test("unread"))' >/dev/null \
+  || fail "UserPromptSubmit digest missing, got: $out"
+out="$(run_status '{"hook_event_name":"stop","loop_count":0}')"
+echo "$out" | jq -e '.followup_message|test("unread")' >/dev/null \
+  || fail "cursor stop followup_message missing, got: $out"
+out="$(run_status '{"hook_event_name":"stop","loop_count":1}')"
+[ "$out" = '{}' ] || fail "cursor stop loop_count>0 must not follow up, got: $out"
+# beforeSubmitPrompt still cannot inject (Cursor limit)
+out="$(run_status '{"hook_event_name":"beforeSubmitPrompt"}')"
+[ "$out" = '{"continue":true}' ] || fail "beforeSubmitPrompt must not inject, got: $out"
+# Acked inbox → no digest
+printf '%s' "$(wc -c < "$INBOX/a-hook1.jsonl" | tr -d ' ')" > "$INBOX/a-hook1.cursor"
+out="$(run_status '{"hook_event_name":"Stop"}')"
+[ -z "$out" ] || fail "acked inbox must yield empty Stop output, got: $out"
+
 echo "ok: cdamux sub-agent + session id + status adapters"

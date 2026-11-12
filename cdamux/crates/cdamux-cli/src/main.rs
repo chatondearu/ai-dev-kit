@@ -16,13 +16,13 @@ mod widgets;
 
 use cdamux_core::{
     cdamux_home, command_on_path, config_path, configured_agent_ids, default_agent_name,
-    discover_projects, ensure_note_file, git_diff_unified, git_toplevel,
+    discover_projects, ensure_note_file, format_unread_digest, git_diff_unified, git_toplevel,
     home_session_new_argv, list_tmux_sessions, list_worktrees, load_config, note_refs_for_projects,
-    current_tmux_session, kill_tmux_session, list_panes_all, restart_plan, parents_first,
-    parse_unified_diff, resolve_agent_command, restore_one, session_registry, resolve_note_path,
-    send_to_session, session_name_for_path, spawn_tmux_session_with_layout, state_append, state_get,
-    state_set, unique_session_name, AttachMode, DiffError, GroupBy, PaneLayout, SendError,
-    SpawnError, StateKind,
+    current_tmux_session, kill_tmux_session, list_panes_all, msg_send, parents_first, read_messages,
+    parse_unified_diff, resolve_agent_command, restore_one, restart_plan, session_registry,
+    resolve_note_path, send_to_session, session_name_for_path, spawn_tmux_session_with_layout,
+    state_append, state_get, state_set, unique_session_name, valid_kind, AttachMode,
+    DEFAULT_NUDGE_QUIET_SECS, DiffError, GroupBy, PaneLayout, SendError, SpawnError, StateKind,
 };
 use clap::{Parser, Subcommand};
 use skim::prelude::*;
@@ -129,6 +129,11 @@ enum Commands {
         #[command(subcommand)]
         command: StateCommands,
     },
+    /// Inbox send/read under `$CDAMUX_HOME/inbox/` (ADR-011 §4).
+    Msg {
+        #[command(subcommand)]
+        command: MsgCommands,
+    },
 }
 
 #[derive(Subcommand)]
@@ -152,6 +157,39 @@ enum StateCommands {
         kind: String,
         id: String,
         json: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum MsgCommands {
+    /// Append a message to the target inbox (and deliver: paste worker / nudge orch).
+    Send {
+        /// Target agent id (`a-xxxxx`) or tmux session / host name.
+        #[arg(long)]
+        to: String,
+        /// `report` | `ask` | `done` | `error` | `relay` | `answer`.
+        #[arg(long, default_value = "report")]
+        kind: String,
+        /// Optional path to `worker-result.json` or a log.
+        #[arg(long)]
+        r#ref: Option<String>,
+        /// Sender agent id (default: `$CDAMUX_AGENT_ID`).
+        #[arg(long)]
+        from: Option<String>,
+        /// Message body (words joined with spaces).
+        text: Vec<String>,
+    },
+    /// Print unread inbox lines for an agent; `--ack` advances the cursor.
+    Read {
+        /// Agent id (default: `$CDAMUX_AGENT_ID`).
+        #[arg(long)]
+        agent: Option<String>,
+        /// Advance the ack cursor past the lines printed.
+        #[arg(long)]
+        ack: bool,
+        /// Print a short digest instead of raw JSONL.
+        #[arg(long)]
+        digest: bool,
     },
 }
 
@@ -262,6 +300,18 @@ fn main() -> ExitCode {
             StateCommands::Get { kind, id } => cmd_state_get(&kind, &id),
             StateCommands::Append { kind, id, json } => cmd_state_append(&kind, &id, &json),
         },
+        Some(Commands::Msg { command }) => match command {
+            MsgCommands::Send {
+                to,
+                kind,
+                r#ref,
+                from,
+                text,
+            } => cmd_msg_send(&to, &kind, r#ref.as_deref(), from.as_deref(), &text),
+            MsgCommands::Read { agent, ack, digest } => {
+                cmd_msg_read(agent.as_deref(), ack, digest)
+            }
+        },
     }
 }
 
@@ -270,6 +320,91 @@ fn parse_state_kind(kind: &str) -> Result<StateKind, ExitCode> {
         eprintln!("state: kind must be 'agents' or 'runs' (got '{kind}')");
         ExitCode::from(2)
     })
+}
+
+fn resolve_self_agent_id(explicit: Option<&str>) -> Result<String, ExitCode> {
+    if let Some(id) = explicit.map(str::trim).filter(|s| !s.is_empty()) {
+        return Ok(id.to_string());
+    }
+    match std::env::var("CDAMUX_AGENT_ID") {
+        Ok(id) if !id.trim().is_empty() => Ok(id.trim().to_string()),
+        _ => {
+            eprintln!("msg: set --from/--agent or CDAMUX_AGENT_ID");
+            Err(ExitCode::from(2))
+        }
+    }
+}
+
+fn cmd_msg_send(
+    to: &str,
+    kind: &str,
+    r#ref: Option<&str>,
+    from: Option<&str>,
+    text: &[String],
+) -> ExitCode {
+    if !valid_kind(kind) {
+        eprintln!("msg send: kind must be report|ask|done|error|relay|answer");
+        return ExitCode::from(2);
+    }
+    let body = text.join(" ");
+    if body.trim().is_empty() {
+        eprintln!("msg send: text required");
+        return ExitCode::from(2);
+    }
+    let from = match resolve_self_agent_id(from) {
+        Ok(id) => id,
+        Err(c) => return c,
+    };
+    match msg_send(
+        &from,
+        to,
+        kind,
+        &body,
+        r#ref,
+        DEFAULT_NUDGE_QUIET_SECS,
+        None,
+    ) {
+        Ok(out) => {
+            println!("{}", out.message.id);
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("msg send: {e}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+fn cmd_msg_read(agent: Option<&str>, ack: bool, digest: bool) -> ExitCode {
+    let id = match resolve_self_agent_id(agent) {
+        Ok(id) => id,
+        Err(c) => return c,
+    };
+    match read_messages(&id, ack) {
+        Ok(msgs) => {
+            if digest {
+                let d = format_unread_digest(&msgs);
+                if !d.is_empty() {
+                    println!("{d}");
+                }
+            } else {
+                for m in &msgs {
+                    match serde_json::to_string(m) {
+                        Ok(line) => println!("{line}"),
+                        Err(e) => {
+                            eprintln!("msg read: {e}");
+                            return ExitCode::from(1);
+                        }
+                    }
+                }
+            }
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("msg read: {e}");
+            ExitCode::from(1)
+        }
+    }
 }
 
 fn parse_state_json(json: &str) -> Result<serde_json::Value, ExitCode> {

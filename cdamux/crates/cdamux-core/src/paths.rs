@@ -20,9 +20,8 @@ pub fn cdamux_state_dir(sub: &str) -> Option<PathBuf> {
     Some(cdamux_home()?.join(sub))
 }
 
-/// Serialise tests that mutate `CDAMUX_HOME` / `XDG_STATE_HOME`.
-#[cfg(test)]
-pub(crate) fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+/// Serialise tests (unit + integration) that mutate process env (`CDAMUX_HOME`, `PATH`, …).
+pub fn env_lock() -> std::sync::MutexGuard<'static, ()> {
     static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
     LOCK.lock().unwrap_or_else(|e| e.into_inner())
 }

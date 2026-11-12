@@ -69,4 +69,4 @@ Seams: (1) publish with cdamux, (2) no-op without, (3) sub-run parent, (4) graph
 ## Verification
 
 - [x] Lint / test / build per project conventions
-- [x] Update foam / ADR only if a new decision was made (none — dual-write per plan until #252)
+- [x] Update foam / ADR only if a new decision was made (ADR-011 amended: dual-write until #252)

@@ -15,11 +15,19 @@ orch_cdamux_state_set() {
   cdamux state set "$kind" "$id" "$json" >/dev/null 2>&1 || true
 }
 
-orch_cdamux_state_append() {
-  local kind="$1" id="$2" json="$3"
-  orch_cdamux_available || return 0
-  [ -n "$id" ] || return 0
-  cdamux state append "$kind" "$id" "$json" >/dev/null 2>&1 || true
+# Product client name for Agent.client / @cdamux_agent (ADR-011 §1):
+# claude|cursor|opencode|codex. Unknown basenames pass through (tests / stubs).
+# Lives here so graph-node / progress publish works without sourcing agents.sh.
+orch_cdamux_agent_name() {
+  local base
+  base="$(command -p basename "${1}")"
+  case "$base" in
+    agent|cursor-agent) printf 'cursor\n';;
+    claude|claude-code) printf 'claude\n';;
+    opencode) printf 'opencode\n';;
+    codex) printf 'codex\n';;
+    *) printf '%s\n' "$base";;
+  esac
 }
 
 # Mint a-xxxxx (same shape as cdamux-core). Empty when /dev/urandom is unavailable.
@@ -94,7 +102,7 @@ orch_cdamux_publish_worker() {
     host="$(orch_tmux_session "$wid")"
   fi
   client="unknown"
-  if [ -n "${ORCH_AGENT_CLI:-}" ] && declare -F orch_cdamux_agent_name >/dev/null; then
+  if [ -n "${ORCH_AGENT_CLI:-}" ]; then
     client="$(orch_cdamux_agent_name "$ORCH_AGENT_CLI")"
   fi
   status="$(orch_cdamux_status_from_phase "$phase")"

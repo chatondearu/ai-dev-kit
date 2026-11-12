@@ -119,9 +119,11 @@ opencode can wake an idle session.
 - **Publish through the model**: `orch.sh` writes its run, nodes and one Agent per
   worker with `cdamux state` (§1–3). With `CDAMUX_AGENT_ID` in the environment (launched
   by an orchestrator), the run is a sub-run of that Agent.
-- **Hard cut**: `orch.sh` stops writing `.orch/run/status.json` and
+- **Hard cut** ([#252](https://github.com/chatondearu/ai-dev-kit/issues/252)):
+  `orch.sh` stops writing `.orch/run/status.json` and
   `.orch/graph/live|runs|current.json`; Fleet and `/v1/orch-*` read
-  `$CDAMUX_HOME/runs/`. No double-write period.
+  `$CDAMUX_HOME/runs/`. Until that child lands, publish dual-writes both
+  stores (amendment below) — not an open-ended second source of truth.
 - **Repo artefacts stay**: `.orch/run/<id>.rc`, logs, `worker-result.json`,
   `integrator-report.md` and worktrees remain in the repo as work artefacts, not state.
 - **Without `cdamux`**: the pipeline runs unchanged (worktrees, verify, PRs); state
@@ -156,7 +158,7 @@ opencode can wake an idle session.
 | `cdamuxd` watcher for the nudge | Requires the daemon to run |
 | Every worker question goes to the user | The orchestrator exists to absorb what it can answer |
 | MCP transport | Cannot start a turn on any client (#230); still needs the nudge |
-| Double-write `.orch/` + state root for one release | Prolongs the duplication; single user, no other reader |
+| Double-write `.orch/` + state root indefinitely | Permanent second source of truth — rejected; a **bounded** dual-write until #252 is accepted (amendment 2026-11-12) |
 | `orch.sh` file fallback without cdamux | Recreates a second source of truth |
 | One message per run end only | The orchestrator misses a blocked worker until the run ends |
 | Delete `graph-node.sh` | Breaks existing skills and prompts for no gain |
@@ -176,6 +178,25 @@ opencode can wake an idle session.
   cut rewrites the graph/status readers in one series of PRs.
 - **Constraint**: the orchestrator v0 PRD builds on §1–5; Fleet UI, migration details,
   restore of an orchestrator with its workers and state GC are left to it (map #228 fog).
+
+## Amendment 2026-11-12 — dual-write window until #252
+
+Context: [PLAN-251](../../plans/PLAN-251-orch-cdamux-publish.md) / PRD-239 slice 3
+ships publish via `cdamux state` ([#251](https://github.com/chatondearu/ai-dev-kit/issues/251))
+before Fleet readers hard-cut
+([#252](https://github.com/chatondearu/ai-dev-kit/issues/252)). A same-PR hard cut
+would leave Fleet blind or force an oversized child.
+
+Decisions (status stays **accepted**):
+
+1. **Bounded dual-write**: from #251 until #252 merges, `orch.sh` /
+   `graph-node.sh` write in-repo `.orch/graph` + `.orch/run/status.json` **and**
+   `$CDAMUX_HOME` via `cdamux state`. Without `cdamux` on `PATH`, the state path
+   no-ops; repo writers still run (ADR-001).
+2. **Hard cut stays #252**: that child removes the `.orch` graph/status writers and
+   points Fleet `/v1/orch-*` at `$CDAMUX_HOME/runs/`. No open-ended double-write.
+3. **Sub-run unchanged**: with `$CDAMUX_AGENT_ID` set, the published run records
+   that agent as `parent`.
 
 ## References
 

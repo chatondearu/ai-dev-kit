@@ -1,6 +1,6 @@
 # PLAN-247 — Add orch new, orchestrator skill and worker preamble
 
-- **Status**: draft
+- **Status**: done
 - **PRD**: [[../prd/PRD-239-orchestrator-session|PRD-239]]
 - **GitHub**: [#247](https://github.com/chatondearu/ai-dev-kit/issues/247)
 - **Blocked by**: #246
@@ -45,12 +45,12 @@ or documented as the default prompt prefix for `worker spawn`.
 
 ## Tasks
 
-- [ ] **orch new**: starts client with `role=orchestrator`, long-lived run, `CDAMUX_AGENT_ID`, skill available (acceptance: CLI + state file assertions on temp home / throwaway tmux)
-- [ ] **Spawn modal**: *orchestrator* role mirrors `orch new` (acceptance: unit/UI test or modal contract test matching existing spawn modal patterns)
-- [ ] **Skill `cda-orchestrator`**: documented behaviours — spawn/track workers, relay (decides / `@worker` forces / one-line confirm), answer or escalate asks, never paste raw output, read reports by `ref` (acceptance: skill file present + referenced from orch new / docs)
-- [ ] **Worker preamble**: blockers/questions/completion via `cdamux msg` (acceptance: preamble text shipped and used by `worker spawn` default path)
-- [ ] **Docs**: brief operator note in cdamux docs linking orch/worker/msg
-- [ ] **Verify**: `nix develop -c bash scripts/verify.sh` green
+- [x] **orch new**: starts client with `role=orchestrator`, long-lived run, `CDAMUX_AGENT_ID`, skill available (acceptance: CLI + state file assertions on temp home / throwaway tmux)
+- [x] **Spawn modal**: *orchestrator* role mirrors `orch new` (acceptance: unit/UI test or modal contract test matching existing spawn modal patterns)
+- [x] **Skill `cda-orchestrator`**: documented behaviours — spawn/track workers, relay (decides / `@worker` forces / one-line confirm), answer or escalate asks, never paste raw output, read reports by `ref` (acceptance: skill file present + referenced from orch new / docs)
+- [x] **Worker preamble**: blockers/questions/completion via `cdamux msg` (acceptance: preamble text shipped and used by `worker spawn` default path)
+- [x] **Docs**: brief operator note in cdamux docs linking orch/worker/msg
+- [x] **Verify**: `nix develop -c bash scripts/verify.sh` green
 
 ## Risks & mitigations
 
@@ -63,11 +63,11 @@ or documented as the default prompt prefix for `worker spawn`.
 
 Seams: (1) orch new state/role/run, (2) modal role wiring, (3) skill+preamble presence, (4) verify.
 
-- [ ] Throwaway tmux orch new smoke
-- [ ] Skill path / preamble content checks
-- [ ] `nix develop -c bash scripts/verify.sh`
+- [x] Throwaway tmux orch new smoke
+- [x] Skill path / preamble content checks
+- [x] `nix develop -c bash scripts/verify.sh`
 
 ## Verification
 
-- [ ] Lint / test / build per project conventions
-- [ ] Update foam / ADR only if a new decision was made
+- [x] Lint / test / build per project conventions
+- [x] Update foam / ADR only if a new decision was made

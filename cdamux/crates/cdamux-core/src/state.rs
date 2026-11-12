@@ -128,6 +128,11 @@ pub fn generate_agent_id() -> Option<String> {
     Some(format!("a-{s}"))
 }
 
+/// Mint a long-lived run id `r-xxxxx` (same entropy as [`generate_agent_id`]).
+pub fn generate_run_id() -> Option<String> {
+    generate_agent_id().map(|id| format!("r-{}", id.trim_start_matches("a-")))
+}
+
 /// Initial agent document written at spawn (private shape).
 pub fn initial_agent_value(
     id: &str,

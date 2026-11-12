@@ -8,6 +8,7 @@ mod diff;
 mod notes;
 mod issue_ref;
 mod msg;
+mod orch;
 mod orch_graph;
 mod orch_graph_layout;
 mod orch_status;
@@ -81,9 +82,13 @@ pub use agents_util::{
 };
 pub use client_name::{is_product_client, normalize_client_name};
 pub use paths::{cdamux_home, cdamux_state_dir, env_lock};
+pub use orch::{
+    orch_boot_prompt, spawn_orchestrator, OrchError, OrchNewRequest, OrchNewResult,
+    ORCHESTRATOR_SKILL,
+};
 pub use state::{
-    agent_state_path, generate_agent_id, initial_agent_value, state_append, state_get, state_set,
-    valid_state_id, StateKind,
+    agent_state_path, generate_agent_id, generate_run_id, initial_agent_value, state_append,
+    state_get, state_set, valid_state_id, StateKind,
 };
 pub use restore::{
     dormant, is_busy_state, parents_first, restart_plan, restore_one, resume_command, RestoreError,
@@ -106,8 +111,9 @@ pub use spawn::{
     SpawnError, SpawnExtra, SpawnOutcome,
 };
 pub use worker::{
-    ensure_orch_run, list_workers, peek_worker, shell_single_quote, spawn_worker, with_first_prompt,
-    WorkerError, WorkerRow, WorkerSpawnRequest, WorkerSpawnResult,
+    compose_worker_first_prompt, ensure_orch_run, list_workers, peek_worker, shell_single_quote,
+    spawn_worker, with_first_prompt, worker_preamble, WorkerError, WorkerRow, WorkerSpawnRequest,
+    WorkerSpawnResult,
 };
 pub use worktree::{
     current_branch, git_toplevel, list_local_branches, list_worktrees, resolve_worktree_dest,

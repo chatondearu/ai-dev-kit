@@ -21,9 +21,10 @@ use cdamux_core::{
     note_refs_for_projects, current_tmux_session, kill_tmux_session, list_panes_all, msg_send,
     parents_first, peek_worker, read_messages, parse_unified_diff, resolve_agent_command,
     restore_one, restart_plan, session_registry, resolve_note_path, send_to_session,
-    session_name_for_path, spawn_tmux_session_with_layout, spawn_worker, state_append, state_get,
-    state_set, unique_session_name, valid_kind, AttachMode, DEFAULT_NUDGE_QUIET_SECS, DiffError,
-    GroupBy, PaneLayout, SendError, SpawnError, StateKind, WorkerSpawnRequest,
+    session_name_for_path, spawn_orchestrator, spawn_tmux_session_with_layout, spawn_worker,
+    state_append, state_get, state_set, unique_session_name, valid_kind, AttachMode,
+    DEFAULT_NUDGE_QUIET_SECS, DiffError, GroupBy, OrchNewRequest, PaneLayout, SendError,
+    SpawnError, StateKind, WorkerSpawnRequest, ORCHESTRATOR_SKILL,
 };
 use clap::{Parser, Subcommand};
 use skim::prelude::*;
@@ -139,6 +140,24 @@ enum Commands {
     Worker {
         #[command(subcommand)]
         command: WorkerCommands,
+    },
+    /// Long-lived orchestrator session (ADR-011).
+    Orch {
+        #[command(subcommand)]
+        command: OrchCommands,
+    },
+}
+
+#[derive(Subcommand)]
+enum OrchCommands {
+    /// Start a client with `role=orchestrator`, a fresh run, and skill `cda-orchestrator`.
+    New {
+        /// Product client (`claude`|`cursor`|`opencode`|`codex`); default: config `agents.default`.
+        #[arg(long)]
+        agent: Option<String>,
+        /// Working directory (default: cwd).
+        #[arg(long)]
+        path: Option<PathBuf>,
     },
 }
 
@@ -354,6 +373,48 @@ fn main() -> ExitCode {
             WorkerCommands::Ls => cmd_worker_ls(),
             WorkerCommands::Peek { name, lines } => cmd_worker_peek(&name, lines),
         },
+        Some(Commands::Orch { command }) => match command {
+            OrchCommands::New { agent, path } => {
+                cmd_orch_new(agent.as_deref(), path.as_deref())
+            }
+        },
+    }
+}
+
+fn cmd_orch_new(agent: Option<&str>, path: Option<&std::path::Path>) -> ExitCode {
+    let cfg = match load_config() {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("orch new: {e}");
+            return ExitCode::from(1);
+        }
+    };
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let path = path.unwrap_or(&cwd);
+    let req = OrchNewRequest {
+        path,
+        agent,
+        agents: &cfg.agents,
+        switch_to_session: std::env::var_os("TMUX").is_some(),
+    };
+    match spawn_orchestrator(req) {
+        Ok(r) => {
+            println!(
+                "spawned orchestrator id={} host={} run={} client={} skill={} path={}{}",
+                r.agent_id,
+                r.host,
+                r.run,
+                r.client,
+                ORCHESTRATOR_SKILL,
+                r.path.display(),
+                r.outcome.note()
+            );
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("orch new: {e}");
+            ExitCode::from(1)
+        }
     }
 }
 

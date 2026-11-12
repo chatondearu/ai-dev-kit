@@ -50,9 +50,21 @@ No-op without `CDAMUX_AGENT_ID` / `@cdamux_id` or without `cdamux` on `PATH`.
 | CLI | Events → status |
 | --- | --------------- |
 | Claude Code | `UserPromptSubmit` → `working`; `Stop` → `idle`; `SessionStart` → `idle` (via `session-start.js`); `Notification` / `PermissionRequest` → `needs_input` |
-| Cursor | `beforeSubmitPrompt` → `working`; `sessionStart` / `sessionEnd` → `idle`; no permission event (pane heuristic). **Print-mode (`cursor-agent -p`) may omit `beforeSubmitPrompt`** — rely on sessionStart/End |
+| Cursor | `beforeSubmitPrompt` → `working`; `sessionStart` / `sessionEnd` → `idle`; `stop` → `idle`; no permission event (pane heuristic). **Print-mode (`cursor-agent -p`) may omit `beforeSubmitPrompt`** — rely on sessionStart/End |
 | Codex | `UserPromptSubmit` → `working`; `Stop` → `idle`; `SessionStart` / `SessionEnd` → `idle`; `PermissionRequest` → `needs_input` (`~/.codex/hooks.json`) |
 | opencode | plugin: main `session.created` / `session.idle` → `idle`; `session.error` → `error` (no prompt-submit event in the plugin API) |
+
+### Unread inbox digest (ADR-011 §4)
+
+When `$CDAMUX_HOME/inbox/<id>.jsonl` has lines past the ack cursor, `status.js`
+injects a short digest (does not ack — the agent runs `cdamux msg read --ack`):
+
+| CLI | Event | Injection |
+| --- | ----- | --------- |
+| Claude Code | `Stop` | `hookSpecificOutput.additionalContext` (skipped when `stop_hook_active`) |
+| Claude Code | `UserPromptSubmit` | `hookSpecificOutput.additionalContext` |
+| Cursor | `stop` | `followup_message` (only when `loop_count` is 0) |
+| Cursor | `beforeSubmitPrompt` | **cannot inject** (output is `continue` / `user_message` only) — status + idle nudge cover delivery |
 
 ## Session id capture (restore registry)
 

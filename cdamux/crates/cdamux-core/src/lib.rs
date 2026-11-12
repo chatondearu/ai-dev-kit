@@ -7,6 +7,7 @@ mod daemon;
 mod diff;
 mod notes;
 mod issue_ref;
+mod msg;
 mod orch_graph;
 mod orch_graph_layout;
 mod orch_status;
@@ -86,6 +87,11 @@ pub use state::{
 pub use restore::{
     dormant, is_busy_state, parents_first, restart_plan, restore_one, resume_command, RestoreError,
     RestoreOutcome,
+};
+pub use msg::{
+    append_message, delivery_mode_for_role, format_unread_digest, generate_msg_id, msg_send,
+    nudge_text, read_messages, resolve_agent_id, should_nudge, unread_count, valid_kind,
+    DeliveryMode, Message, MsgError, SendOutcome, DEFAULT_NUDGE_QUIET_SECS, MAX_MSG_BYTES,
 };
 pub use send::{send_to_session, SendError, tmux_has_session};
 pub use session_manage::{

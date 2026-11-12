@@ -1,6 +1,6 @@
 # PLAN-245 — Add cdamux msg inbox send/read and delivery
 
-- **Status**: draft
+- **Status**: done
 - **PRD**: [[../prd/PRD-239-orchestrator-session|PRD-239]]
 - **GitHub**: [#245](https://github.com/chatondearu/ai-dev-kit/issues/245)
 - **Date**: 2026-11-12
@@ -47,12 +47,12 @@ supports it (Cursor: `stop.followup_message`).
 
 ## Tasks
 
-- [ ] **Inbox + CLI**: `msg send` / `msg read [--ack]` round-trip ≤ 2 KB lines with kinds and optional `ref` (acceptance: unit/CLI tests on temp `CDAMUX_HOME`)
-- [ ] **Worker delivery**: send to worker pastes pane and appends inbox (acceptance: throwaway tmux test)
-- [ ] **Orchestrator delivery**: append; when target `idle` and pane quiet ≥ 10 s, type nudge line (acceptance: test with injectable quiet window)
-- [ ] **Hooks**: turn-end continues orch turn with unread digest; prompt-submit adds digest where supported; document Cursor `beforeSubmitPrompt` limit (acceptance: hook fixtures + docs)
-- [ ] **ask/answer**: `ask` sets sender `blocked` via state; `answer` clears (acceptance: unit test)
-- [ ] **Verify**: `nix develop -c bash scripts/verify.sh` green
+- [x] **Inbox + CLI**: `msg send` / `msg read [--ack]` round-trip ≤ 2 KB lines with kinds and optional `ref` (acceptance: unit/CLI tests on temp `CDAMUX_HOME`)
+- [x] **Worker delivery**: send to worker pastes pane and appends inbox (acceptance: throwaway tmux test)
+- [x] **Orchestrator delivery**: append; when target `idle` and pane quiet ≥ 10 s, type nudge line (acceptance: test with injectable quiet window)
+- [x] **Hooks**: turn-end continues orch turn with unread digest; prompt-submit adds digest where supported; document Cursor `beforeSubmitPrompt` limit (acceptance: hook fixtures + docs)
+- [x] **ask/answer**: `ask` sets sender `blocked` via state; `answer` clears (acceptance: unit test)
+- [x] **Verify**: `nix develop -c bash scripts/verify.sh` green
 
 ## Risks & mitigations
 
@@ -65,12 +65,12 @@ supports it (Cursor: `stop.followup_message`).
 
 Seams: (1) inbox I/O, (2) send→pane+inbox, (3) idle nudge, (4) ask/answer status, (5) hook digest fixtures.
 
-- [ ] Temp home CLI tests
-- [ ] Throwaway tmux delivery / nudge
-- [ ] Hook payload fixtures
-- [ ] `nix develop -c bash scripts/verify.sh`
+- [x] Temp home CLI tests
+- [x] Throwaway tmux delivery / nudge
+- [x] Hook payload fixtures
+- [x] `nix develop -c bash scripts/verify.sh`
 
 ## Verification
 
-- [ ] Lint / test / build per project conventions
-- [ ] Update foam / ADR only if a new decision was made
+- [x] Lint / test / build per project conventions
+- [x] Update foam / ADR only if a new decision was made

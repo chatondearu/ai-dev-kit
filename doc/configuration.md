@@ -53,10 +53,12 @@ these (`./scripts/doctor.sh` only checks `PATH`). With a Cursor CLI present it a
 | `CDAMUX_CONFIG` | `${XDG_CONFIG_HOME:-~/.config}/cdamux/config.toml` | Override path to the cdamux TOML config file |
 | `CDAMUX_AGENT_ID` | unset (set by cdamux at spawn) | Stable agent id (`a-xxxxx`) exported into the agent process / pane env |
 
-### cdamux state
+### cdamux state and inbox
 
 Hooks, orch and workers write agent/run JSON only through `cdamux state set|get|append`
-under `$CDAMUX_HOME` (format private). Layout, ids and restore behaviour:
+under `$CDAMUX_HOME` (format private). Orchestrator ↔ worker messages use
+`cdamux msg send|read` (`inbox/<agent-id>.jsonl` + `.cursor`, ≤ 2 KB/line).
+Layout, ids, delivery and restore:
 [cdamux/docs/architecture.md](../cdamux/docs/architecture.md) § State root.
 
 See [graph-orchestration.md](graph-orchestration.md).

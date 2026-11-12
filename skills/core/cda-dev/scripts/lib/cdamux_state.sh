@@ -48,12 +48,18 @@ orch_cdamux_agent_name() {
   esac
 }
 
-# Mint a-xxxxx (same shape as cdamux-core). Empty when /dev/urandom is unavailable.
+# Mint a-xxxxx (same shape as cdamux-core), skipping ids already under agents/ (8 tries).
+# Empty when /dev/urandom is unavailable.
 orch_cdamux_mint_agent_id() {
-  local s
-  s="$(tr -dc '0-9a-z' </dev/urandom 2>/dev/null | head -c 5)" || true
-  [ "${#s}" -eq 5 ] || return 1
-  printf 'a-%s\n' "$s"
+  local s home n=0
+  home="$(orch_cdamux_home)"
+  while [ "$n" -lt 8 ]; do
+    s="$(tr -dc '0-9a-z' </dev/urandom 2>/dev/null | head -c 5)" || true
+    [ "${#s}" -eq 5 ] || return 1
+    [ -n "$home" ] && [ -e "$home/agents/a-$s.json" ] || { printf 'a-%s\n' "$s"; return 0; }
+    n=$((n + 1))
+  done
+  return 1
 }
 
 # Stable agent id for orch worker $1 (cached under .orch/run/ as a work artefact).

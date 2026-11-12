@@ -54,6 +54,19 @@ assert_eq "$(jq -r .parent "$HOME_DIR/agents/${aid7}.json")" "a-parent1" "worker
 assert_eq "$(jq -r .status "$HOME_DIR/agents/${aid7}.json")" "idle" "phase pending → idle"
 unset CDAMUX_AGENT_ID
 
+# --- mint skips ids already under agents/: first draw aaaaa, then bbbbb ---
+tr() {
+  [ "${1:-}" = -dc ] || { command tr "$@"; return; }
+  if [ -e "$TMP/drawn" ]; then echo bbbbb; else : >"$TMP/drawn"; echo aaaaa; fi
+}
+: >"$HOME_DIR/agents/a-aaaaa.json"
+assert_eq "$(orch_cdamux_mint_agent_id)" "a-bbbbb" "mint retries a taken id"
+: >"$HOME_DIR/agents/a-bbbbb.json"
+rc=0; orch_cdamux_mint_agent_id >/dev/null || rc=$?
+assert_eq "$rc" "1" "mint gives up when every draw is taken"
+rm -f "$TMP/drawn" "$HOME_DIR/agents/a-aaaaa.json" "$HOME_DIR/agents/a-bbbbb.json"
+unset -f tr
+
 # --- (3) graph-node.sh surface still works and publishes ---
 GN="$TROOT/../../../cda-graph/scripts/graph-node.sh"
 unset ORCH_RUN_ID

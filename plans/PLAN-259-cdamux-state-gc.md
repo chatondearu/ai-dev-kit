@@ -1,6 +1,6 @@
 # PLAN-259 — Add retention GC for done/error agents and runs
 
-- **Status**: draft
+- **Status**: done
 - **PRD**: [[../prd/PRD-239-orchestrator-session|PRD-239]]
 - **GitHub**: [#259](https://github.com/chatondearu/ai-dev-kit/issues/259)
 - **Blocked by**: #258
@@ -43,10 +43,10 @@ pass as documented).
 
 ## Tasks
 
-- [ ] **Config**: retention days default 14 in config.toml / example (acceptance: parse test)
-- [ ] **GC logic**: done/error + no host + age → archive then delete; dormant kept (acceptance: temp home unit tests with injectable clock/mtime)
-- [ ] **CLI**: `cdamux state gc` (acceptance: CLI test)
-- [ ] **Docs + verify**: document; `nix develop -c bash scripts/verify.sh` green
+- [x] **Config**: retention days default 14 in config.toml / example (acceptance: parse test)
+- [x] **GC logic**: done/error + no host + age → archive then delete; dormant kept (acceptance: temp home unit tests with injectable clock/mtime)
+- [x] **CLI**: `cdamux state gc` (acceptance: CLI test)
+- [x] **Docs + verify**: document; `nix develop -c bash scripts/verify.sh` green
 
 ## Risks & mitigations
 
@@ -58,10 +58,10 @@ pass as documented).
 
 Seams: (1) eligibility, (2) dormant keep, (3) CLI gc.
 
-- [ ] Temp `CDAMUX_HOME` fixtures
-- [ ] Full verify
+- [x] Temp `CDAMUX_HOME` fixtures
+- [x] Full verify
 
 ## Verification
 
-- [ ] Lint / test / build per project conventions
-- [ ] Update foam / ADR only if a new decision was made
+- [x] Lint / test / build per project conventions
+- [x] Update foam / ADR only if a new decision was made

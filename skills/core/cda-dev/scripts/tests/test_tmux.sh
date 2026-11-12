@@ -77,10 +77,10 @@ assert_eq "$(tmux show-options -t "=$S:" -v @cdamux_state)" "done" "kept session
 ORCH_PROGRESS=0 orch_progress_set 42 blocked "ci failed" 2>/dev/null
 assert_eq "$(tmux show-options -t "=$S:" -v @cdamux_state)" "error" "progress blocked -> error"
 if command -v jq >/dev/null 2>&1; then
-  assert_eq "$(jq -r '.workers[0].tmux_session' "$TMP/repo/.orch/run/status.json")" "$S" "status.json tmux_session"
-  assert_eq "$(jq -r '.workers[0].log' "$TMP/repo/.orch/run/status.json")" "$TMP/repo/.orch/run/42.log" "status.json log"
+  assert_eq "$(jq -r '.tmux_session' "$TMP/repo/.orch/run/42.json")" "$S" "worker json tmux_session"
+  assert_eq "$(jq -r '.log' "$TMP/repo/.orch/run/42.json")" "$TMP/repo/.orch/run/42.log" "worker json log"
   ORCH_TMUX=0 ORCH_PROGRESS=0 orch_progress_set 42 done "ok" 2>/dev/null
-  assert_eq "$(jq -c '.workers[0] | keys' "$TMP/repo/.orch/run/status.json")" '["cli","id","message","model","phase","phases","tier","updated_at"]' "default: no tmux fields"
+  assert_eq "$(jq -r 'has("tmux_session")' "$TMP/repo/.orch/run/42.json")" "false" "ORCH_TMUX=0: no tmux fields"
 fi
 orch_tmux_kill_run
 rc=0; tmux has-session -t "=$S:" 2>/dev/null || rc=$?

@@ -26,17 +26,15 @@ bash "$SKILL/scripts/orch.sh" --repo "$REPO" --mode ready-pickup --issue 42 \
 
 | Path | Content |
 | ---- | ------- |
-| `.orch/graph/live/<run_id>.json` | Live DAG of one run: workers, implement/verify nodes, integrator; `session` (creator's tmux `#S`) and `pid` (dual-write until #252) |
-| `.orch/graph/current.json` | Compatibility symlink to the latest run (`live/` while running, `runs/` once finished) |
-| `.orch/graph/runs/<run_id>.json` | Finished runs (last 20); `live/` files with a dead pid and no write for 24 h move here on the next init |
-| `$CDAMUX_HOME/runs/<run_id>.json` | Same run + nodes via `cdamux state` when `cdamux` is on `PATH` ([ADR-011](../foam/decisions/ADR-011-cdamux-unified-state-model.md) §5); `parent` = `$CDAMUX_AGENT_ID` for sub-runs |
-| `$CDAMUX_HOME/agents/<id>.json` | One Agent per orch worker (`role=worker`); silent no-op without `cdamux` |
+| `$CDAMUX_HOME/runs/<run_id>.json` | Live DAG of one run via `cdamux state`: workers, implement/verify nodes, integrator; `session`, `pid`, `status` (`running` vs finished); `parent` = `$CDAMUX_AGENT_ID` for sub-runs ([ADR-011](../foam/decisions/ADR-011-cdamux-unified-state-model.md) §5) |
+| `$CDAMUX_HOME/agents/<id>.json` | One Agent per orch worker (`role=worker`, includes `phase` / `tmux_session`); silent no-op without `cdamux` |
+| `.orch/run/<id>.json` | Per-worker progress artefact (TTY dashboard); not the Fleet source of truth |
 | `.orch/integrator-report.md` | Human-readable synthesis after multi-worker runs |
 
 Nodes of an agent run (implement / fix, verifier, integrator) carry `cli`, `model`,
 `effort` and `tier` ([ADR-010](../foam/decisions/ADR-010-worker-cli-inheritance-and-tiers.md)).
-The same four optional fields sit on each `.orch/run/status.json` worker entry; cdamux shows
-`[cli·tier]` on the Fleet worker row and `model` / `effort` in the worker sidecar.
+The same four optional fields sit on each worker Agent; cdamux shows `[cli·tier]` on the
+Fleet worker row and `model` / `effort` in the worker sidecar.
 
 ## Environment variables
 
@@ -47,29 +45,28 @@ The same four optional fields sit on each `.orch/run/status.json` worker entry; 
 | `ORCH_GRAPH_INTEGRATOR` | `auto` | `auto` = integrator when 2+ issues; `1` = always; `0` = never |
 | `ORCH_GRAPH_PLAN_PARALLEL` | `auto` | `auto` = parallel tasks when paths disjoint; `parallel` = require disjoint; `sequential` = always serial |
 | `ORCH_GRAPH_PLAN_MAX_PARALLEL` | `$ORCH_MAX_PARALLEL` | Cap parallel graph-plan tasks (default 3) |
-| `ORCH_TMUX` | `0` | `1` = each worker's agent runs in a tmux session `orch-<run>-<worker>` (see below); ignored with `--sandbox` |
+| `ORCH_TMUX` | `1` | `1` = each worker's agent runs in a tmux session `orch-<run>-<worker>` (see below); set `0` for headless tests; ignored with `--sandbox` |
 | `ORCH_TMUX_KEEP` | `0` | `1` = keep the worker session after the agent exits (`@cdamux_state` `done` / `error`) |
 
 ### Workers in tmux (`ORCH_TMUX=1`)
 
-Opt-in. Each worker's agent runs in a detached tmux session so cdamux can preview
-its pane and you can attach with `tmux attach -t orch-<run>-<worker>`. Options set
-on the session: `@cdamux_run` (`ORCH_RUN_ID`), `@cdamux_role=worker`,
-`@cdamux_agent`, `@cdamux_state` (mirrors the phase), and `@cdamux_parent` when orch
-itself runs inside tmux (the worker then nests under that session in Fleet).
-`.orch/run/status.json` entries gain `tmux_session` and `log`
-(`.orch/run/<worker>.log`, the agent output, used as preview once the session is
-gone). The session is killed when the agent exits unless `ORCH_TMUX_KEEP=1`; Ctrl-C
-kills the run's sessions. `--sandbox` ignores `ORCH_TMUX` because the tmux server
-runs outside bubblewrap. Decision: [ADR-007](../foam/decisions/ADR-007-cdamux-session-hierarchy.md).
+Default on ([ADR-011](../foam/decisions/ADR-011-cdamux-unified-state-model.md) §1). Each
+worker's agent runs in a detached tmux session so cdamux can preview its pane and you
+can attach with `tmux attach -t orch-<run>-<worker>`. Options set on the session:
+`@cdamux_run` (`ORCH_RUN_ID`), `@cdamux_role=worker`, `@cdamux_agent`, `@cdamux_state`
+(mirrors the phase: `pending` → `idle`), and `@cdamux_parent` when orch itself runs
+inside tmux (the worker then nests under that session in Fleet). Worker Agents gain
+`tmux_session` and `log` (`.orch/run/<worker>.log`, used as preview once the session
+is gone). The session is killed when the agent exits unless `ORCH_TMUX_KEEP=1`; Ctrl-C
+kills the run's sessions. `--sandbox` forces headless because the tmux server runs
+outside bubblewrap. Decision: [ADR-007](../foam/decisions/ADR-007-cdamux-session-hierarchy.md).
 
 `cdamux orch new` (skill `cda-orchestrator`) starts the interactive parent session.
 Interactive `cdamux worker spawn|ls|peek` (needs `$CDAMUX_AGENT_ID`) is separate from
 harness `ORCH_TMUX=1`: the CLI spawns human-driven panes under the caller's
-orchestrator. Ready-pickup workers are also published through `cdamux state` (run,
-nodes, one Agent per worker); with `$CDAMUX_AGENT_ID` set the orch run is a sub-run
-of that agent. Without `cdamux` on `PATH`, state writes no-op and the in-repo
-`.orch/` artefacts stay the source of truth until the #252 hard cut.
+orchestrator. Ready-pickup workers are published through `cdamux state` (run, nodes,
+one Agent per worker); with `$CDAMUX_AGENT_ID` set the orch run is a sub-run of that
+agent. Without `cdamux` on `PATH`, state writes no-op (no Fleet visibility; ADR-001).
 
 ## Graph plan JSON
 
@@ -92,11 +89,11 @@ bash ~/.cursor/skills/cda-graph/scripts/graph-plan-validate.sh my-plan.json
 
 | Surface | How |
 | ------- | --- |
-| **cdamux TUI** | Fleet → select **project** or session → sidecar **Orch graph**; each live run is a `◈ run <id>` row under the session that started it (headless runs under the project), with its `⚙ #id` workers (`.orch/run/status.json` with the same `run_id`) and worker sessions; a session shows its own newest run (else its `@cdamux_run`), a project the latest; `g` opens the full-screen drawn DAG with a steps bar (implement / verify / review / CI / PR) for the selected worker, `Tab` there cycles a session's runs |
+| **cdamux TUI** | Fleet → select **project** or session → sidecar **Orch graph**; each live run is a `◈ run <id>` row under the session that started it (headless runs under the project), with its `⚙ #id` workers (`$CDAMUX_HOME/agents` with the same `run`) and worker sessions; a session shows its own newest run (else its `@cdamux_run`), a project the latest; `g` opens the full-screen drawn DAG with a steps bar (implement / verify / review / CI / PR) for the selected worker, `Tab` there cycles a session's runs |
 | **cdamux sessions** | `ORCH_TMUX=1` harness workers and interactive `cdamux worker spawn` panes are tmux sessions linked by `@cdamux_parent` / `@cdamux_run` / `@cdamux_role`; CLI sub-agents show as child rows (`cdamux/docs/subagents.md`, hooks via `./install.sh --cdamux-hooks`) |
 | **cdamuxd web** | Tailnet dashboard → session → **Orch graph** (canvas, polls API) |
 | **API** | `GET /v1/sessions/{tmux-name}/orch-graph` |
-| **API (project)** | `GET /v1/orch-graph?repo=[&run=]` (default: latest run) · `GET /v1/orch-status?repo=` · `GET /v1/orch-runs?repo=` (live runs with `session`, then archived finishes under `.orch/graph/runs/`; `live` flag) |
+| **API (project)** | `GET /v1/orch-graph?repo=[&run=]` (default: latest run under `$CDAMUX_HOME/runs/`) · `GET /v1/orch-status?repo=` (workers from agents) · `GET /v1/orch-runs?repo=` (live then finished; `live` flag) |
 | **Session hooks** | Opt-in `./install.sh --cdamux-hooks` writes agent status to `$CDAMUX_HOME/agents/<id>.json` via `cdamux state append` (Fleet prefers that) and injects an unread `cdamux msg` digest on turn-end (Claude `Stop` / Cursor `stop.followup_message`). Cursor `beforeSubmitPrompt` cannot inject context. Transitional `@cdamux_state` (set by `ORCH_TMUX=1`) remains a fallback before pane heuristics — see `cdamux/docs/subagents.md` |
 | **GitHub issue** | Fleet `o` opens `gh issue view N --web` when branch is `feat/<n>-*` or worker id is numeric |
 
@@ -107,15 +104,14 @@ bash ~/.cursor/skills/cda-graph/scripts/graph-plan-validate.sh my-plan.json
 
 ```bash
 G=~/.cursor/skills/cda-graph/scripts/graph-node.sh
-bash "$G" init --repo "$REPO"          # prints .orch/graph/live/<run_id>.json
+bash "$G" init --repo "$REPO"          # prints $CDAMUX_HOME/runs/<run_id>.json
 # update nodes as Tasks run; then:
 bash "$G" finish --outcome ok
 ```
 
 `init` always starts a new run. `node` / `edge` / `finish` write to `--run-id ID`,
-else `$ORCH_RUN_ID` (set inside orch workers), else the newest live run created from
-the current tmux session; otherwise they fail. Two sessions in the same repo, or a
-session and an orch run, each keep their own file.
+else `$ORCH_RUN_ID` (set inside orch workers), else the newest running run created from
+the current tmux session; otherwise they fail. Requires `cdamux` on `PATH`.
 
 1. Split plan into disjoint file scopes; `graph-node.sh init`.
 2. Dispatch parallel subagents (one scope each); each returns JSON like `worker-result.schema.json` and updates a graph node.

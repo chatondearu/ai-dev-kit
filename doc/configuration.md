@@ -29,7 +29,7 @@ these (`./scripts/doctor.sh` only checks `PATH`). With a Cursor CLI present it a
 | `ORCH_MAX_ITER` | `10` | Verify-loop retries per worker |
 | `ORCH_PROGRESS` | `auto` | Set `0` to disable TTY dashboard |
 | `ORCH_SANDBOX` | off | `1` / `--sandbox` → bubblewrap required |
-| `ORCH_TMUX` | `0` | `1` → each worker's agent runs in a detached tmux session `orch-<run>-<worker>` (`@cdamux_*` options, log `.orch/run/<worker>.log`); ignored with `--sandbox` (the tmux server runs outside bwrap); the agent env reaches it through a self-deleting 0600 runner file, see [ADR-007](../foam/decisions/ADR-007-cdamux-session-hierarchy.md) |
+| `ORCH_TMUX` | `1` | `1` → each worker's agent runs in a detached tmux session `orch-<run>-<worker>` (`@cdamux_*` options, log `.orch/run/<worker>.log`); set `0` for headless tests; ignored with `--sandbox` (the tmux server runs outside bwrap); see [ADR-007](../foam/decisions/ADR-007-cdamux-session-hierarchy.md) / [ADR-011](../foam/decisions/ADR-011-cdamux-unified-state-model.md) |
 | `ORCH_TMUX_KEEP` | `0` | `1` → keep the worker session after the agent exits (state `done` / `error`) |
 | `ORCH_ALLOW_NO_CHECKS` | `0` | `1` → empty PR checks count as green. Without it, empty checks fail-fast as `none` (no 600s wait). Also enabled by `orch: allow-no-checks` in `AGENTS.md`. |
 | `ORCH_COPY_ENV` | `0` | `1` → copy `.env` into worktrees |
@@ -56,10 +56,11 @@ these (`./scripts/doctor.sh` only checks `PATH`). With a Cursor CLI present it a
 ### cdamux state and inbox
 
 Hooks, orch and workers write agent/run JSON only through `cdamux state set|get|append`
-under `$CDAMUX_HOME` (format private). `orch.sh` / `graph-node.sh` dual-write the run
-(+ nodes) and one Agent per worker there when `cdamux` is on `PATH`; missing binary →
-silent no-op (in-repo `.orch/graph` and `.orch/run/status.json` remain until #252).
-With `$CDAMUX_AGENT_ID` set, the orch run records that agent as `parent` (sub-run).
+under `$CDAMUX_HOME` (format private). Hard cut (#252): `orch.sh` / `graph-node.sh`
+write runs and one Agent per worker there when `cdamux` is on `PATH`; missing binary →
+silent no-op (no in-repo `.orch/graph` / `status.json`). Fleet and `/v1/orch-*` read
+`$CDAMUX_HOME/runs/` (+ agents). With `$CDAMUX_AGENT_ID` set, the orch run records that
+agent as `parent` (sub-run).
 Orchestrator ↔ worker messages use `cdamux msg send|read` (`inbox/<agent-id>.jsonl` +
 `.cursor`, ≤ 2 KB/line). Start an orchestrator with `cdamux orch new` (or Fleet spawn
 role *orchestrator*) — skill `cda-orchestrator`. Interactive workers:
@@ -87,8 +88,8 @@ Under foam / `CDA_FOAM_HOME`, commit `architecture.json`, `descriptions/`, and t
 | Path | Purpose |
 | ---- | ------- |
 | `.orch/worktrees/` | Per-issue worktrees |
-| `.orch/run/` | Worker exit codes / progress |
-| `.orch/graph/live/<run_id>.json` | Live orchestration graph, one per run; `current.json` symlinks the latest (cdamux / foam export) |
+| `.orch/run/` | Worker exit codes / per-worker progress artefacts (no `status.json`) |
+| `$CDAMUX_HOME/runs/<run_id>.json` | Live orchestration graph (via `cdamux state`; Fleet / API) |
 | `.orch/integrator-report.md` | Post-run synthesis (multi-worker) |
 | `.orch/headless/` | Headless prompt copy |
 | `.orch/auto.lock` | orch-auto mutex |

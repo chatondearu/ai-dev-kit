@@ -1,10 +1,11 @@
-//! Live CDA orchestration graphs: one file per run under `.orch/graph/live/`,
-//! finished runs under `runs/`, `current.json` pointing at the latest (ADR-007, #178).
+//! Orch graphs under `$CDAMUX_HOME/runs/<run_id>.json` (ADR-011 §5 hard cut #252).
+//! Live vs archived is the run's `status` / `ended_at` (no in-repo `.orch/graph`).
 
+use crate::paths::{cdamux_home, cdamux_state_dir};
+use crate::session_chrome::format_age;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
-use crate::session_chrome::format_age;
 use std::time::SystemTime;
 
 /// Age after which a still-`running` graph is shown as stale in the TUI.
@@ -64,14 +65,45 @@ impl std::fmt::Display for OrchGraphError {
         match self {
             OrchGraphError::NotFound(p) => write!(f, "no orch graph at {}", p.display()),
             OrchGraphError::Invalid { path, message } => {
-                write!(f, "invalid current.json at {}: {}", path.display(), message)
+                write!(f, "invalid run graph at {}: {}", path.display(), message)
             }
         }
     }
 }
 
+/// `$CDAMUX_HOME/runs` (global). `repo` is unused; kept for call-site compatibility.
+pub fn orch_graph_runs_dir(_repo: &Path) -> PathBuf {
+    cdamux_state_dir("runs").unwrap_or_else(|| PathBuf::from("/nonexistent/cdamux/runs"))
+}
+
+/// Same directory as archived runs — live is filtered by status (hard cut #252).
+pub fn orch_graph_live_dir(repo: &Path) -> PathBuf {
+    orch_graph_runs_dir(repo)
+}
+
+/// Path of the newest run file for `repo`, or the runs dir when none exist.
 pub fn orch_graph_path(repo: &Path) -> PathBuf {
-    repo.join(".orch/graph/current.json")
+    list_live_orch_runs(repo)
+        .into_iter()
+        .chain(list_orch_graph_runs(repo, 1))
+        .next()
+        .map(|r| r.path)
+        .unwrap_or_else(|| orch_graph_runs_dir(repo))
+}
+
+/// True when the run's `repo` field names `want` (canonical when possible).
+pub fn run_repo_matches(run_repo: &str, want: &Path) -> bool {
+    if run_repo.is_empty() {
+        return false;
+    }
+    let run_p = Path::new(run_repo);
+    if run_p == want {
+        return true;
+    }
+    match (run_p.canonicalize(), want.canonicalize()) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => run_p == want,
+    }
 }
 
 fn file_age_secs(path: &Path) -> Option<u64> {
@@ -81,7 +113,19 @@ fn file_age_secs(path: &Path) -> Option<u64> {
 }
 
 pub fn load_orch_graph(repo: &Path) -> Result<(OrchGraphFile, Option<u64>), OrchGraphError> {
-    load_orch_graph_at(&orch_graph_path(repo))
+    let path = list_live_orch_runs(repo)
+        .into_iter()
+        .chain(list_orch_graph_runs(repo, 1))
+        .next()
+        .map(|r| r.path)
+        .ok_or_else(|| {
+            OrchGraphError::NotFound(
+                cdamux_home()
+                    .map(|h| h.join("runs"))
+                    .unwrap_or_else(|| PathBuf::from("$CDAMUX_HOME/runs")),
+            )
+        })?;
+    load_orch_graph_at(&path)
 }
 
 /// Parse one graph file (a run file, or `current.json` through its symlink).
@@ -108,11 +152,11 @@ pub fn load_orch_graph_at(path: &Path) -> Result<(OrchGraphFile, Option<u64>), O
     Ok((graph, age))
 }
 
-/// Walk parents from `cwd` until `.orch/graph/current.json` is found.
+/// Walk parents from `cwd` until a `$CDAMUX_HOME` run matches that repo path.
 /// A present-but-invalid file stops the walk with [`OrchGraphError::Invalid`].
 pub fn find_orch_graph_from_cwd(cwd: &str) -> Result<(OrchGraphFile, Option<u64>), OrchGraphError> {
     if cwd.is_empty() {
-        return Err(OrchGraphError::NotFound(PathBuf::from(".orch/graph/current.json")));
+        return Err(OrchGraphError::NotFound(PathBuf::from("$CDAMUX_HOME/runs")));
     }
     let mut cur = Path::new(cwd);
     loop {
@@ -256,7 +300,7 @@ pub fn format_orch_graph_panel_ex(
     lines.join("\n")
 }
 
-/// Append recent archived runs under `.orch/graph/runs/` (newest first).
+/// Append recent finished runs under `$CDAMUX_HOME/runs/` (newest first).
 pub fn format_orch_graph_panel_with_history(
     graph: &OrchGraphFile,
     width: usize,
@@ -287,51 +331,34 @@ pub struct OrchGraphRunSummary {
     pub live: bool,
 }
 
-pub fn orch_graph_runs_dir(repo: &Path) -> PathBuf {
-    repo.join(".orch/graph/runs")
-}
-
-pub fn orch_graph_live_dir(repo: &Path) -> PathBuf {
-    repo.join(".orch/graph/live")
-}
-
-/// Newest-first summaries from archived run JSON files.
+/// Newest-first finished runs for `repo` under `$CDAMUX_HOME/runs/`.
 pub fn list_orch_graph_runs(repo: &Path, limit: usize) -> Vec<OrchGraphRunSummary> {
-    list_run_dir(&orch_graph_runs_dir(repo), limit, false)
+    list_runs_for_repo(repo, limit, false)
 }
 
-/// Live runs, newest first. Without `live/` (pre-#178 harness) a still-running
-/// `current.json` stands in as one run without a session.
+/// Live (still-running) runs for `repo`, newest first.
 pub fn list_live_orch_runs(repo: &Path) -> Vec<OrchGraphRunSummary> {
-    let dir = orch_graph_live_dir(repo);
-    if dir.is_dir() {
-        return list_run_dir(&dir, usize::MAX, true);
-    }
-    match load_orch_graph(repo) {
-        Ok((g, _)) if g.ended_at.is_none() && matches!(g.status.as_deref(), None | Some("" | "running")) => {
-            vec![summary(g, orch_graph_path(repo), true)]
-        }
-        _ => Vec::new(),
-    }
+    list_runs_for_repo(repo, usize::MAX, true)
 }
 
-/// Run file for `run_id`: `live/`, then `runs/`, then a legacy `current.json` with that id.
-/// The id is reduced to the writer's file-name charset, so it can never leave the graph dir.
+/// Run file for `run_id` under `$CDAMUX_HOME/runs/` when it belongs to `repo`.
 pub fn find_orch_run(repo: &Path, run_id: &str) -> Option<PathBuf> {
-    // Same mapping as graph.sh: `tr -c 'A-Za-z0-9._-' '_'` (bytewise).
     let name: String = run_id
         .bytes()
-        .map(|b| if b.is_ascii_alphanumeric() || b"._-".contains(&b) { b as char } else { '_' })
-        .collect();
-    let name = format!("{name}.json");
-    [orch_graph_live_dir(repo), orch_graph_runs_dir(repo)]
-        .into_iter()
-        .map(|d| d.join(&name))
-        .find(|p| p.is_file())
-        .or_else(|| {
-            let (g, _) = load_orch_graph(repo).ok()?;
-            (g.run_id == run_id).then(|| orch_graph_path(repo))
+        .map(|b| {
+            if b.is_ascii_alphanumeric() || b"._-".contains(&b) {
+                b as char
+            } else {
+                '_'
+            }
         })
+        .collect();
+    let path = orch_graph_runs_dir(repo).join(format!("{name}.json"));
+    if !path.is_file() {
+        return None;
+    }
+    let (g, _) = load_orch_graph_at(&path).ok()?;
+    run_repo_matches(&g.repo, repo).then_some(path)
 }
 
 /// [`find_orch_run`] in `cwd` or its nearest ancestor holding that run.
@@ -346,30 +373,40 @@ fn summary(g: OrchGraphFile, path: PathBuf, live: bool) -> OrchGraphRunSummary {
     OrchGraphRunSummary { run_id: g.run_id, path, status: g.status, session: g.session, live }
 }
 
-fn list_run_dir(dir: &Path, limit: usize, live: bool) -> Vec<OrchGraphRunSummary> {
-    let Ok(rd) = fs::read_dir(dir) else {
+fn is_live_run(g: &OrchGraphFile) -> bool {
+    g.ended_at.is_none()
+        && matches!(g.status.as_deref(), None | Some("" | "running"))
+}
+
+fn list_runs_for_repo(repo: &Path, limit: usize, live_only: bool) -> Vec<OrchGraphRunSummary> {
+    let dir = orch_graph_runs_dir(repo);
+    let Ok(rd) = fs::read_dir(&dir) else {
         return Vec::new();
     };
-    // `*.json` only: skips the writer's `<run>.json.lock` and `<run>.json.tmp.*` files.
     let mut entries: Vec<_> = rd
         .filter_map(|e| e.ok())
-        .filter(|e| {
-            e.path()
-                .extension()
-                .map(|x| x == "json")
-                .unwrap_or(false)
-        })
+        .filter(|e| e.path().extension().map(|x| x == "json").unwrap_or(false))
         .collect();
     entries.sort_by_key(|e| std::cmp::Reverse(e.metadata().ok().and_then(|m| m.modified().ok())));
     entries
         .into_iter()
-        .take(limit)
         .filter_map(|e| {
             let path = e.path();
             let raw = fs::read_to_string(&path).ok()?;
             let g: OrchGraphFile = serde_json::from_str(&raw).ok()?;
+            if !run_repo_matches(&g.repo, repo) {
+                return None;
+            }
+            let live = is_live_run(&g);
+            if live_only && !live {
+                return None;
+            }
+            if !live_only && live {
+                return None;
+            }
             Some(summary(g, path, live))
         })
+        .take(limit)
         .collect()
 }
 
@@ -456,12 +493,17 @@ mod tests {
 
     #[test]
     fn load_rejects_missing_run_id_shape() {
+        let _g = crate::paths::env_lock();
         let dir = tempfile::tempdir().unwrap();
-        let path = orch_graph_path(dir.path());
+        let home = dir.path().join("cdamux");
+        let repo = dir.path().join("repo");
+        fs::create_dir_all(&repo).unwrap();
+        std::env::set_var("CDAMUX_HOME", &home);
+        let path = home.join("runs/bad.json");
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         let mut f = fs::File::create(&path).unwrap();
-        write!(f, r#"{{"issue":6,"mode":"cursor-session-fallback"}}"#).unwrap();
-        let err = load_orch_graph(dir.path()).unwrap_err();
+        write!(f, r#"{{"issue":6,"mode":"cursor-session-fallback","repo":"{}"}}"#, repo.display()).unwrap();
+        let err = load_orch_graph_at(&path).unwrap_err();
         match err {
             OrchGraphError::Invalid { message, .. } => {
                 assert!(
@@ -471,18 +513,28 @@ mod tests {
             }
             other => panic!("expected Invalid, got {other:?}"),
         }
+        std::env::remove_var("CDAMUX_HOME");
     }
 
     #[test]
     fn load_accepts_defaults_without_edges() {
+        let _g = crate::paths::env_lock();
         let dir = tempfile::tempdir().unwrap();
-        let path = orch_graph_path(dir.path());
+        let home = dir.path().join("cdamux");
+        let repo = dir.path().join("repo");
+        fs::create_dir_all(&repo).unwrap();
+        std::env::set_var("CDAMUX_HOME", &home);
+        let path = home.join("runs/r2.json");
         fs::create_dir_all(path.parent().unwrap()).unwrap();
-        let mut f = fs::File::create(&path).unwrap();
-        write!(f, r#"{{"run_id":"r2","nodes":[]}}"#).unwrap();
-        let (g, _) = load_orch_graph(dir.path()).unwrap();
+        let body = format!(
+            r#"{{"run_id":"r2","repo":"{}","nodes":[],"status":"running"}}"#,
+            repo.display()
+        );
+        fs::write(&path, body).unwrap();
+        let (g, _) = load_orch_graph(&repo).unwrap();
         assert_eq!(g.run_id, "r2");
         assert!(g.edges.is_empty());
+        std::env::remove_var("CDAMUX_HOME");
     }
 
     #[test]
@@ -510,40 +562,83 @@ mod tests {
 
     #[test]
     fn live_runs_newest_first_with_session_and_archive_lookup() {
+        let _g = crate::paths::env_lock();
         let dir = tempfile::tempdir().unwrap();
-        let repo = dir.path();
-        let live = orch_graph_live_dir(repo);
-        write(&live.join("old.json"), r#"{"run_id":"old","session":"a","status":"running"}"#, 60);
-        write(&live.join("new.json"), r#"{"run_id":"new","status":"running"}"#, 1);
-        write(&live.join("new.json.lock"), "", 0);
-        write(&orch_graph_runs_dir(repo).join("done.json"), r#"{"run_id":"done","status":"ok"}"#, 5);
-        let runs = list_live_orch_runs(repo);
-        let ids: Vec<_> = runs.iter().map(|r| (r.run_id.as_str(), r.session.as_deref(), r.live)).collect();
+        let home = dir.path().join("cdamux");
+        let repo = dir.path().join("repo");
+        fs::create_dir_all(&repo).unwrap();
+        std::env::set_var("CDAMUX_HOME", &home);
+        let runs = home.join("runs");
+        let repo_s = repo.display().to_string();
+        write(
+            &runs.join("old.json"),
+            &format!(r#"{{"run_id":"old","repo":"{repo_s}","session":"a","status":"running"}}"#),
+            60,
+        );
+        write(
+            &runs.join("new.json"),
+            &format!(r#"{{"run_id":"new","repo":"{repo_s}","status":"running"}}"#),
+            1,
+        );
+        write(&runs.join("new.json.lock"), "", 0);
+        write(
+            &runs.join("done.json"),
+            &format!(r#"{{"run_id":"done","repo":"{repo_s}","status":"ok","ended_at":"t"}}"#),
+            5,
+        );
+        let live = list_live_orch_runs(&repo);
+        let ids: Vec<_> = live
+            .iter()
+            .map(|r| (r.run_id.as_str(), r.session.as_deref(), r.live))
+            .collect();
         assert_eq!(ids, vec![("new", None, true), ("old", Some("a"), true)]);
-        assert!(!list_orch_graph_runs(repo, 5)[0].live);
-        assert_eq!(find_orch_run(repo, "old"), Some(live.join("old.json")));
-        assert_eq!(find_orch_run(repo, "done"), Some(orch_graph_runs_dir(repo).join("done.json")));
-        // From a worktree below the repo; traversal-looking ids stay inside the graph dir.
+        assert!(!list_orch_graph_runs(&repo, 5)[0].live);
+        assert_eq!(find_orch_run(&repo, "old"), Some(runs.join("old.json")));
+        assert_eq!(find_orch_run(&repo, "done"), Some(runs.join("done.json")));
         let wt = repo.join(".orch/worktrees/7-x");
         fs::create_dir_all(&wt).unwrap();
-        assert_eq!(find_orch_run_from_cwd(wt.to_str().unwrap(), "new"), Some(live.join("new.json")));
-        assert_eq!(find_orch_run(repo, "../live/new"), None);
+        assert_eq!(
+            find_orch_run_from_cwd(wt.to_str().unwrap(), "new"),
+            Some(runs.join("new.json"))
+        );
+        assert_eq!(find_orch_run(&repo, "../live/new"), None);
+        std::env::remove_var("CDAMUX_HOME");
     }
 
     #[test]
-    fn legacy_current_json_stands_in_only_while_running() {
+    fn finished_run_is_not_listed_as_live() {
+        let _g = crate::paths::env_lock();
         let dir = tempfile::tempdir().unwrap();
-        let repo = dir.path();
-        write(&orch_graph_path(repo), r#"{"run_id":"legacy","status":"running"}"#, 1);
-        let runs = list_live_orch_runs(repo);
+        let home = dir.path().join("cdamux");
+        let repo = dir.path().join("repo");
+        fs::create_dir_all(&repo).unwrap();
+        std::env::set_var("CDAMUX_HOME", &home);
+        let path = home.join("runs/legacy.json");
+        write(
+            &path,
+            &format!(
+                r#"{{"run_id":"legacy","repo":"{}","status":"running"}}"#,
+                repo.display()
+            ),
+            1,
+        );
+        let runs = list_live_orch_runs(&repo);
         assert_eq!(runs.len(), 1);
-        assert_eq!((runs[0].run_id.as_str(), runs[0].session.as_deref()), ("legacy", None));
-        assert_eq!(find_orch_run(repo, "legacy"), Some(orch_graph_path(repo)));
-        write(&orch_graph_path(repo), r#"{"run_id":"legacy","status":"ok","ended_at":"t"}"#, 1);
-        assert!(list_live_orch_runs(repo).is_empty());
-        // Once `live/` exists, current.json is only the pointer: not listed twice.
-        write(&orch_graph_path(repo), r#"{"run_id":"legacy","status":"running"}"#, 1);
-        fs::create_dir_all(orch_graph_live_dir(repo)).unwrap();
-        assert!(list_live_orch_runs(repo).is_empty());
+        assert_eq!(
+            (runs[0].run_id.as_str(), runs[0].session.as_deref()),
+            ("legacy", None)
+        );
+        assert_eq!(find_orch_run(&repo, "legacy"), Some(path.clone()));
+        write(
+            &path,
+            &format!(
+                r#"{{"run_id":"legacy","repo":"{}","status":"ok","ended_at":"t"}}"#,
+                repo.display()
+            ),
+            1,
+        );
+        assert!(list_live_orch_runs(&repo).is_empty());
+        assert_eq!(list_orch_graph_runs(&repo, 5)[0].run_id, "legacy");
+        std::env::remove_var("CDAMUX_HOME");
     }
 }

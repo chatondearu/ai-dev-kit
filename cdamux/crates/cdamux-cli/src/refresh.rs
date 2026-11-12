@@ -1,11 +1,11 @@
 //! Refresh scheduling for the dashboard loop: one interval per source and an
-//! mtime-gated cache for `status.json`, so the 100 ms input poll never does I/O.
-//! Every method takes `now` so tests drive a fake clock.
+//! mtime-gated cache for `$CDAMUX_HOME` runs/agents, so the 100 ms input poll
+//! never does I/O. Every method takes `now` so tests drive a fake clock.
 
 use cdamux_core::{
-    list_live_orch_runs, list_orch_graph_runs, load_orch_run_status, orch_graph_live_dir,
-    orch_graph_path, orch_graph_runs_dir, orch_run_status_path, session_registry, session_subagents,
-    ChildRow, OrchGraphRunSummary, OrchRunStatusFile, OrchWorkerStatus,
+    list_live_orch_runs, list_orch_graph_runs, load_orch_run_status, orch_agents_dir,
+    orch_graph_runs_dir, session_registry, session_subagents, ChildRow, OrchGraphRunSummary,
+    OrchRunStatusFile, OrchWorkerStatus,
 };
 use session_registry::SessionRecord;
 use std::collections::HashMap;
@@ -70,13 +70,12 @@ pub(crate) fn sidecar_step(
 pub(crate) struct RepoRuns {
     pub(crate) live: Vec<OrchGraphRunSummary>,
     pub(crate) recent: Vec<OrchGraphRunSummary>,
-    /// `.orch/graph/live/` exists (false = pre-#178 harness: one shared current.json).
+    /// Always true after #252 (one file per run under `$CDAMUX_HOME/runs/`).
     pub(crate) per_run: bool,
 }
 
-/// mtimes that move whenever a run starts, writes, finishes or is archived: the writer
-/// renames into `live/` and `runs/`; a legacy harness rewrites `current.json` in place.
-type RunsStamp = [Option<SystemTime>; 3];
+/// mtime of `$CDAMUX_HOME/runs` (shared across repos; list filters by `repo` field).
+type RunsStamp = [Option<SystemTime>; 1];
 
 fn mtime(path: &Path) -> Option<SystemTime> {
     fs::metadata(path).and_then(|m| m.modified()).ok()
@@ -189,7 +188,7 @@ impl StatusCache {
         self.entries.get(repo).map_or(&[], |(_, st)| st.workers.as_slice())
     }
 
-    /// Run id of the cached status.json (`None` before #178); never touches the disk.
+    /// Run id of the cached CDAMUX agents (`None` before #178); never touches the disk.
     pub(crate) fn status_run(&self, repo: &Path) -> Option<&str> {
         self.entries.get(repo)?.1.run_id.as_deref()
     }
@@ -199,14 +198,14 @@ impl StatusCache {
         self.runs.get(repo).map(|(_, r)| r)
     }
 
-    /// Test fixtures: cached status.json and runs of `repo` without any file.
+    /// Test fixtures: cached workers and runs of `repo` without any file.
     #[cfg(test)]
     pub(crate) fn insert_fixture(&mut self, repo: &Path, status: OrchRunStatusFile, runs: RepoRuns) {
         self.entries.insert(repo.to_path_buf(), (None, status));
-        self.runs.insert(repo.to_path_buf(), ([None; 3], runs));
+        self.runs.insert(repo.to_path_buf(), ([None; 1], runs));
     }
 
-    /// Re-list the runs of each repo once per interval, only when a graph dir moved.
+    /// Re-list the runs of each repo once per interval, only when `$CDAMUX_HOME/runs` moved.
     /// Returns true when any run list changed (caller redraws).
     pub(crate) fn refresh_runs<'a>(
         &mut self,
@@ -216,7 +215,7 @@ impl StatusCache {
         self.refresh_runs_with(repos, now, |p| RepoRuns {
             live: list_live_orch_runs(p),
             recent: list_orch_graph_runs(p, 5),
-            per_run: orch_graph_live_dir(p).is_dir(),
+            per_run: true,
         })
     }
 
@@ -232,12 +231,8 @@ impl StatusCache {
         self.runs_iv.mark(now);
         let mut next = HashMap::new();
         let mut changed = false;
+        let stamp = [mtime(&orch_graph_runs_dir(Path::new(".")))];
         for repo in repos {
-            let stamp = [
-                mtime(&orch_graph_live_dir(repo)),
-                mtime(&orch_graph_runs_dir(repo)),
-                mtime(&orch_graph_path(repo)),
-            ];
             let entry = match self.runs.remove(repo) {
                 Some(old) if old.0 == stamp => old,
                 old => {
@@ -253,7 +248,7 @@ impl StatusCache {
         changed
     }
 
-    /// Stat each repo once per interval; parse only when mtime changed.
+    /// Stat agents dir once per interval; parse only when mtime changed.
     /// Returns true when any worker list changed (caller redraws).
     pub(crate) fn refresh<'a>(
         &mut self,
@@ -275,16 +270,14 @@ impl StatusCache {
         self.iv.mark(now);
         let mut next = HashMap::new();
         let mut changed = false;
+        let agents_mtime = orch_agents_dir().and_then(|d| mtime(&d));
         for repo in repos {
-            let mtime = fs::metadata(orch_run_status_path(repo))
-                .and_then(|m| m.modified())
-                .ok();
             let entry = match self.entries.remove(repo) {
-                Some(old) if old.0 == mtime => old,
+                Some(old) if old.0 == agents_mtime => old,
                 old => {
                     let st = load(repo).unwrap_or_default();
                     changed |= old.is_none_or(|o| o.1 != st);
-                    (mtime, st)
+                    (agents_mtime, st)
                 }
             };
             next.insert(repo.to_path_buf(), entry);
@@ -335,12 +328,10 @@ mod tests {
     }
 
     #[test]
-    fn status_json_read_once_per_mtime_not_per_tick() {
-        // No tempfile dev-dep in this crate: a pid-scoped dir under the OS temp dir.
+    fn agents_read_once_per_mtime_not_per_tick() {
         let dir = std::env::temp_dir().join(format!("cdamux-refresh-{}", std::process::id()));
-        let path = orch_run_status_path(&dir);
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(&path, "{}").unwrap();
+        let agents = dir.join("agents");
+        fs::create_dir_all(&agents).unwrap();
         let t0 = Instant::now();
         let mut cache = StatusCache::new(Duration::from_millis(500));
         let loads = Cell::new(0);
@@ -348,52 +339,61 @@ mod tests {
             loads.set(loads.get() + 1);
             Some(OrchRunStatusFile::default())
         };
+        // Inject mtime via the same stamp refresh_with reads (orch_agents_dir).
+        let _guard = cdamux_core::env_lock();
+        std::env::set_var("CDAMUX_HOME", &dir);
         let run = |cache: &mut StatusCache, ms: u64| {
             cache.refresh_with([dir.as_path()].into_iter(), at(t0, ms), load)
         };
-        // 100 ms ticks over 3 s with an unchanged file: parsed once.
         for i in 0..30 {
             run(&mut cache, i * 100);
         }
         assert_eq!(loads.get(), 1);
-        // mtime moves: next due check re-parses exactly once.
-        let f = fs::OpenOptions::new().write(true).open(&path).unwrap();
+        let f = fs::File::open(&agents).unwrap();
         f.set_modified(SystemTime::now() + Duration::from_secs(5)).unwrap();
         for i in 30..40 {
             run(&mut cache, i * 100);
         }
         assert_eq!(loads.get(), 2);
+        std::env::remove_var("CDAMUX_HOME");
         let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
-    fn runs_relisted_only_when_the_live_dir_moves() {
+    fn runs_relisted_only_when_the_runs_dir_moves() {
         let dir = std::env::temp_dir().join(format!("cdamux-refresh-runs-{}", std::process::id()));
-        let live = orch_graph_live_dir(&dir);
-        fs::create_dir_all(&live).unwrap();
+        let runs_dir = dir.join("runs");
+        fs::create_dir_all(&runs_dir).unwrap();
         let t0 = Instant::now();
         let mut cache = StatusCache::new(Duration::from_millis(500));
         let loads = Cell::new(0);
         let load = |_: &Path| {
             loads.set(loads.get() + 1);
-            RepoRuns { per_run: true, ..RepoRuns::default() }
+            RepoRuns {
+                per_run: true,
+                ..RepoRuns::default()
+            }
         };
+        let _guard = cdamux_core::env_lock();
+        std::env::set_var("CDAMUX_HOME", &dir);
+        let repo = dir.join("repo");
+        fs::create_dir_all(&repo).unwrap();
         let run = |cache: &mut StatusCache, ms: u64| {
-            cache.refresh_runs_with([dir.as_path()].into_iter(), at(t0, ms), load)
+            cache.refresh_runs_with([repo.as_path()].into_iter(), at(t0, ms), load)
         };
         assert!(run(&mut cache, 0), "first listing is a change");
         for i in 1..30 {
             assert!(!run(&mut cache, i * 100));
         }
         assert_eq!(loads.get(), 1);
-        assert!(cache.runs(&dir).unwrap().per_run);
-        // A new run lands in live/: the dir mtime moves, next due check re-lists once.
-        let f = fs::File::open(&live).unwrap();
+        assert!(cache.runs(&repo).unwrap().per_run);
+        let f = fs::File::open(&runs_dir).unwrap();
         f.set_modified(SystemTime::now() + Duration::from_secs(5)).unwrap();
         for i in 30..40 {
             run(&mut cache, i * 100);
         }
         assert_eq!(loads.get(), 2);
+        std::env::remove_var("CDAMUX_HOME");
         let _ = fs::remove_dir_all(&dir);
     }
 

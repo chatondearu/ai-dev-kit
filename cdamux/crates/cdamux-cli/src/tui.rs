@@ -370,7 +370,7 @@ pub fn run_dashboard() -> ExitCode {
                     } else if row.preview == PreviewSource::None && row.kind == ChildKind::Subagent {
                         Some(format!("sub-agent {}\n\n(no transcript yet)", row.label))
                     } else if row.preview == PreviewSource::None {
-                        // StatusCache (refresh scheduler) already holds status.json: no I/O per tick.
+                        // StatusCache (refresh scheduler) already holds CDAMUX agents: no I/O per tick.
                         let worker = status
                             .workers(std::path::Path::new(project_path))
                             .iter()

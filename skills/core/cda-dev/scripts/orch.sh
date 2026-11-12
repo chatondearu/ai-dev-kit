@@ -11,8 +11,9 @@
 #   --dry-run            (print plan: worktrees/branches; no agent invoke)
 #   --force-clean        (remove worktrees after — only with explicit flag)
 #   --graph-plan FILE    (intra-issue fan-out from JSON plan; opt-in)
-#   --no-graph           (disable live graph updates under .orch/graph/)
+#   --no-graph           (disable live graph updates under $CDAMUX_HOME/runs/)
 #   -h|--help
+# ORCH_TMUX defaults to 1 (ADR-011); set 0 for headless tests; ignored with --sandbox.
 set -euo pipefail
 # A role inherited from a calling agent (e.g. a pr-fix worker running orch) is not ours.
 unset ORCH_ROLE
@@ -50,9 +51,11 @@ orch.sh --mode ready-pickup|pr-fix|intake [options]
   --dry-run            (print plan: worktrees/branches; no agent invoke)
   --force-clean        (remove worktrees after — only with explicit flag)
   --no-progress        (disable TTY progress dashboard; ORCH_PROGRESS=0)
-  --no-graph           (disable live graph updates under .orch/graph/)
+  --no-graph           (disable live graph under $CDAMUX_HOME/runs/)
   --graph-plan FILE    (intra-issue task fan-out JSON; opt-in)
   -h|--help
+
+Env defaults: ORCH_TMUX=1 (headless: ORCH_TMUX=0 or --sandbox).
 EOF
 }
 
@@ -92,9 +95,13 @@ export ORCH_REPO="$REPO"
 if [ "$NO_PROGRESS" = 1 ]; then
   export ORCH_PROGRESS=0
 fi
-# One run id for the graph file (.orch/graph/live/<run>.json), status.json and tmux
-# worker sessions (orch-<run>-<worker>), shared by every worker.
+# One run id for $CDAMUX_HOME/runs/<id>.json and tmux worker sessions (orch-<run>-<worker>).
 export ORCH_RUN_ID="${ORCH_RUN_ID:-$(date -u +%Y%m%dT%H%M%SZ)}"
+# ADR-011 §1: tmux workers by default; tests set ORCH_TMUX=0; --sandbox forces headless.
+export ORCH_TMUX="${ORCH_TMUX:-1}"
+if [ "$SANDBOX" = 1 ]; then
+  export ORCH_TMUX=0
+fi
 if [ -n "${ORCH_TIERS_FILE:-}" ] && [ ! -r "$ORCH_TIERS_FILE" ]; then
   echo "orch: ORCH_TIERS_FILE not readable: $ORCH_TIERS_FILE" >&2
   exit 2
@@ -103,8 +110,10 @@ case "${ORCH_TIER_MAX:-large}" in small|medium|large) ;; *)
   echo "orch: ORCH_TIER_MAX must be small, medium or large (got: $ORCH_TIER_MAX)" >&2
   exit 2 ;;
 esac
-if [ "${ORCH_TMUX:-0}" = 1 ]; then
-  [ "$SANDBOX" != 1 ] || echo "orch: ORCH_TMUX ignored with --sandbox (tmux runs agents outside bwrap)" >&2
+if [ "${ORCH_TMUX}" = 1 ]; then
+  : # tmux workers on
+elif [ "$SANDBOX" = 1 ]; then
+  echo "orch: ORCH_TMUX ignored with --sandbox (tmux runs agents outside bwrap)" >&2
 fi
 
 # Project opt-in: AGENTS.md line `orch: allow-no-checks` (repos without Actions).
@@ -683,14 +692,18 @@ case "$MODE" in
 
       export ORCH_WT="$path"
       orch_resolve_agent pr-fix >/dev/null
+      # Finish the run graph on every exit path (#236: pr-fix used to leave live runs).
+      orch_graph_init "$ORCH_RUN_ID"
       loop_rc=0
       orch_sandbox_wrap bash -c "ORCH_WT=\"$path\" ORCH_ROLE=pr-fix orch_loop_worker \"$path\" \"$prompt_file\"" || loop_rc=$?
       if [ "$loop_rc" -ne 0 ]; then
+        orch_graph_finish blocked
         printf 'blocked: worker loop failed for PR %s\n' "$num" >&2
         exit 1
       fi
 
       ci_status="$(orch_pr_checks_watch "$num" 600)" || {
+        orch_graph_finish blocked
         if [ "$ci_status" = "none" ]; then
           printf 'blocked: PR %s has no checks; set ORCH_ALLOW_NO_CHECKS=1 or AGENTS.md `orch: allow-no-checks`\n' "$num" >&2
         else
@@ -700,9 +713,11 @@ case "$MODE" in
       }
       m=""
       if ! m="$(orch_pr_mergeable "$num")" || { [ "$m" != "MERGEABLE" ] && [ "$m" != "UNKNOWN" ]; }; then
+        orch_graph_finish blocked
         printf 'blocked: PR %s is not mergeable (mergeable=%s)\n' "$num" "${m:-UNKNOWN}" >&2
         exit 1
       fi
+      orch_graph_finish ok
       printf 'done: PR %s checks green, mergeable=%s\n' "$num" "$m"
 
       if [ "$FORCE_CLEAN" = 1 ]; then

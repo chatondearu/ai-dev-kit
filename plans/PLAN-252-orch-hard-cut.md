@@ -1,6 +1,6 @@
 # PLAN-252 — Hard-cut orch status/graph to CDAMUX_HOME
 
-- **Status**: draft
+- **Status**: implemented
 - **PRD**: [[../prd/PRD-239-orchestrator-session|PRD-239]]
 - **GitHub**: [#252](https://github.com/chatondearu/ai-dev-kit/issues/252)
 - **Blocked by**: #251
@@ -48,11 +48,11 @@ in cdamux refresh/API, flip default env, and rewrite tests that asserted on
 
 ## Tasks
 
-- [ ] **Stop writers**: no code under `skills/` / `cdamux/` writes `.orch/run/status.json` or `.orch/graph/live|runs|current.json` (acceptance: `rg` clean for writers; tests fail if reintroduced)
-- [ ] **Readers**: Fleet and `/v1/orch-graph|orch-status|orch-runs` read `$CDAMUX_HOME/runs/` (acceptance: unit/API tests with temp home)
-- [ ] **ORCH_TMUX default**: `1` unless tests/`--sandbox` (acceptance: help/docs + test asserting default)
-- [ ] **#236**: pr-fix / graph-plan / pending mapping leaks resolved by new model (acceptance: issue checklist items covered or obsolete; close #236 via PR)
-- [ ] **Docs + verify**: update operator docs; `nix develop -c bash scripts/verify.sh` green
+- [x] **Stop writers**: no code under `skills/` / `cdamux/` writes `.orch/run/status.json` or `.orch/graph/live|runs|current.json` (acceptance: `rg` clean for writers; tests fail if reintroduced)
+- [x] **Readers**: Fleet and `/v1/orch-graph|orch-status|orch-runs` read `$CDAMUX_HOME/runs/` (acceptance: unit/API tests with temp home)
+- [x] **ORCH_TMUX default**: `1` unless tests/`--sandbox` (acceptance: help/docs + test asserting default)
+- [x] **#236**: pr-fix / graph-plan / pending mapping leaks resolved by new model (acceptance: issue checklist items covered or obsolete; close #236 via PR)
+- [x] **Docs + verify**: update operator docs; `nix develop -c bash scripts/verify.sh` green
 
 ## Risks & mitigations
 
@@ -65,11 +65,11 @@ in cdamux refresh/API, flip default env, and rewrite tests that asserted on
 
 Seams: (1) no old writers, (2) Fleet/API read new root, (3) default TMUX, (4) migrated orch tests.
 
-- [ ] `rg` gate or test for forbidden writer paths
-- [ ] Temp home Fleet/API
-- [ ] Full verify
+- [x] `rg` gate or test for forbidden writer paths
+- [x] Temp home Fleet/API
+- [x] Full verify
 
 ## Verification
 
-- [ ] Lint / test / build per project conventions
-- [ ] Update foam / ADR only if a new decision was made
+- [x] Lint / test / build per project conventions
+- [x] Update foam / ADR only if a new decision was made (ADR-011 dual-write window closed)

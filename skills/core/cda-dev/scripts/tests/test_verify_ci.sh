@@ -241,14 +241,14 @@ set -e
 assert_eq "$sub_rc" "0" "untrusted allowlisted verify passes under bash -c"
 rm -rf "$TMP_AGENTS"
 
-# progress JSON aggregate (agent poll surface)
+# progress per-worker JSON (status.json removed; Fleet reads CDAMUX_HOME agents)
 source "$TROOT/../lib/progress.sh"
 ORCH_REPO="$TMP"
 ORCH_PROGRESS=0
 orch_progress_set "42" ci "PR #9 waiting"
 assert_file "$TMP/.orch/run/42.json" "per-worker json written"
-assert_file "$TMP/.orch/run/status.json" "aggregate status.json written"
-phase="$(jq -r '.workers[] | select(.id=="42") | .phase' "$TMP/.orch/run/status.json")"
-assert_eq "$phase" "ci" "status.json lists worker phase"
+assert_eq "$(test -e "$TMP/.orch/run/status.json" && echo yes || echo no)" "no" "no status.json aggregate"
+phase="$(jq -r '.phase' "$TMP/.orch/run/42.json")"
+assert_eq "$phase" "ci" "worker json lists phase"
 
 summary

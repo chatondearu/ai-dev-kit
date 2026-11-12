@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
-# Source-only: worker status files + optional TTY progress dashboard.
-# Dual-writes one Agent per worker via `cdamux state` until #252 (ADR-011 §5).
+# Source-only: per-worker status artefacts + optional TTY progress dashboard.
+# Fleet reads Agents under $CDAMUX_HOME (hard cut #252 — no status.json aggregate).
 
 _ORCH_CDAMUX_STATE_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/cdamux_state.sh"
 # shellcheck source=cdamux_state.sh
@@ -23,10 +23,11 @@ orch_progress_enabled() {
   [ -t 2 ]
 }
 
-# Machine-readable status for waiting agents (poll `.orch/run/status.json`).
+# Per-worker artefact under .orch/run/<id>.json (not the removed status.json aggregate).
+# $4 = optional agent jq object (cli/model/effort/tier) from orch_progress_agent.
 orch_progress_write_json() {
   local id="$1" phase="$2" msg="$3"
-  local dir ts json_file agg tmp prev agent
+  local dir ts json_file tmp prev agent extra
   dir="$(orch_progress_dir)"
   mkdir -p "$dir"
   ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date -u)"
@@ -37,16 +38,11 @@ orch_progress_write_json() {
     tmux_session="$(orch_tmux_session "$id")"
     log="$(orch_tmux_log "$id")"
   fi
-  # Parallel workers write here: build in a same-dir temp file, then rename (atomic),
-  # so a concurrent `jq -s` never reads a half-written file. $BASHPID: subshell-unique.
+  # Parallel workers write here: build in a same-dir temp file, then rename (atomic).
   tmp="$json_file.tmp.$BASHPID"
   if command -v jq >/dev/null 2>&1; then
-    # `phases`: one {phase, started_at (epoch s)} entry per phase change, so durations
-    # are real. Older files lack it; `pending` starts a new run and resets it.
     prev="$(jq -c '.phases // []' "$json_file" 2>/dev/null || true)"
     [ -n "$prev" ] || prev='[]'
-    # cli/model/effort/tier: kept from the previous file (until `pending` starts a new
-    # run), replaced by $4 (orch_progress_agent).
     agent='{}'
     [ "$phase" = pending ] || agent="$(jq -c '{cli, model, effort, tier} | with_entries(select(.value != null))' "$json_file" 2>/dev/null || true)"
     agent="$(jq -cn --argjson a "${agent:-{\}}" --argjson b "${4:-{\}}" '$a + $b | with_entries(select(.value != null))')"
@@ -66,26 +62,12 @@ orch_progress_write_json() {
                  else ($prev + [{phase:$phase, started_at:$now}])[-40:] end)}
        + (if $tmux_session == "" then {} else {tmux_session:$tmux_session, log:$log} end) + $agent' \
       >"$tmp" && mv "$tmp" "$json_file"
-    # Aggregate all workers into one file agents can poll.
-    agg="$dir/status.json"
-    tmp="$agg.tmp.$BASHPID"
-    local files=() f
-    for f in "$dir"/*.json; do
-      [ -e "$f" ] || continue
-      case "$f" in */status.json) continue ;; esac
-      files+=("$f")
-    done
-    if [ "${#files[@]}" -eq 0 ]; then
-      jq -n --arg ts "$ts" --arg run "${ORCH_RUN_ID:-}" \
-        '{updated_at:$ts, workers:[]} + (if $run == "" then {} else {run_id:$run} end)' >"$tmp" && mv "$tmp" "$agg"
-    else
-      # run_id: same id as the graph file and the tmux @cdamux_run option.
-      jq -s --arg ts "$ts" --arg run "${ORCH_RUN_ID:-}" \
-        '{updated_at:$ts, workers:.} + (if $run == "" then {} else {run_id:$run} end)' "${files[@]}" >"$tmp" && mv "$tmp" "$agg"
-    fi
+    extra="$(jq -c '{cli, model, effort, tier, phases} | with_entries(select(.value != null))' "$json_file" 2>/dev/null || echo '{}')"
+    orch_cdamux_publish_worker "$id" "$phase" "$msg" "$extra"
   else
     printf '{"id":"%s","phase":"%s","message":"%s","updated_at":"%s"}\n' \
       "$id" "$phase" "$msg" "$ts" >"$tmp" && mv "$tmp" "$json_file"
+    orch_cdamux_publish_worker "$id" "$phase" "$msg"
   fi
 }
 
@@ -100,7 +82,6 @@ orch_progress_set() {
   printf '%s|%s\n' "$phase" "$msg" >"$status_file"
   orch_progress_write_json "$id" "$phase" "$msg"
   orch_progress_tmux_state "$id" "$phase"
-  orch_cdamux_publish_worker "$id" "$phase" "$msg"
 
   if ! orch_progress_enabled; then
     printf '[#%s] %s: %s\n' "$id" "$phase" "$msg" >&2
@@ -108,7 +89,7 @@ orch_progress_set() {
 }
 
 # Record what worker $1 runs (ORCH_AGENT_CLI/MODEL/EFFORT/TIER, set by orch_agent_run)
-# in its json and status.json; phase and message stay as they are. Empty values → null.
+# in its json + CDAMUX agent; phase and message stay as they are. Empty values → null.
 orch_progress_agent() {
   local id="$1" line=""
   command -v jq >/dev/null 2>&1 || return 0
@@ -121,6 +102,7 @@ orch_progress_agent() {
 }
 
 # ORCH_TMUX=1: mirror the phase as @cdamux_state on the worker's session; no-op without one.
+# pending → idle (ADR-011 §3); never `waiting` (that mapped to NeedsInput and mismatched Fleet).
 orch_progress_tmux_state() {
   local s state
   declare -F orch_tmux_on >/dev/null && orch_tmux_on || return 0
@@ -129,7 +111,7 @@ orch_progress_tmux_state() {
   case "$2" in
     done) state=done ;;
     blocked) state=error ;;
-    pending) state=waiting ;;
+    pending) state=idle ;;
     *) state=running ;;
   esac
   tmux set-option -t "=$s:" @cdamux_state "$state" 2>/dev/null || true

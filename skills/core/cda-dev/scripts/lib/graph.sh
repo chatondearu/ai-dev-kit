@@ -1,24 +1,17 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
-# Live orchestration graph, one file per run: $ORCH_REPO/.orch/graph/live/<run_id>.json
-# (cdamux + foam-graph read it). current.json is a symlink to the latest run, for readers
-# that only know that name; finished runs move to runs/<run_id>.json (ADR-007, #178).
-# Also dual-writes run+nodes via `cdamux state` under CDAMUX_HOME until #252 (ADR-011 §5).
+# Live orchestration graph under $CDAMUX_HOME/runs/<run_id>.json via `cdamux state`
+# (ADR-011 §5 hard cut #252). Without cdamux: silent no-op (ADR-001). Repo `.orch/`
+# keeps work artefacts only — no status.json / .orch/graph writers.
 
 _ORCH_CDAMUX_STATE_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/cdamux_state.sh"
 # shellcheck source=cdamux_state.sh
 source "$_ORCH_CDAMUX_STATE_LIB"
 unset _ORCH_CDAMUX_STATE_LIB
 
-# The run's live file when ORCH_RUN_ID is set (orch_graph_init exports it), else the
-# current.json pointer (read-only use: writers below need a run id).
+# Path of the run file under CDAMUX_HOME when resolvable (readers/tests); else empty.
 orch_graph_file() {
-  local g="${ORCH_REPO:-.}/.orch/graph"
-  if [ -n "${ORCH_RUN_ID:-}" ]; then
-    printf '%s/live/%s.json\n' "$g" "$(printf '%s' "$ORCH_RUN_ID" | tr -c 'A-Za-z0-9._-' '_')"
-  else
-    printf '%s/current.json\n' "$g"
-  fi
+  orch_cdamux_run_path "${ORCH_RUN_ID:-}" 2>/dev/null || true
 }
 
 orch_graph_enabled() {
@@ -26,6 +19,11 @@ orch_graph_enabled() {
     0|off|false|no) return 1;;
   esac
   return 0
+}
+
+# Graph state needs cdamux on PATH (hard cut — no in-repo fallback).
+orch_graph_writable() {
+  orch_graph_enabled && orch_cdamux_available && command -v jq >/dev/null 2>&1
 }
 
 orch_graph_now() {
@@ -38,120 +36,95 @@ orch_graph_session() {
   tmux display-message -p '#S' 2>/dev/null || true
 }
 
-# Point current.json at $1 (relative to .orch/graph), atomically (symlink + rename).
-orch_graph_point_current() {
-  local g="${ORCH_REPO:-.}/.orch/graph" tmp
-  tmp="$g/.current.$BASHPID"
-  ln -sfn "$1" "$tmp" && mv -f "$tmp" "$g/current.json"
-}
+# No-ops kept so `export -f` lists from older callers/tests stay valid.
+orch_graph_point_current() { :; }
+orch_graph_archive() { :; }
+orch_graph_archive_stale() { :; }
 
-# Move live file $1 to runs/ (keep last 20); current.json follows it if it pointed there.
-orch_graph_archive() {
-  local f="$1" g="${ORCH_REPO:-.}/.orch/graph" name
-  name="$(basename "$f")"
-  mkdir -p "$g/runs"
-  mv -f "$f" "$g/runs/$name" 2>/dev/null || return 0
-  rm -f "$f.lock"
-  # shortcut: not locked against a concurrent init; that init re-points current.json anyway.
-  if [ "$(readlink "$g/current.json" 2>/dev/null)" = "live/$name" ]; then
-    orch_graph_point_current "runs/$name"
-  fi
-  # shellcheck disable=SC2012
-  ls -1t "$g/runs"/*.json 2>/dev/null | tail -n +21 | while read -r old; do
-    rm -f "$old"
-  done
-}
-
-# Archive live files of crashed runs: pid dead and no write for 24 h.
-orch_graph_archive_stale() {
-  local f pid
-  find "${ORCH_REPO:-.}/.orch/graph/live" -name '*.json' -mmin +1440 2>/dev/null | while IFS= read -r f; do
-    pid="$(jq -r '.pid // empty' "$f" 2>/dev/null || true)"
-    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
-      continue
-    fi
-    orch_graph_archive "$f"
-  done
+# Compat name: publish is now the write itself (via locked jq → state set).
+orch_cdamux_publish_run() {
+  local gf json
+  orch_graph_writable || return 0
+  [ -n "${ORCH_RUN_ID:-}" ] || return 0
+  json="$(orch_cdamux_state_get runs "$ORCH_RUN_ID" 2>/dev/null || true)"
+  [ -n "$json" ] || return 0
+  orch_cdamux_publish_run_json "$json"
 }
 
 orch_graph_init() {
   export ORCH_RUN_ID="${1:-${ORCH_RUN_ID:-run-$(date -u +%Y%m%dT%H%M%SZ)}}"
-  local gf session tmp
-  gf="$(orch_graph_file)"
-  mkdir -p "$(dirname "$gf")"
-  orch_graph_archive_stale
+  local session json repo
+  orch_graph_writable || return 0
   session="$(orch_graph_session)"
-  tmp="$(mktemp "$gf.tmp.XXXXXX")"
-  if ! command -v jq >/dev/null 2>&1; then
-    printf '{"run_id":"%s","repo":"%s","pid":%s,%s"nodes":[],"edges":[],"updated_at":"%s","status":"running"}\n' \
-      "$ORCH_RUN_ID" "${ORCH_REPO:-.}" "$$" "${session:+\"session\":\"$session\",}" "$(orch_graph_now)" >"$tmp"
-  else
-    jq -n \
-      --arg run_id "$ORCH_RUN_ID" \
-      --arg repo "${ORCH_REPO:-.}" \
-      --arg session "$session" \
-      --argjson pid "$$" \
-      --arg updated "$(orch_graph_now)" \
-      '{run_id:$run_id,repo:$repo,pid:$pid,nodes:[],edges:[],updated_at:$updated,status:"running"}
-       + (if $session == "" then {} else {session:$session} end)' >"$tmp"
-  fi
-  mv -f "$tmp" "$gf"
-  orch_graph_point_current "live/$(basename "$gf")"
-  orch_cdamux_publish_run
+  repo="$(cd "${ORCH_REPO:-.}" 2>/dev/null && pwd || printf '%s' "${ORCH_REPO:-.}")"
+  json="$(jq -n \
+    --arg run_id "$ORCH_RUN_ID" \
+    --arg repo "$repo" \
+    --arg session "$session" \
+    --argjson pid "$$" \
+    --arg updated "$(orch_graph_now)" \
+    '{run_id:$run_id,repo:$repo,pid:$pid,nodes:[],edges:[],updated_at:$updated,status:"running"}
+     + (if $session == "" then {} else {session:$session} end)')"
+  orch_cdamux_publish_run_json "$json"
 }
 
-# Serialize jq read-modify-write (parallel graph-plan / multi-worker). One lock and
-# same-dir temp file per run, so runs never block or clobber each other.
+# Serialize jq read-modify-write via cdamux state get/set + repo lock artefact.
 # Usage: orch_graph_locked_jq --arg k v 'filter'
 orch_graph_locked_jq() {
-  local gf lock tmp rc=0
-  gf="$(orch_graph_file)"
-  mkdir -p "$(dirname "$gf")"
-  lock="$gf.lock"
-  tmp="$(mktemp "$gf.tmp.XXXXXX")"
-  if command -v flock >/dev/null 2>&1; then
-    (
-      flock 200
-      if ! jq "$@" "$gf" >"$tmp"; then
-        rm -f "$tmp"
-        exit 1
-      fi
-      mv "$tmp" "$gf"
-    ) 200>"$lock" || rc=$?
-  else
-    if ! jq "$@" "$gf" >"$tmp"; then
+  local lock tmp rc=0 raw out
+  orch_graph_writable || return 0
+  [ -n "${ORCH_RUN_ID:-}" ] || return 1
+  lock="$(orch_cdamux_run_lock "$ORCH_RUN_ID")" || return 1
+  tmp="$(mktemp "${TMPDIR:-/tmp}/orch-graph.XXXXXX")"
+  # Shared body for flock/no-flock paths (args forwarded to jq).
+  _do() {
+    raw="$(orch_cdamux_state_get runs "$ORCH_RUN_ID" 2>/dev/null || true)"
+    [ -n "$raw" ] || raw="$(jq -n --arg id "$ORCH_RUN_ID" '{run_id:$id,nodes:[],edges:[],status:"running"}')"
+    if ! printf '%s' "$raw" | jq "$@" >"$tmp"; then
       rm -f "$tmp"
       return 1
     fi
-    mv "$tmp" "$gf" || rc=$?
+    out="$(cat "$tmp")"
+    rm -f "$tmp"
+    orch_cdamux_publish_run_json "$out"
+  }
+  if command -v flock >/dev/null 2>&1; then
+    export -f orch_cdamux_available orch_cdamux_state_get orch_cdamux_state_set
+    export -f orch_cdamux_publish_run_json orch_cdamux_home
+    (
+      flock 200
+      raw="$(orch_cdamux_state_get runs "$ORCH_RUN_ID" 2>/dev/null || true)"
+      [ -n "$raw" ] || raw="$(jq -n --arg id "$ORCH_RUN_ID" '{run_id:$id,nodes:[],edges:[],status:"running"}')"
+      if ! printf '%s' "$raw" | jq "$@" >"$tmp"; then
+        rm -f "$tmp"
+        exit 1
+      fi
+      out="$(cat "$tmp")"
+      rm -f "$tmp"
+      orch_cdamux_publish_run_json "$out"
+    ) 200>"$lock" || rc=$?
+  else
+    _do "$@" || rc=$?
   fi
   return "$rc"
 }
 
-# Mark run finished (ok|blocked), set .status/.ended_at, then move it to runs/<run_id>.json.
+# Mark run finished (ok|blocked); status lives under CDAMUX_HOME (no archive move).
 orch_graph_finish() {
-  local outcome="${1:-ok}"
-  local gf status
-  if ! orch_graph_enabled; then
+  local outcome="${1:-ok}" status
+  if ! orch_graph_writable; then
     return 0
   fi
   [ -n "${ORCH_RUN_ID:-}" ] || return 0
-  gf="$(orch_graph_file)"
-  [ -f "$gf" ] || return 0
   case "$outcome" in
     ok|done|success) status="ok";;
     *) status="blocked";;
   esac
-  if command -v jq >/dev/null 2>&1; then
-    orch_graph_locked_jq \
-      --arg status "$status" \
-      --arg ended "$(orch_graph_now)" \
-      --arg updated "$(orch_graph_now)" \
-      '.status = $status | .ended_at = $ended | .updated_at = $updated'
-  fi
-  # Publish before archive so CDAMUX_HOME keeps the finished status (#251 dual-write).
-  orch_cdamux_publish_run
-  orch_graph_archive "$gf"
+  orch_graph_locked_jq \
+    --arg status "$status" \
+    --arg ended "$(orch_graph_now)" \
+    --arg updated "$(orch_graph_now)" \
+    '.status = $status | .ended_at = $ended | .updated_at = $updated'
 }
 
 # Warn when worker-result.json is missing or lacks required fields (issue/status/checks).
@@ -175,14 +148,13 @@ orch_worker_result_warn() {
 orch_graph_upsert_node() {
   local id="$1" kind="$2" phase="$3" status="$4" msg="$5"
   local parent="${6:-}" agent="${7:-}"
-  local gf
-  if ! orch_graph_enabled; then
+  if ! orch_graph_writable; then
     return 0
   fi
-  gf="$(orch_graph_file)"
-  [ -n "${ORCH_RUN_ID:-}" ] && [ -f "$gf" ] || orch_graph_init
-  if ! command -v jq >/dev/null 2>&1; then
-    return 0
+  [ -n "${ORCH_RUN_ID:-}" ] || orch_graph_init
+  # Ensure the run document exists before the first locked upsert.
+  if ! orch_cdamux_state_get runs "$ORCH_RUN_ID" >/dev/null 2>&1; then
+    orch_graph_init "$ORCH_RUN_ID"
   fi
   orch_graph_locked_jq \
     --arg id "$id" \
@@ -200,7 +172,7 @@ orch_graph_upsert_node() {
     '
       .updated_at = $updated
       | .nodes = (
-          [.nodes[] | select(.id != $id)]
+          [(.nodes // [])[] | select(.id != $id)]
           + [{
               id: $id,
               kind: $kind,
@@ -214,18 +186,17 @@ orch_graph_upsert_node() {
                  | map_values(if . == "" then null else . end) end)]
         )
     '
-  orch_cdamux_publish_run
 }
 
 # orch_graph_add_edge FROM TO TYPE
 orch_graph_add_edge() {
   local from="$1" to="$2" etype="${3:-depends}"
-  local gf
-  if ! orch_graph_enabled || ! command -v jq >/dev/null 2>&1 || [ -z "${ORCH_RUN_ID:-}" ]; then
+  if ! orch_graph_writable || [ -z "${ORCH_RUN_ID:-}" ]; then
     return 0
   fi
-  gf="$(orch_graph_file)"
-  [ -f "$gf" ] || return 0
+  if ! orch_cdamux_state_get runs "$ORCH_RUN_ID" >/dev/null 2>&1; then
+    return 0
+  fi
   orch_graph_locked_jq \
     --arg from "$from" \
     --arg to "$to" \
@@ -234,11 +205,10 @@ orch_graph_add_edge() {
     '
       .updated_at = $updated
       | .edges = (
-          [.edges[] | select(.from != $from or .to != $to or .type != $type)]
+          [(.edges // [])[] | select(.from != $from or .to != $to or .type != $type)]
           + [{from:$from,to:$to,type:$type}]
         )
     '
-  orch_cdamux_publish_run
 }
 
 # The worker loop (orch_loop_worker delegates here): implement/fix nodes + verify +

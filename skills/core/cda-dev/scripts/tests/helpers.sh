@@ -11,6 +11,8 @@ unset _orch_k
 # No parent-CLI inheritance in tests (ADR-010): no env markers, ps walk disabled.
 unset CLAUDECODE CODEX_THREAD_ID CODEX_SESSION_ID CURSOR_INVOKED_AS
 export ORCH_PS=false
+# Headless by default in unit tests (production default is ORCH_TMUX=1).
+export ORCH_TMUX=0
 
 FAILS=0
 PASSES=0
@@ -48,4 +50,47 @@ assert_file() {
 summary() {
   printf 'passes=%s fails=%s\n' "$PASSES" "$FAILS"
   [ "$FAILS" -eq 0 ]
+}
+
+# Install a stub `cdamux` under $1/bin that writes $CDAMUX_HOME like the real CLI.
+# Prepends that bin to PATH. Used by graph/progress hard-cut tests (#252).
+orch_test_stub_cdamux() {
+  local root="$1"
+  mkdir -p "$root/bin"
+  cat >"$root/bin/cdamux" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+[ "${1:-}" = state ] || { echo "stub: only state" >&2; exit 2; }
+shift
+cmd="${1:-}"; shift || true
+kind="${1:-}"; id="${2:-}"; json="${3:-}"
+dir="${CDAMUX_HOME:?}/$kind"
+case "$cmd" in
+  set)
+    mkdir -p "$dir"
+    if [ "$kind" = runs ] && [ "${CDAMUX_STUB_SLEEP_RUNS:-}" = invert ]; then
+      n="$(printf '%s' "$json" | jq '.nodes | length' 2>/dev/null || echo 0)"
+      sleep "$(awk -v n="$n" 'BEGIN { s = 0.20 - n * 0.02; if (s < 0.02) s = 0.02; printf "%.3f", s }')"
+    fi
+    printf '%s\n' "$json" >"$dir/${id}.json"
+    ;;
+  append)
+    mkdir -p "$dir"
+    f="$dir/${id}.json"
+    if [ -f "$f" ] && command -v jq >/dev/null 2>&1; then
+      jq -c --argjson p "$json" '. * $p' "$f" >"$f.tmp" && mv "$f.tmp" "$f"
+    else
+      printf '%s\n' "$json" >"$f"
+    fi
+    ;;
+  get)
+    f="$dir/${id}.json"
+    [ -f "$f" ] || { echo "not found" >&2; exit 1; }
+    cat "$f"
+    ;;
+  *) echo "stub: unknown $cmd" >&2; exit 2;;
+esac
+EOF
+  chmod +x "$root/bin/cdamux"
+  export PATH="$root/bin:$PATH"
 }

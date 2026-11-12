@@ -112,6 +112,7 @@ nix develop -c bash scripts/verify.sh
 - `headless.sh` does **not** open PRs from issues (ADR-001); use orch / orch-auto.
 - This repo has **no** GitHub Actions PR checks. Orch treats empty checks as green when:
   orch: allow-no-checks
-  (or `ORCH_ALLOW_NO_CHECKS=1`). Poll live worker state at `.orch/run/status.json`.
+  (or `ORCH_ALLOW_NO_CHECKS=1`). Poll live worker state under `$CDAMUX_HOME/runs/`
+  (and agents); `.orch/run/` keeps work artefacts only.
 
 verify: nix develop -c bash scripts/verify.sh

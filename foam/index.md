@@ -49,7 +49,7 @@ Index: [[decisions/index|All ADRs]]
 
 | PRD | Status |
 | --- | ------ |
-| [[../prd/PRD-239-orchestrator-session|PRD-239]] orchestrator session (unified state; plans: [[../plans/PLAN-241-cdamux-state-cli|PLAN-241]], [[../plans/PLAN-242-cdamux-real-statuses|PLAN-242]], [[../plans/PLAN-245-cdamux-msg|PLAN-245]], [[../plans/PLAN-246-cdamux-worker-spawn|PLAN-246]], [[../plans/PLAN-247-cdamux-orch-skill|PLAN-247]], [[../plans/PLAN-251-orch-cdamux-publish|PLAN-251]], [[../plans/PLAN-252-orch-hard-cut|PLAN-252]], [[../plans/PLAN-253-orch-parent-msg|PLAN-253]]) | approved |
+| [[../prd/PRD-239-orchestrator-session|PRD-239]] orchestrator session (unified state; slice 4 last: [[../plans/PLAN-257-cdamux-fleet-orch-ui|PLAN-257]], [[../plans/PLAN-258-cdamux-orch-restore|PLAN-258]], [[../plans/PLAN-259-cdamux-state-gc|PLAN-259]]) | approved |
 | [[../prd/PRD-33-cda-aitools|PRD-33]] cda.aitools companion | shipped |
 | [[../prd/PRD-25-kiss-audit-orch-gh-board|PRD-25]] kiss-audit orch+gh-board | shipped |
 | [[../prd/PRD-6-kiss-audit-fixes|PRD-6]] prior kiss-audit batch | shipped |

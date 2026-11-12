@@ -4,12 +4,12 @@ use crate::client_name::normalize_client_name;
 use crate::session_manage::is_home_session;
 use crate::session_registry::{self, now_secs, SessionRecord};
 use crate::state::{
-    generate_agent_id, initial_agent_value, state_append, state_get, state_set, StateKind,
+    generate_agent_id, initial_agent_value, random_bytes, state_append, state_get, state_set,
+    StateKind,
 };
 use crate::tmux::pane_target;
 use crate::{AgentEntry, AgentsConfig};
 use serde::{Deserialize, Serialize};
-use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use thiserror::Error;
@@ -385,8 +385,7 @@ pub(crate) fn with_claude_session_id(command: &str, agent_label: Option<&str>) -
 
 /// Random RFC 4122 v4 uuid from `/dev/urandom` (no extra crate).
 fn uuid_v4() -> Option<String> {
-    let mut b = [0u8; 16];
-    std::fs::File::open("/dev/urandom").ok()?.read_exact(&mut b).ok()?;
+    let mut b = random_bytes::<16>()?;
     b[6] = (b[6] & 0x0f) | 0x40;
     b[8] = (b[8] & 0x3f) | 0x80;
     let h: String = b.iter().map(|x| format!("{x:02x}")).collect();

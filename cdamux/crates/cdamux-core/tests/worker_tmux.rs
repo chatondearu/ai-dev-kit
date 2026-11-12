@@ -162,8 +162,16 @@ fn spawn_ls_peek_and_msg_by_name() {
     .expect("spawn worker");
     assert!(!out.agent_id.is_empty(), "missing agent id");
     assert_eq!(out.name, "api");
-    assert!(out.path.starts_with(&wt_root));
     assert!(out.run.starts_with("r-"));
+    assert_eq!(out.path, wt_root.join(&out.run).join("api"));
+    let branch = Command::new("git")
+        .args(["-C", out.path.to_str().unwrap(), "branch", "--show-current"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        String::from_utf8_lossy(&branch.stdout).trim(),
+        format!("worker/{}/api", out.run)
+    );
 
     let orch = state_get(StateKind::Agents, "a-orch1").unwrap().unwrap();
     assert_eq!(orch["run"], out.run);

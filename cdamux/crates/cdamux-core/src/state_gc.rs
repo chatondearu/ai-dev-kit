@@ -4,6 +4,7 @@
 
 use crate::paths::{cdamux_home, cdamux_state_dir};
 use crate::session_registry::{self, SessionRecord};
+use crate::state::{state_list, valid_state_id, StateKind};
 use serde_json::Value;
 use std::fs;
 use std::io;
@@ -82,16 +83,23 @@ fn archive_dir(kind: &str) -> io::Result<PathBuf> {
     Ok(home.join("archive").join(kind))
 }
 
-/// Move `src` to `$CDAMUX_HOME/archive/<kind>/<file_name>` (creates dirs).
+/// Move `src` to `$CDAMUX_HOME/archive/<kind>/<file_name>` (creates dirs). An
+/// existing archive is kept: the new one gets a `.<unix_secs>` suffix before the extension.
 fn archive_then_remove(src: &Path, kind: &str) -> io::Result<PathBuf> {
     let dest_dir = archive_dir(kind)?;
     fs::create_dir_all(&dest_dir)?;
     let name = src
         .file_name()
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "missing file name"))?;
-    let dest = dest_dir.join(name);
+    let mut dest = dest_dir.join(name);
     if dest.exists() {
-        let _ = fs::remove_file(&dest);
+        // shortcut: two archives of the same name within one second still collide.
+        let stem = src.file_stem().unwrap_or(name).to_string_lossy();
+        let secs = session_registry::now_secs();
+        dest = dest_dir.join(match src.extension() {
+            Some(ext) => format!("{stem}.{secs}.{}", ext.to_string_lossy()),
+            None => format!("{stem}.{secs}"),
+        });
     }
     match fs::rename(src, &dest) {
         Ok(()) => Ok(dest),
@@ -158,37 +166,6 @@ pub fn run_eligible(
     older_than_retention(path, now, retention_days)
 }
 
-fn scan_json_dir(dir: &Path) -> Vec<(String, PathBuf, Value)> {
-    let Ok(entries) = fs::read_dir(dir) else {
-        return Vec::new();
-    };
-    let mut out = Vec::new();
-    for ent in entries.flatten() {
-        let path = ent.path();
-        if path.extension().and_then(|e| e.to_str()) != Some("json") {
-            continue;
-        }
-        let Ok(text) = fs::read_to_string(&path) else {
-            continue;
-        };
-        let Ok(value) = serde_json::from_str::<Value>(&text) else {
-            continue;
-        };
-        let id = value
-            .get("id")
-            .or_else(|| value.get("run_id"))
-            .and_then(|v| v.as_str())
-            .map(str::to_string)
-            .unwrap_or_else(|| {
-                path.file_stem()
-                    .map(|s| s.to_string_lossy().into_owned())
-                    .unwrap_or_default()
-            });
-        out.push((id, path, value));
-    }
-    out
-}
-
 /// Scan `$CDAMUX_HOME` agents/runs, archive then remove eligible entities.
 ///
 /// `retention_days` must be ≥ 1 (`0` is rejected).
@@ -207,30 +184,35 @@ pub fn run_gc(
     let registry = session_registry::load_all();
     let mut report = GcReport::default();
 
-    if let Some(agents_dir) = cdamux_state_dir("agents") {
-        for (id, path, value) in scan_json_dir(&agents_dir) {
-            if is_resumable_dormant(&id, host_field(&value), &registry)
-                && is_gc_agent_status(status_str(&value))
-                && agent_has_no_host(&value, host_alive)
-            {
-                report.skipped_dormant.push(id.clone());
-            }
-            if !agent_eligible(&id, &value, &path, now, days, host_alive, &registry) {
-                continue;
-            }
-            archive_then_remove(&path, "agents")?;
-            report.archived_agents.push(id);
+    let inbox_dir = cdamux_state_dir("inbox");
+    for (id, path, value) in state_list(StateKind::Agents) {
+        if is_resumable_dormant(&id, host_field(&value), &registry)
+            && is_gc_agent_status(status_str(&value))
+            && agent_has_no_host(&value, host_alive)
+        {
+            report.skipped_dormant.push(id.clone());
         }
+        if !agent_eligible(&id, &value, &path, now, days, host_alive, &registry) {
+            continue;
+        }
+        archive_then_remove(&path, "agents")?;
+        if let Some(dir) = inbox_dir.as_deref().filter(|_| valid_state_id(&id)) {
+            for ext in ["jsonl", "cursor"] {
+                let file = dir.join(format!("{id}.{ext}"));
+                if file.is_file() {
+                    archive_then_remove(&file, "inbox")?;
+                }
+            }
+        }
+        report.archived_agents.push(id);
     }
 
-    if let Some(runs_dir) = cdamux_state_dir("runs") {
-        for (id, path, value) in scan_json_dir(&runs_dir) {
-            if !run_eligible(&value, &path, now, days, host_alive) {
-                continue;
-            }
-            archive_then_remove(&path, "runs")?;
-            report.archived_runs.push(id);
+    for (id, path, value) in state_list(StateKind::Runs) {
+        if !run_eligible(&value, &path, now, days, host_alive) {
+            continue;
         }
+        archive_then_remove(&path, "runs")?;
+        report.archived_runs.push(id);
     }
 
     report.archived_agents.sort();
@@ -312,6 +294,15 @@ mod tests {
                 30,
             );
 
+            let inbox = home.join("inbox");
+            fs::create_dir_all(&inbox).unwrap();
+            fs::write(inbox.join("a-old1.jsonl"), "{}\n").unwrap();
+            fs::write(inbox.join("a-old1.cursor"), "3\n").unwrap();
+            fs::write(inbox.join("a-fresh.jsonl"), "{}\n").unwrap();
+            let archived = home.join("archive/agents");
+            fs::create_dir_all(&archived).unwrap();
+            fs::write(archived.join("a-old1.json"), "earlier").unwrap();
+
             let report = run_gc(14, now, &alive).unwrap();
             assert_eq!(report.archived_agents, vec!["a-err1", "a-old1"]);
             assert_eq!(report.archived_runs, vec!["r-old"]);
@@ -319,9 +310,24 @@ mod tests {
             assert!(home.join("agents/a-live.json").is_file());
             assert!(home.join("agents/a-idle.json").is_file());
             assert!(home.join("runs/r-run.json").is_file());
-            assert!(home.join("archive/agents/a-old1.json").is_file());
             assert!(home.join("archive/runs/r-old.json").is_file());
             assert!(!home.join("agents/a-old1.json").exists());
+
+            // An earlier archive of the same id is kept; the new one gets a suffix.
+            assert_eq!(fs::read_to_string(archived.join("a-old1.json")).unwrap(), "earlier");
+            let suffixed = fs::read_dir(&archived)
+                .unwrap()
+                .flatten()
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .filter(|n| n.starts_with("a-old1.") && n.ends_with(".json") && n != "a-old1.json")
+                .count();
+            assert_eq!(suffixed, 1);
+
+            assert!(home.join("archive/inbox/a-old1.jsonl").is_file());
+            assert!(home.join("archive/inbox/a-old1.cursor").is_file());
+            assert!(!inbox.join("a-old1.jsonl").exists());
+            assert!(!inbox.join("a-old1.cursor").exists());
+            assert!(inbox.join("a-fresh.jsonl").is_file());
         });
     }
 

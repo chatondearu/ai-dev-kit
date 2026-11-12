@@ -6,6 +6,7 @@ use crate::paths::cdamux_state_dir;
 use serde_json::{Map, Value};
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Entity kind under `$CDAMUX_HOME/<kind>/<id>.json`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -58,12 +59,23 @@ fn entity_path(kind: StateKind, id: &str) -> io::Result<PathBuf> {
     Ok(dir.join(format!("{id}.json")))
 }
 
-/// Atomic write: tmp + rename (same pattern as the restore registry).
+static TMP_SEQ: AtomicU64 = AtomicU64::new(0);
+
+/// Atomic write: tmp + rename. The tmp name is unique per call, since `cdamuxd`
+/// writes from several threads of one pid.
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
-    let tmp = path.with_extension(format!("json.tmp.{}", std::process::id()));
+    let name = path
+        .file_name()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "missing file name"))?;
+    let tmp = path.with_file_name(format!(
+        "{}.tmp.{}.{}",
+        name.to_string_lossy(),
+        std::process::id(),
+        TMP_SEQ.fetch_add(1, Ordering::Relaxed)
+    ));
     std::fs::write(&tmp, bytes)?;
     std::fs::rename(&tmp, path).inspect_err(|_| {
         let _ = std::fs::remove_file(&tmp);
@@ -115,22 +127,74 @@ fn merge_shallow(existing: Value, patch: &Value) -> Value {
     }
 }
 
-/// Mint `a-xxxxx` (5 lowercase alphanumeric chars). `None` without `/dev/urandom`.
-pub fn generate_agent_id() -> Option<String> {
+/// Every readable `$CDAMUX_HOME/<kind>/*.json` as `(id, path, value)`. Skips other
+/// files (the agents dir also holds `<session>.jsonl` ledgers) and invalid JSON.
+/// `id` is the `id` field, else `run_id`, else the file stem.
+pub fn state_list(kind: StateKind) -> Vec<(String, PathBuf, Value)> {
+    let Some(dir) = cdamux_state_dir(kind.as_str()) else {
+        return Vec::new();
+    };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    entries
+        .flatten()
+        .filter_map(|ent| {
+            let path = ent.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("json") {
+                return None;
+            }
+            let value: Value =
+                serde_json::from_str(&std::fs::read_to_string(&path).ok()?).ok()?;
+            let id = value
+                .get("id")
+                .or_else(|| value.get("run_id"))
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+                .unwrap_or_else(|| {
+                    path.file_stem()
+                        .map(|s| s.to_string_lossy().into_owned())
+                        .unwrap_or_default()
+                });
+            Some((id, path, value))
+        })
+        .collect()
+}
+
+/// `N` bytes from `/dev/urandom`; `None` when unavailable.
+pub(crate) fn random_bytes<const N: usize>() -> Option<[u8; N]> {
     use std::io::Read;
-    const ALPH: &[u8] = b"0123456789abcdefghijklmnopqrstuvwxyz";
-    let mut b = [0u8; 5];
+    let mut b = [0u8; N];
     std::fs::File::open("/dev/urandom").ok()?.read_exact(&mut b).ok()?;
-    let s: String = b
+    Some(b)
+}
+
+/// Mint `<prefix>-xxxxx` (5 lowercase alphanumeric chars).
+pub(crate) fn random_id(prefix: &str) -> Option<String> {
+    const ALPH: &[u8] = b"0123456789abcdefghijklmnopqrstuvwxyz";
+    let s: String = random_bytes::<5>()?
         .iter()
         .map(|x| ALPH[(*x as usize) % ALPH.len()] as char)
         .collect();
-    Some(format!("a-{s}"))
+    Some(format!("{prefix}-{s}"))
+}
+
+/// True when `id` already owns an agent file or an inbox.
+fn agent_id_taken(id: &str) -> bool {
+    entity_path(StateKind::Agents, id).is_ok_and(|p| p.exists())
+        || cdamux_state_dir("inbox").is_some_and(|d| d.join(format!("{id}.jsonl")).exists())
+}
+
+/// Mint an unused `a-xxxxx`. `None` without `/dev/urandom` or after 8 collisions.
+pub fn generate_agent_id() -> Option<String> {
+    (0..8)
+        .map_while(|_| random_id("a"))
+        .find(|id| !agent_id_taken(id))
 }
 
 /// Mint a long-lived run id `r-xxxxx` (same entropy as [`generate_agent_id`]).
 pub fn generate_run_id() -> Option<String> {
-    generate_agent_id().map(|id| format!("r-{}", id.trim_start_matches("a-")))
+    random_id("r")
 }
 
 /// Initial agent document written at spawn (private shape).
@@ -219,6 +283,64 @@ mod tests {
         assert_eq!(id.len(), 7);
         assert!(valid_state_id(&id));
         assert_ne!(id, generate_agent_id().unwrap());
+    }
+
+    #[test]
+    fn agent_id_taken_by_entity_or_inbox() {
+        with_temp_home(|home| {
+            assert!(!agent_id_taken("a-free1"));
+            state_set(StateKind::Agents, "a-used1", &serde_json::json!({})).unwrap();
+            assert!(agent_id_taken("a-used1"));
+            std::fs::create_dir_all(home.join("inbox")).unwrap();
+            std::fs::write(home.join("inbox/a-used2.jsonl"), "").unwrap();
+            assert!(agent_id_taken("a-used2"));
+            assert!(!agent_id_taken(&generate_agent_id().unwrap()));
+        });
+    }
+
+    #[test]
+    fn state_list_reads_json_only_with_id_fallbacks() {
+        with_temp_home(|home| {
+            state_set(StateKind::Agents, "a-one", &serde_json::json!({"id": "a-one"})).unwrap();
+            state_set(StateKind::Agents, "a-stem", &serde_json::json!({"x": 1})).unwrap();
+            state_set(StateKind::Runs, "r-1", &serde_json::json!({"run_id": "r-run"})).unwrap();
+            std::fs::write(home.join("agents/c-sess.jsonl"), "{}\n").unwrap();
+            std::fs::write(home.join("agents/bad.json"), "{").unwrap();
+
+            let mut ids: Vec<String> =
+                state_list(StateKind::Agents).into_iter().map(|(id, _, _)| id).collect();
+            ids.sort();
+            assert_eq!(ids, ["a-one", "a-stem"]);
+            let runs = state_list(StateKind::Runs);
+            assert_eq!(runs.len(), 1);
+            assert_eq!(runs[0].0, "r-run");
+            assert_eq!(runs[0].1, home.join("runs/r-1.json"));
+        });
+    }
+
+    #[test]
+    fn concurrent_write_atomic_same_file() {
+        with_temp_home(|home| {
+            let path = home.join("agents/a-race.json");
+            std::thread::scope(|s| {
+                for i in 0..8 {
+                    let path = &path;
+                    s.spawn(move || {
+                        for _ in 0..50 {
+                            write_atomic(path, format!("{{\"n\":{i}}}").as_bytes()).unwrap();
+                        }
+                    });
+                }
+            });
+            let v: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+            assert!(v["n"].is_u64());
+            let leftovers = std::fs::read_dir(home.join("agents"))
+                .unwrap()
+                .flatten()
+                .filter(|e| e.file_name().to_string_lossy().contains(".tmp."))
+                .count();
+            assert_eq!(leftovers, 0);
+        });
     }
 
     #[test]

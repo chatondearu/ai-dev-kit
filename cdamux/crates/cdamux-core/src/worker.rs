@@ -9,7 +9,7 @@ use crate::spawn::{
     SpawnExtra, SpawnOutcome,
 };
 use crate::state::{
-    generate_run_id, state_append, state_get, state_set, valid_state_id, StateKind,
+    generate_run_id, state_append, state_get, state_list, state_set, valid_state_id, StateKind,
 };
 use crate::tmux::capture_pane_text;
 use crate::worktree::{
@@ -162,48 +162,11 @@ pub(crate) fn resolve_spawned_agent_id(host: &str) -> String {
     crate::session_registry::load(host)
         .and_then(|r| r.cdamux_id)
         .or_else(|| {
-            list_agent_docs().ok().and_then(|docs| {
-                docs.into_iter().find_map(|(id, v)| {
-                    (v.get("host").and_then(|h| h.as_str()) == Some(host)).then_some(id)
-                })
+            state_list(StateKind::Agents).into_iter().find_map(|(id, _, v)| {
+                (v.get("host").and_then(|h| h.as_str()) == Some(host)).then_some(id)
             })
         })
         .unwrap_or_default()
-}
-
-fn list_agent_docs() -> io::Result<Vec<(String, Value)>> {
-    let Some(dir) = cdamux_state_dir("agents") else {
-        return Ok(Vec::new());
-    };
-    if !dir.is_dir() {
-        return Ok(Vec::new());
-    }
-    let mut out = Vec::new();
-    for ent in fs::read_dir(dir)? {
-        let ent = ent?;
-        let path = ent.path();
-        if path.extension().and_then(|e| e.to_str()) != Some("json") {
-            continue;
-        }
-        let text = match fs::read_to_string(&path) {
-            Ok(t) => t,
-            Err(_) => continue,
-        };
-        let Ok(v) = serde_json::from_str::<Value>(&text) else {
-            continue;
-        };
-        let id = v
-            .get("id")
-            .and_then(|x| x.as_str())
-            .map(str::to_string)
-            .unwrap_or_else(|| {
-                path.file_stem()
-                    .map(|s| s.to_string_lossy().into_owned())
-                    .unwrap_or_default()
-            });
-        out.push((id, v));
-    }
-    Ok(out)
 }
 
 /// Ensure the orchestrator has a long-lived run id (mint + write when missing).
@@ -230,8 +193,7 @@ pub fn ensure_orch_run(caller_id: &str, caller: &Value, repo: &Path) -> Result<S
 }
 
 fn find_worker_doc(key: &str, parent: Option<&str>) -> Result<(String, Value), WorkerError> {
-    let docs = list_agent_docs().map_err(|e| WorkerError::Io(e.to_string()))?;
-    for (id, v) in docs {
+    for (id, _, v) in state_list(StateKind::Agents) {
         if let Some(p) = parent {
             if v.get("role").and_then(|r| r.as_str()) != Some("worker")
                 || v.get("parent").and_then(|x| x.as_str()) != Some(p)
@@ -250,14 +212,13 @@ fn find_worker_doc(key: &str, parent: Option<&str>) -> Result<(String, Value), W
 
 /// List workers whose `parent` is `caller_id` (or all workers when `caller_id` is empty — unused).
 pub fn list_workers(caller_id: &str) -> Result<Vec<WorkerRow>, WorkerError> {
-    let docs = list_agent_docs().map_err(|e| WorkerError::Io(e.to_string()))?;
-    let mut rows: Vec<WorkerRow> = docs
+    let mut rows: Vec<WorkerRow> = state_list(StateKind::Agents)
         .into_iter()
-        .filter(|(_, v)| {
+        .filter(|(_, _, v)| {
             v.get("role").and_then(|r| r.as_str()) == Some("worker")
                 && v.get("parent").and_then(|p| p.as_str()) == Some(caller_id)
         })
-        .map(|(id, v)| WorkerRow {
+        .map(|(id, _, v)| WorkerRow {
             name: v
                 .get("name")
                 .and_then(|n| n.as_str())
@@ -349,6 +310,13 @@ pub fn spawn_worker(req: WorkerSpawnRequest<'_>) -> Result<WorkerSpawnResult, Wo
         })
         .unwrap_or_else(|| normalize_client_name(&req.agents.default).to_string());
 
+    // Read before creating the worktree so a bad path leaves no orphan worktree/branch.
+    let user_prompt = match req.prompt_file {
+        Some(p) => Some(fs::read_to_string(p).map_err(|e| WorkerError::Io(e.to_string()))?),
+        None => None,
+    };
+    let prompt = compose_worker_first_prompt(user_prompt.as_deref());
+
     let base_cwd = resolve_caller_cwd(&caller, req.cwd);
     let run = ensure_orch_run(req.caller_id, &caller, &base_cwd)?;
 
@@ -362,20 +330,14 @@ pub fn spawn_worker(req: WorkerSpawnRequest<'_>) -> Result<WorkerSpawnResult, Wo
             .ok_or(WorkerError::NoWorktreeRoot)?;
         let repo = git_toplevel(&base_cwd).ok_or(WorkerError::NotGit)?;
         let base_branch = current_branch(&repo).unwrap_or_else(|| "HEAD".into());
-        let branch = format!("worker/{name}");
-        let dest = resolve_worktree_dest(&root, &name);
+        let branch = format!("worker/{run}/{name}");
+        let dest = resolve_worktree_dest(&root.join(&run), &name);
         if dest.exists() {
             return Err(WorkerError::Exists(dest.display().to_string()));
         }
         worktree_add_new_branch(&repo, &dest, &branch, &base_branch)?;
         dest
     };
-
-    let user_prompt = match req.prompt_file {
-        Some(p) => Some(fs::read_to_string(p).map_err(|e| WorkerError::Io(e.to_string()))?),
-        None => None,
-    };
-    let prompt = compose_worker_first_prompt(user_prompt.as_deref());
 
     let base_cmd = resolve_agent_command(req.agents, &client)?;
     let (launch_cmd, paste_after) = with_first_prompt(&base_cmd, &client, Some(&prompt));

@@ -6,10 +6,12 @@ use crate::paths::cdamux_state_dir;
 use crate::send::send_to_session;
 use crate::session::SessionState;
 use crate::session_registry;
-use crate::state::{state_append, state_get, valid_state_id, StateKind};
+use crate::state::{
+    random_id, state_append, state_get, state_list, valid_state_id, write_atomic, StateKind,
+};
 use crate::tmux::list_panes_all;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::json;
 use std::fs::{self, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
@@ -104,15 +106,7 @@ fn cursor_path(agent_id: &str) -> io::Result<PathBuf> {
 
 /// Mint `m-xxxxx` (5 lowercase alphanumeric). `None` without `/dev/urandom`.
 pub fn generate_msg_id() -> Option<String> {
-    use std::io::Read as _;
-    const ALPH: &[u8] = b"0123456789abcdefghijklmnopqrstuvwxyz";
-    let mut b = [0u8; 5];
-    std::fs::File::open("/dev/urandom").ok()?.read_exact(&mut b).ok()?;
-    let s: String = b
-        .iter()
-        .map(|x| ALPH[(*x as usize) % ALPH.len()] as char)
-        .collect();
-    Some(format!("m-{s}"))
+    random_id("m")
 }
 
 pub fn valid_kind(kind: &str) -> bool {
@@ -146,35 +140,22 @@ pub fn resolve_agent_id(to: &str) -> Result<String, MsgError> {
         }
     }
     // Scan agents for matching host (session name) or logical worker name.
-    let mut matches: Vec<(String, Option<String>)> = Vec::new();
-    if let Some(dir) = cdamux_state_dir("agents") {
-        if let Ok(entries) = fs::read_dir(dir) {
-            for ent in entries.flatten() {
-                let path = ent.path();
-                if path.extension().and_then(|e| e.to_str()) != Some("json") {
-                    continue;
-                }
-                let Ok(text) = fs::read_to_string(&path) else {
-                    continue;
-                };
-                let Ok(v): Result<Value, _> = serde_json::from_str(&text) else {
-                    continue;
-                };
-                let host = v.get("host").and_then(|h| h.as_str());
-                let name = v.get("name").and_then(|n| n.as_str());
-                if host == Some(to) || name == Some(to) {
-                    if let Some(id) = v.get("id").and_then(|i| i.as_str()) {
-                        let parent = v
-                            .get("parent")
-                            .and_then(|p| p.as_str())
-                            .filter(|s| !s.is_empty())
-                            .map(str::to_string);
-                        matches.push((id.to_string(), parent));
-                    }
-                }
-            }
-        }
-    }
+    let matches: Vec<(String, Option<String>)> = state_list(StateKind::Agents)
+        .into_iter()
+        .filter(|(_, _, v)| {
+            let host = v.get("host").and_then(|h| h.as_str());
+            let name = v.get("name").and_then(|n| n.as_str());
+            host == Some(to) || name == Some(to)
+        })
+        .map(|(id, _, v)| {
+            let parent = v
+                .get("parent")
+                .and_then(|p| p.as_str())
+                .filter(|s| !s.is_empty())
+                .map(str::to_string);
+            (id, parent)
+        })
+        .collect();
     match matches.as_slice() {
         [] => Err(MsgError::NotFound(to.to_string())),
         [(id, _)] => Ok(id.clone()),
@@ -246,14 +227,7 @@ fn read_cursor(path: &Path) -> io::Result<u64> {
 }
 
 fn write_cursor(path: &Path, offset: u64) -> io::Result<()> {
-    if let Some(dir) = path.parent() {
-        fs::create_dir_all(dir)?;
-    }
-    let tmp = path.with_extension(format!("cursor.tmp.{}", std::process::id()));
-    fs::write(&tmp, format!("{offset}\n"))?;
-    fs::rename(&tmp, path).inspect_err(|_| {
-        let _ = fs::remove_file(&tmp);
-    })
+    write_atomic(path, format!("{offset}\n").as_bytes())
 }
 
 /// Append one message line (O_APPEND). Rejects lines over [`MAX_MSG_BYTES`].
@@ -267,11 +241,13 @@ pub fn append_message(msg: &Message) -> Result<(), MsgError> {
         fs::create_dir_all(dir)?;
     }
     let mut f = OpenOptions::new().create(true).append(true).open(&path)?;
-    writeln!(f, "{line}")?;
+    // One write(2) so concurrent O_APPEND senders cannot interleave line and newline.
+    f.write_all(format!("{line}\n").as_bytes())?;
     Ok(())
 }
 
-/// Read unread messages after the ack cursor. When `ack`, advance the cursor to EOF.
+/// Read unread messages after the ack cursor. When `ack`, advance the cursor past the
+/// last complete line read; a trailing partial line (no newline yet) stays unread.
 pub fn read_messages(agent_id: &str, ack: bool) -> Result<Vec<Message>, MsgError> {
     if !valid_state_id(agent_id) {
         return Err(MsgError::Invalid(format!("invalid agent id '{agent_id}'")));
@@ -294,10 +270,11 @@ pub fn read_messages(agent_id: &str, ack: bool) -> Result<Vec<Message>, MsgError
         return Ok(Vec::new());
     }
     f.seek(SeekFrom::Start(offset))?;
-    let mut buf = String::new();
-    f.read_to_string(&mut buf)?;
+    let mut buf = Vec::new();
+    f.read_to_end(&mut buf)?;
+    let consumed = buf.iter().rposition(|&b| b == b'\n').map_or(0, |i| i + 1);
     let mut out = Vec::new();
-    for line in buf.lines() {
+    for line in String::from_utf8_lossy(&buf[..consumed]).lines() {
         let line = line.trim();
         if line.is_empty() {
             continue;
@@ -308,7 +285,7 @@ pub fn read_messages(agent_id: &str, ack: bool) -> Result<Vec<Message>, MsgError
         }
     }
     if ack {
-        write_cursor(&cur_path, len)?;
+        write_cursor(&cur_path, offset + consumed as u64)?;
     }
     Ok(out)
 }
@@ -582,6 +559,74 @@ mod tests {
                     .unwrap(),
                 home.join("inbox/a-orch1.jsonl").metadata().unwrap().len()
             );
+        });
+    }
+
+    fn test_msg(id: String, to: &str) -> Message {
+        Message {
+            id,
+            ts: 1,
+            from: "a-x".into(),
+            to: to.into(),
+            kind: "report".into(),
+            text: "t".repeat(200),
+            r#ref: None,
+        }
+    }
+
+    #[test]
+    fn concurrent_appends_keep_every_line() {
+        with_temp_home(|_| {
+            const THREADS: usize = 8;
+            const PER: usize = 200;
+            std::thread::scope(|s| {
+                for t in 0..THREADS {
+                    s.spawn(move || {
+                        for i in 0..PER {
+                            append_message(&test_msg(format!("m-{t}-{i}"), "a-conc1")).unwrap();
+                        }
+                    });
+                }
+            });
+            assert_eq!(read_inbox_all("a-conc1").unwrap().len(), THREADS * PER);
+        });
+    }
+
+    #[test]
+    fn ack_stops_before_partial_line() {
+        with_temp_home(|home| {
+            append_message(&test_msg("m-p1".into(), "a-part1")).unwrap();
+            append_message(&test_msg("m-p2".into(), "a-part1")).unwrap();
+            let inbox = home.join("inbox/a-part1.jsonl");
+            let two_lines = inbox.metadata().unwrap().len();
+            let third = serde_json::to_string(&test_msg("m-p3".into(), "a-part1")).unwrap();
+            let (head, tail) = third.split_at(10);
+            OpenOptions::new()
+                .append(true)
+                .open(&inbox)
+                .unwrap()
+                .write_all(head.as_bytes())
+                .unwrap();
+
+            let got = read_messages("a-part1", true).unwrap();
+            assert_eq!(got.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), ["m-p1", "m-p2"]);
+            let cursor: u64 = fs::read_to_string(home.join("inbox/a-part1.cursor"))
+                .unwrap()
+                .trim()
+                .parse()
+                .unwrap();
+            assert_eq!(cursor, two_lines);
+
+            OpenOptions::new()
+                .append(true)
+                .open(&inbox)
+                .unwrap()
+                .write_all(format!("{tail}\n").as_bytes())
+                .unwrap();
+            let got = read_messages("a-part1", true).unwrap();
+            assert_eq!(got.len(), 1);
+            assert_eq!(got[0].id, "m-p3");
+            assert!(read_messages("a-part1", false).unwrap().is_empty());
         });
     }
 

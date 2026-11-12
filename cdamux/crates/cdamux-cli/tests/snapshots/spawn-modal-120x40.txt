@@ -24,13 +24,13 @@
                   │git: (no repo at path)                                                            │
                   │                                                                                  │
                   │                                                                                  │
-                  │agent: [ claude ▾ ]  (a cycle)  |  shell only: [ ]  (s toggle)                    │
+                  │agent: [ claude ▾ ]  (a)  |  shell: [ ]  (s)  |  orchestrator: [ ]  (o)           │
                   │layout: [ single ▾ ]  (p cycle)                                                   │
                   │secondary pane: shell when split                                                  │
                   │                                                                                  │
                   │                                                                                  │
                   │Enter create · Esc cancel · j/k pick · Tab mode · b branch · w worktree · s shell │
-                  │· a agent · p layout                                                              │
+                  │· o orch · a agent · p layout                                                     │
                   └──────────────────────────────────────────────────────────────────────────────────┘
 
 

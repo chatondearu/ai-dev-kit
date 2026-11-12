@@ -58,9 +58,12 @@ these (`./scripts/doctor.sh` only checks `PATH`). With a Cursor CLI present it a
 Hooks, orch and workers write agent/run JSON only through `cdamux state set|get|append`
 under `$CDAMUX_HOME` (format private). Orchestrator ↔ worker messages use
 `cdamux msg send|read` (`inbox/<agent-id>.jsonl` + `.cursor`, ≤ 2 KB/line).
-Interactive workers: `cdamux worker spawn|ls|peek` (needs `$CDAMUX_AGENT_ID`; worktrees
-under `[worktrees].root` or `$CDAMUX_HOME/worktrees`). Layout, ids, delivery and restore:
-[cdamux/docs/architecture.md](../cdamux/docs/architecture.md) § State root.
+Start an orchestrator with `cdamux orch new` (or Fleet spawn role *orchestrator*) —
+skill `cda-orchestrator`. Interactive workers: `cdamux worker spawn|ls|peek` (needs
+`$CDAMUX_AGENT_ID`; worktrees under `[worktrees].root` or `$CDAMUX_HOME/worktrees`;
+default first message includes the worker preamble for `cdamux msg`). Layout, ids,
+delivery and restore: [cdamux/docs/architecture.md](../cdamux/docs/architecture.md)
+§ State root.
 
 See [graph-orchestration.md](graph-orchestration.md).
 Graphify install stays in **aitools** only — never `install.sh`

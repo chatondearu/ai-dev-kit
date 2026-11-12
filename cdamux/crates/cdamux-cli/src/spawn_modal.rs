@@ -4,9 +4,9 @@ use cdamux_core::{
     configured_agent_ids, current_branch, default_agent_name, default_shell_command,
     discover_projects, git_toplevel, list_local_branches, list_tmux_sessions,
     preferred_spawn_agent_index, resolve_agent_command, resolve_worktree_dest,
-    session_name_for_path, spawn_tmux_session_with_layout, unique_session_name,
-    worktree_add_new_branch, Config,
-    PaneLayout,
+    session_name_for_path, spawn_orchestrator, spawn_tmux_session_with_layout,
+    unique_session_name, worktree_add_new_branch, Config, OrchNewRequest, PaneLayout,
+    ORCHESTRATOR_SKILL,
 };
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
@@ -52,6 +52,8 @@ pub(crate) struct ModalState {
     list_offset: usize,
     custom_path: String,
     shell_only: bool,
+    /// Fleet *orchestrator* role — same path as `cdamux orch new`.
+    orchestrator: bool,
     agent_index: usize,
     agents: Vec<String>,
     layout: PaneLayout,
@@ -125,6 +127,7 @@ impl ModalState {
             list_offset: 0,
             custom_path: String::new(),
             shell_only: false,
+            orchestrator: false,
             agent_index,
             agents,
             layout: PaneLayout::Single,
@@ -217,6 +220,7 @@ impl ModalState {
     }
 }
 
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) enum SpawnModalAction {
     Continue,
     DismissCancel,
@@ -289,6 +293,17 @@ pub(crate) fn on_key(cfg: &Config, state: &mut ModalState, key: KeyEvent) -> Spa
         }
         KeyCode::Char('s') if key.modifiers.is_empty() => {
             state.shell_only = !state.shell_only;
+            if state.shell_only {
+                state.orchestrator = false;
+            }
+            SpawnModalAction::Continue
+        }
+        KeyCode::Char('o') if key.modifiers.is_empty() => {
+            state.orchestrator = !state.orchestrator;
+            if state.orchestrator {
+                state.shell_only = false;
+                state.layout = PaneLayout::Single;
+            }
             SpawnModalAction::Continue
         }
         KeyCode::Char('a') if key.modifiers.is_empty() && !state.shell_only => {
@@ -297,7 +312,7 @@ pub(crate) fn on_key(cfg: &Config, state: &mut ModalState, key: KeyEvent) -> Spa
             }
             SpawnModalAction::Continue
         }
-        KeyCode::Char('p') if key.modifiers.is_empty() => {
+        KeyCode::Char('p') if key.modifiers.is_empty() && !state.orchestrator => {
             state.cycle_layout();
             SpawnModalAction::Continue
         }
@@ -343,18 +358,6 @@ fn execute_spawn(
     path: PathBuf,
     switch_to_session: bool,
 ) -> Result<(String, String), String> {
-    let command = if state.shell_only {
-        default_shell_command()
-    } else {
-        let agent = state
-            .agents
-            .get(state.agent_index)
-            .cloned()
-            .unwrap_or_else(|| default_agent_name(&cfg.agents));
-        resolve_agent_command(&cfg.agents, &agent)
-            .map_err(|e| e.to_string())?
-    };
-
     let spawn_path = if state.worktree_mode {
         let root = cfg
             .worktrees
@@ -378,6 +381,40 @@ fn execute_spawn(
         dest
     } else {
         path
+    };
+
+    if state.orchestrator {
+        let agent = state.agents.get(state.agent_index).map(|s| s.as_str());
+        let r = spawn_orchestrator(OrchNewRequest {
+            path: &spawn_path,
+            agent,
+            agents: &cfg.agents,
+            switch_to_session,
+        })
+        .map_err(|e| e.to_string())?;
+        return Ok((
+            format!(
+                "spawned orchestrator '{}' id={} run={} skill={}{}",
+                r.host,
+                r.agent_id,
+                r.run,
+                ORCHESTRATOR_SKILL,
+                r.outcome.note()
+            ),
+            r.host,
+        ));
+    }
+
+    let command = if state.shell_only {
+        default_shell_command()
+    } else {
+        let agent = state
+            .agents
+            .get(state.agent_index)
+            .cloned()
+            .unwrap_or_else(|| default_agent_name(&cfg.agents));
+        resolve_agent_command(&cfg.agents, &agent)
+            .map_err(|e| e.to_string())?
     };
 
     let session_name = unique_session_name(&session_name_for_path(&spawn_path));
@@ -555,10 +592,11 @@ pub(crate) fn draw_modal(f: &mut Frame, state: &mut ModalState) {
     let opts = {
         let layout = select(state.layout_label());
         let shell = checkbox(state.shell_only);
+        let orch = checkbox(state.orchestrator);
         if state.shell_only {
             Text::from(vec![
                 Line::from(format!("shell only: {shell} (bash in primary pane)")),
-                Line::from(format!("layout: {layout}  (p cycle)")),
+                Line::from(format!("orchestrator: {orch}  (o)  |  layout: {layout}  (p)")),
                 Line::from("secondary pane: shell when split"),
             ])
         } else {
@@ -567,14 +605,24 @@ pub(crate) fn draw_modal(f: &mut Frame, state: &mut ModalState) {
                 .get(state.agent_index)
                 .map(|s| s.as_str())
                 .unwrap_or("?");
+            let layout_line = if state.orchestrator {
+                format!("layout: single (ignored for orch)")
+            } else {
+                format!("layout: {layout}  (p cycle)")
+            };
             Text::from(vec![
                 Line::from(format!(
-                    "agent: {}  (a cycle)  |  shell only: {}  (s toggle)",
+                    "agent: {}  (a)  |  shell: {}  (s)  |  orchestrator: {}  (o)",
                     select(a),
-                    shell
+                    shell,
+                    orch
                 )),
-                Line::from(format!("layout: {layout}  (p cycle)")),
-                Line::from("secondary pane: shell when split"),
+                Line::from(layout_line),
+                Line::from(if state.orchestrator {
+                    "role=orchestrator → same as `cdamux orch new` + skill cda-orchestrator"
+                } else {
+                    "secondary pane: shell when split"
+                }),
             ])
         }
     };
@@ -586,7 +634,11 @@ pub(crate) fn draw_modal(f: &mut Frame, state: &mut ModalState) {
     );
 
     let help = if state.message.is_empty() {
-        "Enter create · Esc cancel · j/k pick · Tab mode · b branch · w worktree · s shell · a agent · p layout"
+        if state.orchestrator {
+            "Enter create · Esc cancel · j/k pick · Tab mode · b branch · w worktree · s shell · o orch · a agent"
+        } else {
+            "Enter create · Esc cancel · j/k pick · Tab mode · b branch · w worktree · s shell · o orch · a agent · p layout"
+        }
     } else {
         state.message.as_str()
     };
@@ -630,6 +682,7 @@ impl ModalState {
             list_offset: 0,
             custom_path: String::new(),
             shell_only: false,
+            orchestrator: false,
             agent_index: 0,
             agents,
             layout: PaneLayout::Single,
@@ -707,5 +760,58 @@ mod tests {
         let mut term = ratatui::Terminal::new(ratatui::backend::TestBackend::new(80, 34)).unwrap();
         term.draw(|f| draw_modal(f, &mut state)).unwrap();
         assert!(!rendered(&term).iter().any(|l| l.contains('█') || l.contains('║')));
+    }
+
+    #[test]
+    fn orchestrator_role_toggles_off_shell() {
+        let cfg = Config::default();
+        let mut state = ModalState::fixture(vec![PathBuf::from("/nonexistent/p0")], vec!["claude".into()]);
+        let key = |c| KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE);
+        assert!(!state.orchestrator);
+        assert_eq!(on_key(&cfg, &mut state, key('o')), SpawnModalAction::Continue);
+        assert!(state.orchestrator);
+        assert!(!state.shell_only);
+        assert_eq!(on_key(&cfg, &mut state, key('s')), SpawnModalAction::Continue);
+        assert!(state.shell_only);
+        assert!(!state.orchestrator);
+        assert_eq!(on_key(&cfg, &mut state, key('o')), SpawnModalAction::Continue);
+        assert!(state.orchestrator);
+        assert!(!state.shell_only);
+        term_shows_orch_hint(&mut state);
+    }
+
+    #[test]
+    fn orchestrator_role_ignores_layout_cycle() {
+        let cfg = Config::default();
+        let mut state = ModalState::fixture(vec![PathBuf::from("/nonexistent/p0")], vec!["claude".into()]);
+        let key = |c| KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE);
+        assert_eq!(on_key(&cfg, &mut state, key('p')), SpawnModalAction::Continue);
+        assert_ne!(state.layout, PaneLayout::Single);
+        assert_eq!(on_key(&cfg, &mut state, key('o')), SpawnModalAction::Continue);
+        assert!(state.orchestrator);
+        assert_eq!(state.layout, PaneLayout::Single);
+        assert_eq!(on_key(&cfg, &mut state, key('p')), SpawnModalAction::Continue);
+        assert_eq!(state.layout, PaneLayout::Single);
+        let mut term = ratatui::Terminal::new(ratatui::backend::TestBackend::new(100, 34)).unwrap();
+        term.draw(|f| draw_modal(f, &mut state)).unwrap();
+        let lines = rendered(&term);
+        assert!(
+            lines.iter().any(|l| l.contains("layout ignored") || l.contains("ignored for orch")),
+            "{lines:?}"
+        );
+    }
+
+    fn term_shows_orch_hint(state: &mut ModalState) {
+        let mut term = ratatui::Terminal::new(ratatui::backend::TestBackend::new(100, 34)).unwrap();
+        term.draw(|f| draw_modal(f, state)).unwrap();
+        let lines = rendered(&term);
+        assert!(
+            lines.iter().any(|l| l.contains("orchestrator") && l.contains("[x]")),
+            "{lines:?}"
+        );
+        assert!(
+            lines.iter().any(|l| l.contains("cdamux orch new")),
+            "{lines:?}"
+        );
     }
 }

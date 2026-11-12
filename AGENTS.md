@@ -47,6 +47,7 @@ Cursor rule (if present): `.cursor/rules/product-memory.mdc`.
 | PRD from Kanban issue | `cda-prd` |
 | Implementation plan from PRD | `cda-plan` |
 | Feature / fix request in chat (one or many) → intake, PRs | `cda-dev` |
+| Interactive cdamux orchestrator session | `cda-orchestrator` |
 | Graph orchestration (parallel workers, graph-plan) | `cda-graph` |
 | Issues, board, PRs, milestones | `cda-kanban` |
 | Foam / PRD / plan layout verify | `cda-doc-hygiene` |
@@ -83,7 +84,8 @@ Closed issue plans: `foam/archive/plans/`.
 
 **cdamux** (Rust agent/tmux orchestrator, ADR-004): in-tree at `cdamux/` until v0;
 see `cdamux/AGENTS.md` and `cdamux/docs/research.md`. Nix package: `nix build .#cdamux`
-(opt-in `cda.aitools.cdamux.*`, see `aitools/README.md`).
+(opt-in `cda.aitools.cdamux.*`, see `aitools/README.md`). Interactive session:
+`cdamux orch new` + skill `cda-orchestrator` (not `orch.sh`).
 
 Experimental opt-in companion: `aitools/` (`cda.aitools` Nix modules, ADR-003).
 Never enabled by `install.sh`. Relocatable root: `CDA_AITOOLS_HOME`.

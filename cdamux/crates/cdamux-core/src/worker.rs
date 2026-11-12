@@ -9,7 +9,7 @@ use crate::spawn::{
     SpawnExtra, SpawnOutcome,
 };
 use crate::state::{
-    generate_agent_id, state_append, state_get, state_set, valid_state_id, StateKind,
+    generate_run_id, state_append, state_get, state_set, valid_state_id, StateKind,
 };
 use crate::tmux::capture_pane_text;
 use crate::worktree::{
@@ -139,8 +139,36 @@ fn slug_session(name: &str) -> String {
     format!("c-{}", if safe.is_empty() { "worker" } else { &safe })
 }
 
-fn generate_run_id() -> Option<String> {
-    generate_agent_id().map(|id| format!("r-{}", id.trim_start_matches("a-")))
+/// Default first-message prefix for `worker spawn` (cdamux msg reporting).
+pub fn worker_preamble() -> &'static str {
+    include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../prompts/worker-preamble.md"
+    ))
+    .trim()
+}
+
+/// Preamble alone, or preamble + user prompt from `--prompt-file`.
+pub fn compose_worker_first_prompt(user: Option<&str>) -> String {
+    let preamble = worker_preamble();
+    match user.map(str::trim).filter(|s| !s.is_empty()) {
+        Some(u) => format!("{preamble}\n\n{u}"),
+        None => preamble.to_string(),
+    }
+}
+
+/// Prefer session registry; fall back to agent state docs by `host` (CreatedUnrecorded).
+pub(crate) fn resolve_spawned_agent_id(host: &str) -> String {
+    crate::session_registry::load(host)
+        .and_then(|r| r.cdamux_id)
+        .or_else(|| {
+            list_agent_docs().ok().and_then(|docs| {
+                docs.into_iter().find_map(|(id, v)| {
+                    (v.get("host").and_then(|h| h.as_str()) == Some(host)).then_some(id)
+                })
+            })
+        })
+        .unwrap_or_default()
 }
 
 fn list_agent_docs() -> io::Result<Vec<(String, Value)>> {
@@ -343,13 +371,14 @@ pub fn spawn_worker(req: WorkerSpawnRequest<'_>) -> Result<WorkerSpawnResult, Wo
         dest
     };
 
-    let prompt = match req.prompt_file {
+    let user_prompt = match req.prompt_file {
         Some(p) => Some(fs::read_to_string(p).map_err(|e| WorkerError::Io(e.to_string()))?),
         None => None,
     };
+    let prompt = compose_worker_first_prompt(user_prompt.as_deref());
 
     let base_cmd = resolve_agent_command(req.agents, &client)?;
-    let (launch_cmd, paste_after) = with_first_prompt(&base_cmd, &client, prompt.as_deref());
+    let (launch_cmd, paste_after) = with_first_prompt(&base_cmd, &client, Some(&prompt));
 
     let session_base = if req.here {
         session_name_for_path(&spawn_path)
@@ -375,22 +404,10 @@ pub fn spawn_worker(req: WorkerSpawnRequest<'_>) -> Result<WorkerSpawnResult, Wo
         extra,
     )?;
 
-    let agent_id = crate::session_registry::load(&host)
-        .and_then(|r| r.cdamux_id)
-        .or_else(|| {
-            list_agent_docs().ok().and_then(|docs| {
-                docs.into_iter().find_map(|(id, v)| {
-                    (v.get("host").and_then(|h| h.as_str()) == Some(host.as_str()))
-                        .then_some(id)
-                })
-            })
-        })
-        .unwrap_or_default();
+    let agent_id = resolve_spawned_agent_id(&host);
 
-    if paste_after {
-        if let Some(text) = prompt.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-            send_to_session(&host, text, true)?;
-        }
+    if paste_after && !prompt.trim().is_empty() {
+        send_to_session(&host, prompt.trim(), true)?;
     }
 
     Ok(WorkerSpawnResult {
@@ -427,5 +444,16 @@ mod tests {
     fn opencode_prompt_escapes_quotes() {
         let (cmd, _) = with_first_prompt("opencode", "opencode", Some("it's fine"));
         assert_eq!(cmd, "opencode --prompt 'it'\\''s fine'");
+    }
+
+    #[test]
+    fn worker_preamble_mentions_cdamux_msg() {
+        let p = worker_preamble();
+        assert!(p.contains("cdamux msg"), "{p}");
+        assert!(p.contains("--kind ask"), "{p}");
+        let composed = compose_worker_first_prompt(Some("do the thing"));
+        assert!(composed.starts_with(p));
+        assert!(composed.contains("do the thing"));
+        assert_eq!(compose_worker_first_prompt(None), p);
     }
 }

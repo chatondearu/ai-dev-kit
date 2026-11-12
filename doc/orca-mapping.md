@@ -86,7 +86,7 @@ Rough “same intent” paths (Orca → CDA). Orca commands require the Orca app
 Shipped / in progress (visibility slice):
 
 1. ~~Warn on `worker-result.json` in `orch.sh`~~ — `orch_worker_result_warn`.
-2. ~~Worker preamble~~ — `cda-dev/prompts/worker.md`.
+2. ~~Worker preamble~~ — `cda-dev/prompts/worker.md` + `cdamux/prompts/worker-preamble.md` (`cdamux msg`).
 3. ~~`graph-node.sh` + schema for Cursor fallback~~ — avoids hand-written invalid graphs.
 4. ~~cdamux schema errors (422) + stale badge~~ — `OrchGraphError` / `format_orch_graph_panel_ex`.
 5. ~~bash `export -f` for graph helpers~~ — workers actually write nodes under `bash -c`.

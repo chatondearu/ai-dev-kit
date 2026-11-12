@@ -82,6 +82,17 @@ Delivery:
 ack cursor; `--ack` advances `inbox/<id>.cursor`. `kind=ask` sets the sender
 `blocked`; `kind=answer` clears the recipient to `idle`.
 
+### Orchestrator session (`cdamux orch`)
+
+- `cdamux orch new [--agent X] [--path DIR]` — tmux host with `role=orchestrator`, a
+  fresh long-lived run under `$CDAMUX_HOME/runs/`, `$CDAMUX_AGENT_ID` exported, and a
+  first-turn boot prompt that points at skill `cda-orchestrator` (kit
+  `skills/core/cda-orchestrator/`, linked by `install.sh`). Fleet spawn modal role
+  *orchestrator* (`o`) calls the same helper.
+- Skill behaviours: spawn/track workers, relay (`@worker` forces; otherwise the
+  orchestrator decides; one-line confirm), answer or escalate asks, never paste raw
+  worker output, read reports by `ref`. See the skill file.
+
 ### Interactive workers (`cdamux worker`)
 
 Requires `$CDAMUX_AGENT_ID` (caller must be an orchestrator session).
@@ -90,8 +101,10 @@ Requires `$CDAMUX_AGENT_ID` (caller must be an orchestrator session).
   `role=worker`, `parent` = caller id, `run` = caller's long-lived run (minted if
   missing). Default: new git worktree + branch `worker/<name>` under
   `[worktrees].root` or `$CDAMUX_HOME/worktrees`. `--here` reuses the caller's cwd.
-  Client defaults to the caller's product name unless `--agent` is set. opencode's
-  first message uses `--prompt`; other clients get a pane paste after launch.
+  Client defaults to the caller's product name unless `--agent` is set. Every spawn
+  prefixes the first message with `cdamux/prompts/worker-preamble.md` (report via
+  `cdamux msg`); `--prompt-file` content is appended. opencode's first message uses
+  `--prompt`; other clients get a pane paste after launch.
 - `cdamux worker ls` — workers whose `parent` is the caller.
 - `cdamux worker peek <name> [--lines N]` — last N pane lines.
 

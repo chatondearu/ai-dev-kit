@@ -61,6 +61,7 @@ gone). The session is killed when the agent exits unless `ORCH_TMUX_KEEP=1`; Ctr
 kills the run's sessions. `--sandbox` ignores `ORCH_TMUX` because the tmux server
 runs outside bubblewrap. Decision: [ADR-007](../foam/decisions/ADR-007-cdamux-session-hierarchy.md).
 
+`cdamux orch new` (skill `cda-orchestrator`) starts the interactive parent session.
 Interactive `cdamux worker spawn|ls|peek` (needs `$CDAMUX_AGENT_ID`) is separate from
 harness `ORCH_TMUX=1`: the CLI spawns human-driven panes under the caller's
 orchestrator; orch.sh still owns Ready-pickup workers until slice 3 publishes them.

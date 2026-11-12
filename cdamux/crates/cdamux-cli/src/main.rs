@@ -22,9 +22,9 @@ use cdamux_core::{
     parents_first, peek_worker, read_messages, parse_unified_diff, resolve_agent_command,
     restore_one, restore_targets, restart_plan, session_registry, resolve_note_path, send_to_session,
     session_name_for_path, spawn_orchestrator, spawn_tmux_session_with_layout, spawn_worker,
-    state_append, state_get, state_set, unique_session_name, valid_kind, AttachMode,
-    DEFAULT_NUDGE_QUIET_SECS, DiffError, GroupBy, OrchNewRequest, PaneLayout, SendError,
-    SpawnError, StateKind, WorkerSpawnRequest, ORCHESTRATOR_SKILL,
+    state_append, state_get, state_set, run_gc, tmux_has_session, unique_session_name, valid_kind,
+    AttachMode, DEFAULT_NUDGE_QUIET_SECS, DiffError, GroupBy, OrchNewRequest, PaneLayout,
+    SendError, SpawnError, StateKind, WorkerSpawnRequest, ORCHESTRATOR_SKILL,
 };
 use clap::{Parser, Subcommand};
 use skim::prelude::*;
@@ -210,6 +210,12 @@ enum StateCommands {
         id: String,
         json: String,
     },
+    /// Archive then remove done/error agents and finished runs past retention.
+    Gc {
+        /// Override `[state].retention_days` from config (must be ≥ 1).
+        #[arg(long, value_parser = clap::value_parser!(u32).range(1..))]
+        retention_days: Option<u32>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -351,6 +357,7 @@ fn main() -> ExitCode {
             StateCommands::Set { kind, id, json } => cmd_state_set(&kind, &id, &json),
             StateCommands::Get { kind, id } => cmd_state_get(&kind, &id),
             StateCommands::Append { kind, id, json } => cmd_state_append(&kind, &id, &json),
+            StateCommands::Gc { retention_days } => cmd_state_gc(retention_days),
         },
         Some(Commands::Msg { command }) => match command {
             MsgCommands::Send {
@@ -680,6 +687,45 @@ fn cmd_state_append(kind: &str, id: &str, json: &str) -> ExitCode {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("state append: {e}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+fn cmd_state_gc(retention_days: Option<u32>) -> ExitCode {
+    let days = retention_days.unwrap_or_else(|| {
+        load_config()
+            .map(|c| c.state.retention_days)
+            .unwrap_or(cdamux_core::DEFAULT_RETENTION_DAYS)
+    });
+    // Fail closed: refuse destructive GC when tmux cannot be probed.
+    if let Err(e) = tmux_has_session("__cdamux_gc_probe__") {
+        eprintln!("state gc: cannot probe tmux sessions ({e}); aborting");
+        return ExitCode::from(1);
+    }
+    let host_alive = |host: &str| match tmux_has_session(host) {
+        Ok(alive) => alive,
+        // Rare after preflight; treat as alive so we never archive on probe failure.
+        Err(_) => true,
+    };
+    match run_gc(days, std::time::SystemTime::now(), &host_alive) {
+        Ok(report) => {
+            println!(
+                "state gc: archived {} agent(s), {} run(s); kept {} dormant resumable",
+                report.archived_agents.len(),
+                report.archived_runs.len(),
+                report.skipped_dormant.len()
+            );
+            for id in &report.archived_agents {
+                println!("  agent {id}");
+            }
+            for id in &report.archived_runs {
+                println!("  run {id}");
+            }
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("state gc: {e}");
             ExitCode::from(1)
         }
     }

@@ -24,6 +24,7 @@ mod session_manage;
 pub mod session_registry;
 mod spawn;
 mod state;
+mod state_gc;
 mod subagent_ledger;
 mod worktree;
 mod worker;
@@ -93,6 +94,10 @@ pub use state::{
     agent_state_path, generate_agent_id, generate_run_id, initial_agent_value, state_append,
     state_get, state_set, valid_state_id, StateKind,
 };
+pub use state_gc::{
+    agent_eligible, agent_has_no_host, is_gc_agent_status, is_gc_run_status, is_resumable_dormant,
+    run_eligible, run_gc, GcReport, DEFAULT_RETENTION_DAYS,
+};
 pub use restore::{
     dormant, is_busy_state, parents_first, restart_plan, restore_one, restore_subtree,
     restore_targets, resume_command, RestoreError, RestoreOutcome,
@@ -156,6 +161,9 @@ pub struct Config {
     pub notes: NotesConfig,
     #[serde(default)]
     pub worktrees: WorktreesConfig,
+    /// Retention for `cdamux state gc` (ADR-011 / PRD-239).
+    #[serde(default)]
+    pub state: StateConfig,
 }
 
 impl Default for Config {
@@ -169,6 +177,27 @@ impl Default for Config {
             ui: UiConfig::default(),
             notes: NotesConfig::default(),
             worktrees: WorktreesConfig::default(),
+            state: StateConfig::default(),
+        }
+    }
+}
+
+/// `$CDAMUX_HOME` retention policy (`cdamux state gc`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StateConfig {
+    /// Days before done/error agents and finished runs (no host) are archived.
+    #[serde(default = "default_retention_days")]
+    pub retention_days: u32,
+}
+
+fn default_retention_days() -> u32 {
+    DEFAULT_RETENTION_DAYS
+}
+
+impl Default for StateConfig {
+    fn default() -> Self {
+        Self {
+            retention_days: default_retention_days(),
         }
     }
 }
@@ -559,6 +588,20 @@ editor = "nvim"
         assert_eq!(cfg.notes.central_root.as_deref(), Some(Path::new("/tmp/notes")));
         assert_eq!(cfg.notes.relative_path, PathBuf::from("notes.md"));
         assert_eq!(cfg.notes.editor, "nvim");
+    }
+
+    #[test]
+    fn config_parses_state_retention_default_fourteen() {
+        let cfg: Config = toml::from_str("schema_version = 1\n").unwrap();
+        assert_eq!(cfg.state.retention_days, 14);
+
+        let raw = r#"
+schema_version = 1
+[state]
+retention_days = 7
+"#;
+        let cfg: Config = toml::from_str(raw).unwrap();
+        assert_eq!(cfg.state.retention_days, 7);
     }
 
     #[test]

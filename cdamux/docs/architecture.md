@@ -50,12 +50,18 @@ $CDAMUX_HOME/
 ├── agents/<session>.jsonl     # CLI sub-agent ledger (hooks; separate from entities)
 ├── runs/<run-id>.json         # Run + nodes
 ├── sessions/<session>.json    # Restore registry (ADR-009)
+├── archive/agents|runs/       # Retention sink (`cdamux state gc`)
 ├── inbox/<agent-id>.jsonl     # messages received (append-only, ≤ 2 KB/line)
 ├── inbox/<agent-id>.cursor    # ack byte offset for `msg read --ack`
 └── events.jsonl               # (optional journal)
 ```
 
 Writers use `cdamux state set|get|append` and `cdamux msg send|read` (private JSON).
+`cdamux state gc` archives then removes `done`/`error` agents and finished runs
+(`ok`/`blocked`/`done`/`error`) with no live host whose file mtime is older than
+`[state].retention_days` (default 14, must be ≥ 1) in `config.toml`. Aborts when
+tmux cannot be probed (fail closed). Dormant resumable agents (session restore
+registry, ADR-009) are never GC'd. Manual only (no timer in v0).
 `orch.sh` / `graph-node.sh` publish run + nodes and one Agent per worker through
 `cdamux state` only (hard cut #252; silent no-op without the binary). Repo
 `.orch/` keeps work artefacts (locks, worker logs, progress) — not Fleet state.

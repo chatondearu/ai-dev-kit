@@ -1,6 +1,6 @@
 # PRD-239 — Orchestrator session on the unified cdamux state model
 
-- **Status**: approved
+- **Status**: shipped
 - **GitHub**: [#239](https://github.com/chatondearu/ai-dev-kit/issues/239)
 - **Date**: 2026-11-11
 - **Tags**: #product #orchestration #cdamux
@@ -23,14 +23,14 @@ model in [[../foam/decisions/ADR-011-cdamux-unified-state-model|ADR-011]].
 
 ## Goals
 
-- [ ] One source of truth under `CDAMUX_HOME` for agents, runs, statuses and messages,
+- [x] One source of truth under `CDAMUX_HOME` for agents, runs, statuses and messages,
       written only through the `cdamux` CLI.
-- [ ] Real statuses in Fleet for every interactive session (Claude Code, Cursor CLI,
+- [x] Real statuses in Fleet for every interactive session (Claude Code, Cursor CLI,
       opencode, codex) once `--cdamux-hooks` is on.
-- [ ] Any client can be an orchestrator that spawns interactive workers (tmux +
+- [x] Any client can be an orchestrator that spawns interactive workers (tmux +
       worktree), sends them messages and receives their reports, including while idle.
-- [ ] `orch.sh` runs publish into the same model and report to a parent orchestrator.
-- [ ] Fleet shows the orchestrator, its workers, unread messages and pending questions;
+- [x] `orch.sh` runs publish into the same model and report to a parent orchestrator.
+- [x] Fleet shows the orchestrator, its workers, unread messages and pending questions;
       everything survives a reboot through restore.
 
 ## Non-goals
@@ -64,77 +64,77 @@ Delivered in four slices; each one is usable alone. Child issues are created at 
 
 ### Slice 1 — State CLI and real statuses
 
-- [ ] `CDAMUX_HOME` (default `${XDG_STATE_HOME:-~/.local/state}/cdamux`) and
+- [x] `CDAMUX_HOME` (default `${XDG_STATE_HOME:-~/.local/state}/cdamux`) and
       `CDAMUX_CONFIG` (default unchanged); existing registry/ledger paths follow.
-- [ ] `cdamux state set|get|append` for `agents/<id>.json` (atomic tmp + rename) and
+- [x] `cdamux state set|get|append` for `agents/<id>.json` (atomic tmp + rename) and
       `runs/<run-id>.json`; private format.
-- [ ] Agent id generated at creation (`a-xxxxx`), stored in `@cdamux_id` and exported as
+- [x] Agent id generated at creation (`a-xxxxx`), stored in `@cdamux_id` and exported as
       `CDAMUX_AGENT_ID` to the agent; rename never moves state (fixes the
       registry/ledger split).
-- [ ] Client names normalised to `claude`, `cursor`, `opencode`, `codex` across spawn,
+- [x] Client names normalised to `claude`, `cursor`, `opencode`, `codex` across spawn,
       orch and registry.
-- [ ] Status set `working` / `idle` / `needs_input` / `blocked` / `done` / `error` /
+- [x] Status set `working` / `idle` / `needs_input` / `blocked` / `done` / `error` /
       `dormant`; reported status wins; heuristics only as fallback; `working ⚠` after N
       minutes without pane output (configurable); `done` / `error` sticky until the next
       prompt.
-- [ ] Status hooks for the four clients (prompt submit → `working`, turn end → `idle`,
+- [x] Status hooks for the four clients (prompt submit → `working`, turn end → `idle`,
       permission/notification → `needs_input`) added to `install.sh --cdamux-hooks` and
       `cda.aitools.cdamux.hooks.enable`; fail-open, fast, no-op without `cdamux`.
-- [ ] Fleet reads agent state from `CDAMUX_HOME`; `@ccmux_state` is no longer needed.
+- [x] Fleet reads agent state from `CDAMUX_HOME`; `@ccmux_state` is no longer needed.
 
 ### Slice 2 — Messages, workers, orchestrator
 
-- [ ] `cdamux msg send --to <id|name> --kind report|ask|done|error|relay|answer [--ref path] "text"`
+- [x] `cdamux msg send --to <id|name> --kind report|ask|done|error|relay|answer [--ref path] "text"`
       (≤ 2 KB) and `cdamux msg read [--ack]` on `inbox/<id>.jsonl` + `.cursor`.
-- [ ] To a worker: paste into its pane (`send_to_session`) and log in its inbox.
-- [ ] To an orchestrator: append; if it is `idle` and its pane is quiet for 10 s, type a
+- [x] To a worker: paste into its pane (`send_to_session`) and log in its inbox.
+- [x] To an orchestrator: append; if it is `idle` and its pane is quiet for 10 s, type a
       one-line nudge (`📨 N messages — cdamux msg read`).
-- [ ] Turn-end hook continues the orchestrator turn with the unread digest;
+- [x] Turn-end hook continues the orchestrator turn with the unread digest;
       prompt-submit hook adds it where the client supports it.
-- [ ] `kind ask` sets the sender `blocked`; an `answer` clears it.
-- [ ] `cdamux worker spawn <name> [--agent X] [--prompt-file f] [--here]`: worktree +
+- [x] `kind ask` sets the sender `blocked`; an `answer` clears it.
+- [x] `cdamux worker spawn <name> [--agent X] [--prompt-file f] [--here]`: worktree +
       branch by default, tmux host, `role=worker`, `parent` = caller's
       `CDAMUX_AGENT_ID`, run = the orchestrator's long-lived run; plus
       `cdamux worker ls|peek <name> [--lines N]`.
-- [ ] `cdamux orch new [--agent X]` and an *orchestrator* role in the spawn modal start a
+- [x] `cdamux orch new [--agent X]` and an *orchestrator* role in the spawn modal start a
       client with the `cda-orchestrator` skill and `role=orchestrator`.
-- [ ] Skill `cda-orchestrator`: spawn and track workers, relay rule (orchestrator decides,
+- [x] Skill `cda-orchestrator`: spawn and track workers, relay rule (orchestrator decides,
       `@worker` forces, one-line confirmation), answer or escalate asks, never paste raw
       worker output, read reports by `ref`.
-- [ ] Worker preamble (reuse `cda-dev/prompts/worker.md`): report blockers, questions
+- [x] Worker preamble (reuse `cda-dev/prompts/worker.md`): report blockers, questions
       and completion with `cdamux msg`.
 
 ### Slice 3 — `orch.sh` on the model
 
-- [ ] `orch.sh` writes its run, nodes and one Agent per worker via `cdamux state`;
+- [x] `orch.sh` writes its run, nodes and one Agent per worker via `cdamux state`;
       sub-run of `CDAMUX_AGENT_ID` when set.
-- [ ] Hard cut: stop writing `.orch/run/status.json` and `.orch/graph/*`; Fleet and
+- [x] Hard cut: stop writing `.orch/run/status.json` and `.orch/graph/*`; Fleet and
       `/v1/orch-graph|orch-status|orch-runs` read `CDAMUX_HOME/runs/`.
-- [ ] `ORCH_TMUX=1` by default; headless only for tests and `--sandbox`.
-- [ ] One `cdamux msg` to the parent per worker `done` (PR) / `blocked` / `error` and
+- [x] `ORCH_TMUX=1` by default; headless only for tests and `--sandbox`.
+- [x] One `cdamux msg` to the parent per worker `done` (PR) / `blocked` / `error` and
       one at run end (`ref` = integrator report).
-- [ ] `graph-node.sh` keeps its commands and calls `cdamux state`.
-- [ ] Without `cdamux` on `PATH`: pipeline unchanged, state writes no-op.
-- [ ] Absorbs the run-state leaks of [#236](https://github.com/chatondearu/ai-dev-kit/issues/236).
+- [x] `graph-node.sh` keeps its commands and calls `cdamux state`.
+- [x] Without `cdamux` on `PATH`: pipeline unchanged, state writes no-op.
+- [x] Absorbs the run-state leaks of [#236](https://github.com/chatondearu/ai-dev-kit/issues/236).
 
 ### Slice 4 — Fleet UI, restore, retention
 
-- [ ] Fleet: orchestrator glyph, workers nested under it, unread badge `✉N`, `?` marker on
+- [x] Fleet: orchestrator glyph, workers nested under it, unread badge `✉N`, `?` marker on
       a worker with a pending `ask`, reply to an ask from Fleet (composer → `answer`).
-- [ ] Tailnet web shows the same tree, badges and asks.
-- [ ] `cdamux restore` restores an orchestrator with its workers (hosts rebuilt, clients
+- [x] Tailnet web shows the same tree, badges and asks.
+- [x] `cdamux restore` restores an orchestrator with its workers (hosts rebuilt, clients
       resumed by id, parent links kept).
-- [ ] Retention: `done` / `error` agents and runs without a host for more than 14 days are
+- [x] Retention: `done` / `error` agents and runs without a host for more than 14 days are
       archived then deleted (`config.toml` setting); `dormant` resumable agents are kept;
       `cdamux state gc` runs it by hand.
 
 ### Non-functional
 
-- [ ] Hooks stay local-only, fail-open and fast (< 50 ms typical).
-- [ ] Tests use temp `CDAMUX_HOME`, stub CLIs and a throwaway tmux server
+- [x] Hooks stay local-only, fail-open and fast (< 50 ms typical).
+- [x] Tests use temp `CDAMUX_HOME`, stub CLIs and a throwaway tmux server
       (`TMUX_TMPDIR` + `-L`); never the live config or tmux server.
-- [ ] `nix develop -c bash scripts/verify.sh` green at every slice.
-- [ ] Docs: `cdamux/docs/architecture.md`, `doc/graph-orchestration.md`,
+- [x] `nix develop -c bash scripts/verify.sh` green at every slice.
+- [x] Docs: `cdamux/docs/architecture.md`, `doc/graph-orchestration.md`,
       `doc/orca-mapping.md` (inbox now mirrored), `cda-graph` / `cda-dev` skills.
 
 ## Related project memory

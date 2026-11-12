@@ -24,7 +24,8 @@ use crate::spawn_modal::{
 use cdamux_core::{
     build_project_session_tree_ex, capture_pane_text, config_path, current_tmux_session,
     discover_projects, kill_tmux_session, load_config, preferred_spawn_agent, rename_tmux_session,
-    configured_agent_ids, resolve_agent_command, reply_to_ask, restore_one, send_to_session,
+    configured_agent_ids, resolve_agent_command, reply_to_ask, restore_one, restore_targets,
+    send_to_session,
     session_name_for_path, spawn_tmux_session_with_layout, switch_client_to_session, tail_lines,
     transcript_tail, unique_session_name, ChildKind, ChildRow, Config, EnrichedSession, GroupBy,
     PaneLayout, PreviewSource, ProjectSessionTree, session_registry, SessionChrome,
@@ -885,10 +886,16 @@ pub fn run_dashboard() -> ExitCode {
                             }
                         }
                         Some(TreeRow::Dormant { record, .. }) => {
-                            status_line = match restore_one(record, &cfg.agents) {
-                                Ok(o) => format!("{}: {}", record.name, o.label()),
-                                Err(e) => format!("restore {}: {e}", record.name),
-                            };
+                            let targets = restore_targets(&record.name)
+                                .unwrap_or_else(|| vec![record.clone()]);
+                            let mut parts = Vec::new();
+                            for rec in &targets {
+                                parts.push(match restore_one(rec, &cfg.agents) {
+                                    Ok(o) => format!("{}: {}", rec.name, o.label()),
+                                    Err(e) => format!("{}: error: {e}", rec.name),
+                                });
+                            }
+                            status_line = parts.join("; ");
                             tree_dirty = true;
                         }
                         _ => toggle_row_fold(&rows, selected_row, &mut expanded),

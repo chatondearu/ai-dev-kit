@@ -30,7 +30,7 @@ pub struct SessionRecord {
     /// Fork source session (`@cdamux_parent`).
     #[serde(default)]
     pub parent: Option<String>,
-    /// `@cdamux_role`: `agent` or `shell`.
+    /// `@cdamux_role`: `agent`, `shell`, `orchestrator`, or `worker`.
     pub role: String,
     #[serde(default)]
     pub layout: PaneLayout,

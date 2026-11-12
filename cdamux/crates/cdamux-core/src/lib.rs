@@ -94,8 +94,8 @@ pub use state::{
     state_get, state_set, valid_state_id, StateKind,
 };
 pub use restore::{
-    dormant, is_busy_state, parents_first, restart_plan, restore_one, resume_command, RestoreError,
-    RestoreOutcome,
+    dormant, is_busy_state, parents_first, restart_plan, restore_one, restore_subtree,
+    restore_targets, resume_command, RestoreError, RestoreOutcome,
 };
 pub use msg::{
     agent_parent_id, append_message, delivery_mode_for_role, format_unread_digest, generate_msg_id,

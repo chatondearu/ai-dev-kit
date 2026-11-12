@@ -6,11 +6,12 @@ use crate::client_name::normalize_client_name;
 use crate::send::tmux_has_session;
 use crate::session::SessionState;
 use crate::session_manage::is_home_session;
-use crate::session_registry::SessionRecord;
+use crate::session_registry::{self, SessionRecord};
 use crate::spawn::{
     agent_entry, default_shell_command, resolve_agent_command, respawn_recorded,
     with_claude_session_id, SpawnError, SpawnOutcome,
 };
+use crate::state::{state_get, StateKind};
 use crate::tmux::SessionPaneInfo;
 use crate::AgentsConfig;
 use std::collections::{HashMap, HashSet};
@@ -144,6 +145,94 @@ pub fn parents_first(mut records: Vec<SessionRecord>) -> Vec<SessionRecord> {
     };
     records.sort_by_cached_key(|r| depth(&r.name));
     records
+}
+
+/// True when `agents/<id>.json` says `role=worker` and `parent` is in `parent_ids`.
+fn agent_is_worker_of(cdamux_id: &str, parent_ids: &HashSet<String>) -> bool {
+    match state_get(StateKind::Agents, cdamux_id) {
+        Ok(Some(v)) => {
+            v.get("role").and_then(|r| r.as_str()) == Some("worker")
+                && v
+                    .get("parent")
+                    .and_then(|p| p.as_str())
+                    .is_some_and(|p| parent_ids.contains(p))
+        }
+        _ => false,
+    }
+}
+
+/// When registry `parent` is missing, fill it from agent-state `parent` → host so
+/// `parents_first` and `@cdamux_parent` on restore still nest under the orch.
+fn fill_missing_host_parents(records: &mut [SessionRecord]) {
+    let host_of: HashMap<String, String> = records
+        .iter()
+        .filter_map(|r| r.cdamux_id.clone().map(|id| (id, r.name.clone())))
+        .collect();
+    for r in records.iter_mut() {
+        if r.parent.is_some() {
+            continue;
+        }
+        let Some(id) = r.cdamux_id.as_deref() else {
+            continue;
+        };
+        if let Ok(Some(v)) = state_get(StateKind::Agents, id) {
+            if let Some(pid) = v.get("parent").and_then(|p| p.as_str()) {
+                if let Some(host) = host_of.get(pid) {
+                    r.parent = Some(host.clone());
+                }
+            }
+        }
+    }
+}
+
+/// `root` plus its descendants: registry `parent` session names, and workers whose
+/// agent `parent` is an agent id already in the set (ADR-011). Parents first.
+pub fn restore_subtree(root: SessionRecord, all: Vec<SessionRecord>) -> Vec<SessionRecord> {
+    let mut wanted: HashSet<String> = HashSet::from([root.name.clone()]);
+    let mut agent_ids: HashSet<String> = root.cdamux_id.iter().cloned().collect();
+    // Fixpoint: registry children of wanted hosts + agent-linked workers.
+    loop {
+        let before = wanted.len();
+        for r in &all {
+            if wanted.contains(&r.name) {
+                if let Some(id) = &r.cdamux_id {
+                    agent_ids.insert(id.clone());
+                }
+                continue;
+            }
+            let by_host = r.parent.as_ref().is_some_and(|p| wanted.contains(p));
+            let by_agent = r
+                .cdamux_id
+                .as_deref()
+                .is_some_and(|id| agent_is_worker_of(id, &agent_ids));
+            if by_host || by_agent {
+                wanted.insert(r.name.clone());
+                if let Some(id) = &r.cdamux_id {
+                    agent_ids.insert(id.clone());
+                }
+            }
+        }
+        if wanted.len() == before {
+            break;
+        }
+    }
+    let mut out: Vec<SessionRecord> = all.into_iter().filter(|r| wanted.contains(&r.name)).collect();
+    if !out.iter().any(|r| r.name == root.name) {
+        out.push(root);
+    }
+    fill_missing_host_parents(&mut out);
+    parents_first(out)
+}
+
+/// Records `cdamux restore <name>` should touch: an orchestrator expands to its
+/// worker subtree; anything else is the single record.
+pub fn restore_targets(name: &str) -> Option<Vec<SessionRecord>> {
+    let root = session_registry::load(name)?;
+    if root.role == "orchestrator" {
+        Some(restore_subtree(root, session_registry::load_all()))
+    } else {
+        Some(vec![root])
+    }
 }
 
 /// `@cdamux_state` of an agent mid-turn: `cdamux restart` leaves it alone without `--force`.
@@ -389,5 +478,100 @@ mod tests {
         assert!(!names.contains(&"live".to_string()));
         assert_eq!(names.len(), 6);
         assert!(pos("z-root") < pos("a-child") && pos("a-child") < pos("b-grandchild"));
+    }
+
+    #[test]
+    fn restore_subtree_by_registry_parent_orders_orch_then_workers() {
+        let orch = SessionRecord {
+            role: "orchestrator".into(),
+            cdamux_id: Some("a-orch".into()),
+            ..rec("c-orch", "claude", Some("oid"), None)
+        };
+        let w1 = SessionRecord {
+            role: "worker".into(),
+            cdamux_id: Some("a-w1".into()),
+            ..rec("c-w1", "claude", Some("w1"), Some("c-orch"))
+        };
+        let w2 = SessionRecord {
+            role: "worker".into(),
+            cdamux_id: Some("a-w2".into()),
+            ..rec("c-w2", "claude", Some("w2"), Some("c-orch"))
+        };
+        let other = rec("c-other", "claude", None, None);
+        let names: Vec<String> = restore_subtree(orch.clone(), vec![w2, other, w1, orch])
+            .into_iter()
+            .map(|r| r.name)
+            .collect();
+        assert_eq!(names[0], "c-orch");
+        assert!(names.contains(&"c-w1".into()) && names.contains(&"c-w2".into()));
+        assert!(!names.contains(&"c-other".into()));
+        assert_eq!(names.len(), 3);
+    }
+
+    #[test]
+    fn restore_subtree_includes_worker_via_agent_parent() {
+        let _g = env_lock();
+        let dir = tempfile::tempdir().unwrap();
+        std::env::set_var("CDAMUX_HOME", dir.path());
+        let orch = SessionRecord {
+            role: "orchestrator".into(),
+            cdamux_id: Some("a-orch".into()),
+            ..rec("c-orch", "claude", None, None)
+        };
+        // Registry parent missing; agent state still links the worker.
+        let worker = SessionRecord {
+            role: "worker".into(),
+            cdamux_id: Some("a-w".into()),
+            ..rec("c-w", "claude", Some("wid"), None)
+        };
+        state_set(
+            StateKind::Agents,
+            "a-w",
+            &initial_agent_value("a-w", "claude", "c-w", "worker", Some("a-orch")),
+        )
+        .unwrap();
+        let names: Vec<String> = restore_subtree(orch.clone(), vec![worker, orch])
+            .into_iter()
+            .map(|r| r.name)
+            .collect();
+        assert_eq!(names, vec!["c-orch".to_string(), "c-w".to_string()]);
+        std::env::remove_var("CDAMUX_HOME");
+    }
+
+    #[test]
+    fn restore_targets_expands_orchestrator_only() {
+        let _g = env_lock();
+        let dir = tempfile::tempdir().unwrap();
+        std::env::set_var("CDAMUX_HOME", dir.path());
+        let orch = SessionRecord {
+            role: "orchestrator".into(),
+            cdamux_id: Some("a-orch".into()),
+            ..rec("c-orch", "claude", None, None)
+        };
+        let worker = SessionRecord {
+            role: "worker".into(),
+            cdamux_id: Some("a-w".into()),
+            ..rec("c-w", "claude", None, Some("c-orch"))
+        };
+        let plain = rec("c-plain", "claude", None, None);
+        session_registry::record(&orch).unwrap();
+        session_registry::record(&worker).unwrap();
+        session_registry::record(&plain).unwrap();
+        let orch_names: Vec<String> = restore_targets("c-orch")
+            .unwrap()
+            .into_iter()
+            .map(|r| r.name)
+            .collect();
+        assert_eq!(orch_names, vec!["c-orch".to_string(), "c-w".to_string()]);
+        assert_eq!(
+            restore_targets("c-plain")
+                .unwrap()
+                .into_iter()
+                .map(|r| r.name)
+                .collect::<Vec<_>>(),
+            vec!["c-plain".to_string()]
+        );
+        assert!(restore_targets("missing").is_none());
+        std::env::remove_var("CDAMUX_HOME");
     }
 }

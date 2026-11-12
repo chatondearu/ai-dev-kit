@@ -32,6 +32,8 @@ pub enum MsgError {
     TooLarge,
     #[error("agent not found: {0}")]
     NotFound(String),
+    #[error("ambiguous target '{0}' (multiple agents); use an agent id")]
+    Ambiguous(String),
     #[error("io: {0}")]
     Io(String),
 }
@@ -124,6 +126,9 @@ fn now_ts() -> u64 {
 }
 
 /// Resolve `--to` as an agent id or a tmux / registry session name.
+///
+/// Logical `name` is unique only under a parent orchestrator, so a bare name that
+/// matches several agents is an error unless `$CDAMUX_AGENT_ID` narrows it to one child.
 pub fn resolve_agent_id(to: &str) -> Result<String, MsgError> {
     let to = to.trim();
     if to.is_empty() || !valid_state_id(to) {
@@ -140,7 +145,8 @@ pub fn resolve_agent_id(to: &str) -> Result<String, MsgError> {
             return Ok(id);
         }
     }
-    // Scan agents for matching host (session name).
+    // Scan agents for matching host (session name) or logical worker name.
+    let mut matches: Vec<(String, Option<String>)> = Vec::new();
     if let Some(dir) = cdamux_state_dir("agents") {
         if let Ok(entries) = fs::read_dir(dir) {
             for ent in entries.flatten() {
@@ -158,13 +164,38 @@ pub fn resolve_agent_id(to: &str) -> Result<String, MsgError> {
                 let name = v.get("name").and_then(|n| n.as_str());
                 if host == Some(to) || name == Some(to) {
                     if let Some(id) = v.get("id").and_then(|i| i.as_str()) {
-                        return Ok(id.to_string());
+                        let parent = v
+                            .get("parent")
+                            .and_then(|p| p.as_str())
+                            .filter(|s| !s.is_empty())
+                            .map(str::to_string);
+                        matches.push((id.to_string(), parent));
                     }
                 }
             }
         }
     }
-    Err(MsgError::NotFound(to.to_string()))
+    match matches.as_slice() {
+        [] => Err(MsgError::NotFound(to.to_string())),
+        [(id, _)] => Ok(id.clone()),
+        many => {
+            let caller = std::env::var("CDAMUX_AGENT_ID")
+                .ok()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty());
+            if let Some(caller) = caller.as_deref() {
+                let kids: Vec<&str> = many
+                    .iter()
+                    .filter(|(_, p)| p.as_deref() == Some(caller))
+                    .map(|(id, _)| id.as_str())
+                    .collect();
+                if kids.len() == 1 {
+                    return Ok(kids[0].to_string());
+                }
+            }
+            Err(MsgError::Ambiguous(to.to_string()))
+        }
+    }
 }
 
 fn agent_role_and_host(id: &str) -> Result<(String, Option<String>), MsgError> {
@@ -579,6 +610,66 @@ mod tests {
             .unwrap();
             assert_eq!(resolve_agent_id("fleet-demo").unwrap(), "a-host1");
             assert_eq!(resolve_agent_id("a-host1").unwrap(), "a-host1");
+        });
+    }
+
+    #[test]
+    fn resolve_name_ambiguous_unless_caller_child() {
+        with_temp_home(|_| {
+            state_set(
+                StateKind::Agents,
+                "a-o1",
+                &initial_agent_value("a-o1", "claude", "c-o1", "orchestrator", None),
+            )
+            .unwrap();
+            state_set(
+                StateKind::Agents,
+                "a-o2",
+                &initial_agent_value("a-o2", "claude", "c-o2", "orchestrator", None),
+            )
+            .unwrap();
+            state_set(
+                StateKind::Agents,
+                "a-w1",
+                &json!({
+                    "id": "a-w1",
+                    "client": "claude",
+                    "host": "c-w1",
+                    "role": "worker",
+                    "name": "api",
+                    "parent": "a-o1",
+                    "run": "r-1",
+                    "status": "idle"
+                }),
+            )
+            .unwrap();
+            state_set(
+                StateKind::Agents,
+                "a-w2",
+                &json!({
+                    "id": "a-w2",
+                    "client": "claude",
+                    "host": "c-w2",
+                    "role": "worker",
+                    "name": "api",
+                    "parent": "a-o2",
+                    "run": "r-2",
+                    "status": "idle"
+                }),
+            )
+            .unwrap();
+
+            std::env::remove_var("CDAMUX_AGENT_ID");
+            assert_eq!(
+                resolve_agent_id("api"),
+                Err(MsgError::Ambiguous("api".into()))
+            );
+
+            std::env::set_var("CDAMUX_AGENT_ID", "a-o1");
+            assert_eq!(resolve_agent_id("api").unwrap(), "a-w1");
+            std::env::set_var("CDAMUX_AGENT_ID", "a-o2");
+            assert_eq!(resolve_agent_id("api").unwrap(), "a-w2");
+            std::env::remove_var("CDAMUX_AGENT_ID");
         });
     }
 

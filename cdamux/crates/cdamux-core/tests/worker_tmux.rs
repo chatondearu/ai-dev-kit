@@ -179,7 +179,18 @@ fn spawn_ls_peek_and_msg_by_name() {
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].name, "api");
 
-    let _peek = peek_worker("a-orch1", "api", 20).unwrap();
+    let prompt_pane = wait_for_pane(&out.host, "hello-worker-spawn");
+    assert!(
+        prompt_pane.contains("hello-worker-spawn"),
+        "first --prompt-file message missing from pane: {prompt_pane}"
+    );
+    let peek = peek_worker("a-orch1", "api", 20).unwrap();
+    // Pane wrap can split the paste across lines; flatten whitespace for the check.
+    let peek_flat: String = peek.chars().filter(|c| !c.is_whitespace()).collect();
+    assert!(
+        peek_flat.contains("hello-worker-spawn"),
+        "peek missing first message: {peek}"
+    );
 
     let pasted = msg_send(
         "a-orch1",

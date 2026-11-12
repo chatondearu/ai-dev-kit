@@ -2,7 +2,7 @@
 
 use crate::client_name::normalize_client_name;
 use crate::paths::cdamux_state_dir;
-use crate::send::send_to_session;
+use crate::send::{send_to_session, SendError};
 use crate::session_manage::unique_session_name;
 use crate::spawn::{
     resolve_agent_command, session_name_for_path, spawn_tmux_session_ex, PaneLayout, SpawnError,
@@ -24,8 +24,6 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum WorkerError {
-    #[error("must run inside an orchestrator (set CDAMUX_AGENT_ID)")]
-    NoCaller,
     #[error("caller agent not found: {0}")]
     CallerNotFound(String),
     #[error("caller has no host (tmux session)")]
@@ -42,6 +40,8 @@ pub enum WorkerError {
     Spawn(#[from] SpawnError),
     #[error("{0}")]
     Worktree(#[from] WorktreeError),
+    #[error("first message paste failed: {0}")]
+    Send(#[from] SendError),
     #[error("io: {0}")]
     Io(String),
     #[error("worker not found: {0}")]
@@ -389,7 +389,7 @@ pub fn spawn_worker(req: WorkerSpawnRequest<'_>) -> Result<WorkerSpawnResult, Wo
 
     if paste_after {
         if let Some(text) = prompt.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-            let _ = send_to_session(&host, text, true);
+            send_to_session(&host, text, true)?;
         }
     }
 

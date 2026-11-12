@@ -1,4 +1,4 @@
-//! Binary smoke for `cdamux worker ls|peek` error paths and `spawn --here` without git worktree.
+//! Binary smoke for `cdamux worker ls|peek` error paths.
 
 use std::process::Command;
 
@@ -45,4 +45,35 @@ fn worker_ls_empty_under_caller() {
     let ls = run(&["worker", "ls"]);
     assert!(ls.status.success(), "{}", String::from_utf8_lossy(&ls.stderr));
     assert!(String::from_utf8_lossy(&ls.stdout).trim().is_empty());
+}
+
+#[test]
+fn worker_peek_not_found() {
+    let tmp = tempfile::tempdir().unwrap();
+    let home = tmp.path().join("home");
+    let bin = env!("CARGO_BIN_EXE_cdamux");
+    let run = |args: &[&str]| {
+        Command::new(bin)
+            .args(args)
+            .env("CDAMUX_HOME", &home)
+            .env("CDAMUX_AGENT_ID", "a-orch9")
+            .output()
+            .expect("spawn cdamux")
+    };
+    assert!(run(&[
+        "state",
+        "set",
+        "agents",
+        "a-orch9",
+        r#"{"id":"a-orch9","client":"claude","host":"c-orch","role":"orchestrator"}"#,
+    ])
+    .status
+    .success());
+    let peek = run(&["worker", "peek", "missing"]);
+    assert_eq!(peek.status.code(), Some(1));
+    assert!(
+        String::from_utf8_lossy(&peek.stderr).contains("not found"),
+        "{}",
+        String::from_utf8_lossy(&peek.stderr)
+    );
 }

@@ -371,7 +371,7 @@ pub fn has_pending_ask(worker_id: &str, parent_id: &str) -> bool {
 }
 
 /// Inbox badges for one agent: unread in its own inbox, and (for workers) a
-/// pending ask still unread in the parent's inbox.
+/// pending ask in the parent's inbox (any cursor position; not only unread).
 pub fn inbox_badges(agent_id: &str) -> (usize, bool) {
     let unread = unread_count(agent_id).unwrap_or(0);
     let pending_ask = agent_parent_id(agent_id)

@@ -699,6 +699,52 @@ mod tests {
     }
 
     #[test]
+    fn send_kind_answer_replies_via_msg() {
+        use crate::msg::{append_message, has_pending_ask, Message};
+        use crate::paths::env_lock;
+        use crate::state::{initial_agent_value, state_set, StateKind};
+
+        let _g = env_lock();
+        let dir = tempfile::tempdir().unwrap();
+        std::env::set_var("CDAMUX_HOME", dir.path());
+        state_set(
+            StateKind::Agents,
+            "a-orch-ans",
+            &initial_agent_value("a-orch-ans", "claude", "c-orch-ans", "orchestrator", None),
+        )
+        .unwrap();
+        state_set(
+            StateKind::Agents,
+            "a-w-ans",
+            &initial_agent_value("a-w-ans", "claude", "c-foo", "worker", Some("a-orch-ans")),
+        )
+        .unwrap();
+        append_message(&Message {
+            id: "m-ask-ans".into(),
+            ts: 1,
+            from: "a-w-ans".into(),
+            to: "a-orch-ans".into(),
+            kind: "ask".into(),
+            text: "pick?".into(),
+            r#ref: None,
+        })
+        .unwrap();
+        assert!(has_pending_ask("a-w-ans", "a-orch-ans"));
+
+        let backend = mock_backend();
+        let resp = dispatch_tailnet_request(
+            "POST",
+            "/v1/sessions/c-foo/send",
+            r#"{"line":"option A","enter":true,"kind":"answer"}"#,
+            &backend,
+        );
+        assert_eq!(resp.status, 200, "{}", resp.body);
+        assert!(resp.body.contains("\"ok\":true"));
+        assert!(!has_pending_ask("a-w-ans", "a-orch-ans"));
+        std::env::remove_var("CDAMUX_HOME");
+    }
+
+    #[test]
     fn send_rejects_control_characters_with_400() {
         let backend = mock_backend();
         for line in [r#"a\nb"#, r#"a\rb"#, r#"\u001b[A"#, r#"a\tb"#] {

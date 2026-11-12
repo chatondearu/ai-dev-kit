@@ -68,7 +68,7 @@ pub struct EnrichedSession {
     /// Unread inbox lines for [`Self::cdamux_id`] (Fleet ✉N).
     #[serde(default, skip_serializing_if = "is_zero")]
     pub unread: usize,
-    /// Worker has an unanswered `ask` in its parent's unread inbox (Fleet `?`).
+    /// Worker has an unanswered `ask` in its parent's inbox (Fleet `?`).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub pending_ask: bool,
 }

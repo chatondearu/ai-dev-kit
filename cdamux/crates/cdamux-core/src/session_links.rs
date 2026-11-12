@@ -43,7 +43,7 @@ pub struct ChildRow {
     pub agent_id: Option<String>,
     /// Unread inbox count for [`Self::agent_id`].
     pub unread: usize,
-    /// Unanswered `ask` still in the parent's unread inbox.
+    /// Unanswered `ask` still in the parent's inbox (any cursor position).
     pub pending_ask: bool,
 }
 

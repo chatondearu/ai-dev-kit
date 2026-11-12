@@ -47,40 +47,14 @@ function stateClass(state) {
   return `state-${state}`;
 }
 
+const { nestSessions, sessionBadges: badgeParts, sessionGlyph } =
+  globalThis.cdamuxSessionTree;
+
 function sessionBadges(s) {
-  const parts = [];
-  if (s.unread > 0) parts.push(`✉${s.unread}`);
-  if (s.pending_ask) parts.push("?");
+  const parts = badgeParts(s);
   return parts.length
     ? `<span class="badges">${parts.map(escapeHtml).join(" ")}</span>`
     : "";
-}
-
-function sessionGlyph(s) {
-  return s.role === "orchestrator" ? "◎" : "•";
-}
-
-/** Nest sessions under `@cdamux_parent` within one group (same as Fleet). */
-function nestSessions(sessions) {
-  const byName = new Map((sessions || []).map((s) => [s.name, s]));
-  const children = new Map();
-  const roots = [];
-  for (const s of sessions || []) {
-    const parent = s.parent && byName.has(s.parent) ? s.parent : null;
-    if (parent) {
-      if (!children.has(parent)) children.set(parent, []);
-      children.get(parent).push(s);
-    } else {
-      roots.push(s);
-    }
-  }
-  const out = [];
-  const walk = (s, depth) => {
-    out.push({ session: s, depth });
-    for (const kid of children.get(s.name) || []) walk(kid, depth + 1);
-  };
-  for (const r of roots) walk(r, 0);
-  return out;
 }
 
 function renderSessions(grouped) {

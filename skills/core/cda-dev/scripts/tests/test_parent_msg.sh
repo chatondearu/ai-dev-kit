@@ -48,6 +48,12 @@ assert_eq "$(inbox_count a-parent253)" "2" "blocked adds second msg"
 assert_eq "$(tail -n1 "$HOME_DIR/inbox/a-parent253.jsonl" | jq -r .kind)" "error" \
   "blocked maps to kind error"
 
+# held frontier (never dispatched) must not parent-notify
+ORCH_PROGRESS=0 orch_progress_set 21 blocked "waiting on #15" 2>/dev/null
+assert_eq "$(inbox_count a-parent253)" "2" "held waiting-on does not parent-notify"
+assert_eq "$(test -f "$REPO/.orch/run/run-msg-1.21.parent_msg" && echo yes || echo no)" "no" \
+  "held leaves no parent_msg marker"
+
 # --- (2) run-end msg with integrator-report ref ---
 orch_graph_finish ok
 assert_eq "$(inbox_count a-parent253)" "3" "run end adds one msg"

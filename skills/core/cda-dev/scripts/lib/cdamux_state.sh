@@ -188,6 +188,7 @@ orch_cdamux_msg_send() {
 # At-most-once per run via .orch/run/<run_id>.<wid>.parent_msg (retry same issue
 # in a new run must notify again). Slice 3: blocked→kind=error (not ask); phase
 # stays in text. Marker written after send (failed send may drop that attempt).
+# Held frontier items (board-only "waiting on #…") were never dispatched — skip.
 orch_cdamux_parent_msg_worker() {
   local wid="$1" phase="$2" msg="${3:-}"
   local parent kind from ref marker wt dir
@@ -199,6 +200,10 @@ orch_cdamux_parent_msg_worker() {
     done) kind=done ;;
     blocked|error) kind=error ;;
     *) return 0 ;;
+  esac
+  # Held = progress blocked for the board, not a worker terminal (ADR-011 §5).
+  case "$msg" in
+    "waiting on #"*) return 0 ;;
   esac
   dir="${ORCH_REPO:-.}/.orch/run"
   mkdir -p "$dir"

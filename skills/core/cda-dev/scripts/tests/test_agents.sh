@@ -156,13 +156,13 @@ out_dry="$(PATH="$P2" ORCH_AGENT=claude ORCH_AGENT_INTEGRATOR="claude --model ha
 assert_contains "$out_dry" "tier[worker]: medium --model sonnet --effort high" "dry-run tier line"
 assert_contains "$out_dry" "tier[integrator]: pinned" "dry-run pinned line"
 
-# status.json gets cli/model/effort/tier of the worker's agent.
+# Per-worker json gets cli/model/effort/tier of the worker's agent.
 if command -v jq >/dev/null 2>&1; then
   source "$TROOT/../lib/progress.sh"
-  export ORCH_PROGRESS=0
+  export ORCH_PROGRESS=0 ORCH_REPO="$FAKE2"
   PATH="$P2" ORCH_AGENT=claude ORCH_WORKER_ID=5 orch_agent_run "$FAKE" "$PROMPT" >/dev/null
-  assert_eq "$(jq -c '.workers[0] | [.id, .cli, .model, .effort, .tier]' "$FAKE2/.orch/run/status.json")" \
-    '["5","claude","sonnet","high","medium"]' "status.json records the worker tier"
+  assert_eq "$(jq -c '[.id, .cli, .model, .effort, .tier]' "$FAKE2/.orch/run/5.json")" \
+    '["5","claude","sonnet","high","medium"]' "worker json records the worker tier"
 fi
 
 summary

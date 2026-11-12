@@ -30,7 +30,7 @@ pub(crate) struct OrchGraphView {
     pub(crate) graph: Option<OrchGraphFile>,
     pub(crate) stale: bool,
     pub(crate) header: String,
-    /// Workers from `.orch/run/status.json` next to the graph (step bar source).
+    /// Workers from `.orch/run/CDAMUX agents` next to the graph (step bar source).
     pub(crate) workers: Vec<OrchWorkerStatus>,
 }
 
@@ -47,7 +47,7 @@ impl OrchGraphView {
         g.nodes.get(i)
     }
 
-    /// Pipeline steps of the worker the node belongs to, when status.json knows it.
+    /// Pipeline steps of the worker the node belongs to, when CDAMUX agents knows it.
     pub(crate) fn steps_for(&self, node: &OrchGraphNode) -> Option<Vec<Step>> {
         let wid = step_worker_id(node)?;
         let worker = self.workers.iter().find(|w| w.id == wid)?;
@@ -80,7 +80,7 @@ pub(crate) fn worker_steps_text(worker: Option<&OrchWorkerStatus>) -> String {
     worker
         .map(|w| {
             let steps = worker_steps(w, None, now_secs()).iter().map(Step::text).collect::<Vec<_>>();
-            // Agent line (cli·tier model effort) first, when status.json carries it.
+            // Agent line (cli·tier model effort) first, when CDAMUX agents carries it.
             w.agent_detail().into_iter().chain(steps).collect::<Vec<_>>().join("\n")
         })
         .unwrap_or_default()
@@ -93,7 +93,7 @@ pub(crate) fn load_orch_graph_view(target: &GraphTarget, pick: usize, width: usi
         GraphTarget::Runs { cwd, runs } if !runs.is_empty() => {
             let run = &runs[pick % runs.len()];
             let Some(path) = find_orch_run_from_cwd(cwd, run) else {
-                return OrchGraphView::text_only(format!("(run {run} not found under .orch/graph)"));
+                return OrchGraphView::text_only(format!("(run {run} not found under $CDAMUX_HOME/runs)"));
             };
             match load_orch_graph_at(&path) {
                 Ok((g, age)) => {
@@ -105,7 +105,7 @@ pub(crate) fn load_orch_graph_view(target: &GraphTarget, pick: usize, width: usi
                         text: format_orch_graph_panel_ex(&g, width, age),
                         stale: orch_graph_is_stale(&g, age),
                         header,
-                        // status.json describes one run; pre-#178 files carry no run id.
+                        // CDAMUX agents describes one run; pre-#178 files carry no run id.
                         workers: find_orch_run_status_from_cwd(cwd)
                             .filter(|st| st.run_id.as_deref().is_none_or(|id| id == g.run_id))
                             .map(|st| st.workers)
@@ -147,7 +147,7 @@ fn load_latest_view(cwd: &str, width: usize) -> OrchGraphView {
             OrchGraphView::text_only(s)
         }
         Err(OrchGraphError::Invalid { path, message }) => OrchGraphView::text_only(format!(
-            "invalid current.json at {}:\n{}",
+            "invalid run graph at {}:\n{}",
             path.display(),
             message
         )),
@@ -314,7 +314,7 @@ mod tests {
         OrchGraphView { text: "tree".into(), header: "run r1".into(), stale: false, graph: Some(g), workers: vec![] }
     }
 
-    /// `view()` plus a `worker-162` node (and its verifier child) tied to a status.json worker.
+    /// `view()` plus a `worker-162` node (and its verifier child) tied to a CDAMUX agents worker.
     fn steps_view() -> OrchGraphView {
         let raw = r#"{"run_id":"r1","status":"running","nodes":[
             {"id":"worker-162","kind":"worker","phase":"verify","status":"running","message":"w","parent":null},

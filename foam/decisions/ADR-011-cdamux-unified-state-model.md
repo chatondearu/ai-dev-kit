@@ -122,8 +122,7 @@ opencode can wake an idle session.
 - **Hard cut** ([#252](https://github.com/chatondearu/ai-dev-kit/issues/252)):
   `orch.sh` stops writing `.orch/run/status.json` and
   `.orch/graph/live|runs|current.json`; Fleet and `/v1/orch-*` read
-  `$CDAMUX_HOME/runs/`. Until that child lands, publish dual-writes both
-  stores (amendment below) — not an open-ended second source of truth.
+  `$CDAMUX_HOME/runs/` (+ worker Agents). Landed: no dual-write window remains.
 - **Repo artefacts stay**: `.orch/run/<id>.rc`, logs, `worker-result.json`,
   `integrator-report.md` and worktrees remain in the repo as work artefacts, not state.
 - **Without `cdamux`**: the pipeline runs unchanged (worktrees, verify, PRs); state
@@ -181,22 +180,10 @@ opencode can wake an idle session.
 
 ## Amendment 2026-11-12 — dual-write window until #252
 
-Context: [PLAN-251](../../plans/PLAN-251-orch-cdamux-publish.md) / PRD-239 slice 3
-ships publish via `cdamux state` ([#251](https://github.com/chatondearu/ai-dev-kit/issues/251))
-before Fleet readers hard-cut
-([#252](https://github.com/chatondearu/ai-dev-kit/issues/252)). A same-PR hard cut
-would leave Fleet blind or force an oversized child.
-
-Decisions (status stays **accepted**):
-
-1. **Bounded dual-write**: from #251 until #252 merges, `orch.sh` /
-   `graph-node.sh` write in-repo `.orch/graph` + `.orch/run/status.json` **and**
-   `$CDAMUX_HOME` via `cdamux state`. Without `cdamux` on `PATH`, the state path
-   no-ops; repo writers still run (ADR-001).
-2. **Hard cut stays #252**: that child removes the `.orch` graph/status writers and
-   points Fleet `/v1/orch-*` at `$CDAMUX_HOME/runs/`. No open-ended double-write.
-3. **Sub-run unchanged**: with `$CDAMUX_AGENT_ID` set, the published run records
-   that agent as `parent`.
+Context: [PLAN-251](../../plans/PLAN-251-orch-cdamux-publish.md) shipped publish via
+`cdamux state` before Fleet readers hard-cut. **Superseded by #252**: the dual-write
+window is closed; writers and readers use `$CDAMUX_HOME` only (repo keeps work
+artefacts). Sub-run `parent` via `$CDAMUX_AGENT_ID` unchanged.
 
 ## References
 

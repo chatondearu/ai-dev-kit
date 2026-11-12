@@ -1,5 +1,5 @@
 //! A worker's pipeline as steps (implement → verify → review → CI → PR) with live
-//! state and durations, from the phases `lib/progress.sh` writes to `status.json`.
+//! state and durations, from the phases `lib/progress.sh` writes to `CDAMUX agents`.
 
 use crate::orch_graph::OrchGraphNode;
 use crate::orch_graph_layout::NodeState;

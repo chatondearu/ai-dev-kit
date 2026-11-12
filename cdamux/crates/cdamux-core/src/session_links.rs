@@ -22,11 +22,11 @@ pub enum PreviewSource {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ChildKind {
-    /// Headless orch worker from `.orch/run/status.json`.
+    /// Orch worker from `$CDAMUX_HOME/agents` (role=worker).
     Worker,
     /// CLI sub-agent from the session's ledger (`docs/subagents.md`).
     Subagent,
-    /// Live orch run (`.orch/graph/live/<run>.json`) under the session that started it.
+    /// Live orch run (`$CDAMUX_HOME/runs/<run>.json`) under the session that started it.
     Run,
 }
 

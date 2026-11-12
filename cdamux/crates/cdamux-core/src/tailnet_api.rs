@@ -1,11 +1,11 @@
 //! Tailnet HTTP API dispatch (testable without binding a socket).
 
 use crate::orch_graph::{
-    find_orch_graph_from_cwd, find_orch_run, list_live_orch_runs, list_orch_graph_runs,
+    find_orch_graph_for_session_from_cwd, find_orch_run, list_live_orch_runs, list_orch_graph_runs,
     load_orch_graph, load_orch_graph_at, OrchGraphError,
 };
 use crate::orch_status::load_orch_run_status;
-use crate::tmux::{capture_pane_text, list_tmux_sessions, send_line_to_session};
+use crate::tmux::{capture_pane_text, list_tmux_sessions, send_line_to_session, TmuxSession};
 use crate::{grouped_for_list_ex, GroupedSessions, ProjectsConfig, SessionsConfig};
 use serde::{Deserialize, Serialize};
 use std::net::IpAddr;
@@ -296,14 +296,18 @@ fn query_param(query: Option<&str>, key: &str) -> Option<String> {
     None
 }
 
-/// Path of the tmux session named exactly `session_id` (also the existence check).
-fn session_path(session_id: &str) -> Result<String, TailnetApiError> {
+/// tmux session named exactly `session_id` (also the existence check).
+fn find_tmux_session(session_id: &str) -> Result<TmuxSession, TailnetApiError> {
     list_tmux_sessions()
         .unwrap_or_default()
         .into_iter()
         .find(|s| s.name == session_id)
-        .map(|s| s.path)
         .ok_or_else(|| TailnetApiError::NotFound(format!("session not found: {session_id}")))
+}
+
+/// Path of the tmux session named exactly `session_id` (also the existence check).
+fn session_path(session_id: &str) -> Result<String, TailnetApiError> {
+    find_tmux_session(session_id).map(|s| s.path)
 }
 
 /// Percent-decode a single URL path segment (enough for tmux session names).
@@ -393,11 +397,11 @@ pub fn dispatch_tailnet_request(
             Ok((graph, _)) => json_ok(200, &graph),
             Err(OrchGraphError::NotFound(_)) => json_error(
                 404,
-                TailnetApiError::NotFound("no .orch/graph/current.json under repo".into()),
+                TailnetApiError::NotFound("no run under $CDAMUX_HOME/runs for repo".into()),
             ),
             Err(OrchGraphError::Invalid { message, .. }) => json_error(
                 422,
-                TailnetApiError::BadRequest(format!("invalid current.json: {message}")),
+                TailnetApiError::BadRequest(format!("invalid run graph: {message}")),
             ),
         };
     }
@@ -419,7 +423,7 @@ pub fn dispatch_tailnet_request(
             Some(st) => json_ok(200, &st),
             None => json_error(
                 404,
-                TailnetApiError::NotFound("no .orch/run/status.json under repo".into()),
+                TailnetApiError::NotFound("no workers under $CDAMUX_HOME for repo".into()),
             ),
         };
     }
@@ -472,17 +476,22 @@ pub fn dispatch_tailnet_request(
             }
             if action == "orch-graph" && method == "GET" {
                 // One `tmux list-sessions`, not full enrichment: the dashboard polls this at 1 Hz.
-                let cwd = match session_path(&session_id) {
-                    Ok(p) => p,
+                // Prefer this session's own run / `@cdamux_run` — not the repo's latest (#236.4).
+                let sess = match find_tmux_session(&session_id) {
+                    Ok(s) => s,
                     Err(e) => return json_error(status_of(&e), e),
                 };
-                match find_orch_graph_from_cwd(&cwd) {
+                match find_orch_graph_for_session_from_cwd(
+                    &sess.path,
+                    &sess.name,
+                    sess.run.as_deref(),
+                ) {
                     Ok((graph, _)) => return json_ok(200, &graph),
                     Err(OrchGraphError::NotFound(_)) => {
                         return json_error(
                             404,
                             TailnetApiError::NotFound(
-                                "no .orch/graph/current.json for this session cwd".into(),
+                                "no $CDAMUX_HOME run for this session".into(),
                             ),
                         );
                     }
@@ -490,7 +499,7 @@ pub fn dispatch_tailnet_request(
                         return json_error(
                             422,
                             TailnetApiError::BadRequest(format!(
-                                "invalid current.json at {}: {message}",
+                                "invalid run graph at {}: {message}",
                                 path.display()
                             )),
                         );
@@ -694,19 +703,26 @@ mod tests {
         assert!(parse_tailnet_bind_addr("127.0.0.1").is_ok());
     }
 
-    /// Temp root with one repo holding a valid `current.json`; the backend only allows that root.
+    /// Temp root + CDAMUX_HOME with one running repo graph. Caller must hold `env_lock`
+    /// and clear `CDAMUX_HOME` when done.
     fn backend_with_root() -> (tempfile::TempDir, MockBackend) {
         let dir = tempfile::tempdir().unwrap();
         let repo = dir.path().join("repo");
-        std::fs::create_dir_all(repo.join(".orch/graph")).unwrap();
-        std::fs::write(
-            repo.join(".orch/graph/current.json"),
-            r#"{"run_id":"r1","status":"running"}"#,
-        )
-        .unwrap();
+        let home = dir.path().join("cdamux");
+        std::fs::create_dir_all(&repo).unwrap();
+        std::fs::create_dir_all(home.join("runs")).unwrap();
+        std::env::set_var("CDAMUX_HOME", &home);
+        let body = format!(
+            r#"{{"run_id":"r1","repo":"{}","status":"running","nodes":[],"edges":[]}}"#,
+            repo.display()
+        );
+        std::fs::write(home.join("runs/r1.json"), body).unwrap();
         let backend = MockBackend {
             projects: ProjectsConfig {
-                roots: vec![crate::ProjectRoot { path: dir.path().to_path_buf(), label: String::new() }],
+                roots: vec![crate::ProjectRoot {
+                    path: dir.path().to_path_buf(),
+                    label: String::new(),
+                }],
                 ..ProjectsConfig::default()
             },
             ..mock_backend()
@@ -716,41 +732,60 @@ mod tests {
 
     #[test]
     fn orch_graph_repo_query_serves_repo_under_root() {
+        let _g = crate::paths::env_lock();
         let (dir, backend) = backend_with_root();
         let url = format!("/v1/orch-graph?repo={}/repo", dir.path().display());
         let resp = dispatch_tailnet_request("GET", &url, "", &backend);
         assert_eq!(resp.status, 200, "{}", resp.body);
         assert!(resp.body.contains("\"run_id\":\"r1\""));
+        std::env::remove_var("CDAMUX_HOME");
     }
 
     #[test]
     fn orch_graph_run_param_picks_a_live_run_and_runs_lists_it() {
+        let _g = crate::paths::env_lock();
         let (dir, backend) = backend_with_root();
         let repo = dir.path().join("repo");
-        std::fs::create_dir_all(repo.join(".orch/graph/live")).unwrap();
-        std::fs::write(
-            repo.join(".orch/graph/live/r2.json"),
-            r#"{"run_id":"r2","session":"alpha","status":"running"}"#,
-        )
-        .unwrap();
+        let home = std::env::var("CDAMUX_HOME").unwrap();
+        let body = format!(
+            r#"{{"run_id":"r2","repo":"{}","session":"alpha","status":"running","nodes":[],"edges":[]}}"#,
+            repo.display()
+        );
+        std::fs::write(format!("{home}/runs/r2.json"), &body).unwrap();
+        let f = std::fs::File::open(format!("{home}/runs/r2.json")).unwrap();
+        f.set_modified(std::time::SystemTime::now() + std::time::Duration::from_secs(5))
+            .unwrap();
         let base = format!("/v1/orch-graph?repo={}", repo.display());
         let latest = dispatch_tailnet_request("GET", &base, "", &backend);
-        assert!(latest.body.contains("\"run_id\":\"r1\""), "default stays current.json: {}", latest.body);
+        assert!(
+            latest.body.contains("\"run_id\":\"r2\""),
+            "default is newest live run: {}",
+            latest.body
+        );
         let r2 = dispatch_tailnet_request("GET", &format!("{base}&run=r2"), "", &backend);
         assert_eq!(r2.status, 200, "{}", r2.body);
         assert!(r2.body.contains("\"session\":\"alpha\""), "{}", r2.body);
         let gone = dispatch_tailnet_request("GET", &format!("{base}&run=..%2Fcurrent"), "", &backend);
         assert_eq!(gone.status, 404, "{}", gone.body);
-        let runs = dispatch_tailnet_request("GET", &format!("/v1/orch-runs?repo={}", repo.display()), "", &backend);
-        assert!(runs.body.contains(r#""run_id":"r2","status":"running""#), "{}", runs.body);
-        assert!(runs.body.contains(r#""session":"alpha","live":true"#), "{}", runs.body);
+        let runs =
+            dispatch_tailnet_request("GET", &format!("/v1/orch-runs?repo={}", repo.display()), "", &backend);
+        assert!(
+            runs.body.contains(r#""run_id":"r2","status":"running""#),
+            "{}",
+            runs.body
+        );
+        assert!(
+            runs.body.contains(r#""session":"alpha","live":true"#),
+            "{}",
+            runs.body
+        );
+        std::env::remove_var("CDAMUX_HOME");
     }
 
     #[test]
     fn orch_graph_repo_traversal_is_404_without_path_echo() {
+        let _g = crate::paths::env_lock();
         let (dir, backend) = backend_with_root();
-        // `<root>/repo/../../..` escapes the root once canonicalized; `/etc` exists, so a naive
-        // `starts_with` on the raw string would have passed.
         let escaped = format!("{}/repo/../../../../../../etc", dir.path().display());
         let resp = dispatch_tailnet_request(
             "GET",
@@ -761,17 +796,19 @@ mod tests {
         assert_eq!(resp.status, 404, "{}", resp.body);
         assert!(!resp.body.contains("etc"), "body must not echo the path: {}", resp.body);
 
-        // Outside any root entirely (and nonexistent): identical 404 body, no oracle.
         let resp2 = dispatch_tailnet_request("GET", "/v1/orch-graph?repo=/nonexistent/zzz", "", &backend);
         assert_eq!(resp2.status, 404);
         assert_eq!(resp.body, resp2.body);
+        std::env::remove_var("CDAMUX_HOME");
     }
 
     #[test]
     fn orch_graph_repo_must_be_absolute() {
+        let _g = crate::paths::env_lock();
         let (_dir, backend) = backend_with_root();
         let resp = dispatch_tailnet_request("GET", "/v1/orch-graph?repo=relative/x", "", &backend);
         assert_eq!(resp.status, 400);
+        std::env::remove_var("CDAMUX_HOME");
     }
 
     #[test]

@@ -53,7 +53,8 @@ already passes `--model` / `-m` is `pinned`. `--dry-run` adds a
 grounding verifier) re-runs one tier up (`small` → `medium` → `large`), bounded by
 `ORCH_TIER_MAX` (default `large`). A failure at the ceiling ends the worker `blocked`
 with `tier ceiling <tier> reached: <failure>`; a pinned command only stops at
-`ORCH_MAX_ITER`. `status.json` and graph nodes show the tier of the latest run.
+`ORCH_MAX_ITER`. Worker Agents and graph nodes under `$CDAMUX_HOME` show the tier
+of the latest run.
 
 `pr-fix` only works on same-repo PRs: a cross-repository (fork) PR, a PR whose
 head branch is the default branch, or unreadable PR metadata ends `blocked`
@@ -91,7 +92,7 @@ While orch runs, poll machine-readable status (updated on every phase change;
 CI heartbeats ~30s):
 
 ```bash
-cat .orch/run/status.json          # all workers
+ls "$CDAMUX_HOME/runs"             # orch runs (Fleet / API source of truth)
 cat .orch/run/<issue>.json         # one worker
 tail -f .orch/orch-<issue>.log     # if you tee'd a log
 ```

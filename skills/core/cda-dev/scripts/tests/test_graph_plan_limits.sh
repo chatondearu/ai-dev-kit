@@ -25,7 +25,10 @@ echo init >"$TMP/README"
 git -C "$TMP" add README
 git -C "$TMP" commit -qm init
 
-export ORCH_REPO="$TMP" ORCH_PROMPTS_DIR=/nonexistent ORCH_PROGRESS=0
+export ORCH_REPO="$TMP" ORCH_PROMPTS_DIR=/nonexistent ORCH_PROGRESS=0 ORCH_TMUX=0
+export CDAMUX_HOME="$TMP/cdamux"
+mkdir -p "$CDAMUX_HOME"
+orch_test_stub_cdamux "$TMP"
 export STUB_LOG="$TMP/worker.log" STUB_TIERS="$TMP/tiers.log"
 
 # Stub worker: log start/end markers, optionally write STUB_WRITE (relative to the worktree).

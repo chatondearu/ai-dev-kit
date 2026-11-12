@@ -190,7 +190,7 @@ orch_agent_run() {
   t="$(orch_agent_tier "$ORCH_AGENT_BIN" "$role")" || return 1
   # Exported: the tmux runner replays the environment, not our functions.
   export ORCH_TIER_FLAGS="${t#*$'\t'}"
-  # What this call runs, for status.json (worker / pr-fix) and graph nodes.
+  # What this call runs, for CDAMUX agents (worker / pr-fix) and graph nodes.
   me="$(orch_model_effort "$ORCH_AGENT_BIN $ORCH_TIER_FLAGS")"
   ORCH_AGENT_CLI="$(command -p basename "${ORCH_AGENT_BIN%% *}")"
   export ORCH_AGENT_CLI ORCH_AGENT_MODEL="${me%%$'\t'*}" ORCH_AGENT_EFFORT="${me#*$'\t'}" \
@@ -237,11 +237,9 @@ _orch_agent_exec() {
   esac
 }
 
-# ORCH_TMUX=1 (opt-in, ADR-002): each worker's agent runs in a detached tmux session
-# so cdamux can show and attach to it. Never under --sandbox: the tmux server sits
-# outside bwrap, so the agent would escape it.
+# ORCH_TMUX defaults on (ADR-011 §1); headless for tests and --sandbox (tmux is outside bwrap).
 orch_tmux_on() {
-  [ "${ORCH_TMUX:-0}" = 1 ] && [ "${ORCH_SANDBOX:-0}" != 1 ] && command -v tmux >/dev/null 2>&1
+  [ "${ORCH_TMUX:-1}" = 1 ] && [ "${ORCH_SANDBOX:-0}" != 1 ] && command -v tmux >/dev/null 2>&1
 }
 
 # Session name for worker $1: orch-<run>-<worker>, tmux-safe. Empty $1 → the run prefix.
@@ -249,7 +247,7 @@ orch_tmux_session() {
   printf '%s\n' "$(printf 'orch-%s-%s' "${ORCH_RUN_ID:-run}" "$1" | tr -c 'A-Za-z0-9_-' '_')"
 }
 
-# Agent output log of worker $1 (listed as `log` in .orch/run/status.json).
+# Agent output log of worker $1 (Fleet reads path from the CDAMUX agent / per-worker json).
 orch_tmux_log() {
   printf '%s/.orch/run/%s.log\n' "${ORCH_REPO:-.}" "$1"
 }

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # CLI wrapper over cda-dev lib/graph.sh for Cursor session fallback (no free-form JSON).
-# Same init|node|edge|finish surface; dual-writes via `cdamux state` (ADR-011 §5, #251).
+# Same init|node|edge|finish surface; writes via `cdamux state` under $CDAMUX_HOME (ADR-011 §5).
 set -euo pipefail
 DEV_LIB="$(cd "$(dirname "$0")/../../cda-dev/scripts/lib" && pwd)"
 # shellcheck source=../../cda-dev/scripts/lib/graph.sh
@@ -8,16 +8,16 @@ source "$DEV_LIB/graph.sh"
 
 usage() {
   cat <<'EOF'
-graph-node.sh — write .orch/graph/live/<run_id>.json (schema: templates/orch-graph.schema.json)
-  and mirror the run via `cdamux state` under $CDAMUX_HOME when cdamux is on PATH.
+graph-node.sh — write $CDAMUX_HOME/runs/<run_id>.json via `cdamux state`
+  (schema: templates/orch-graph.schema.json). No-op without cdamux on PATH.
 
-  graph-node.sh init [--repo DIR] [--run-id ID]      new run; prints its file (basename = run id)
+  graph-node.sh init [--repo DIR] [--run-id ID]      new run; prints its file path
   graph-node.sh node --id ID --kind KIND --phase PHASE --status STATUS [--message MSG] [--parent ID] [--repo DIR] [--run-id ID]
   graph-node.sh edge --from ID --to ID [--type TYPE] [--repo DIR] [--run-id ID]
-  graph-node.sh finish [--outcome ok|blocked] [--repo DIR] [--run-id ID]   moves the run to runs/
+  graph-node.sh finish [--outcome ok|blocked] [--repo DIR] [--run-id ID]
 
-node/edge/finish target --run-id, else $ORCH_RUN_ID, else the newest live run created
-from the current tmux session.
+node/edge/finish target --run-id, else $ORCH_RUN_ID, else the newest running run
+for this tmux session under $CDAMUX_HOME/runs/.
 
 Env: ORCH_REPO (default .), ORCH_GRAPH=1, ORCH_RUN_ID, CDAMUX_HOME, CDAMUX_AGENT_ID
 EOF
@@ -56,27 +56,42 @@ done
 export ORCH_REPO="$(cd "$REPO" && pwd)"
 export ORCH_GRAPH="${ORCH_GRAPH:-1}"
 
-# Resolve the target run for node/edge/finish and require its live file.
+# Newest running run for session $1 under CDAMUX_HOME/runs (mtime order).
+_newest_session_run() {
+  local s="$1" home f
+  home="$(orch_cdamux_home)"
+  [ -n "$home" ] && [ -d "$home/runs" ] || return 1
+  while IFS= read -r f; do
+    [ -f "$f" ] || continue
+    if [ "$(jq -r '.session // empty' "$f" 2>/dev/null)" = "$s" ] \
+      && [ "$(jq -r '.status // "running"' "$f" 2>/dev/null)" = "running" ]; then
+      basename "$f" .json
+      return 0
+    fi
+  done < <(ls -1t "$home/runs"/*.json 2>/dev/null)
+  return 1
+}
+
+# Resolve the target run for node/edge/finish.
 use_run() {
-  local s f
+  local s
   RUN_ID="${RUN_ID:-${ORCH_RUN_ID:-}}"
   if [ -z "$RUN_ID" ] && s="$(orch_graph_session)" && [ -n "$s" ]; then
-    while IFS= read -r f; do
-      if [ "$(jq -r '.session // empty' "$f" 2>/dev/null)" = "$s" ]; then
-        RUN_ID="$(basename "$f" .json)"
-        break
-      fi
-    done < <(ls -1t "$ORCH_REPO/.orch/graph/live"/*.json 2>/dev/null)
+    RUN_ID="$(_newest_session_run "$s" || true)"
   fi
   if [ -z "$RUN_ID" ]; then
     echo "graph-node: no run to write to: pass --run-id ID, set ORCH_RUN_ID, or run 'graph-node.sh init' from this tmux session" >&2
     exit 1
   fi
   export ORCH_RUN_ID="$RUN_ID"
-  [ -f "$(orch_graph_file)" ] || {
-    echo "graph-node: no live graph for run $RUN_ID (finished or never initialized): $(orch_graph_file)" >&2
+  if ! orch_cdamux_available; then
+    echo "graph-node: cdamux not on PATH (state writes no-op; pass a run only after init with cdamux)" >&2
     exit 1
-  }
+  fi
+  if ! orch_cdamux_state_get runs "$ORCH_RUN_ID" >/dev/null 2>&1; then
+    echo "graph-node: no run $ORCH_RUN_ID under \$CDAMUX_HOME/runs (finished or never initialized)" >&2
+    exit 1
+  fi
 }
 
 case "$cmd" in

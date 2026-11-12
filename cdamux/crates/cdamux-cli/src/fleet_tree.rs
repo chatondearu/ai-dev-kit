@@ -72,7 +72,7 @@ struct Nest<'a> {
     status: &'a StatusCache,
     /// Live runs of the project; empty without a repo or in waiting-only mode.
     runs: &'a [OrchGraphRunSummary],
-    /// status.json workers, nested under the row of their run (`status.json` `run_id`).
+    /// CDAMUX agents workers, nested under the row of their run (`CDAMUX agents` `run_id`).
     run_workers: Option<(&'a str, &'a [ChildRow])>,
     project_path: &'a str,
 }
@@ -206,7 +206,7 @@ pub(crate) fn flatten_tree(
                 Some(r) if !waiting_only => r.live.as_slice(),
                 _ => &[],
             };
-            // Workers of a live run nest under it; others (pre-#178 status.json) stay here.
+            // Workers of a live run nest under it; others (pre-#178 CDAMUX agents) stay here.
             let run_workers = status
                 .status_run(&node.project.path)
                 .filter(|id| runs.iter().any(|r| r.run_id == *id))
@@ -264,7 +264,7 @@ pub(crate) fn flatten_tree(
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum GraphTarget {
     None,
-    /// `.orch/graph/current.json` found from this path: project rows, pre-#178 harness.
+    /// Latest `$CDAMUX_HOME/runs/` match for this path: project rows / harness fallback.
     Latest(String),
     /// These runs (newest first, `Tab` cycles in the Graph view), found from `cwd`.
     Runs { cwd: String, runs: Vec<String> },

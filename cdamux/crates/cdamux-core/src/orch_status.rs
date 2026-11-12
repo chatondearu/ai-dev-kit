@@ -1,5 +1,9 @@
-//! Live orch worker status (`.orch/run/status.json`).
+//! Orch worker status from `$CDAMUX_HOME/agents/` (ADR-011 §5 hard cut #252).
+//! Fleet / `/v1/orch-status` map worker Agents onto the historical
+//! [`OrchRunStatusFile`] shape (phase, tmux_session, …).
 
+use crate::orch_graph::{list_live_orch_runs, list_orch_graph_runs};
+use crate::paths::{cdamux_home, cdamux_state_dir};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -43,7 +47,11 @@ pub struct OrchWorkerStatus {
 impl OrchWorkerStatus {
     /// Compact `cli·tier` for the Fleet row; `None` when neither is known.
     pub fn agent_tag(&self) -> Option<String> {
-        let parts: Vec<&str> = [&self.cli, &self.tier].into_iter().flatten().map(String::as_str).collect();
+        let parts: Vec<&str> = [&self.cli, &self.tier]
+            .into_iter()
+            .flatten()
+            .map(String::as_str)
+            .collect();
         (!parts.is_empty()).then(|| parts.join("·"))
     }
 
@@ -66,17 +74,142 @@ pub struct OrchRunStatusFile {
     pub workers: Vec<OrchWorkerStatus>,
 }
 
-pub fn orch_run_status_path(repo: &Path) -> PathBuf {
-    repo.join(".orch/run/status.json")
+/// `$CDAMUX_HOME/agents` when the home resolves.
+pub fn orch_agents_dir() -> Option<PathBuf> {
+    cdamux_state_dir("agents")
 }
 
+#[derive(Debug, Deserialize)]
+struct AgentDoc {
+    #[serde(default)]
+    role: String,
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    status: String,
+    #[serde(default)]
+    phase: Option<String>,
+    #[serde(default)]
+    message: Option<String>,
+    #[serde(default)]
+    updated_at: Option<String>,
+    #[serde(default)]
+    phases: Vec<PhaseMark>,
+    #[serde(default)]
+    host: Option<String>,
+    #[serde(default)]
+    tmux_session: Option<String>,
+    #[serde(default)]
+    log: Option<String>,
+    #[serde(default)]
+    run: Option<String>,
+    #[serde(default)]
+    client: Option<String>,
+    #[serde(default)]
+    cli: Option<String>,
+    #[serde(default)]
+    model: Option<String>,
+    #[serde(default)]
+    effort: Option<String>,
+    #[serde(default)]
+    tier: Option<String>,
+}
+
+fn phase_from_agent(a: &AgentDoc) -> String {
+    if let Some(p) = a.phase.as_deref().filter(|s| !s.is_empty()) {
+        return p.to_string();
+    }
+    match a.status.as_str() {
+        "done" => "done".into(),
+        "blocked" | "error" => "blocked".into(),
+        "idle" | "dormant" => "pending".into(),
+        _ => "agent".into(),
+    }
+}
+
+fn worker_from_agent(a: AgentDoc) -> Option<OrchWorkerStatus> {
+    if a.role != "worker" || a.name.is_empty() {
+        return None;
+    }
+    let phase = phase_from_agent(&a);
+    let tmux = a
+        .tmux_session
+        .filter(|s| !s.is_empty())
+        .or_else(|| a.host.filter(|s| !s.is_empty()));
+    Some(OrchWorkerStatus {
+        id: a.name,
+        phase,
+        message: a.message.unwrap_or_default(),
+        updated_at: a.updated_at.unwrap_or_default(),
+        phases: a.phases,
+        tmux_session: tmux,
+        log: a.log.filter(|s| !s.is_empty()),
+        cli: a.cli.or(a.client).filter(|s| !s.is_empty() && s != "unknown"),
+        model: a.model.filter(|s| !s.is_empty()),
+        effort: a.effort.filter(|s| !s.is_empty()),
+        tier: a.tier.filter(|s| !s.is_empty()),
+    })
+}
+
+/// Load workers for `repo` from `$CDAMUX_HOME/agents`, scoped to that repo's runs.
 pub fn load_orch_run_status(repo: &Path) -> Option<OrchRunStatusFile> {
-    let path = orch_run_status_path(repo);
-    let raw = fs::read_to_string(path).ok()?;
-    serde_json::from_str(&raw).ok()
+    let dir = orch_agents_dir()?;
+    let live = list_live_orch_runs(repo);
+    let recent = list_orch_graph_runs(repo, 20);
+    if live.is_empty() && recent.is_empty() {
+        return None;
+    }
+    let live_ids: std::collections::HashSet<String> =
+        live.iter().map(|r| r.run_id.clone()).collect();
+    // Workers of live runs, else of the newest finished run.
+    let scope: std::collections::HashSet<String> = if !live_ids.is_empty() {
+        live_ids
+    } else {
+        recent.iter().take(1).map(|r| r.run_id.clone()).collect()
+    };
+    let preferred_run = live
+        .first()
+        .or(recent.first())
+        .map(|r| r.run_id.clone());
+
+    let mut workers = Vec::new();
+    let mut updated_at = String::new();
+    let rd = fs::read_dir(&dir).ok()?;
+    for ent in rd.flatten() {
+        let path = ent.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("json") {
+            continue;
+        }
+        let Ok(raw) = fs::read_to_string(&path) else {
+            continue;
+        };
+        let Ok(doc) = serde_json::from_str::<AgentDoc>(&raw) else {
+            continue;
+        };
+        let Some(run) = doc.run.as_deref().filter(|s| !s.is_empty()) else {
+            continue;
+        };
+        if !scope.contains(run) {
+            continue;
+        }
+        if let Some(u) = doc.updated_at.as_deref() {
+            if u > updated_at.as_str() {
+                updated_at = u.to_string();
+            }
+        }
+        if let Some(w) = worker_from_agent(doc) {
+            workers.push(w);
+        }
+    }
+    workers.sort_by(|a, b| a.id.cmp(&b.id));
+    Some(OrchRunStatusFile {
+        updated_at,
+        run_id: preferred_run,
+        workers,
+    })
 }
 
-/// Like [`load_orch_run_status`], walking parents from `cwd` (a session may sit in a subdir).
+/// Like [`load_orch_run_status`], walking parents from `cwd`.
 pub fn find_orch_run_status_from_cwd(cwd: &str) -> Option<OrchRunStatusFile> {
     Path::new(cwd)
         .ancestors()
@@ -84,28 +217,57 @@ pub fn find_orch_run_status_from_cwd(cwd: &str) -> Option<OrchRunStatusFile> {
 }
 
 pub fn project_has_orch_artifacts(repo: &Path) -> bool {
-    orch_run_status_path(repo).is_file() || repo.join(".orch/graph/current.json").is_file()
+    if cdamux_home().is_none() {
+        return false;
+    }
+    !list_live_orch_runs(repo).is_empty() || !list_orch_graph_runs(repo, 1).is_empty()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::paths::env_lock;
+    use crate::state::{state_set, StateKind};
     use std::io::Write;
 
     #[test]
-    fn loads_workers_aggregate() {
+    fn loads_workers_from_agents_under_cdamux_home() {
+        let _g = env_lock();
         let dir = tempfile::tempdir().unwrap();
-        let path = orch_run_status_path(dir.path());
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        let mut f = fs::File::create(&path).unwrap();
-        write!(
-            f,
-            r#"{{"updated_at":"t","workers":[{{"id":"72","phase":"ci","message":"PR #1","updated_at":"t"}}]}}"#
+        let repo = dir.path().join("repo");
+        fs::create_dir_all(&repo).unwrap();
+        let home = dir.path().join("cdamux");
+        std::env::set_var("CDAMUX_HOME", &home);
+
+        let repo_s = repo.to_string_lossy().to_string();
+        state_set(
+            StateKind::Runs,
+            "r1",
+            &serde_json::json!({
+                "run_id": "r1", "id": "r1", "repo": repo_s,
+                "status": "running", "nodes": [], "edges": []
+            }),
         )
         .unwrap();
-        let st = load_orch_run_status(dir.path()).unwrap();
+        state_set(
+            StateKind::Agents,
+            "a-w72",
+            &serde_json::json!({
+                "id": "a-w72", "role": "worker", "name": "72",
+                "status": "working", "phase": "ci", "message": "PR #1",
+                "updated_at": "t", "run": "r1",
+                "cli": "claude", "tier": "medium"
+            }),
+        )
+        .unwrap();
+
+        let st = load_orch_run_status(&repo).unwrap();
         assert_eq!(st.workers.len(), 1);
         assert_eq!(st.workers[0].id, "72");
+        assert_eq!(st.workers[0].phase, "ci");
+        assert_eq!(st.run_id.as_deref(), Some("r1"));
+
+        std::env::remove_var("CDAMUX_HOME");
     }
 
     #[test]
@@ -120,7 +282,28 @@ mod tests {
         .unwrap();
         assert_eq!(new.agent_tag().as_deref(), Some("claude·hard"));
         assert_eq!(new.agent_detail().as_deref(), Some("claude·hard opus high"));
-        let model_only = OrchWorkerStatus { model: Some("m".into()), ..Default::default() };
-        assert_eq!((model_only.agent_tag(), model_only.agent_detail().as_deref()), (None, Some("m")));
+        let model_only = OrchWorkerStatus {
+            model: Some("m".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            (model_only.agent_tag(), model_only.agent_detail().as_deref()),
+            (None, Some("m"))
+        );
+    }
+
+    #[test]
+    fn legacy_status_json_ignored_without_cdamux_agents() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(".orch/run/status.json");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let mut f = fs::File::create(&path).unwrap();
+        write!(
+            f,
+            r#"{{"updated_at":"t","workers":[{{"id":"72","phase":"ci"}}]}}"#
+        )
+        .unwrap();
+        // Without CDAMUX_HOME agents/runs, the legacy file is ignored.
+        assert!(load_orch_run_status(dir.path()).is_none());
     }
 }

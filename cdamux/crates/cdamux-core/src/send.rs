@@ -19,19 +19,22 @@ fn exact_session_target(session: &str) -> String {
     format!("={session}")
 }
 
+/// Error for a failed `tmux` spawn: `NotFound` when tmux is not on PATH.
+pub(crate) fn spawn_err(e: std::io::Error) -> SendError {
+    if e.kind() == std::io::ErrorKind::NotFound {
+        SendError::NotFound
+    } else {
+        SendError::SendFailed
+    }
+}
+
 pub fn tmux_has_session(session: &str) -> Result<bool, SendError> {
     let status = Command::new("tmux")
         .args(["has-session", "-t", &exact_session_target(session)])
         // "can't find session" would land on top of the TUI; the exit code is the answer.
         .stderr(Stdio::null())
         .status()
-        .map_err(|e| {
-            if e.kind() == std::io::ErrorKind::NotFound {
-                SendError::NotFound
-            } else {
-                SendError::SendFailed
-            }
-        })?;
+        .map_err(spawn_err)?;
     Ok(status.success())
 }
 

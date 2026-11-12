@@ -1,8 +1,18 @@
 //! Kill, rename, fork naming, attach helpers.
 
-use crate::send::{tmux_has_session, SendError};
+use crate::send::{spawn_err, tmux_has_session, SendError};
 use crate::tmux::{list_tmux_sessions, HOME_SESSION_NAME};
 use std::process::{Command, Stdio};
+
+/// Run `tmux <args>`; `SendFailed` on a non-zero exit.
+fn tmux_ok(args: &[&str]) -> Result<(), SendError> {
+    let status = Command::new("tmux").args(args).status().map_err(spawn_err)?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(SendError::SendFailed)
+    }
+}
 
 /// True when `name` is the cdamux home / dashboard session.
 pub fn is_home_session(name: &str) -> bool {
@@ -15,31 +25,37 @@ pub fn home_session_new_argv() -> [&'static str; 5] {
 }
 
 /// Create the home session detached if missing (runs `cdamux` as the pane command).
+/// An existing home pane running a plain shell (tmux-resurrect / continuum restore it
+/// with the default shell over the stale screen) is respawned with `cdamux`.
 pub fn ensure_home_session() -> Result<(), SendError> {
-    if tmux_has_session(HOME_SESSION_NAME)? {
-        return Ok(());
+    if !tmux_has_session(HOME_SESSION_NAME)? {
+        return tmux_ok(&["new-session", "-d", "-s", HOME_SESSION_NAME, "cdamux"]);
     }
-    let status = Command::new("tmux")
-        .args([
-            "new-session",
-            "-d",
-            "-s",
-            HOME_SESSION_NAME,
-            "cdamux",
-        ])
-        .status()
-        .map_err(|e| {
-            if e.kind() == std::io::ErrorKind::NotFound {
-                SendError::NotFound
-            } else {
-                SendError::SendFailed
-            }
-        })?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(SendError::SendFailed)
+    let target = format!("={HOME_SESSION_NAME}:");
+    if pane_current_command(&target).is_some_and(|c| is_shell_command(&c)) {
+        // Best effort: a failed repair must not block the kill that needs a home session.
+        let _ = tmux_ok(&["respawn-pane", "-k", "-t", &target, "cdamux"]);
     }
+    Ok(())
+}
+
+fn pane_current_command(target: &str) -> Option<String> {
+    let out = Command::new("tmux")
+        .args(["display-message", "-p", "-t", target, "#{pane_current_command}"])
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    out.status
+        .success()
+        .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
+/// Login shells show as `-fish`, `-bash`, …
+fn is_shell_command(cmd: &str) -> bool {
+    matches!(
+        cmd.trim_start_matches('-'),
+        "sh" | "bash" | "zsh" | "fish" | "dash" | "ksh" | "mksh" | "tcsh" | "csh" | "nu"
+    )
 }
 
 /// Current client session name when inside tmux (`None` outside or on failure).
@@ -87,41 +103,13 @@ fn detach_on_destroy_get() -> Option<String> {
 }
 
 fn detach_on_destroy_set(value: &str) -> Result<(), SendError> {
-    let status = Command::new("tmux")
-        .args(["set-option", "-g", "detach-on-destroy", value])
-        .status()
-        .map_err(|e| {
-            if e.kind() == std::io::ErrorKind::NotFound {
-                SendError::NotFound
-            } else {
-                SendError::SendFailed
-            }
-        })?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(SendError::SendFailed)
-    }
+    tmux_ok(&["set-option", "-g", "detach-on-destroy", value])
 }
 
 /// Switch the current client to `session` without setting `@cdamux_return`
 /// (used before kill so pane-died does not reopen a popup).
 fn switch_client_quiet(session: &str) -> Result<(), SendError> {
-    let status = Command::new("tmux")
-        .args(["switch-client", "-t", &format!("={session}")])
-        .status()
-        .map_err(|e| {
-            if e.kind() == std::io::ErrorKind::NotFound {
-                SendError::NotFound
-            } else {
-                SendError::SendFailed
-            }
-        })?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(SendError::SendFailed)
-    }
+    tmux_ok(&["switch-client", "-t", &format!("={session}")])
 }
 
 pub fn kill_tmux_session(name: &str) -> Result<(), SendError> {
@@ -149,21 +137,7 @@ pub fn kill_tmux_session(name: &str) -> Result<(), SendError> {
     if previous.as_deref() == Some("next") || previous.as_deref() == Some("previous") {
         let _ = detach_on_destroy_set("on");
     }
-    let status = Command::new("tmux")
-        .args(["kill-session", "-t", &format!("={name}")])
-        .status()
-        .map_err(|e| {
-            if e.kind() == std::io::ErrorKind::NotFound {
-                SendError::NotFound
-            } else {
-                SendError::SendFailed
-            }
-        })?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(SendError::SendFailed)
-    }
+    tmux_ok(&["kill-session", "-t", &format!("={name}")])
 }
 
 pub fn rename_tmux_session(old: &str, new: &str) -> Result<(), SendError> {
@@ -176,21 +150,7 @@ pub fn rename_tmux_session(old: &str, new: &str) -> Result<(), SendError> {
     if tmux_has_session(new)? {
         return Err(SendError::SendFailed);
     }
-    let status = Command::new("tmux")
-        .args(["rename-session", "-t", old, new])
-        .status()
-        .map_err(|e| {
-            if e.kind() == std::io::ErrorKind::NotFound {
-                SendError::NotFound
-            } else {
-                SendError::SendFailed
-            }
-        })?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(SendError::SendFailed)
-    }
+    tmux_ok(&["rename-session", "-t", old, new])
 }
 
 /// `base`, `base-2`, `base-3`, … first name without a live session or a restore record
@@ -239,6 +199,12 @@ mod tests {
     }
 
     #[test]
+    fn shell_detection_strips_login_dash() {
+        assert!(is_shell_command("fish") && is_shell_command("-zsh") && is_shell_command("nu"));
+        assert!(!is_shell_command("cdamux") && !is_shell_command("nvim") && !is_shell_command(""));
+    }
+
+    #[test]
     fn ensure_home_before_kill_only_for_last_attached() {
         assert!(should_ensure_home_before_kill(
             Some("work"),
@@ -268,32 +234,10 @@ pub fn mark_session_cdamux_return(session: &str) -> Result<(), SendError> {
     if !tmux_has_session(session)? {
         return Err(SendError::SessionNotFound(session.to_string()));
     }
-    let status = Command::new("tmux")
-        .args(["set-option", "-t", session, "@cdamux_return", "1"])
-        .status()
-        .map_err(|_| SendError::SendFailed)?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(SendError::SendFailed)
-    }
+    tmux_ok(&["set-option", "-t", session, "@cdamux_return", "1"])
 }
 
 pub fn switch_client_to_session(session: &str) -> Result<(), SendError> {
     mark_session_cdamux_return(session)?;
-    let status = Command::new("tmux")
-        .args(["switch-client", "-t", session])
-        .status()
-        .map_err(|e| {
-            if e.kind() == std::io::ErrorKind::NotFound {
-                SendError::NotFound
-            } else {
-                SendError::SendFailed
-            }
-        })?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(SendError::SendFailed)
-    }
+    tmux_ok(&["switch-client", "-t", session])
 }

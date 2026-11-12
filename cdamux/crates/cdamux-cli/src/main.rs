@@ -16,7 +16,7 @@ mod widgets;
 
 use cdamux_core::{
     cdamux_home, command_on_path, config_path, configured_agent_ids, default_agent_name,
-    discover_projects, ensure_note_file, format_unread_digest, git_diff_unified, git_toplevel,
+    discover_projects, ensure_home_session, ensure_note_file, format_unread_digest, git_diff_unified, git_toplevel,
     home_session_new_argv, list_tmux_sessions, list_worktrees, list_workers, load_config,
     note_refs_for_projects, current_tmux_session, kill_tmux_session, list_panes_all, msg_send,
     parents_first, peek_worker, read_messages, parse_unified_diff, resolve_agent_command,
@@ -914,6 +914,7 @@ fn format_state(state: cdamux_core::SessionState) -> &'static str {
 
 /// Replace this process with `tmux new-session -A -s cdamux cdamux`.
 fn enter_home_session() -> ExitCode {
+    let _ = ensure_home_session();
     let err = Command::new("tmux").args(home_session_new_argv()).exec();
     eprintln!("cdamux: failed to enter home session: {err}");
     ExitCode::from(1)

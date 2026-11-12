@@ -58,6 +58,7 @@ Install the `cdamux` binary on `PATH` (e.g. `cargo install --path crates/cdamux-
 - [ ] `cdamux send <session> <message>` delivers text without attaching (targets session **active window / active pane** via `tmux send-keys -l -t`)
 - [ ] `cdamux send <session> --enter` (or message + `--enter`) submits with Enter
 - [ ] Spawn a claude session, `tmux kill-session` it, `cdamux restore --all` brings it back on the same conversation (`--resume <id>`)
+- [ ] Spawn `cdamux orch new` + a worker, kill both hosts, `cdamux restore <orch>` brings orch then workers back (resume ids + `@cdamux_parent` kept)
 - [ ] The killed session shows as a dimmed `◌ … dormant` row in the Fleet; `Enter` restores it, `x` `x` forgets it
 - [ ] `cdamux restart --all` from a shell pane of an agent session: other idle agents restart first, a `running` one is skipped, the current one restarts last (see `restart.log`)
 

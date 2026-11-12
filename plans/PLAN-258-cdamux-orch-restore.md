@@ -1,6 +1,6 @@
 # PLAN-258 — Restore orchestrator with its workers
 
-- **Status**: draft
+- **Status**: done
 - **PRD**: [[../prd/PRD-239-orchestrator-session|PRD-239]]
 - **GitHub**: [#258](https://github.com/chatondearu/ai-dev-kit/issues/258)
 - **Blocked by**: #257
@@ -43,10 +43,10 @@ restoring an orchestrator, find children by parent id and restore parents-first
 
 ## Tasks
 
-- [ ] **Subtree restore**: restore orch then its workers with parent links (acceptance: throwaway tmux test)
-- [ ] **Resume**: clients resume by id when recorded (acceptance: assert resume command / registry id used)
-- [ ] **Docs**: note orch+workers restore in cdamux docs
-- [ ] **Verify**: `nix develop -c bash scripts/verify.sh` green
+- [x] **Subtree restore**: restore orch then its workers with parent links (acceptance: throwaway tmux test)
+- [x] **Resume**: clients resume by id when recorded (acceptance: assert resume command / registry id used)
+- [x] **Docs**: note orch+workers restore in cdamux docs
+- [x] **Verify**: `nix develop -c bash scripts/verify.sh` green
 
 ## Risks & mitigations
 
@@ -58,10 +58,10 @@ restoring an orchestrator, find children by parent id and restore parents-first
 
 Seams: (1) orch+worker restore order, (2) parent link after restore, (3) resume id.
 
-- [ ] `restore_tmux` / new orch-restore test
-- [ ] Full verify
+- [x] `restore_tmux` / new orch-restore test
+- [x] Full verify
 
 ## Verification
 
-- [ ] Lint / test / build per project conventions
-- [ ] Update foam / ADR only if a new decision was made
+- [x] Lint / test / build per project conventions
+- [x] Update foam / ADR only if a new decision was made

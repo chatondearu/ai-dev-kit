@@ -20,7 +20,7 @@ use cdamux_core::{
     home_session_new_argv, list_tmux_sessions, list_worktrees, list_workers, load_config,
     note_refs_for_projects, current_tmux_session, kill_tmux_session, list_panes_all, msg_send,
     parents_first, peek_worker, read_messages, parse_unified_diff, resolve_agent_command,
-    restore_one, restart_plan, session_registry, resolve_note_path, send_to_session,
+    restore_one, restore_targets, restart_plan, session_registry, resolve_note_path, send_to_session,
     session_name_for_path, spawn_orchestrator, spawn_tmux_session_with_layout, spawn_worker,
     state_append, state_get, state_set, unique_session_name, valid_kind, AttachMode,
     DEFAULT_NUDGE_QUIET_SECS, DiffError, GroupBy, OrchNewRequest, PaneLayout, SendError,
@@ -74,6 +74,7 @@ enum Commands {
         interactive: bool,
     },
     /// Recreate recorded sessions that are not live, resuming their agent conversation.
+    /// An orchestrator name also restores its workers (parents first).
     #[command(group = clap::ArgGroup::new("target").required(true).args(["name", "all"]))]
     Restore {
         /// Recorded session name (see the restore registry, ADR-009).
@@ -1095,8 +1096,8 @@ fn cmd_restore(name: Option<String>, all: bool) -> ExitCode {
         parents_first(session_registry::load_all())
     } else {
         let name = name.unwrap_or_default();
-        match session_registry::load(&name) {
-            Some(r) => vec![r],
+        match restore_targets(&name) {
+            Some(r) => r,
             None => {
                 eprintln!("restore: no record for session '{name}'");
                 return ExitCode::from(1);

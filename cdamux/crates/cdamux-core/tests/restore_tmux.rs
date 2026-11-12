@@ -1,9 +1,10 @@
 //! Spawn → kill-session → restore on a throwaway tmux server (cdamux/AGENTS.md
-//! § Testing against tmux). The only test in this binary: it sets process env vars.
+//! § Testing against tmux). Tests in this binary set process env vars.
 
 use cdamux_core::{
-    restore_one, session_registry, spawn_tmux_session_with_layout, state_append, AgentEntry,
-    AgentsConfig, PaneLayout, RestoreOutcome, StateKind,
+    env_lock, restore_one, restore_targets, session_registry, spawn_tmux_session_ex,
+    spawn_tmux_session_with_layout, state_append, state_get, AgentEntry, AgentsConfig, PaneLayout,
+    RestoreOutcome, SpawnExtra, StateKind,
 };
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -37,6 +38,7 @@ fn spawn_kill_restore_resumes_claude_conversation() {
         eprintln!("tmux not on PATH: skipped");
         return;
     };
+    let _env = env_lock();
     let tmp = tempfile::tempdir().unwrap();
     // Wrapper so every tmux call (ours and cdamux's) hits a private `-L` server under tmp.
     let bin = tmp.path().join("bin");
@@ -136,4 +138,132 @@ fn spawn_kill_restore_resumes_claude_conversation() {
 
 fn which(cmd: &str) -> Option<String> {
     std::env::var("PATH").ok()?.split(':').map(|d| Path::new(d).join(cmd)).find(|p| p.is_file()).map(|p| p.display().to_string())
+}
+
+#[test]
+fn restore_orch_restores_workers_with_resume_and_parent() {
+    let Some(real_tmux) = which("tmux") else {
+        eprintln!("tmux not on PATH: skipped");
+        return;
+    };
+    let _env = env_lock();
+    let tmp = tempfile::tempdir().unwrap();
+    let bin = tmp.path().join("bin");
+    std::fs::create_dir(&bin).unwrap();
+    let wrapper = bin.join("tmux");
+    std::fs::write(
+        &wrapper,
+        format!("#!/bin/sh\nexec {} -L {SOCKET}-orch -f /dev/null \"$@\"\n", real_tmux),
+    )
+    .unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default());
+    std::env::set_var("PATH", path);
+    std::env::set_var("TMUX_TMPDIR", tmp.path());
+    std::env::set_var("XDG_STATE_HOME", tmp.path().join("state"));
+    std::env::set_var("SHELL", "/bin/sh");
+    std::env::remove_var("TMUX");
+
+    let agents = AgentsConfig {
+        default: "claude".into(),
+        claude: Some(AgentEntry {
+            command: "echo claude".into(),
+            resume: None,
+        }),
+        ..AgentsConfig::default()
+    };
+    let cwd = tmp.path();
+    let orch = "c-orch-r";
+    let worker = "c-w-r";
+
+    spawn_tmux_session_ex(
+        orch,
+        cwd,
+        "echo claude",
+        PaneLayout::Single,
+        false,
+        Some("claude"),
+        None,
+        SpawnExtra {
+            role: Some("orchestrator"),
+            run: Some("r-test1"),
+            ..Default::default()
+        },
+    )
+    .expect("spawn orch");
+    let orch_rec = session_registry::load(orch).expect("orch recorded");
+    let orch_id = orch_rec.cdamux_id.clone().expect("orch cdamux_id");
+    let orch_sid = orch_rec.agent_session_id.clone().expect("orch session id");
+
+    spawn_tmux_session_ex(
+        worker,
+        cwd,
+        "echo claude",
+        PaneLayout::Single,
+        false,
+        Some("claude"),
+        Some(orch),
+        SpawnExtra {
+            role: Some("worker"),
+            run: Some("r-test1"),
+            parent_agent_id: Some(orch_id.as_str()),
+            name: Some("w1"),
+        },
+    )
+    .expect("spawn worker");
+    let worker_rec = session_registry::load(worker).expect("worker recorded");
+    let worker_id = worker_rec.cdamux_id.clone().expect("worker cdamux_id");
+    let worker_sid = worker_rec.agent_session_id.clone().expect("worker session id");
+    assert_eq!(worker_rec.parent.as_deref(), Some(orch));
+    assert_eq!(worker_rec.role, "worker");
+    let worker_doc = state_get(StateKind::Agents, &worker_id).unwrap().unwrap();
+    assert_eq!(worker_doc["parent"], orch_id);
+
+    let result = std::panic::catch_unwind(|| {
+        tmux(&["kill-session", "-t", &format!("={worker}")]);
+        tmux(&["kill-session", "-t", &format!("={orch}")]);
+        let live = tmux(&["list-sessions", "-F", "#{session_name}"]);
+        assert!(!live.lines().any(|l| l == orch || l == worker), "live={live}");
+
+        let targets = restore_targets(orch).expect("orch targets");
+        let names: Vec<&str> = targets.iter().map(|r| r.name.as_str()).collect();
+        assert_eq!(names, [orch, worker], "parents first subtree");
+
+        for rec in &targets {
+            let outcome = restore_one(rec, &agents).unwrap();
+            assert!(matches!(outcome, RestoreOutcome::Restored(_)), "{rec:?} → {outcome:?}");
+        }
+
+        let orch_pane = wait_for_pane(orch, "--resume");
+        assert!(
+            orch_pane.contains(&format!("claude --resume {orch_sid}")),
+            "orch pane: {orch_pane}"
+        );
+        let worker_pane = wait_for_pane(worker, "--resume");
+        assert!(
+            worker_pane.contains(&format!("claude --resume {worker_sid}")),
+            "worker pane: {worker_pane}"
+        );
+        assert_eq!(tmux(&["show-options", "-v", "-t", worker, "@cdamux_parent"]).trim(), orch);
+        assert_eq!(tmux(&["show-options", "-v", "-t", worker, "@cdamux_role"]).trim(), "worker");
+        assert_eq!(tmux(&["show-options", "-v", "-t", orch, "@cdamux_role"]).trim(), "orchestrator");
+        assert_eq!(
+            tmux(&["show-options", "-v", "-t", worker, "@cdamux_id"]).trim(),
+            worker_id.as_str()
+        );
+        let after_worker = state_get(StateKind::Agents, &worker_id).unwrap().unwrap();
+        assert_eq!(after_worker["parent"], orch_id);
+        assert_eq!(after_worker["host"], worker);
+    });
+
+    let socket = tmux(&["display", "-p", "-t", &format!("={orch}"), "#{socket_path}"]);
+    let tmp_real = tmp.path().canonicalize().unwrap();
+    let socket = Path::new(socket.trim()).canonicalize().unwrap_or_default();
+    if socket.starts_with(&tmp_real) && !socket.to_string_lossy().contains("/default") {
+        tmux(&["kill-server"]);
+    }
+    if let Err(e) = result {
+        std::panic::resume_unwind(e);
+    }
 }

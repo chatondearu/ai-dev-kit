@@ -73,8 +73,10 @@ workers with a pending `ask`; answering from the composer / send form uses
 *orchestrator*) — skill `cda-orchestrator`. Interactive workers:
 `cdamux worker spawn|ls|peek` (needs `$CDAMUX_AGENT_ID`; worktrees under
 `[worktrees].root` or `$CDAMUX_HOME/worktrees`; default first message includes the
-worker preamble for `cdamux msg`). Layout, ids, delivery and restore:
-[cdamux/docs/architecture.md](../cdamux/docs/architecture.md) § State root.
+worker preamble for `cdamux msg`). `cdamux restore <orch>` rebuilds the
+orchestrator host and its workers (resume by id when recorded). Layout, ids,
+delivery and restore: [cdamux/docs/architecture.md](../cdamux/docs/architecture.md)
+§ State root.
 
 See [graph-orchestration.md](graph-orchestration.md).
 Graphify install stays in **aitools** only — never `install.sh`

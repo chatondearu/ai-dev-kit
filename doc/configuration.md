@@ -67,8 +67,10 @@ msg kind `error`; phase stays in text), and one at run end with `ref` pointing a
 notifies again (silent no-op without `cdamux` or parent id —
 [ADR-011](../foam/decisions/ADR-011-cdamux-unified-state-model.md) §5).
 Orchestrator ↔ worker messages use `cdamux msg send|read` (`inbox/<agent-id>.jsonl` +
-`.cursor`, ≤ 2 KB/line). Start an orchestrator with `cdamux orch new` (or Fleet spawn
-role *orchestrator*) — skill `cda-orchestrator`. Interactive workers:
+`.cursor`, ≤ 2 KB/line). Fleet and the tailnet web show `✉N` unread badges and `?` on
+workers with a pending `ask`; answering from the composer / send form uses
+`kind=answer`. Start an orchestrator with `cdamux orch new` (or Fleet spawn role
+*orchestrator*) — skill `cda-orchestrator`. Interactive workers:
 `cdamux worker spawn|ls|peek` (needs `$CDAMUX_AGENT_ID`; worktrees under
 `[worktrees].root` or `$CDAMUX_HOME/worktrees`; default first message includes the
 worker preamble for `cdamux msg`). Layout, ids, delivery and restore:

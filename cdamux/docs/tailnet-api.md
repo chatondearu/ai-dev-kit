@@ -16,7 +16,7 @@ Set `CDAMUX_TAILNET_TOKEN` in the daemon environment to require every `/v1/*`
 request to carry the header `X-Cdamux-Token: <token>`. Requests without it or
 with a different value get `401 {"error":{"code":"unauthorized",...}}`. The
 comparison is constant-time. Static dashboard assets (`/`, `/app.js`,
-`/style.css`) stay public; the dashboard reads the token from
+`/session_tree.js`, `/style.css`) stay public; the dashboard reads the token from
 `localStorage.cdamux_token` (set it once in the browser console:
 `localStorage.setItem("cdamux_token", "<token>")`).
 
@@ -46,7 +46,12 @@ get `405`.
 | `/v1/health` | GET | Daemon version and whether tmux is reachable |
 | `/v1/sessions` | GET | Grouped session list (same JSON as `cdamux list --json`) |
 | `/v1/sessions/:id/pane` | GET | Captured pane text (bounded tail, plain text without ANSI escapes) |
-| `/v1/sessions/:id/send` | POST | Send a literal line; optional Enter |
+| `/v1/sessions/:id/send` | POST | Send a literal line; optional Enter. Body may set `"kind":"answer"` to reply to a pending worker ask via `cdamux msg` (resolves session → agent id, uses the worker's parent as `from`) |
+
+`GET /v1/sessions` includes per-session `role`, `parent`, `cdamux_id`, `unread`, and
+`pending_ask` when set (Fleet/web tree badges). The static dashboard nests sessions by
+`parent` (same cycle/dead-parent rules as Fleet `session_forest`) and posts
+`kind=answer` when the selected session has `pending_ask`.
 
 Session `:id` is the tmux session name (URL-encode special characters).
 

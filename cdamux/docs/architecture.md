@@ -141,13 +141,16 @@ See `config/cdamux.example.toml`. Highlights:
   rewriting state. `done` / `error` stick until the next prompt submit.
 - **Agent tag** — spawn sets `@cdamux_agent` (legacy `@ccmux_agent`); Fleet session rows
   and Preview chrome show that label, or `—` when unset.
-- **Session links** — spawn sets `@cdamux_role` (`agent`/`shell`); fork also sets
-  `@cdamux_parent` (source session). `@cdamux_run` carries an orch run id. All three come
-  from the one `list-sessions -F` call. Fleet nests a session under its parent in the same
-  project (any depth, `l`/`→` expands, `h`/`←` collapses); a dead parent or a parent cycle leaves it at
-  the top of its project. Non-session children (orch workers, CLI sub-agents) are
-  `ChildRow`s with a `PreviewSource` (`Pane` / `FileTail` / `None`). Decision record:
-  [ADR-007](../../foam/decisions/ADR-007-cdamux-session-hierarchy.md).
+- **Session links** — spawn sets `@cdamux_role` (`agent`/`shell`/`orchestrator`/`worker`);
+  fork also sets `@cdamux_parent` (source session). `@cdamux_run` carries an orch run id.
+  All three come from the one `list-sessions -F` call. Fleet nests a session under its
+  parent in the same project (any depth, `l`/`→` expands, `h`/`←` collapses); a dead parent
+  or a parent cycle leaves it at the top of its project. `role=orchestrator` uses glyph
+  `◎`. Unread inbox count shows as `✉N`; a worker with an unanswered `ask` shows `?`.
+  Fleet composer Enter on a pending-ask row sends `cdamux msg` `kind=answer` (same on the
+  tailnet web send form via `"kind":"answer"`). Non-session children (orch workers, CLI
+  sub-agents) are `ChildRow`s with a `PreviewSource` (`Pane` / `FileTail` / `None`).
+  Decision record: [ADR-007](../../foam/decisions/ADR-007-cdamux-session-hierarchy.md).
 - **tmux workers** — with `ORCH_TMUX=1` (default), orch runs a worker's agent in a detached
   session `orch-<run>-<worker>` carrying the three options above (`@cdamux_role=worker`); the
   worker Agent under `$CDAMUX_HOME/agents/` gains `tmux_session` and `log`. A live session

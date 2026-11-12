@@ -107,6 +107,13 @@ header h1 {
   font-weight: 600;
 }
 
+.session-list .badges {
+  margin-left: 0.35rem;
+  font-size: 0.8rem;
+  color: var(--accent);
+  font-weight: 600;
+}
+
 .session-list .meta {
   font-size: 0.8rem;
   color: var(--muted);

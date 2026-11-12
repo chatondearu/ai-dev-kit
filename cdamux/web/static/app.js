@@ -13,6 +13,8 @@ const sendStatus = document.getElementById("send-status");
 const viewTabs = document.querySelectorAll(".view-tab");
 
 let selectedSession = null;
+let selectedPendingAsk = false;
+let lastGrouped = null;
 let activeView = "pane";
 let graphPollTimer = null;
 let lastGraph = null;
@@ -45,6 +47,16 @@ function stateClass(state) {
   return `state-${state}`;
 }
 
+const { nestSessions, sessionBadges: badgeParts, sessionGlyph } =
+  globalThis.cdamuxSessionTree;
+
+function sessionBadges(s) {
+  const parts = badgeParts(s);
+  return parts.length
+    ? `<span class="badges">${parts.map(escapeHtml).join(" ")}</span>`
+    : "";
+}
+
 function renderSessions(grouped) {
   sessionListEl.innerHTML = "";
   const groups = grouped.groups || [];
@@ -55,17 +67,21 @@ function renderSessions(grouped) {
       heading.textContent = group.key;
       sessionListEl.appendChild(heading);
     }
-    for (const s of group.sessions || []) {
+    for (const { session: s, depth } of nestSessions(group.sessions || [])) {
       const li = document.createElement("li");
+      li.style.paddingLeft = `${depth * 0.85}rem`;
       const btn = document.createElement("button");
       btn.type = "button";
       btn.dataset.name = s.name;
+      btn.dataset.pendingAsk = s.pending_ask ? "1" : "0";
       btn.setAttribute(
         "aria-current",
         s.name === selectedSession ? "true" : "false"
       );
       const stateLabel = s.working_stale ? `${s.state} ⚠` : s.state;
-      btn.innerHTML = `<span class="name">${escapeHtml(s.name)}</span>
+      const nest = depth > 0 ? "└ " : "";
+      btn.innerHTML = `<span class="name">${nest}${sessionGlyph(s)} ${escapeHtml(s.name)}</span>
+        ${sessionBadges(s)}
         <div class="meta"><span class="${stateClass(s.state)}">${escapeHtml(stateLabel)}</span> · ${escapeHtml(s.path)}</div>`;
       btn.addEventListener("click", () => selectSession(s.name));
       li.appendChild(btn);
@@ -75,6 +91,15 @@ function renderSessions(grouped) {
   if (!sessionListEl.children.length) {
     sessionListEl.innerHTML = "<li class=\"muted\">No tmux sessions.</li>";
   }
+}
+
+function findSession(name) {
+  for (const g of lastGrouped?.groups || []) {
+    for (const s of g.sessions || []) {
+      if (s.name === name) return s;
+    }
+  }
+  return null;
 }
 
 function escapeHtml(str) {
@@ -224,6 +249,7 @@ async function loadHealth() {
 async function loadSessions() {
   try {
     const grouped = await api("/v1/sessions");
+    lastGrouped = grouped;
     renderSessions(grouped);
   } catch (e) {
     sessionListEl.innerHTML = `<li class="muted">${escapeHtml(e.message)}</li>`;
@@ -233,9 +259,11 @@ async function loadSessions() {
 async function selectSession(name) {
   selectedSession = name;
   sendForm.hidden = false;
-  sendTarget.textContent = name;
   sendStatus.textContent = "";
   await loadSessions();
+  const s = findSession(name);
+  selectedPendingAsk = !!(s && s.pending_ask);
+  sendTarget.textContent = selectedPendingAsk ? `${name} (answer)` : name;
   if (activeView === "pane") {
     paneEl.textContent = "Loading pane…";
     try {
@@ -253,17 +281,20 @@ async function selectSession(name) {
 sendForm.addEventListener("submit", async (ev) => {
   ev.preventDefault();
   if (!selectedSession) return;
-  sendStatus.textContent = "Sending…";
+  const asAnswer = selectedPendingAsk;
+  sendStatus.textContent = asAnswer ? "Answering…" : "Sending…";
   try {
+    const body = {
+      line: lineInput.value,
+      enter: enterInput.checked,
+    };
+    if (asAnswer) body.kind = "answer";
     await api(`/v1/sessions/${encodeURIComponent(selectedSession)}/send`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        line: lineInput.value,
-        enter: enterInput.checked,
-      }),
+      body: JSON.stringify(body),
     });
-    sendStatus.textContent = "Sent.";
+    sendStatus.textContent = asAnswer ? "Answered." : "Sent.";
     lineInput.value = "";
     await selectSession(selectedSession);
   } catch (e) {

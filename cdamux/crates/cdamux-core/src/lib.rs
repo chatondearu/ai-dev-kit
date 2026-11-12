@@ -56,6 +56,7 @@ pub use agent_status::{
 pub use session::{
     classify_session, classify_session_ex, enrich_sessions, enrich_sessions_ex, group_sessions,
     parse_hook_session_state, EnrichedSession, GroupedSessions, SessionGroup, SessionState,
+    ORCH_GLYPH,
 };
 pub use tailnet_api::{
     check_tailnet_token, decode_path_segment, dispatch_tailnet_request, resolve_tailnet_bind_ip,
@@ -97,9 +98,10 @@ pub use restore::{
     RestoreOutcome,
 };
 pub use msg::{
-    append_message, delivery_mode_for_role, format_unread_digest, generate_msg_id, msg_send,
-    nudge_text, read_messages, resolve_agent_id, should_nudge, unread_count, valid_kind,
-    DeliveryMode, Message, MsgError, SendOutcome, DEFAULT_NUDGE_QUIET_SECS, MAX_MSG_BYTES,
+    agent_parent_id, append_message, delivery_mode_for_role, format_unread_digest, generate_msg_id,
+    has_pending_ask, inbox_badges, msg_send, nudge_text, read_inbox_all, read_messages, reply_to_ask,
+    resolve_agent_id, should_nudge, unread_count, valid_kind, DeliveryMode, Message, MsgError,
+    SendOutcome, DEFAULT_NUDGE_QUIET_SECS, MAX_MSG_BYTES,
 };
 pub use send::{send_to_session, SendError, tmux_has_session};
 pub use session_manage::{

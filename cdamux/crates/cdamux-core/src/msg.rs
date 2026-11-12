@@ -318,6 +318,86 @@ pub fn unread_count(agent_id: &str) -> Result<usize, MsgError> {
     Ok(read_messages(agent_id, false)?.len())
 }
 
+/// Every inbox line for `agent_id` (ignores the ack cursor; does not advance it).
+pub fn read_inbox_all(agent_id: &str) -> Result<Vec<Message>, MsgError> {
+    if !valid_state_id(agent_id) {
+        return Err(MsgError::Invalid(format!("invalid agent id '{agent_id}'")));
+    }
+    let path = inbox_path(agent_id)?;
+    let text = match fs::read_to_string(&path) {
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(e.into()),
+        Ok(t) => t,
+    };
+    Ok(text
+        .lines()
+        .filter_map(|line| {
+            let line = line.trim();
+            (!line.is_empty())
+                .then(|| serde_json::from_str::<Message>(line).ok())
+                .flatten()
+        })
+        .collect())
+}
+
+/// Parent agent id from `agents/<id>.json`, when set.
+pub fn agent_parent_id(agent_id: &str) -> Option<String> {
+    state_get(StateKind::Agents, agent_id)
+        .ok()
+        .flatten()
+        .and_then(|v| {
+            v.get("parent")
+                .and_then(|p| p.as_str())
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
+        })
+}
+
+/// True when `worker` sent an `ask` to `parent` with no later `answer` back.
+pub fn has_pending_ask(worker_id: &str, parent_id: &str) -> bool {
+    let Ok(parent_msgs) = read_inbox_all(parent_id) else {
+        return false;
+    };
+    let Ok(worker_msgs) = read_inbox_all(worker_id) else {
+        return false;
+    };
+    parent_msgs.iter().any(|ask| {
+        ask.kind == "ask"
+            && ask.from == worker_id
+            && !worker_msgs.iter().any(|ans| {
+                ans.kind == "answer" && ans.from == parent_id && ans.ts >= ask.ts
+            })
+    })
+}
+
+/// Inbox badges for one agent: unread in its own inbox, and (for workers) a
+/// pending ask in the parent's inbox (any cursor position; not only unread).
+pub fn inbox_badges(agent_id: &str) -> (usize, bool) {
+    let unread = unread_count(agent_id).unwrap_or(0);
+    let pending_ask = agent_parent_id(agent_id)
+        .map(|p| has_pending_ask(agent_id, &p))
+        .unwrap_or(false);
+    (unread, pending_ask)
+}
+
+/// Orchestrator answers a worker ask (`kind=answer`); `from` is the parent id.
+pub fn reply_to_ask(worker_id: &str, text: &str) -> Result<SendOutcome, MsgError> {
+    let parent = agent_parent_id(worker_id).ok_or_else(|| {
+        MsgError::Invalid(format!(
+            "agent '{worker_id}' has no parent; cannot answer ask"
+        ))
+    })?;
+    msg_send(
+        &parent,
+        worker_id,
+        "answer",
+        text,
+        None,
+        DEFAULT_NUDGE_QUIET_SECS,
+        None,
+    )
+}
+
 fn apply_kind_status(kind: &str, from: &str, to: &str) -> Result<(), MsgError> {
     match kind {
         "ask" => {
@@ -525,6 +605,43 @@ mod tests {
                 r#ref: None,
             };
             assert_eq!(append_message(&msg), Err(MsgError::TooLarge));
+        });
+    }
+
+    #[test]
+    fn inbox_badges_unread_and_pending_ask() {
+        with_temp_home(|_| {
+            state_set(
+                StateKind::Agents,
+                "a-orchb",
+                &initial_agent_value("a-orchb", "claude", "c-ob", "orchestrator", None),
+            )
+            .unwrap();
+            state_set(
+                StateKind::Agents,
+                "a-wbad",
+                &initial_agent_value("a-wbad", "claude", "c-wb", "worker", Some("a-orchb")),
+            )
+            .unwrap();
+            assert_eq!(inbox_badges("a-orchb"), (0, false));
+            append_message(&Message {
+                id: "m-u1".into(),
+                ts: 1,
+                from: "a-wbad".into(),
+                to: "a-orchb".into(),
+                kind: "ask".into(),
+                text: "pick one?".into(),
+                r#ref: None,
+            })
+            .unwrap();
+            assert_eq!(inbox_badges("a-orchb"), (1, false));
+            assert_eq!(inbox_badges("a-wbad"), (0, true));
+            assert!(has_pending_ask("a-wbad", "a-orchb"));
+            reply_to_ask("a-wbad", "option A").unwrap();
+            assert!(!has_pending_ask("a-wbad", "a-orchb"));
+            assert_eq!(inbox_badges("a-wbad"), (1, false));
+            // Orch still has the ask unread until ack; badge is unread only.
+            assert_eq!(inbox_badges("a-orchb"), (1, false));
         });
     }
 

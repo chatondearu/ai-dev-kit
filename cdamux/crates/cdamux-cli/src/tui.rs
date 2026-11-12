@@ -24,11 +24,10 @@ use crate::spawn_modal::{
 use cdamux_core::{
     build_project_session_tree_ex, capture_pane_text, config_path, current_tmux_session,
     discover_projects, kill_tmux_session, load_config, preferred_spawn_agent, rename_tmux_session,
-    configured_agent_ids, resolve_agent_command, restore_one, send_to_session, session_name_for_path,
-    spawn_tmux_session_with_layout,
-    switch_client_to_session, tail_lines, transcript_tail, unique_session_name, ChildKind,
-    ChildRow, Config, EnrichedSession, GroupBy, PaneLayout, PreviewSource, ProjectSessionTree,
-    session_registry, SessionChrome,
+    configured_agent_ids, resolve_agent_command, reply_to_ask, restore_one, send_to_session,
+    session_name_for_path, spawn_tmux_session_with_layout, switch_client_to_session, tail_lines,
+    transcript_tail, unique_session_name, ChildKind, ChildRow, Config, EnrichedSession, GroupBy,
+    PaneLayout, PreviewSource, ProjectSessionTree, session_registry, SessionChrome,
 };
 use crossterm::event::{
     self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers,
@@ -459,7 +458,10 @@ pub fn run_dashboard() -> ExitCode {
         }
         let review_text = review_sidecar_hint(session);
 
-        let composer_session = session.map(|s| s.name.as_str());
+        // Session rows always get a composer; worker ChildRows only when a pending ask
+        // needs an `answer` (plan-257).
+        let (composer_session, composer_answer, composer_agent_id) =
+            composer_target(&rows, selected_row);
 
         let attention = fleet_attention_hint(&rows);
         let help_status_owned = if app_tab == AppTab::Settings {
@@ -509,6 +511,7 @@ pub fn run_dashboard() -> ExitCode {
                                 graph_view,
                                 composer_line: &composer_line,
                                 composer_session,
+                                composer_answer,
                                 session_chrome: session_chrome.as_ref(),
                                 status_line: help_status.as_str(),
                             },
@@ -670,16 +673,31 @@ pub fn run_dashboard() -> ExitCode {
                     if key.code == KeyCode::Enter {
                         if let Some(name) = composer_session {
                             let text = composer_line.clone();
-                            match send_to_session(name, &text, true) {
-                                Ok(()) => {
-                                    status_line = format!("sent to {}", name);
+                            let send_result = if composer_answer {
+                                if let Some(id) = composer_agent_id.as_deref() {
+                                    reply_to_ask(id, &text)
+                                        .map(|_| format!("answered {name}"))
+                                        .map_err(|e| e.to_string())
+                                } else {
+                                    Err("answer: missing agent id".into())
+                                }
+                            } else {
+                                send_to_session(name, &text, true)
+                                    .map(|_| format!("sent to {name}"))
+                                    .map_err(|e| e.to_string())
+                            };
+                            match send_result {
+                                Ok(msg) => {
+                                    status_line = msg;
                                     composer_line.clear();
-                                    preview_text = fetch_preview(name, preview_max);
-                                    preview_for_session = Some(name.to_string());
-                                    preview_iv.mark(Instant::now());
+                                    if !composer_answer {
+                                        preview_text = fetch_preview(name, preview_max);
+                                        preview_for_session = Some(name.to_string());
+                                        preview_iv.mark(Instant::now());
+                                    }
                                     tree_dirty = true;
                                 }
-                                Err(e) => status_line = e.to_string(),
+                                Err(e) => status_line = e,
                             }
                         }
                         focus = FocusArea::Tree;
@@ -990,6 +1008,27 @@ pub fn run_dashboard() -> ExitCode {
         return crate::run_review_for_session(&name);
     }
     ExitCode::SUCCESS
+}
+
+/// Composer target for the selected row: session name (or worker id), whether Enter
+/// should `msg answer`, and the worker agent id when answering.
+fn composer_target(
+    rows: &[TreeRow],
+    idx: usize,
+) -> (Option<&str>, bool, Option<&str>) {
+    match rows.get(idx) {
+        Some(TreeRow::Session { session, .. }) => (
+            Some(session.name.as_str()),
+            session.pending_ask,
+            session.cdamux_id.as_deref(),
+        ),
+        Some(TreeRow::Child { row, .. })
+            if row.kind == ChildKind::Worker && row.pending_ask =>
+        {
+            (Some(row.id.as_str()), true, row.agent_id.as_deref())
+        }
+        _ => (None, false, None),
+    }
 }
 
 fn open_github_issue(cwd: &str, issue: u32) -> Result<String, String> {

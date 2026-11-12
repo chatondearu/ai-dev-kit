@@ -184,6 +184,10 @@ fn spawn_ls_peek_and_msg_by_name() {
         prompt_pane.contains("hello-worker-spawn"),
         "first --prompt-file message missing from pane: {prompt_pane}"
     );
+    assert!(
+        prompt_pane.contains("cdamux msg"),
+        "worker preamble missing from pane: {prompt_pane}"
+    );
     let peek = peek_worker("a-orch1", "api", 20).unwrap();
     // Pane wrap can split the paste across lines; flatten whitespace for the check.
     let peek_flat: String = peek.chars().filter(|c| !c.is_whitespace()).collect();

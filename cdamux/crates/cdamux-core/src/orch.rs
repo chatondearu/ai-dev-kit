@@ -85,9 +85,7 @@ pub fn spawn_orchestrator(req: OrchNewRequest<'_>) -> Result<OrchNewResult, Orch
         extra,
     )?;
 
-    let agent_id = crate::session_registry::load(&host)
-        .and_then(|r| r.cdamux_id)
-        .unwrap_or_default();
+    let agent_id = crate::worker::resolve_spawned_agent_id(&host);
 
     if !agent_id.is_empty() {
         let _ = state_set(

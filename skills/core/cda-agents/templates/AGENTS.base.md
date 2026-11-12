@@ -49,6 +49,7 @@ Cursor rule (if present): `.cursor/rules/product-memory.mdc`.
 | PRD from Kanban issue | `cda-prd` |
 | Implementation plan from PRD | `cda-plan` |
 | Feature / fix request in chat (one or many) → intake, PRs | `cda-dev` |
+| Interactive cdamux orchestrator session | `cda-orchestrator` |
 | Graph orchestration (parallel workers, graph-plan) | `cda-graph` |
 | Issues, board, PRs, milestones | `cda-kanban` |
 | Foam / PRD / plan layout verify | `cda-doc-hygiene` |

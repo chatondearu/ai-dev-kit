@@ -157,6 +157,20 @@ pub fn compose_worker_first_prompt(user: Option<&str>) -> String {
     }
 }
 
+/// Prefer session registry; fall back to agent state docs by `host` (CreatedUnrecorded).
+pub(crate) fn resolve_spawned_agent_id(host: &str) -> String {
+    crate::session_registry::load(host)
+        .and_then(|r| r.cdamux_id)
+        .or_else(|| {
+            list_agent_docs().ok().and_then(|docs| {
+                docs.into_iter().find_map(|(id, v)| {
+                    (v.get("host").and_then(|h| h.as_str()) == Some(host)).then_some(id)
+                })
+            })
+        })
+        .unwrap_or_default()
+}
+
 fn list_agent_docs() -> io::Result<Vec<(String, Value)>> {
     let Some(dir) = cdamux_state_dir("agents") else {
         return Ok(Vec::new());
@@ -390,17 +404,7 @@ pub fn spawn_worker(req: WorkerSpawnRequest<'_>) -> Result<WorkerSpawnResult, Wo
         extra,
     )?;
 
-    let agent_id = crate::session_registry::load(&host)
-        .and_then(|r| r.cdamux_id)
-        .or_else(|| {
-            list_agent_docs().ok().and_then(|docs| {
-                docs.into_iter().find_map(|(id, v)| {
-                    (v.get("host").and_then(|h| h.as_str()) == Some(host.as_str()))
-                        .then_some(id)
-                })
-            })
-        })
-        .unwrap_or_default();
+    let agent_id = resolve_spawned_agent_id(&host);
 
     if paste_after && !prompt.trim().is_empty() {
         send_to_session(&host, prompt.trim(), true)?;

@@ -6,6 +6,7 @@
 | ----- | ---- |
 | `cda-triage` | Turns inbound issues into Ready + durable **agent brief** (or needs-info / human) |
 | `orch.sh` | Kanban modes: intake, **ready-pickup**, pr-fix — worktrees, graph motion nodes, PR, CI watch |
+| `cdamux orch new` + `cda-orchestrator` | Interactive long-lived orchestrator tmux host (skill-driven spawn/msg); distinct from `orch.sh` — see [graph-orchestration.md](graph-orchestration.md), [cdamux/docs/architecture.md](../cdamux/docs/architecture.md) |
 | `cda-graph` | Model + foam export; live `.orch/graph/current.json` (see [graph-orchestration.md](graph-orchestration.md)) |
 | `orch-auto.sh` | Opt-in poller: discover Ready → call `ready-pickup` |
 | `headless.sh` | One prompt + verify in the current tree — **no** issue / worktree / PR |

@@ -26,9 +26,11 @@ bash "$SKILL/scripts/orch.sh" --repo "$REPO" --mode ready-pickup --issue 42 \
 
 | Path | Content |
 | ---- | ------- |
-| `.orch/graph/live/<run_id>.json` | Live DAG of one run: workers, implement/verify nodes, integrator; `session` (creator's tmux `#S`) and `pid` |
+| `.orch/graph/live/<run_id>.json` | Live DAG of one run: workers, implement/verify nodes, integrator; `session` (creator's tmux `#S`) and `pid` (dual-write until #252) |
 | `.orch/graph/current.json` | Compatibility symlink to the latest run (`live/` while running, `runs/` once finished) |
 | `.orch/graph/runs/<run_id>.json` | Finished runs (last 20); `live/` files with a dead pid and no write for 24 h move here on the next init |
+| `$CDAMUX_HOME/runs/<run_id>.json` | Same run + nodes via `cdamux state` when `cdamux` is on `PATH` ([ADR-011](../foam/decisions/ADR-011-cdamux-unified-state-model.md) §5); `parent` = `$CDAMUX_AGENT_ID` for sub-runs |
+| `$CDAMUX_HOME/agents/<id>.json` | One Agent per orch worker (`role=worker`); silent no-op without `cdamux` |
 | `.orch/integrator-report.md` | Human-readable synthesis after multi-worker runs |
 
 Nodes of an agent run (implement / fix, verifier, integrator) carry `cli`, `model`,
@@ -64,7 +66,10 @@ runs outside bubblewrap. Decision: [ADR-007](../foam/decisions/ADR-007-cdamux-se
 `cdamux orch new` (skill `cda-orchestrator`) starts the interactive parent session.
 Interactive `cdamux worker spawn|ls|peek` (needs `$CDAMUX_AGENT_ID`) is separate from
 harness `ORCH_TMUX=1`: the CLI spawns human-driven panes under the caller's
-orchestrator; orch.sh still owns Ready-pickup workers until slice 3 publishes them.
+orchestrator. Ready-pickup workers are also published through `cdamux state` (run,
+nodes, one Agent per worker); with `$CDAMUX_AGENT_ID` set the orch run is a sub-run
+of that agent. Without `cdamux` on `PATH`, state writes no-op and the in-repo
+`.orch/` artefacts stay the source of truth until the #252 hard cut.
 
 ## Graph plan JSON
 

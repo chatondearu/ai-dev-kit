@@ -3,6 +3,12 @@
 # Live orchestration graph, one file per run: $ORCH_REPO/.orch/graph/live/<run_id>.json
 # (cdamux + foam-graph read it). current.json is a symlink to the latest run, for readers
 # that only know that name; finished runs move to runs/<run_id>.json (ADR-007, #178).
+# Also dual-writes run+nodes via `cdamux state` under CDAMUX_HOME until #252 (ADR-011 §5).
+
+_ORCH_CDAMUX_STATE_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/cdamux_state.sh"
+# shellcheck source=cdamux_state.sh
+source "$_ORCH_CDAMUX_STATE_LIB"
+unset _ORCH_CDAMUX_STATE_LIB
 
 # The run's live file when ORCH_RUN_ID is set (orch_graph_init exports it), else the
 # current.json pointer (read-only use: writers below need a run id).
@@ -91,6 +97,7 @@ orch_graph_init() {
   fi
   mv -f "$tmp" "$gf"
   orch_graph_point_current "live/$(basename "$gf")"
+  orch_cdamux_publish_run
 }
 
 # Serialize jq read-modify-write (parallel graph-plan / multi-worker). One lock and
@@ -142,6 +149,8 @@ orch_graph_finish() {
       --arg updated "$(orch_graph_now)" \
       '.status = $status | .ended_at = $ended | .updated_at = $updated'
   fi
+  # Publish before archive so CDAMUX_HOME keeps the finished status (#251 dual-write).
+  orch_cdamux_publish_run
   orch_graph_archive "$gf"
 }
 
@@ -205,6 +214,7 @@ orch_graph_upsert_node() {
                  | map_values(if . == "" then null else . end) end)]
         )
     '
+  orch_cdamux_publish_run
 }
 
 # orch_graph_add_edge FROM TO TYPE
@@ -228,6 +238,7 @@ orch_graph_add_edge() {
           + [{from:$from,to:$to,type:$type}]
         )
     '
+  orch_cdamux_publish_run
 }
 
 # The worker loop (orch_loop_worker delegates here): implement/fix nodes + verify +

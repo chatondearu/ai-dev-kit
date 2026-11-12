@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # Source-only: worker status files + optional TTY progress dashboard.
+# Dual-writes one Agent per worker via `cdamux state` until #252 (ADR-011 §5).
+
+_ORCH_CDAMUX_STATE_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/cdamux_state.sh"
+# shellcheck source=cdamux_state.sh
+source "$_ORCH_CDAMUX_STATE_LIB"
+unset _ORCH_CDAMUX_STATE_LIB
 
 # Status line format: PHASE|message  (PHASE = pending|worktree|agent|verify|review|ci|done|blocked)
 
@@ -94,6 +100,7 @@ orch_progress_set() {
   printf '%s|%s\n' "$phase" "$msg" >"$status_file"
   orch_progress_write_json "$id" "$phase" "$msg"
   orch_progress_tmux_state "$id" "$phase"
+  orch_cdamux_publish_worker "$id" "$phase" "$msg"
 
   if ! orch_progress_enabled; then
     printf '[#%s] %s: %s\n' "$id" "$phase" "$msg" >&2

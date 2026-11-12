@@ -103,7 +103,8 @@ bash "$SKILL/scripts/orch.sh" --no-graph --mode ready-pickup --issue 12
 
 ## Cursor session fallback
 
-Without `orch.sh`, **do not hand-write** graph files. Use `graph-node.sh`. `init` starts
+Without `orch.sh`, **do not hand-write** graph files. Use `graph-node.sh` (same
+`init`/`node`/`edge`/`finish`; mirrors via `cdamux state` when available). `init` starts
 a new run and prints its file; `node` / `edge` / `finish` target `--run-id`, else
 `$ORCH_RUN_ID`, else the newest live run of the current tmux session (outside tmux,
 pass `--run-id <basename of the init output>`):

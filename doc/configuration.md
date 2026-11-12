@@ -56,14 +56,17 @@ these (`./scripts/doctor.sh` only checks `PATH`). With a Cursor CLI present it a
 ### cdamux state and inbox
 
 Hooks, orch and workers write agent/run JSON only through `cdamux state set|get|append`
-under `$CDAMUX_HOME` (format private). Orchestrator ↔ worker messages use
-`cdamux msg send|read` (`inbox/<agent-id>.jsonl` + `.cursor`, ≤ 2 KB/line).
-Start an orchestrator with `cdamux orch new` (or Fleet spawn role *orchestrator*) —
-skill `cda-orchestrator`. Interactive workers: `cdamux worker spawn|ls|peek` (needs
-`$CDAMUX_AGENT_ID`; worktrees under `[worktrees].root` or `$CDAMUX_HOME/worktrees`;
-default first message includes the worker preamble for `cdamux msg`). Layout, ids,
-delivery and restore: [cdamux/docs/architecture.md](../cdamux/docs/architecture.md)
-§ State root.
+under `$CDAMUX_HOME` (format private). `orch.sh` / `graph-node.sh` dual-write the run
+(+ nodes) and one Agent per worker there when `cdamux` is on `PATH`; missing binary →
+silent no-op (in-repo `.orch/graph` and `.orch/run/status.json` remain until #252).
+With `$CDAMUX_AGENT_ID` set, the orch run records that agent as `parent` (sub-run).
+Orchestrator ↔ worker messages use `cdamux msg send|read` (`inbox/<agent-id>.jsonl` +
+`.cursor`, ≤ 2 KB/line). Start an orchestrator with `cdamux orch new` (or Fleet spawn
+role *orchestrator*) — skill `cda-orchestrator`. Interactive workers:
+`cdamux worker spawn|ls|peek` (needs `$CDAMUX_AGENT_ID`; worktrees under
+`[worktrees].root` or `$CDAMUX_HOME/worktrees`; default first message includes the
+worker preamble for `cdamux msg`). Layout, ids, delivery and restore:
+[cdamux/docs/architecture.md](../cdamux/docs/architecture.md) § State root.
 
 See [graph-orchestration.md](graph-orchestration.md).
 Graphify install stays in **aitools** only — never `install.sh`

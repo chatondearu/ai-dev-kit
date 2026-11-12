@@ -1,6 +1,6 @@
 # PLAN-251 — Publish orch run/nodes/agents via cdamux state
 
-- **Status**: draft
+- **Status**: implemented
 - **PRD**: [[../prd/PRD-239-orchestrator-session|PRD-239]]
 - **GitHub**: [#251](https://github.com/chatondearu/ai-dev-kit/issues/251)
 - **Date**: 2026-11-12
@@ -45,11 +45,11 @@ writing the existing repo files until #252 hard-cuts them.
 
 ## Tasks
 
-- [ ] **Publish helper**: orch writes run/nodes/worker Agents via `cdamux state` when available (acceptance: temp `CDAMUX_HOME` shows files after a stubbed orch phase)
-- [ ] **Sub-run**: with `CDAMUX_AGENT_ID`, run records parent agent (acceptance: unit/integration assert)
-- [ ] **graph-node.sh**: same CLI surface; implementation calls `cdamux state` (acceptance: existing graph-node tests adapted or new stub tests)
-- [ ] **No-op path**: without `cdamux` on PATH, orch completes as today (acceptance: test with PATH stripped of cdamux)
-- [ ] **Verify**: `nix develop -c bash scripts/verify.sh` green
+- [x] **Publish helper**: orch writes run/nodes/worker Agents via `cdamux state` when available (acceptance: temp `CDAMUX_HOME` shows files after a stubbed orch phase)
+- [x] **Sub-run**: with `CDAMUX_AGENT_ID`, run records parent agent (acceptance: unit/integration assert)
+- [x] **graph-node.sh**: same CLI surface; implementation calls `cdamux state` (acceptance: existing graph-node tests adapted or new stub tests)
+- [x] **No-op path**: without `cdamux` on PATH, orch completes as today (acceptance: test with PATH stripped of cdamux)
+- [x] **Verify**: `nix develop -c bash scripts/verify.sh` green
 
 ## Risks & mitigations
 
@@ -62,11 +62,11 @@ writing the existing repo files until #252 hard-cuts them.
 
 Seams: (1) publish with cdamux, (2) no-op without, (3) sub-run parent, (4) graph-node commands.
 
-- [ ] Temp `CDAMUX_HOME` orch stub run
-- [ ] PATH without cdamux
-- [ ] `nix develop -c bash scripts/verify.sh`
+- [x] Temp `CDAMUX_HOME` orch stub run
+- [x] PATH without cdamux
+- [x] `nix develop -c bash scripts/verify.sh`
 
 ## Verification
 
-- [ ] Lint / test / build per project conventions
-- [ ] Update foam / ADR only if a new decision was made
+- [x] Lint / test / build per project conventions
+- [x] Update foam / ADR only if a new decision was made (none — dual-write per plan until #252)

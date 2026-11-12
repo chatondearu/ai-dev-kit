@@ -66,7 +66,9 @@ Interactive `cdamux worker spawn|ls|peek` (needs `$CDAMUX_AGENT_ID`) is separate
 harness `ORCH_TMUX=1`: the CLI spawns human-driven panes under the caller's
 orchestrator. Ready-pickup workers are published through `cdamux state` (run, nodes,
 one Agent per worker); with `$CDAMUX_AGENT_ID` set the orch run is a sub-run of that
-agent. Without `cdamux` on `PATH`, state writes no-op (no Fleet visibility; ADR-001).
+agent, and orch emits parent `cdamux msg` on each worker `done`/`blocked`/`error` plus
+one run-end message (`ref` = `.orch/integrator-report.md`). Without `cdamux` on
+`PATH`, state and msg writes no-op (no Fleet visibility; ADR-001).
 
 ## Graph plan JSON
 

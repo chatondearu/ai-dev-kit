@@ -31,7 +31,7 @@ vs kit graph orchestration ([graph-orchestration.md](graph-orchestration.md), AD
 | **Task** | Spec, deps, status lifecycle | GitHub issue + optional `plans/graph/*.json` tasks | Status not stored as Orca enum; use issue state + worker Agents under `$CDAMUX_HOME/agents/` |
 | **Dispatch** | One attempt; authority for completion | One worker worktree / one graph-plan task attempt | No `dispatchId`; retries are new agent iterations inside `orch_graph_worker` |
 | **Message / Delivery** | FIFO inbox, `check --wait --ack` | `cdamux msg send\|read [--ack]` under `$CDAMUX_HOME/inbox/` (ADR-011 §4); idle nudge + turn-end digest hooks | No native `--wait` wake yet; Cursor `beforeSubmitPrompt` cannot inject |
-| **worker_done** | Required completion with `taskId` + `dispatchId` | `.orch/worker-result.json` (convention); `.orch/run/<id>.rc` | No stale-dispatch guard; schema not enforced in harness |
+| **worker_done** | Required completion with `taskId` + `dispatchId` | `.orch/worker-result.json` (convention); `.orch/run/<id>.rc`; parent inbox `cdamux msg` on done/blocked/error + run end (#253) | No stale-dispatch guard; schema not enforced in harness |
 | **heartbeat** | Long-run liveness | None | Optional future: `.orch/run/<id>.heartbeat` |
 | **ask / decision gate** | Block task until coordinator answers | `ORCH_GRAPH_VERIFY` verifier; human in chat | No `gate-create` / `gate-resolve` API |
 | **worker-start** | Supervised agent on worktree | `cdamux worker spawn` (interactive) + `orch_ready_pickup_one`; `orch.sh` publishes run/nodes/Agents via `cdamux state` only (no-op without binary) | Fleet visibility needs cdamux (ADR-001) |

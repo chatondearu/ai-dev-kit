@@ -60,35 +60,72 @@ orch_test_stub_cdamux() {
   cat >"$root/bin/cdamux" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-[ "${1:-}" = state ] || { echo "stub: only state" >&2; exit 2; }
-shift
-cmd="${1:-}"; shift || true
-kind="${1:-}"; id="${2:-}"; json="${3:-}"
-dir="${CDAMUX_HOME:?}/$kind"
-case "$cmd" in
-  set)
-    mkdir -p "$dir"
-    if [ "$kind" = runs ] && [ "${CDAMUX_STUB_SLEEP_RUNS:-}" = invert ]; then
-      n="$(printf '%s' "$json" | jq '.nodes | length' 2>/dev/null || echo 0)"
-      sleep "$(awk -v n="$n" 'BEGIN { s = 0.20 - n * 0.02; if (s < 0.02) s = 0.02; printf "%.3f", s }')"
-    fi
-    printf '%s\n' "$json" >"$dir/${id}.json"
+case "${1:-}" in
+  state)
+    shift
+    cmd="${1:-}"; shift || true
+    kind="${1:-}"; id="${2:-}"; json="${3:-}"
+    dir="${CDAMUX_HOME:?}/$kind"
+    case "$cmd" in
+      set)
+        mkdir -p "$dir"
+        if [ "$kind" = runs ] && [ "${CDAMUX_STUB_SLEEP_RUNS:-}" = invert ]; then
+          n="$(printf '%s' "$json" | jq '.nodes | length' 2>/dev/null || echo 0)"
+          sleep "$(awk -v n="$n" 'BEGIN { s = 0.20 - n * 0.02; if (s < 0.02) s = 0.02; printf "%.3f", s }')"
+        fi
+        printf '%s\n' "$json" >"$dir/${id}.json"
+        ;;
+      append)
+        mkdir -p "$dir"
+        f="$dir/${id}.json"
+        if [ -f "$f" ] && command -v jq >/dev/null 2>&1; then
+          jq -c --argjson p "$json" '. * $p' "$f" >"$f.tmp" && mv "$f.tmp" "$f"
+        else
+          printf '%s\n' "$json" >"$f"
+        fi
+        ;;
+      get)
+        f="$dir/${id}.json"
+        [ -f "$f" ] || { echo "not found" >&2; exit 1; }
+        cat "$f"
+        ;;
+      *) echo "stub: unknown state $cmd" >&2; exit 2;;
+    esac
     ;;
-  append)
-    mkdir -p "$dir"
-    f="$dir/${id}.json"
-    if [ -f "$f" ] && command -v jq >/dev/null 2>&1; then
-      jq -c --argjson p "$json" '. * $p' "$f" >"$f.tmp" && mv "$f.tmp" "$f"
+  msg)
+    shift
+    [ "${1:-}" = send ] || { echo "stub: only msg send" >&2; exit 2; }
+    shift
+    to="" from="" kind="" ref="" text=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --to) to="${2:-}"; shift 2;;
+        --from) from="${2:-}"; shift 2;;
+        --kind) kind="${2:-}"; shift 2;;
+        --ref) ref="${2:-}"; shift 2;;
+        --) shift; break;;
+        -*) echo "stub: unknown msg flag $1" >&2; exit 2;;
+        *) text="$1"; shift; break;;
+      esac
+    done
+    [ -n "$to" ] && [ -n "$kind" ] && [ -n "$text" ] || { echo "stub: msg send needs --to --kind text" >&2; exit 2; }
+    [ -n "$from" ] || from="${CDAMUX_AGENT_ID:-a-stub}"
+    mkdir -p "${CDAMUX_HOME:?}/inbox"
+    if command -v jq >/dev/null 2>&1; then
+      jq -cn \
+        --arg id "m-stub$(date +%s)" \
+        --arg from "$from" --arg to "$to" --arg kind "$kind" \
+        --arg text "$text" --arg ref "$ref" \
+        '{id:$id,ts:1,from:$from,to:$to,kind:$kind,text:$text}
+         + (if $ref=="" then {} else {ref:$ref} end)' \
+        >>"$CDAMUX_HOME/inbox/${to}.jsonl"
     else
-      printf '%s\n' "$json" >"$f"
+      printf '{"from":"%s","to":"%s","kind":"%s","text":"%s"}\n' \
+        "$from" "$to" "$kind" "$text" >>"$CDAMUX_HOME/inbox/${to}.jsonl"
     fi
+    echo m-stub1
     ;;
-  get)
-    f="$dir/${id}.json"
-    [ -f "$f" ] || { echo "not found" >&2; exit 1; }
-    cat "$f"
-    ;;
-  *) echo "stub: unknown $cmd" >&2; exit 2;;
+  *) echo "stub: only state|msg" >&2; exit 2;;
 esac
 EOF
   chmod +x "$root/bin/cdamux"

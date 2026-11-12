@@ -197,8 +197,11 @@ with existing sessions; document collision rules when same basename under differ
 Dashboard mode (`cdamux` with no subcommand) launched **outside** tmux runs
 `tmux new-session -A -s cdamux cdamux`. That starts the server (so continuum can
 restore when configured) and keeps a full-screen dashboard session that never
-appears in Fleet / Sessions / `list_tmux_sessions`. Killing the session the
-client is on switches to this home session first. The kit template sets
+appears in Fleet / Sessions / `list_tmux_sessions`. When the home pane runs a
+plain shell (tmux-resurrect / continuum restore it with the default shell over the
+stale screen), `ensure_home_session` respawns it with `cdamux` — on outside-tmux
+entry and before a kill. Killing the session the client is on switches to this home
+session first. The kit template sets
 `detach-on-destroy on` — not `next`/`previous`, which on tmux 3.7.x exit the
 whole server on any `kill-session`. `kill_tmux_session` also flips those values
 to `on` (and leaves them) when it sees them.

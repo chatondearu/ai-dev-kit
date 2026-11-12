@@ -3,8 +3,8 @@
 use crate::orch_status::project_has_orch_artifacts;
 use crate::session::{EnrichedSession, SessionState};
 use crate::{
-    discover_projects, enrich_sessions, group_sessions, list_tmux_sessions, GroupBy, GroupedSessions,
-    Project, ProjectsConfig,
+    discover_projects, group_sessions, list_tmux_sessions, GroupBy, GroupedSessions, Project,
+    ProjectsConfig,
 };
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -49,12 +49,30 @@ pub fn build_project_session_tree(
     group_by: GroupBy,
     keep: &[&Path],
 ) -> ProjectSessionTree {
+    build_project_session_tree_ex(
+        projects_cfg,
+        idle_seconds_for_needs_input,
+        crate::agent_status::DEFAULT_WORKING_WARN_SECONDS,
+        group_by,
+        keep,
+    )
+}
+
+/// Like [`build_project_session_tree`] with a configurable `working ⚠` threshold.
+pub fn build_project_session_tree_ex(
+    projects_cfg: &ProjectsConfig,
+    idle_seconds_for_needs_input: u32,
+    working_warn_seconds: u32,
+    group_by: GroupBy,
+    keep: &[&Path],
+) -> ProjectSessionTree {
     let raw = list_tmux_sessions().unwrap_or_default();
-    let enriched = enrich_sessions(
+    let enriched = crate::session::enrich_sessions_ex(
         &raw,
         group_by,
         projects_cfg,
         idle_seconds_for_needs_input,
+        working_warn_seconds,
     );
 
     if group_by != GroupBy::Project {
@@ -136,10 +154,12 @@ fn tree_from_grouped(grouped: GroupedSessions) -> ProjectSessionTree {
 pub fn state_icon(state: SessionState) -> char {
     match state {
         SessionState::Idle => '○',
-        SessionState::Active => '●',
+        SessionState::Working => '●',
         SessionState::NeedsInput => '◆',
+        SessionState::Blocked => '⊘',
         SessionState::Done => '✓',
         SessionState::Error => '✗',
+        SessionState::Dormant => '◌',
     }
 }
 
@@ -201,7 +221,7 @@ mod tests {
                     name: "o-b".into(),
                     path: "/tmp/b".into(),
                     group_key: "opencode".into(),
-                    state: SessionState::Active,
+                    state: SessionState::Working,
                     agent: "opencode".into(),
                     issue: None,
                     ..Default::default()

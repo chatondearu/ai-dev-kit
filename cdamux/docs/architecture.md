@@ -74,8 +74,14 @@ See `config/cdamux.example.toml`. Highlights:
   Fleet omits projects/groups with **no tmux sessions** (full discover list stays on Projects tab).
 - **Preview** — `tmux capture-pane -p -e -S -<n>` in the sidecar (snapshot, not a live PTY;
   no `-E -1`, which blanks panes with `history_size=0`). CLI renders ANSI via `ansi-to-tui`;
-  **Enter** attaches for full interactive tmux. Session Active/Idle uses `now - #{window_activity}`
-  (tmux has no `pane_idle_time`); unknown → Idle (fail closed), not Active-via-zero.
+  **Enter** attaches for full interactive tmux. Session status prefers
+  `$CDAMUX_HOME/agents/<id>.json` (`status` field, written by opt-in hooks via
+  `cdamux state append`); transitional `@cdamux_state` is next; else pane heuristics
+  from `now - #{window_activity}` (tmux has no `pane_idle_time`). Unknown idle → Idle
+  (fail closed). Reported `idle`/`working` still run pane heuristics so Cursor
+  (no permission event) can become `needs_input`. Reported `working` with a quiet
+  pane past `daemon.working_warn_seconds` (default 600) shows `working ⚠` without
+  rewriting state. `done` / `error` stick until the next prompt submit.
 - **Agent tag** — spawn sets `@cdamux_agent` (legacy `@ccmux_agent`); Fleet session rows
   and Preview chrome show that label, or `—` when unset.
 - **Session links** — spawn sets `@cdamux_role` (`agent`/`shell`); fork also sets
@@ -221,8 +227,9 @@ Operator curl examples: [tailnet-api.md](tailnet-api.md).
 - **Restart** (`cdamux restart <name>` / `--all` [`--force`], `restart_plan`): for each
   live recorded session, kill (`kill_tmux_session`, record kept) then `restore_one`.
   Skipped: dormant records (use `restore`), the home session, shell entries, and
-  sessions whose `@cdamux_state` is `running` / `active` / `working` / `busy` unless
-  `--force`. Parents first, the current client's session last. Killing the session the
+  busy sessions — reported `working` in `agents/<id>.json`, or transitional
+  `@cdamux_state` of `running` / `active` / `working` / `busy` — unless `--force`.
+  Parents first, the current client's session last. Killing the session the
   CLI runs in would hang the CLI up, so that one is handed to a detached
   `nohup cdamux restart <name> --force` (own process group,
   `CDAMUX_RESTART_DETACHED=1`, output appended to `$CDAMUX_HOME/restart.log`);
@@ -238,5 +245,5 @@ Operator curl examples: [tailnet-api.md](tailnet-api.md).
 | Topic | Options | Default proposal |
 | ----- | ------- | ------------------ |
 | tmux socket | User default vs `-L cdamux` | User default v0 (see existing `c-*` sessions) |
-| Status source | Hooks vs pane heuristics | Heuristics default; **`@cdamux_state`** overrides when set (`running`/`waiting`/`done`/`error`/`idle`) |
+| Status source | Reported vs heuristics | **`$CDAMUX_HOME/agents/<id>.json`** wins; transitional **`@cdamux_state`** next; else pane heuristics. Pane `needs_input` still overrides reported `idle`/`working` (Cursor). Quiet reported `working` past `daemon.working_warn_seconds` → `working ⚠` (display only). Rust `may_overwrite` stickiness deferred to slice 2/3 (hooks use `ledger.js`) |
 | TUI stack | ratatui vs skim in `--pick` | skim-style minimal v0, ratatui dashboard v0.1 |

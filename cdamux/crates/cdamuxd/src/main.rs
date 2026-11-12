@@ -35,6 +35,7 @@ fn main() {
         cfg.projects.clone(),
         cfg.sessions.clone(),
         cfg.daemon.idle_seconds_for_needs_input,
+        cfg.daemon.working_warn_seconds,
     ) {
         eprintln!("cdamuxd: tailnet HTTP server: {e}");
         std::process::exit(1);

@@ -22,6 +22,7 @@ pub fn run_tailnet_server(
     projects: ProjectsConfig,
     sessions: SessionsConfig,
     idle_seconds_for_needs_input: u32,
+    working_warn_seconds: u32,
 ) -> Result<(), String> {
     let ip = resolve_tailnet_bind_ip()?;
     let addr = SocketAddr::from((ip, port));
@@ -41,7 +42,13 @@ pub fn run_tailnet_server(
         None => warn!("no MagicDNS name from `tailscale status --json`: Host must be {addr}"),
     }
 
-    let backend = LiveTailnetBackend::new(version, projects, sessions, idle_seconds_for_needs_input);
+    let backend = LiveTailnetBackend::new(
+        version,
+        projects,
+        sessions,
+        idle_seconds_for_needs_input,
+        working_warn_seconds,
+    );
     serve(server, backend, token, allowed_hosts);
     Ok(())
 }
@@ -180,6 +187,7 @@ mod tests {
             ProjectsConfig::default(),
             SessionsConfig::default(),
             60,
+            600,
         );
         let token = token.map(str::to_string);
         thread::spawn(move || serve(server, backend, token, vec![addr.to_string()]));

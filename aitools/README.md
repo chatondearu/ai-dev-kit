@@ -56,7 +56,7 @@ Legacy option names `ccmux.*` / `ccmuxd.*` are renamed automatically (see `mkRen
 
 | Option | Meaning |
 | ------ | ------- |
-| `cdamux.hooks.enable` | default `false`; activation oneshot runs `cdamux-hooks wire` (Claude Code, Cursor, opencode). Needs `user` |
+| `cdamux.hooks.enable` | default `false`; activation oneshot runs `cdamux-hooks wire` (Claude Code, Cursor, opencode, Codex). Needs `user` |
 | `cdamux.hooks.claudeConfigDir` | `CLAUDE_CONFIG_DIR` for activation (units do not inherit the shell); null = `~/.claude` |
 
 Settings point at the stable `~/.local/share/cdamux/hooks` link (refreshed to the

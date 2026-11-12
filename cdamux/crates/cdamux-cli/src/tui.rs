@@ -22,7 +22,7 @@ use crate::spawn_modal::{
     SpawnModalAction,
 };
 use cdamux_core::{
-    build_project_session_tree, capture_pane_text, config_path, current_tmux_session,
+    build_project_session_tree_ex, capture_pane_text, config_path, current_tmux_session,
     discover_projects, kill_tmux_session, load_config, preferred_spawn_agent, rename_tmux_session,
     configured_agent_ids, resolve_agent_command, restore_one, send_to_session, session_name_for_path,
     spawn_tmux_session_with_layout,
@@ -196,9 +196,10 @@ pub fn run_dashboard() -> ExitCode {
         .unwrap_or_else(|| "(unknown)".into());
 
     let group_by = cfg.sessions.group_by;
-    let tree = build_project_session_tree(
+    let tree = build_project_session_tree_ex(
         &cfg.projects,
         cfg.daemon.idle_seconds_for_needs_input,
+        cfg.daemon.working_warn_seconds,
         group_by,
         &[],
     );
@@ -283,9 +284,10 @@ pub fn run_dashboard() -> ExitCode {
                 .map(|s| s.name.clone())
                 .or_else(|| dormant_at_row(&old_rows, selected_row).map(|r| r.name.clone()));
             let keep: Vec<&std::path::Path> = status.records().iter().map(|r| r.cwd.as_path()).collect();
-            cached_tree = build_project_session_tree(
+            cached_tree = build_project_session_tree_ex(
                 &cfg.projects,
                 cfg.daemon.idle_seconds_for_needs_input,
+                cfg.daemon.working_warn_seconds,
                 group_by,
                 &keep,
             );
@@ -955,9 +957,10 @@ pub fn run_dashboard() -> ExitCode {
                     DashboardAction::CycleGroupBy => {
                         cfg.sessions.group_by = cycle_group_by(cfg.sessions.group_by);
                         expanded = default_expanded(
-                            &build_project_session_tree(
+                            &build_project_session_tree_ex(
                                 &cfg.projects,
                                 cfg.daemon.idle_seconds_for_needs_input,
+                                cfg.daemon.working_warn_seconds,
                                 cfg.sessions.group_by,
                                 &[],
                             ),

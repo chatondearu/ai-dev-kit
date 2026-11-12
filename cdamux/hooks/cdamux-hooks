@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # cdamux-hooks — wire / unwire the cdamux adapters (sub-agent ledger + session id
-# capture, cdamux/docs/subagents.md) into the agent CLIs. One merge logic for
-# `install.sh --cdamux-hooks` (kit checkout) and the Nix `cda.aitools` activation.
+# capture + status hooks, cdamux/docs/subagents.md) into the agent CLIs. One merge
+# logic for `install.sh --cdamux-hooks` (kit checkout) and the Nix `cda.aitools`
+# activation.
 #
-# Usage: cdamux-hooks wire|unwire [claude] [cursor] [opencode]
+# Usage: cdamux-hooks wire|unwire [claude] [cursor] [opencode] [codex]
 #   No target = every tool whose config dir exists.
 # Config dirs: ${CLAUDE_CONFIG_DIR:-~/.claude}, ${CURSOR_HOME:-~/.cursor},
-#   ${XDG_CONFIG_HOME:-~/.config}/opencode.
+#   ${XDG_CONFIG_HOME:-~/.config}/opencode, ${CODEX_HOME:-~/.codex}.
 #
 # Packaged (a `node` sits next to this script, see cdamux/nix/package.nix): wire
 # points ${XDG_DATA_HOME:-~/.local/share}/cdamux/hooks at this dir and writes only
@@ -23,6 +24,7 @@ MATCH="/cdamux/hooks/"
 CLAUDE_HOME="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 CURSOR_HOME="${CURSOR_HOME:-$HOME/.cursor}"
 XDG="${XDG_CONFIG_HOME:-$HOME/.config}"
+CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
 STABLE="${XDG_DATA_HOME:-$HOME/.local/share}/cdamux/hooks"
 OC_PLUGIN="$XDG/opencode/plugins/cdamux-subagent.js"
 
@@ -61,8 +63,13 @@ wire_claude() {
     | .hooks.SubagentStart = (strip("SubagentStart") + [{hooks:[{type:"command", command:$cmd, timeout:5}]}])
     | .hooks.SubagentStop  = (strip("SubagentStop")  + [{hooks:[{type:"command", command:$cmd, timeout:5}]}])
     | .hooks.SessionStart  = (strip("SessionStart")  + [{hooks:[{type:"command", command:$ss, timeout:5}]}])
-  ' --arg m "$MATCH" --arg cmd "$(cmd claude-subagent.js)" --arg ss "$(cmd session-start.js)" || return 0
-  log "hook $f (cdamux: SubagentStart/SubagentStop/SessionStart)"
+    | .hooks.UserPromptSubmit = (strip("UserPromptSubmit") + [{hooks:[{type:"command", command:$st, timeout:5}]}])
+    | .hooks.Stop = (strip("Stop") + [{hooks:[{type:"command", command:$st, timeout:5}]}])
+    | .hooks.Notification = (strip("Notification") + [{hooks:[{type:"command", command:$st, timeout:5}]}])
+    | .hooks.PermissionRequest = (strip("PermissionRequest") + [{hooks:[{type:"command", command:$st, timeout:5}]}])
+  ' --arg m "$MATCH" --arg cmd "$(cmd claude-subagent.js)" --arg ss "$(cmd session-start.js)" \
+    --arg st "$(cmd status.js)" || return 0
+  log "hook $f (cdamux: subagent + SessionStart + status)"
 }
 
 wire_cursor() {
@@ -74,8 +81,27 @@ wire_cursor() {
     | .hooks.subagentStart = (strip("subagentStart") + [{command:$cmd, timeout:5}])
     | .hooks.subagentStop  = (strip("subagentStop")  + [{command:$cmd, timeout:5}])
     | .hooks.sessionStart  = (strip("sessionStart")  + [{command:$ss, timeout:5}])
-  ' --arg m "$MATCH" --arg cmd "$(cmd cursor-subagent.js)" --arg ss "$(cmd session-start.js)" || return 0
-  log "hook $f (cdamux: subagentStart/subagentStop/sessionStart)"
+    | .hooks.sessionEnd    = (strip("sessionEnd")    + [{command:$st, timeout:5}])
+    | .hooks.beforeSubmitPrompt = (strip("beforeSubmitPrompt") + [{command:$st, timeout:5}])
+  ' --arg m "$MATCH" --arg cmd "$(cmd cursor-subagent.js)" --arg ss "$(cmd session-start.js)" \
+    --arg st "$(cmd status.js)" || return 0
+  log "hook $f (cdamux: subagent + sessionStart/End + beforeSubmitPrompt)"
+}
+
+# Codex hooks.json shape mirrors Claude (nested hooks[] with type/command).
+wire_codex() {
+  local f="$CODEX_HOME/hooks.json"
+  mkdir -p "$CODEX_HOME"; [ -f "$f" ] || printf '{"hooks":{}}\n' > "$f"
+  jq_inplace "$f" '
+    def strip(ev): (.hooks[ev] // []) | map(select(any(.hooks[]?; (.command? // "") | contains($m)) | not));
+    .hooks //= {}
+    | .hooks.SessionStart = (strip("SessionStart") + [{hooks:[{type:"command", command:$ss, timeout:5}]}])
+    | .hooks.SessionEnd = (strip("SessionEnd") + [{hooks:[{type:"command", command:$st, timeout:5}]}])
+    | .hooks.UserPromptSubmit = (strip("UserPromptSubmit") + [{hooks:[{type:"command", command:$st, timeout:5}]}])
+    | .hooks.Stop = (strip("Stop") + [{hooks:[{type:"command", command:$st, timeout:5}]}])
+    | .hooks.PermissionRequest = (strip("PermissionRequest") + [{hooks:[{type:"command", command:$st, timeout:5}]}])
+  ' --arg m "$MATCH" --arg ss "$(cmd session-start.js)" --arg st "$(cmd status.js)" || return 0
+  log "hook $f (cdamux: SessionStart/End + status)"
 }
 
 unwire_file() { # strip cdamux entries (both hook-file shapes), drop now-empty events
@@ -97,15 +123,16 @@ target_on() { # explicit target list, or auto = the tool's config dir exists
     claude) [ -d "$CLAUDE_HOME" ];;
     cursor) [ -d "$CURSOR_HOME" ];;
     opencode) [ -d "$XDG/opencode" ];;
+    codex) [ -d "$CODEX_HOME" ];;
   esac
 }
 
 ACTION="${1:-}"; shift || true
 for t in "$@"; do
-  case "$t" in claude|cursor|opencode) ;; *) log "unknown target: $t"; exit 2;; esac
+  case "$t" in claude|cursor|opencode|codex) ;; *) log "unknown target: $t"; exit 2;; esac
 done
 TARGETS="$*"
-case "$ACTION" in wire|unwire) ;; *) log "usage: cdamux-hooks wire|unwire [claude] [cursor] [opencode]"; exit 2;; esac
+case "$ACTION" in wire|unwire) ;; *) log "usage: cdamux-hooks wire|unwire [claude] [cursor] [opencode] [codex]"; exit 2;; esac
 command -v jq >/dev/null 2>&1 || { log "skip cdamux hooks: jq not found"; exit 0; }
 
 if [ "$ACTION" = wire ]; then
@@ -113,10 +140,12 @@ if [ "$ACTION" = wire ]; then
   if target_on claude; then wire_claude; fi
   if target_on cursor; then wire_cursor; fi
   if target_on opencode; then link "$DIR/opencode-subagent.js" "$OC_PLUGIN"; fi
+  if target_on codex; then wire_codex; fi
 else
   if target_on claude; then unwire_file "$CLAUDE_HOME/settings.json"; fi
   if target_on cursor; then unwire_file "$CURSOR_HOME/hooks.json"; fi
   if target_on opencode && [ -L "$OC_PLUGIN" ]; then
     case "$(readlink "$OC_PLUGIN")" in *"$MATCH"*) rm "$OC_PLUGIN"; log "rm   $OC_PLUGIN";; esac
   fi
+  if target_on codex; then unwire_file "$CODEX_HOME/hooks.json"; fi
 fi

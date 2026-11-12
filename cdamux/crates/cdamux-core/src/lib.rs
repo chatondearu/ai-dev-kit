@@ -1,5 +1,6 @@
 //! Shared configuration and domain types for cdamux.
 
+mod agent_status;
 mod agents_util;
 mod client_name;
 mod daemon;
@@ -30,12 +31,13 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
-pub use daemon::grouped_for_list;
+pub use daemon::{grouped_for_list, grouped_for_list_ex};
 pub use diff::{
     format_review_prompt, git_diff_unified, parse_unified_diff, DiffError, DiffHunk,
 };
 pub use project_tree::{
-    build_project_session_tree, project_for_path, project_key, state_icon, ProjectSessionTree,
+    build_project_session_tree, build_project_session_tree_ex, project_for_path, project_key,
+    state_icon, ProjectSessionTree,
     ProjectTreeNode,
 };
 pub use session_links::{
@@ -43,9 +45,14 @@ pub use session_links::{
 };
 pub use subagent_ledger::{session_subagents, subagent_ledger_path, transcript_tail};
 pub use session_chrome::{session_agent_label, SessionChrome, AGENT_LABEL_MISSING};
+pub use agent_status::{
+    heuristic_applies, load_reported_status, may_overwrite, parse_reported_status,
+    resolve_display_status,
+    DEFAULT_WORKING_WARN_SECONDS,
+};
 pub use session::{
-    classify_session, enrich_sessions, group_sessions, parse_hook_session_state, EnrichedSession,
-    GroupedSessions, SessionGroup, SessionState,
+    classify_session, classify_session_ex, enrich_sessions, enrich_sessions_ex, group_sessions,
+    parse_hook_session_state, EnrichedSession, GroupedSessions, SessionGroup, SessionState,
 };
 pub use tailnet_api::{
     check_tailnet_token, decode_path_segment, dispatch_tailnet_request, resolve_tailnet_bind_ip,
@@ -244,6 +251,9 @@ pub struct DaemonConfig {
     pub poll_interval_seconds: u32,
     #[serde(default = "default_idle")]
     pub idle_seconds_for_needs_input: u32,
+    /// Quiet `working` pane (seconds) before Fleet shows `working ⚠` (ADR-011 §3).
+    #[serde(default = "default_working_warn")]
+    pub working_warn_seconds: u32,
     #[serde(default)]
     pub listen_tailnet: bool,
     #[serde(default = "default_port")]
@@ -256,6 +266,9 @@ fn default_poll() -> u32 {
 fn default_idle() -> u32 {
     3
 }
+fn default_working_warn() -> u32 {
+    agent_status::DEFAULT_WORKING_WARN_SECONDS
+}
 fn default_port() -> u16 {
     7480
 }
@@ -265,6 +278,7 @@ impl Default for DaemonConfig {
         Self {
             poll_interval_seconds: 2,
             idle_seconds_for_needs_input: 3,
+            working_warn_seconds: default_working_warn(),
             listen_tailnet: false,
             tailnet_port: 7480,
         }

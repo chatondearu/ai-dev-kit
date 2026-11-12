@@ -29,9 +29,8 @@
 # sessionStart + beforeSubmitPrompt. Claude Code: SessionStart, SubagentStart,
 # UserPromptSubmit. opencode: kiss.mjs plugin.
 # --cdamux-hooks (opt-in) also wires the cdamux adapters (sub-agent ledger +
-# session id capture, cdamux/docs/subagents.md) into each enabled tool: Claude
-# (SubagentStart/Stop, SessionStart next to kiss), Cursor (subagentStart/subagentStop,
-# sessionStart), opencode (plugin link). --uninstall removes them.
+# session id capture + agent status, cdamux/docs/subagents.md) into each enabled
+# tool: Claude, Cursor, opencode, Codex. --uninstall removes them.
 #
 # Tool selection: a tool defaults to ON when its config dir exists (Cursor is
 # always considered). --<tool> forces ON, --no-<tool> forces OFF. The universal

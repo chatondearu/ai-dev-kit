@@ -98,4 +98,62 @@ function setAgentSessionId(env, id, fromPid = process.ppid) {
   }
 }
 
-module.exports = { append, expandHome, setAgentSessionId };
+// Agent id for status writes: env first, else tmux `@cdamux_id` of this pane.
+// Reject empty / placeholder expansions (tmux prints the format literally when unset).
+function resolveAgentId(env) {
+  const fromEnv = (env.CDAMUX_AGENT_ID || '').trim();
+  if (fromEnv) return fromEnv;
+  if (!env.TMUX) return null;
+  try {
+    const id = tmuxDisplay(env, '#{@cdamux_id}').trim();
+    if (!id || id === '#{@cdamux_id}' || id.includes('/')) return null;
+    return id;
+  } catch (e) {
+    return null;
+  }
+}
+
+function readAgentStatus(env, id) {
+  if (!id) return null;
+  try {
+    const file = path.join(stateDir(env, 'agents'), `${id}.json`);
+    const rec = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const s = rec && typeof rec.status === 'string' ? rec.status.trim().toLowerCase() : '';
+    return s || null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function stickyOk(current, next) {
+  if (current === 'done' || current === 'error') return next === 'working';
+  return true;
+}
+
+/// Write status via `cdamux state append` (ADR-011 single write path). No-op without
+/// agent id or without `cdamux` on PATH. Fail-open.
+function setAgentStatus(env, status) {
+  const id = resolveAgentId(env);
+  if (!id || !status) return;
+  const current = readAgentStatus(env, id);
+  if (!stickyOk(current, status)) return;
+  try {
+    execFileSync('cdamux', ['state', 'append', 'agents', id, JSON.stringify({ status })], {
+      env,
+      timeout: 40,
+      stdio: 'ignore',
+    });
+  } catch (e) {
+    /* fail-open */
+  }
+}
+
+module.exports = {
+  append,
+  expandHome,
+  setAgentSessionId,
+  resolveAgentId,
+  readAgentStatus,
+  setAgentStatus,
+  stateDir,
+};

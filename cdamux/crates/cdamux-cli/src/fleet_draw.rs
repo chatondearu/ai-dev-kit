@@ -164,9 +164,9 @@ pub(crate) fn node_state_color(state: NodeState) -> Color {
 
 pub(crate) fn session_state_color(state: SessionState) -> Color {
     node_state_color(match state {
-        SessionState::Idle => NodeState::Queued,
-        SessionState::Active => NodeState::Running,
-        SessionState::NeedsInput => NodeState::Blocked,
+        SessionState::Idle | SessionState::Dormant => NodeState::Queued,
+        SessionState::Working => NodeState::Running,
+        SessionState::NeedsInput | SessionState::Blocked => NodeState::Blocked,
         SessionState::Done => NodeState::Done,
         SessionState::Error => NodeState::Error,
     })
@@ -341,7 +341,7 @@ pub(crate) fn draw_fleet_body(
         Span::styled("cdamux", Style::default().fg(CLR_ACCENT).add_modifier(Modifier::BOLD)),
         Span::styled(" — fleet", Style::default().fg(CLR_TEXT)),
         Span::styled("  ○ idle ", Style::default().fg(CLR_IDLE)),
-        Span::styled("● active ", Style::default().fg(CLR_OK)),
+        Span::styled("● working ", Style::default().fg(CLR_OK)),
         Span::styled("◆ needs ", Style::default().fg(CLR_WARN)),
         Span::styled("⊘ blocked ", Style::default().fg(node_state_color(NodeState::Blocked))),
         Span::styled("✓ done", Style::default().fg(node_state_color(NodeState::Done))),
@@ -450,14 +450,14 @@ pub(crate) fn tree_row_item(row: &TreeRow) -> ListItem<'_> {
         }
         TreeRow::Child { row, depth, .. } => {
             // Workers keep their gear while running so they read apart from sessions;
-            // a blocked worker (state Error) uses the Graph / Steps blocked glyph and colour.
+            // a blocked worker uses the Graph / Steps blocked glyph and colour.
             let (icon, color) = match (row.kind, row.state) {
-                (ChildKind::Worker, SessionState::Active) => ('⚙', CLR_OK),
+                (ChildKind::Worker, SessionState::Working) => ('⚙', CLR_OK),
                 (ChildKind::Worker, SessionState::Idle) => ('·', CLR_IDLE),
-                (ChildKind::Worker, SessionState::Error) => {
+                (ChildKind::Worker, SessionState::Blocked | SessionState::Error) => {
                     (NodeState::Blocked.icon(), node_state_color(NodeState::Blocked))
                 }
-                (ChildKind::Run, SessionState::Active) => ('◈', CLR_OK),
+                (ChildKind::Run, SessionState::Working) => ('◈', CLR_OK),
                 (_, st) => (state_icon(st), session_state_color(st)),
             };
             // (bold, muted): workers lead with their issue id, sub-agents with their name.
@@ -497,6 +497,9 @@ pub(crate) fn tree_row_item(row: &TreeRow) -> ListItem<'_> {
                     Style::default().fg(CLR_TEXT).add_modifier(Modifier::BOLD),
                 ),
             ]);
+            if s.working_stale {
+                spans.push(Span::styled("⚠  ", Style::default().fg(CLR_WARN)));
+            }
             if let Some(n) = s.issue {
                 spans.push(Span::styled(
                     format!("#{n}  "),

@@ -29,6 +29,8 @@ group_by = "project"
 # poll_interval_seconds is unused since the daemon IPC removal; kept for config compatibility.
 poll_interval_seconds = 2
 idle_seconds_for_needs_input = 3
+# Quiet `working` pane before Fleet shows `working ⚠` (ADR-011 §3); does not rewrite status.
+working_warn_seconds = 600
 listen_tailnet = false
 tailnet_port = 7480
 

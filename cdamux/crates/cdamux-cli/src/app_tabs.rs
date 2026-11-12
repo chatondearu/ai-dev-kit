@@ -4,7 +4,7 @@ use crate::keymap::fleet_footer;
 use crate::settings_form::SETTINGS_FOOTER;
 use crate::widgets::{draw_scrolled_list, draw_scrollbar};
 use cdamux_core::{
-    Config, EnrichedSession, GroupBy, Project, enrich_sessions, list_tmux_sessions,
+    Config, EnrichedSession, GroupBy, Project, enrich_sessions_ex, list_tmux_sessions,
 };
 use ratatui::{
     layout::{Constraint, Direction, Layout, Margin},
@@ -283,11 +283,12 @@ pub fn draw_agents(f: &mut Frame, area: ratatui::layout::Rect, lines: &[String])
 
 pub fn flat_sessions(cfg: &Config) -> Vec<EnrichedSession> {
     let raw = list_tmux_sessions().unwrap_or_default();
-    let mut sessions = enrich_sessions(
+    let mut sessions = enrich_sessions_ex(
         &raw,
         cfg.sessions.group_by,
         &cfg.projects,
         cfg.daemon.idle_seconds_for_needs_input,
+        cfg.daemon.working_warn_seconds,
     );
     sessions.sort_by(|a, b| a.name.cmp(&b.name));
     sessions

@@ -11,17 +11,27 @@ import { fileURLToPath } from 'node:url';
 
 // opencode loads this through a symlink: resolve the real path to find ledger.js.
 const realPath = fs.realpathSync(fileURLToPath(import.meta.url));
-const { append, setAgentSessionId } = createRequire(realPath)(path.join(path.dirname(realPath), 'ledger.js'));
+const { append, setAgentSessionId, setAgentStatus } = createRequire(realPath)(path.join(path.dirname(realPath), 'ledger.js'));
 
 export const CdamuxSubagent = async () => {
   const children = new Map(); // child session id -> parent session id
+  let mainId = null;
   const add = (info) => {
-    if (info && info.id && !info.parentID) return setAgentSessionId(process.env, info.id, process.pid); // in-process: start at opencode itself
+    if (info && info.id && !info.parentID) {
+      mainId = info.id;
+      setAgentSessionId(process.env, info.id, process.pid); // in-process: start at opencode itself
+      setAgentStatus(process.env, 'idle');
+      return;
+    }
     if (!info || !info.parentID || children.has(info.id)) return;
     children.set(info.id, info.parentID);
     append(process.env, { cli: 'opencode', event: 'start', id: info.id, parent_id: info.parentID, name: info.title || undefined });
   };
   const stop = (id, status) => {
+    if (id && id === mainId) {
+      setAgentStatus(process.env, status === 'error' ? 'error' : 'idle');
+      return;
+    }
     if (!children.has(id)) return;
     append(process.env, { cli: 'opencode', event: 'stop', id, parent_id: children.get(id), status });
     children.delete(id);

@@ -64,8 +64,9 @@ function renderSessions(grouped) {
         "aria-current",
         s.name === selectedSession ? "true" : "false"
       );
+      const stateLabel = s.working_stale ? `${s.state} ⚠` : s.state;
       btn.innerHTML = `<span class="name">${escapeHtml(s.name)}</span>
-        <div class="meta"><span class="${stateClass(s.state)}">${s.state}</span> · ${escapeHtml(s.path)}</div>`;
+        <div class="meta"><span class="${stateClass(s.state)}">${escapeHtml(stateLabel)}</span> · ${escapeHtml(s.path)}</div>`;
       btn.addEventListener("click", () => selectSession(s.name));
       li.appendChild(btn);
       sessionListEl.appendChild(li);

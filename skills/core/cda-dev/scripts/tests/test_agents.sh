@@ -165,4 +165,20 @@ if command -v jq >/dev/null 2>&1; then
     '["5","claude","sonnet","high","medium"]' "worker json records the worker tier"
 fi
 
+# The agent runs as the worker's CDAMUX agent, never as orch (its CDAMUX_AGENT_ID).
+printf '#!%s\necho "aid=${CDAMUX_AGENT_ID-unset}"\n' "$STUB_BASH" >"$FAKE2/aid-stub"
+printf '#!/bin/sh\nexit 1\n' >"$FAKE2/only/tmux"
+chmod +x "$FAKE2/aid-stub" "$FAKE2/only/tmux"
+export ORCH_REPO="$FAKE2" CDAMUX_AGENT_ID=a-parent
+waid="$(orch_cdamux_worker_agent_id 8)"
+out_t="$(ORCH_AGENT="$FAKE2/aid-stub" ORCH_WORKER_ID=8 orch_agent_run "$FAKE" "$PROMPT" 2>/dev/null)"
+assert_eq "$out_t" "aid=$waid" "inline: agent sees the worker agent id"
+assert_eq "$CDAMUX_AGENT_ID" "a-parent" "orch keeps its own CDAMUX_AGENT_ID"
+out_t="$(PATH="$FAKE2/only:$PATH" ORCH_TMUX=1 ORCH_AGENT="$FAKE2/aid-stub" ORCH_WORKER_ID=8 \
+  orch_agent_run "$FAKE" "$PROMPT" 2>/dev/null)"
+assert_eq "$out_t" "aid=$waid" "tmux new-session failure: inline agent sees the worker agent id"
+out_t="$(ORCH_AGENT="$FAKE2/aid-stub" ORCH_ROLE=integrator orch_agent_run "$FAKE" "$PROMPT" 2>/dev/null)"
+assert_eq "$out_t" "aid=unset" "no worker id: agent does not inherit orch's id"
+unset CDAMUX_AGENT_ID
+
 summary

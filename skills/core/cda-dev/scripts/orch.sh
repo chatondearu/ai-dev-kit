@@ -512,7 +512,8 @@ case "$MODE" in
     fi
 
     mkdir -p "$REPO/.orch/run"
-    rm -f "$REPO/.orch/run"/*.rc "$REPO/.orch/run"/*.status "$REPO/.orch/run"/*.json "$REPO/.orch/run"/*.log "$REPO/.orch/run"/.dashboard-stop 2>/dev/null || true
+    rm -f "$REPO/.orch/run"/*.rc "$REPO/.orch/run"/*.status "$REPO/.orch/run"/*.json "$REPO/.orch/run"/*.log \
+      "$REPO/.orch/run"/*.parent_msg "$REPO/.orch/run"/*.parent_msg_run "$REPO/.orch/run"/.dashboard-stop 2>/dev/null || true
     if [ "$DRY" != 1 ]; then
       orch_graph_init "$ORCH_RUN_ID"
       orch_graph_upsert_node integrator integrator pending queued "awaiting workers" ""

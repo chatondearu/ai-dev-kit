@@ -185,14 +185,16 @@ orch_cdamux_msg_send() {
 }
 
 # One parent inbox msg when a worker hits done/blocked/error (ADR-011 §5).
-# At-most-once best effort via .orch/run/<id>.parent_msg marker.
+# At-most-once per run via .orch/run/<run_id>.<wid>.parent_msg (retry same issue
+# in a new run must notify again). Slice 3: blocked→kind=error (not ask); phase
+# stays in text. Marker written after send (failed send may drop that attempt).
 orch_cdamux_parent_msg_worker() {
   local wid="$1" phase="$2" msg="${3:-}"
   local parent kind from ref marker wt dir
   parent="${CDAMUX_AGENT_ID:-}"
   [ -n "$parent" ] || return 0
   orch_cdamux_available || return 0
-  [ -n "$wid" ] || return 0
+  [ -n "$wid" ] && [ -n "${ORCH_RUN_ID:-}" ] || return 0
   case "$phase" in
     done) kind=done ;;
     blocked|error) kind=error ;;
@@ -200,7 +202,7 @@ orch_cdamux_parent_msg_worker() {
   esac
   dir="${ORCH_REPO:-.}/.orch/run"
   mkdir -p "$dir"
-  marker="$dir/${wid}.parent_msg"
+  marker="$dir/${ORCH_RUN_ID}.${wid}.parent_msg"
   [ -f "$marker" ] && return 0
   from="$(orch_cdamux_worker_agent_id "$wid")"
   ref=""

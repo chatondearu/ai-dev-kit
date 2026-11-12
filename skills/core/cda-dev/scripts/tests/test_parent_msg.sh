@@ -37,7 +37,7 @@ assert_eq "$(jq -r .kind "$HOME_DIR/inbox/a-parent253.jsonl")" "done" "kind done
 assert_eq "$(jq -r .to "$HOME_DIR/inbox/a-parent253.jsonl")" "a-parent253" "to parent"
 from42="$(cat "$REPO/.orch/run/42.agent_id")"
 assert_eq "$(jq -r .from "$HOME_DIR/inbox/a-parent253.jsonl")" "$from42" "from worker agent"
-assert_file "$REPO/.orch/run/42.parent_msg" "idempotency marker written"
+assert_file "$REPO/.orch/run/run-msg-1.42.parent_msg" "idempotency marker run-scoped"
 
 # retry same terminal → no duplicate
 ORCH_PROGRESS=0 orch_progress_set 42 done "PR #9 green again" 2>/dev/null
@@ -57,6 +57,16 @@ assert_contains "$(printf '%s' "$last" | jq -r .ref)" "integrator-report.md" "ru
 assert_contains "$(printf '%s' "$last" | jq -r .text)" "run-msg-1" "run id in text"
 orch_graph_finish ok
 assert_eq "$(inbox_count a-parent253)" "3" "run-end at-most-once"
+
+# --- (2b) new run same worker id → notify again (AFK / retry) ---
+orch_graph_init "run-msg-2"
+ORCH_PROGRESS=0 orch_progress_set 7 done "retry succeeded" 2>/dev/null
+assert_eq "$(inbox_count a-parent253)" "4" "run2 done after run1 blocked sends again"
+assert_file "$REPO/.orch/run/run-msg-2.7.parent_msg" "run2 marker distinct from run1"
+assert_eq "$(tail -n1 "$HOME_DIR/inbox/a-parent253.jsonl" | jq -r .kind)" "done" \
+  "run2 msg kind done"
+orch_graph_finish ok
+assert_eq "$(inbox_count a-parent253)" "5" "run2 end adds msg"
 
 # --- (3) no-op without parent ---
 unset CDAMUX_AGENT_ID

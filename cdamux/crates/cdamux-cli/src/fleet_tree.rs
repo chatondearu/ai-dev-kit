@@ -264,7 +264,7 @@ pub(crate) fn flatten_tree(
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum GraphTarget {
     None,
-    /// `.orch/graph/current.json` found from this path: project rows, pre-#178 harness.
+    /// Latest `$CDAMUX_HOME/runs/` match for this path: project rows / harness fallback.
     Latest(String),
     /// These runs (newest first, `Tab` cycles in the Graph view), found from `cwd`.
     Runs { cwd: String, runs: Vec<String> },

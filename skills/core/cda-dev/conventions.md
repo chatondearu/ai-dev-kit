@@ -173,7 +173,8 @@ bash scripts/orch-cleanup.sh --repo DIR --apply
 | `ORCH_VERIFY` | _(unset)_ | Override verify command (must be allowlisted when `ORCH_VERIFY_TRUST=untrusted`) |
 | `ORCH_VERIFY_TRUST` | `trusted` | `untrusted` in pr-fix: refuse non-allowlisted verify from the PR tree |
 | `ORCH_ALLOW_NO_VERIFY` | `0` | Set by orch from `orch: allow-no-verify` in the issue body (trusted author only): missing verify command → `true` instead of `blocked` |
-| `ORCH_GRAPH` | `1` | Write `.orch/graph/current.json` (see `cda-graph`) |
+| `ORCH_TMUX` | `1` | Workers in tmux by default; `0` or `--sandbox` = headless |
+| `ORCH_GRAPH` | `1` | Publish run graph under `$CDAMUX_HOME/runs/` via `cdamux state` (see `cda-graph`) |
 | `ORCH_GRAPH_VERIFY` | `1` | Grounding verifier agent after a green verify; `0` disables (ADR-006) |
 | `ORCH_GRAPH_PLAN_PARALLEL` | `auto` | `--graph-plan` task parallelism |
 

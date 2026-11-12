@@ -72,12 +72,16 @@ assert_eq "$(test -d "$ORCH_REPO/.orch/graph" && echo yes || echo no)" "no" "no 
 # RMW: failed `state get` with an on-disk run must read the file, not invent a skeleton.
 orch_graph_init "rmw-keep"
 gf="$(orch_graph_file)"
-orch_graph_upsert_node "keep-me" worker agent running "original" ""
+orch_graph_upsert_node "keep-a" worker agent running "a" ""
+orch_graph_upsert_node "keep-b" worker agent running "b" ""
+assert_eq "$(jq '.nodes | length' "$gf")" "2" "two nodes before stubbed get"
 orch_cdamux_state_get() { return 1; }
 export -f orch_cdamux_state_get
-orch_graph_upsert_node "keep-me" worker agent running "updated" ""
-assert_eq "$(jq -r '.nodes[] | select(.id=="keep-me") | .message' "$gf")" "updated" \
+orch_graph_upsert_node "keep-a" worker agent running "a-updated" ""
+assert_eq "$(jq -r '.nodes[] | select(.id=="keep-a") | .message' "$gf")" "a-updated" \
   "RMW updates from on-disk run when get fails"
-assert_eq "$(jq '.nodes | length' "$gf")" "1" "RMW does not wipe nodes when get fails"
+assert_eq "$(jq -r '.nodes[] | select(.id=="keep-b") | .message' "$gf")" "b" \
+  "sibling node survives upsert when get fails"
+assert_eq "$(jq '.nodes | length' "$gf")" "2" "upsert does not wipe peers when get fails"
 
 summary

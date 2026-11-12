@@ -68,7 +68,7 @@ Resolve context (repo, foam, board, agent CLI)
   → Ownership check (non-overlapping paths when parallel)
   → Provision worktrees under .orch/worktrees/
   → Dispatch workers (job pool, cap ORCH_MAX_PARALLEL=3, queue overflow)
-  → Live graph in `.orch/graph/current.json` (skill `cda-graph`; cdamux Orch graph tab)
+  → Live graph in `$CDAMUX_HOME/runs/<run_id>.json` (skill `cda-graph`; cdamux Orch graph tab)
   → Per worker: graph nodes implement → verify → (optional) fix → grounding verifier
   → Integrator synthesize when 2+ issues (OpenClaw-style fan-in)
   → Per worker: systematic review → open/update PR

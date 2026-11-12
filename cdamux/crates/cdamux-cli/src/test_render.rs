@@ -189,7 +189,7 @@ pub(crate) const RUN_MAIN: &str = "20261103T100000Z";
 pub(crate) const RUN_42: &str = "cursor-fallback-20261103T110000Z-4242";
 pub(crate) const RUN_HEADLESS: &str = "20261103T090000Z";
 
-/// Two sessions each owning a live run, one headless run (orch-auto), and status.json
+/// Two sessions each owning a live run, one headless run (orch-auto), and Agents
 /// workers of `alpha-main`'s run, one of them in a worker tmux session tagged with that run.
 pub(crate) fn fixture_runs() -> (ProjectSessionTree, StatusCache) {
     let s = |name: &str, state, agent: &str, parent: Option<&str>, run: Option<&str>| EnrichedSession {
@@ -211,7 +211,7 @@ pub(crate) fn fixture_runs() -> (ProjectSessionTree, StatusCache) {
     };
     let run = |id: &str, session: Option<&str>| OrchGraphRunSummary {
         run_id: id.into(),
-        path: format!("/src/alpha/.orch/graph/live/{id}.json").into(),
+        path: format!("/tmp/cdamux-home/runs/{id}.json").into(),
         status: Some("running".into()),
         session: session.map(Into::into),
         live: true,
@@ -312,7 +312,7 @@ pub(crate) fn fixture_graph() -> OrchGraphView {
     }
 }
 
-/// Graph with a `worker-7` node tied to a status.json worker, for the step bar.
+/// Graph with a `worker-7` node tied to a CDAMUX_HOME Agents worker, for the step bar.
 /// The worker is blocked so no step is still running: durations never read the clock.
 pub(crate) fn fixture_steps_graph() -> OrchGraphView {
     let graph: OrchGraphFile = serde_json::from_str(

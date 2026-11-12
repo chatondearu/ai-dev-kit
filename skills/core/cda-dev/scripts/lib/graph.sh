@@ -167,8 +167,11 @@ orch_graph_upsert_node() {
     return 0
   fi
   [ -n "${ORCH_RUN_ID:-}" ] || orch_graph_init
-  # Ensure the run document exists before the first locked upsert.
-  if ! orch_cdamux_state_get runs "$ORCH_RUN_ID" >/dev/null 2>&1; then
+  # Init only when the run file is absent. A failed `state get` must not call
+  # orch_graph_init (that republishes an empty skeleton and wipes other nodes).
+  local run_file
+  run_file="$(orch_cdamux_run_path "$ORCH_RUN_ID" 2>/dev/null || true)"
+  if [ -z "$run_file" ] || [ ! -f "$run_file" ]; then
     orch_graph_init "$ORCH_RUN_ID"
   fi
   orch_graph_locked_jq \

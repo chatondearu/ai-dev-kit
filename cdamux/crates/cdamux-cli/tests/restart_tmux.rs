@@ -53,6 +53,7 @@ fn restart_all_skips_busy_and_restarts_current_session_last() {
     std::env::set_var("TMUX_TMPDIR", tmp.path());
     std::env::set_var("HOME", tmp.path());
     std::env::set_var("XDG_STATE_HOME", tmp.path().join("state"));
+    std::env::remove_var("CDAMUX_HOME");
     std::env::set_var("XDG_CONFIG_HOME", tmp.path().join("config"));
     std::env::set_var("SHELL", "/bin/sh");
     std::env::remove_var("TMUX");

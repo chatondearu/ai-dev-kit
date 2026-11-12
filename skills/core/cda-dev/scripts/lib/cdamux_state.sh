@@ -64,8 +64,10 @@ orch_cdamux_status_from_phase() {
 }
 
 # Mirror the live graph file into $CDAMUX_HOME/runs/<id>.json (+ parent when set).
+# Share $gf.lock with orch_graph_locked_jq so a late publish cannot overwrite a
+# fresher dual-write after another worker's upsert (multi-worker last-writer race).
 orch_cdamux_publish_run() {
-  local gf parent repo json
+  local gf parent repo json lock
   orch_cdamux_available || return 0
   command -v jq >/dev/null 2>&1 || return 0
   [ -n "${ORCH_RUN_ID:-}" ] || return 0
@@ -75,17 +77,33 @@ orch_cdamux_publish_run() {
     gf="${ORCH_REPO:-.}/.orch/graph/live/${ORCH_RUN_ID}.json"
   fi
   [ -f "$gf" ] || return 0
+  lock="$gf.lock"
   parent="${CDAMUX_AGENT_ID:-}"
   repo="$(cd "${ORCH_REPO:-.}" 2>/dev/null && pwd || printf '%s' "${ORCH_REPO:-.}")"
-  json="$(jq -c \
-    --arg id "$ORCH_RUN_ID" \
-    --arg parent "$parent" \
-    --arg repo "$repo" \
-    '. + {id:$id, repo:(.repo // $repo)}
-     + (if $parent == "" then {parent:null} else {parent:$parent} end)' \
-    "$gf" 2>/dev/null)" || return 0
-  [ -n "$json" ] || return 0
-  orch_cdamux_state_set runs "$ORCH_RUN_ID" "$json"
+  if command -v flock >/dev/null 2>&1; then
+    (
+      flock 200
+      json="$(jq -c \
+        --arg id "$ORCH_RUN_ID" \
+        --arg parent "$parent" \
+        --arg repo "$repo" \
+        '. + {id:$id, repo:(.repo // $repo)}
+         + (if $parent == "" then {parent:null} else {parent:$parent} end)' \
+        "$gf" 2>/dev/null)" || exit 0
+      [ -n "$json" ] || exit 0
+      orch_cdamux_state_set runs "$ORCH_RUN_ID" "$json"
+    ) 200>"$lock" || true
+  else
+    json="$(jq -c \
+      --arg id "$ORCH_RUN_ID" \
+      --arg parent "$parent" \
+      --arg repo "$repo" \
+      '. + {id:$id, repo:(.repo // $repo)}
+       + (if $parent == "" then {parent:null} else {parent:$parent} end)' \
+      "$gf" 2>/dev/null)" || return 0
+    [ -n "$json" ] || return 0
+    orch_cdamux_state_set runs "$ORCH_RUN_ID" "$json"
+  fi
 }
 
 # One Agent per orch worker under $CDAMUX_HOME/agents/ (role=worker).

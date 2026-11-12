@@ -17,12 +17,13 @@ mod widgets;
 use cdamux_core::{
     cdamux_home, command_on_path, config_path, configured_agent_ids, default_agent_name,
     discover_projects, ensure_note_file, format_unread_digest, git_diff_unified, git_toplevel,
-    home_session_new_argv, list_tmux_sessions, list_worktrees, load_config, note_refs_for_projects,
-    current_tmux_session, kill_tmux_session, list_panes_all, msg_send, parents_first, read_messages,
-    parse_unified_diff, resolve_agent_command, restore_one, restart_plan, session_registry,
-    resolve_note_path, send_to_session, session_name_for_path, spawn_tmux_session_with_layout,
-    state_append, state_get, state_set, unique_session_name, valid_kind, AttachMode,
-    DEFAULT_NUDGE_QUIET_SECS, DiffError, GroupBy, PaneLayout, SendError, SpawnError, StateKind,
+    home_session_new_argv, list_tmux_sessions, list_worktrees, list_workers, load_config,
+    note_refs_for_projects, current_tmux_session, kill_tmux_session, list_panes_all, msg_send,
+    parents_first, peek_worker, read_messages, parse_unified_diff, resolve_agent_command,
+    restore_one, restart_plan, session_registry, resolve_note_path, send_to_session,
+    session_name_for_path, spawn_tmux_session_with_layout, spawn_worker, state_append, state_get,
+    state_set, unique_session_name, valid_kind, AttachMode, DEFAULT_NUDGE_QUIET_SECS, DiffError,
+    GroupBy, PaneLayout, SendError, SpawnError, StateKind, WorkerSpawnRequest,
 };
 use clap::{Parser, Subcommand};
 use skim::prelude::*;
@@ -133,6 +134,37 @@ enum Commands {
     Msg {
         #[command(subcommand)]
         command: MsgCommands,
+    },
+    /// Interactive workers under the caller's orchestrator (ADR-011).
+    Worker {
+        #[command(subcommand)]
+        command: WorkerCommands,
+    },
+}
+
+#[derive(Subcommand)]
+enum WorkerCommands {
+    /// Spawn a worker (worktree+branch by default; requires `$CDAMUX_AGENT_ID`).
+    Spawn {
+        /// Logical worker name (also used for `--to` / peek).
+        name: String,
+        /// Product client (`claude`|`cursor`|`opencode`|`codex`); default: caller's client.
+        #[arg(long)]
+        agent: Option<String>,
+        /// First message (opencode: `--prompt`; others: paste after launch).
+        #[arg(long)]
+        prompt_file: Option<PathBuf>,
+        /// Use the caller's cwd (skip worktree + branch).
+        #[arg(long)]
+        here: bool,
+    },
+    /// List workers whose `parent` is `$CDAMUX_AGENT_ID`.
+    Ls,
+    /// Show the last N lines of a worker pane.
+    Peek {
+        name: String,
+        #[arg(long, default_value_t = 40)]
+        lines: i32,
     },
 }
 
@@ -312,6 +344,118 @@ fn main() -> ExitCode {
                 cmd_msg_read(agent.as_deref(), ack, digest)
             }
         },
+        Some(Commands::Worker { command }) => match command {
+            WorkerCommands::Spawn {
+                name,
+                agent,
+                prompt_file,
+                here,
+            } => cmd_worker_spawn(&name, agent.as_deref(), prompt_file.as_deref(), here),
+            WorkerCommands::Ls => cmd_worker_ls(),
+            WorkerCommands::Peek { name, lines } => cmd_worker_peek(&name, lines),
+        },
+    }
+}
+
+fn resolve_caller_agent_id() -> Result<String, ExitCode> {
+    match std::env::var("CDAMUX_AGENT_ID") {
+        Ok(id) if !id.trim().is_empty() => Ok(id.trim().to_string()),
+        _ => {
+            eprintln!("worker: must run inside an orchestrator (set CDAMUX_AGENT_ID)");
+            Err(ExitCode::from(2))
+        }
+    }
+}
+
+fn cmd_worker_spawn(
+    name: &str,
+    agent: Option<&str>,
+    prompt_file: Option<&std::path::Path>,
+    here: bool,
+) -> ExitCode {
+    let caller_id = match resolve_caller_agent_id() {
+        Ok(id) => id,
+        Err(c) => return c,
+    };
+    let cfg = match load_config() {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("worker spawn: {e}");
+            return ExitCode::from(1);
+        }
+    };
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let req = WorkerSpawnRequest {
+        name,
+        caller_id: &caller_id,
+        agent,
+        prompt_file,
+        here,
+        worktree_root: cfg.worktrees.root.as_deref(),
+        agents: &cfg.agents,
+        cwd: &cwd,
+    };
+    match spawn_worker(req) {
+        Ok(r) => {
+            println!(
+                "spawned worker '{}' id={} host={} run={} path={}{}",
+                r.name,
+                r.agent_id,
+                r.host,
+                r.run,
+                r.path.display(),
+                r.outcome.note()
+            );
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("worker spawn: {e}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+fn cmd_worker_ls() -> ExitCode {
+    let caller_id = match resolve_caller_agent_id() {
+        Ok(id) => id,
+        Err(c) => return c,
+    };
+    match list_workers(&caller_id) {
+        Ok(rows) => {
+            for r in rows {
+                let status = r.status.as_deref().unwrap_or("-");
+                let run = r.run.as_deref().unwrap_or("-");
+                println!(
+                    "{}\t{}\t{}\t{}\t{}\t{}",
+                    r.name, r.id, r.host, r.client, run, status
+                );
+            }
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("worker ls: {e}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+fn cmd_worker_peek(name: &str, lines: i32) -> ExitCode {
+    let caller_id = match resolve_caller_agent_id() {
+        Ok(id) => id,
+        Err(c) => return c,
+    };
+    match peek_worker(&caller_id, name, lines) {
+        Ok(text) => {
+            print!("{text}");
+            if !text.ends_with('\n') {
+                println!();
+            }
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("worker peek: {e}");
+            ExitCode::from(1)
+        }
     }
 }
 

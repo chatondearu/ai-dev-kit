@@ -25,6 +25,7 @@ mod spawn;
 mod state;
 mod subagent_ledger;
 mod worktree;
+mod worker;
 mod tailnet_api;
 mod tmux;
 
@@ -101,8 +102,12 @@ pub use session_manage::{
 };
 pub use spawn::{
     configured_agent_ids, default_agent_name, default_shell_command, resolve_agent_command,
-    session_name_for_path, spawn_tmux_session_with_layout, PaneLayout,
-    SpawnError, SpawnOutcome,
+    session_name_for_path, spawn_tmux_session_ex, spawn_tmux_session_with_layout, PaneLayout,
+    SpawnError, SpawnExtra, SpawnOutcome,
+};
+pub use worker::{
+    ensure_orch_run, list_workers, peek_worker, shell_single_quote, spawn_worker, with_first_prompt,
+    WorkerError, WorkerRow, WorkerSpawnRequest, WorkerSpawnResult,
 };
 pub use worktree::{
     current_branch, git_toplevel, list_local_branches, list_worktrees, resolve_worktree_dest,

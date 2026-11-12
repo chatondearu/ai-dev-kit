@@ -1,6 +1,6 @@
 # PLAN-246 — Add cdamux worker spawn|ls|peek
 
-- **Status**: draft
+- **Status**: done
 - **PRD**: [[../prd/PRD-239-orchestrator-session|PRD-239]]
 - **GitHub**: [#246](https://github.com/chatondearu/ai-dev-kit/issues/246)
 - **Blocked by**: #245
@@ -46,11 +46,11 @@ Reuse `send_to_session` / peek patterns already used by review TUI.
 
 ## Tasks
 
-- [ ] **spawn**: create worktree+branch (unless `--here`), tmux host, agent id, `role=worker`, parent/run links, optional prompt file as first message (acceptance: integration test on throwaway tmux + temp home)
-- [ ] **opencode argv**: first message uses `--prompt` not positional (acceptance: unit test of command construction)
-- [ ] **ls / peek**: list workers under current orch (or by parent); peek last N pane lines (acceptance: CLI tests)
-- [ ] **msg ready**: spawned worker can be targeted by `cdamux msg send --to <name>` (acceptance: smoke with #245 APIs)
-- [ ] **Verify**: `nix develop -c bash scripts/verify.sh` green
+- [x] **spawn**: create worktree+branch (unless `--here`), tmux host, agent id, `role=worker`, parent/run links, optional prompt file as first message (acceptance: integration test on throwaway tmux + temp home)
+- [x] **opencode argv**: first message uses `--prompt` not positional (acceptance: unit test of command construction)
+- [x] **ls / peek**: list workers under current orch (or by parent); peek last N pane lines (acceptance: CLI tests)
+- [x] **msg ready**: spawned worker can be targeted by `cdamux msg send --to <name>` (acceptance: smoke with #245 APIs)
+- [x] **Verify**: `nix develop -c bash scripts/verify.sh` green
 
 ## Risks & mitigations
 
@@ -63,11 +63,11 @@ Reuse `send_to_session` / peek patterns already used by review TUI.
 
 Seams: (1) spawn command construction, (2) agent state parent/run, (3) ls/peek, (4) msg targeting.
 
-- [ ] Throwaway tmux + temp `CDAMUX_HOME`
-- [ ] opencode `--prompt` argv table
-- [ ] `nix develop -c bash scripts/verify.sh`
+- [x] Throwaway tmux + temp `CDAMUX_HOME`
+- [x] opencode `--prompt` argv table
+- [x] `nix develop -c bash scripts/verify.sh`
 
 ## Verification
 
-- [ ] Lint / test / build per project conventions
-- [ ] Update foam / ADR only if a new decision was made
+- [x] Lint / test / build per project conventions
+- [x] Update foam / ADR only if a new decision was made

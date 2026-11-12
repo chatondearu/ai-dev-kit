@@ -11,7 +11,7 @@ Session tools and configs are opt-in via **Nix** (`cda.aitools`).
 
 | Path | Purpose |
 | ---- | ------- |
-| `templates/tmux.conf` | Shared tmux + cdamux popup; `detach-on-destroy next` |
+| `templates/tmux.conf` | Shared tmux + cdamux popup; `detach-on-destroy on` (avoid `next` on tmux 3.7) |
 | `templates/tmux-persist.conf` | Optional resurrect/continuum fragment (`tmux.persist.enable`) |
 | `templates/cdamux/config.toml` | cdamux config (`@PROJECTS_ROOT@` substituted by Nix) |
 | `scripts/moshi-hook-bootstrap.sh` | Pair Moshi + install hooks (e.g. `--target cursor`) |

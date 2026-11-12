@@ -60,7 +60,7 @@ pub fn current_tmux_session() -> Option<String> {
 }
 
 /// Ensure home before kill when this client is on `killing` and no other visible
-/// (non-home) session would remain — so `detach-on-destroy next` has a landing spot.
+/// (non-home) session would remain — so the client has a session to land on.
 pub fn should_ensure_home_before_kill(
     current: Option<&str>,
     killing: &str,
@@ -70,6 +70,58 @@ pub fn should_ensure_home_before_kill(
         return false;
     }
     current == Some(killing) && !visible_non_home.iter().any(|n| *n != killing)
+}
+
+/// Read global `detach-on-destroy` (`None` if tmux missing / option unset).
+fn detach_on_destroy_get() -> Option<String> {
+    let out = Command::new("tmux")
+        .args(["show-options", "-gv", "detach-on-destroy"])
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let v = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    (!v.is_empty()).then_some(v)
+}
+
+fn detach_on_destroy_set(value: &str) -> Result<(), SendError> {
+    let status = Command::new("tmux")
+        .args(["set-option", "-g", "detach-on-destroy", value])
+        .status()
+        .map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                SendError::NotFound
+            } else {
+                SendError::SendFailed
+            }
+        })?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(SendError::SendFailed)
+    }
+}
+
+/// Switch the current client to `session` without setting `@cdamux_return`
+/// (used before kill so pane-died does not reopen a popup).
+fn switch_client_quiet(session: &str) -> Result<(), SendError> {
+    let status = Command::new("tmux")
+        .args(["switch-client", "-t", &format!("={session}")])
+        .status()
+        .map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                SendError::NotFound
+            } else {
+                SendError::SendFailed
+            }
+        })?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(SendError::SendFailed)
+    }
 }
 
 pub fn kill_tmux_session(name: &str) -> Result<(), SendError> {
@@ -83,11 +135,22 @@ pub fn kill_tmux_session(name: &str) -> Result<(), SendError> {
         .map(|s| s.name)
         .collect();
     let visible_refs: Vec<&str> = visible.iter().map(String::as_str).collect();
-    if should_ensure_home_before_kill(current.as_deref(), name, &visible_refs) {
+    // Leave the session before destroying it so the client is not detached.
+    if current.as_deref() == Some(name) && !is_home_session(name) {
+        ensure_home_session()?;
+        let _ = switch_client_quiet(HOME_SESSION_NAME);
+    } else if should_ensure_home_before_kill(current.as_deref(), name, &visible_refs) {
         ensure_home_session()?;
     }
+    // tmux 3.7.x: `detach-on-destroy next|previous` makes any kill-session exit
+    // the whole server. Flip to `on` and leave it (do not restore — a later
+    // bare kill-session would take the server down again).
+    let previous = detach_on_destroy_get();
+    if previous.as_deref() == Some("next") || previous.as_deref() == Some("previous") {
+        let _ = detach_on_destroy_set("on");
+    }
     let status = Command::new("tmux")
-        .args(["kill-session", "-t", name])
+        .args(["kill-session", "-t", &format!("={name}")])
         .status()
         .map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {

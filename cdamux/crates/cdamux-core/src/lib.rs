@@ -79,7 +79,7 @@ pub use agents_util::{
     command_on_path, preferred_spawn_agent, preferred_spawn_agent_index,
 };
 pub use client_name::{is_product_client, normalize_client_name};
-pub use paths::{cdamux_home, cdamux_state_dir};
+pub use paths::{cdamux_home, cdamux_state_dir, env_lock};
 pub use state::{
     agent_state_path, generate_agent_id, initial_agent_value, state_append, state_get, state_set,
     valid_state_id, StateKind,

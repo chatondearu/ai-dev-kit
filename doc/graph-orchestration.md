@@ -5,7 +5,7 @@ workers, short verify/fix motion, integrator fan-in, optional foam grounding.
 OpenClaw Swarm uses the same idea (program orchestration, structured child output).
 
 For comparison with **Orca** orchestration (Run / Task / Dispatch, `worker_done`), see
-[Orca ↔ kit mapping](orca-mapping.md) — we map concepts; we do not implement Orca’s inbox.
+[Orca ↔ kit mapping](orca-mapping.md) — kit delivery is `cdamux msg` ([ADR-011](../foam/decisions/ADR-011-cdamux-unified-state-model.md) §4), not Orca’s inbox API.
 
 ## Quick start
 

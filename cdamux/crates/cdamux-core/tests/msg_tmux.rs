@@ -1,7 +1,7 @@
 //! Worker paste + orch idle nudge on a throwaway tmux server (cdamux/AGENTS.md).
 
 use cdamux_core::{
-    msg_send, state_set, DeliveryMode, StateKind, DEFAULT_NUDGE_QUIET_SECS,
+    env_lock, msg_send, state_set, DeliveryMode, StateKind, DEFAULT_NUDGE_QUIET_SECS,
 };
 use std::process::Command;
 use std::time::{Duration, Instant};
@@ -56,6 +56,7 @@ fn worker_paste_and_orch_nudge() {
     .unwrap();
     use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let _env = env_lock();
     let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default());
     std::env::set_var("PATH", &path);
     std::env::set_var("TMUX_TMPDIR", tmp.path());

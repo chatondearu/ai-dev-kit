@@ -292,9 +292,14 @@ fn apply_kind_status(kind: &str, from: &str, to: &str) -> Result<(), MsgError> {
                 .map_err(|e| MsgError::Io(e.to_string()))?;
         }
         "answer" => {
-            // Clear the asker's blocked status (answer is sent to the asker).
-            state_append(StateKind::Agents, to, &json!({ "status": "idle" }))
-                .map_err(|e| MsgError::Io(e.to_string()))?;
+            // Clear asker blocked → idle only; do not wipe other statuses.
+            let blocked = state_get(StateKind::Agents, to)
+                .map_err(|e| MsgError::Io(e.to_string()))?
+                .and_then(|v| v.get("status").and_then(|s| s.as_str()).map(str::to_owned));
+            if blocked.as_deref() == Some("blocked") {
+                state_append(StateKind::Agents, to, &json!({ "status": "idle" }))
+                    .map_err(|e| MsgError::Io(e.to_string()))?;
+            }
         }
         _ => {}
     }
@@ -537,6 +542,18 @@ mod tests {
             assert_eq!(
                 state_get(StateKind::Agents, "a-ask1").unwrap().unwrap()["status"],
                 "idle"
+            );
+
+            state_append(
+                StateKind::Agents,
+                "a-ask1",
+                &json!({ "status": "working" }),
+            )
+            .unwrap();
+            apply_kind_status("answer", "a-orch2", "a-ask1").unwrap();
+            assert_eq!(
+                state_get(StateKind::Agents, "a-ask1").unwrap().unwrap()["status"],
+                "working"
             );
         });
     }

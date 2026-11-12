@@ -34,11 +34,11 @@ fn wait_for_pane(session: &str, needle: &str) -> String {
 
 #[test]
 fn spawn_kill_restore_resumes_claude_conversation() {
+    let _env = env_lock();
     let Some(real_tmux) = which("tmux") else {
         eprintln!("tmux not on PATH: skipped");
         return;
     };
-    let _env = env_lock();
     let tmp = tempfile::tempdir().unwrap();
     // Wrapper so every tmux call (ours and cdamux's) hits a private `-L` server under tmp.
     let bin = tmp.path().join("bin");
@@ -51,6 +51,7 @@ fn spawn_kill_restore_resumes_claude_conversation() {
     std::env::set_var("PATH", path);
     std::env::set_var("TMUX_TMPDIR", tmp.path());
     std::env::set_var("XDG_STATE_HOME", tmp.path().join("state"));
+    std::env::remove_var("CDAMUX_HOME");
     std::env::set_var("SHELL", "/bin/sh");
     std::env::remove_var("TMUX");
 
@@ -142,11 +143,11 @@ fn which(cmd: &str) -> Option<String> {
 
 #[test]
 fn restore_orch_restores_workers_with_resume_and_parent() {
+    let _env = env_lock();
     let Some(real_tmux) = which("tmux") else {
         eprintln!("tmux not on PATH: skipped");
         return;
     };
-    let _env = env_lock();
     let tmp = tempfile::tempdir().unwrap();
     let bin = tmp.path().join("bin");
     std::fs::create_dir(&bin).unwrap();
@@ -162,6 +163,7 @@ fn restore_orch_restores_workers_with_resume_and_parent() {
     std::env::set_var("PATH", path);
     std::env::set_var("TMUX_TMPDIR", tmp.path());
     std::env::set_var("XDG_STATE_HOME", tmp.path().join("state"));
+    std::env::remove_var("CDAMUX_HOME");
     std::env::set_var("SHELL", "/bin/sh");
     std::env::remove_var("TMUX");
 

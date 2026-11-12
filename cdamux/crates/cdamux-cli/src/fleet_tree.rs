@@ -775,19 +775,23 @@ mod tests {
 
     #[test]
     fn ledger_subagents_nest_under_their_session() {
-        // Only this test sets XDG_STATE_HOME; the session name is unique to it.
         let state = std::env::temp_dir().join(format!("cdamux-u3-{}", std::process::id()));
-        let ledger = state.join("cdamux/agents/u3-ledger-sess.jsonl");
+        let ledger = state.join("agents/u3-ledger-sess.jsonl");
         std::fs::create_dir_all(ledger.parent().unwrap()).unwrap();
         std::fs::write(&ledger, "{\"ts\":1,\"cli\":\"claude\",\"event\":\"start\",\"id\":\"ab12cd34ef\",\"name\":\"Explore\"}\n").unwrap();
-        std::env::set_var("XDG_STATE_HOME", &state);
+        let _guard = cdamux_core::env_lock();
+        let prev = std::env::var_os("CDAMUX_HOME");
+        std::env::set_var("CDAMUX_HOME", &state);
         let tree = unassigned_tree(vec![EnrichedSession {
             state: SessionState::NeedsInput,
             ..child("u3-ledger-sess", None)
         }]);
         let mut status = no_status();
         status.refresh_subagents(["u3-ledger-sess"].into_iter(), std::time::Instant::now());
-        std::env::remove_var("XDG_STATE_HOME");
+        match prev {
+            Some(v) => std::env::set_var("CDAMUX_HOME", v),
+            None => std::env::remove_var("CDAMUX_HOME"),
+        }
         let rows = flatten_tree(&tree, &HashSet::new(), GroupBy::Project, false, &status);
         let waiting = flatten_tree(&tree, &HashSet::new(), GroupBy::Project, true, &status);
         let _ = std::fs::remove_dir_all(&state);

@@ -1,5 +1,6 @@
 //! Tailnet HTTP API dispatch (testable without binding a socket).
 
+use crate::msg::{reply_to_ask, resolve_agent_id, MsgError};
 use crate::orch_graph::{
     find_orch_graph_for_session_from_cwd, find_orch_run, list_live_orch_runs, list_orch_graph_runs,
     load_orch_graph, load_orch_graph_at, OrchGraphError,
@@ -112,6 +113,9 @@ struct SendRequest {
     line: String,
     #[serde(default)]
     enter: bool,
+    /// When `answer`, deliver via `cdamux msg` (pending ask reply). Otherwise pane paste.
+    #[serde(default)]
+    kind: Option<String>,
 }
 
 /// Parse `CDAMUX_TAILNET_BIND_ADDR`; unspecified addresses (`0.0.0.0`, `::`) are refused (ADR-004).
@@ -523,6 +527,13 @@ pub fn dispatch_tailnet_request(
                         TailnetApiError::BadRequest("line must not contain control characters".into()),
                     );
                 }
+                if req.kind.as_deref() == Some("answer") {
+                    let outcome = resolve_agent_id(&session_id).and_then(|id| reply_to_ask(&id, &req.line));
+                    return match outcome {
+                        Ok(_) => json_ok(200, &SendOkPayload { ok: true }),
+                        Err(e) => json_error(status_of_msg(&e), msg_to_api(e)),
+                    };
+                }
                 match backend.send_line(&session_id, &req.line, req.enter) {
                     Ok(()) => return json_ok(200, &SendOkPayload { ok: true }),
                     Err(e) => return json_error(status_of(&e), e),
@@ -535,6 +546,23 @@ pub fn dispatch_tailnet_request(
 
 fn method_not_allowed() -> TailnetResponse {
     json_error(405, TailnetApiError::BadRequest("method not allowed".into()))
+}
+
+fn status_of_msg(err: &MsgError) -> u16 {
+    match err {
+        MsgError::NotFound(_) => 404,
+        MsgError::Invalid(_) | MsgError::Ambiguous(_) | MsgError::TooLarge => 400,
+        MsgError::Io(_) => 502,
+    }
+}
+
+fn msg_to_api(err: MsgError) -> TailnetApiError {
+    match err {
+        MsgError::NotFound(m) => TailnetApiError::NotFound(m),
+        MsgError::Invalid(m) | MsgError::Ambiguous(m) => TailnetApiError::BadRequest(m),
+        MsgError::TooLarge => TailnetApiError::BadRequest("message exceeds size limit".into()),
+        MsgError::Io(m) => TailnetApiError::Tmux(m),
+    }
 }
 
 #[cfg(test)]

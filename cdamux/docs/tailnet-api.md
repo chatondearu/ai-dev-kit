@@ -46,7 +46,11 @@ get `405`.
 | `/v1/health` | GET | Daemon version and whether tmux is reachable |
 | `/v1/sessions` | GET | Grouped session list (same JSON as `cdamux list --json`) |
 | `/v1/sessions/:id/pane` | GET | Captured pane text (bounded tail, plain text without ANSI escapes) |
-| `/v1/sessions/:id/send` | POST | Send a literal line; optional Enter |
+| `/v1/sessions/:id/send` | POST | Send a literal line; optional Enter. Body may set `"kind":"answer"` to reply to a pending worker ask via `cdamux msg` (resolves session → agent id, uses the worker's parent as `from`) |
+
+`GET /v1/sessions` includes per-session `role`, `parent`, `cdamux_id`, `unread`, and
+`pending_ask` when set (Fleet/web tree badges). The static dashboard nests sessions by
+`parent` and posts `kind=answer` when the selected session has `pending_ask`.
 
 Session `:id` is the tmux session name (URL-encode special characters).
 

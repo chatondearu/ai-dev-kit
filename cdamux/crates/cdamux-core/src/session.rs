@@ -4,6 +4,7 @@ use crate::agent_status::{
     heuristic_applies, load_reported_status, parse_reported_status, resolve_display_status,
     DEFAULT_WORKING_WARN_SECONDS,
 };
+use crate::msg::inbox_badges;
 use crate::session_chrome::{resolve_agent_label, AGENT_LABEL_MISSING};
 use crate::project_tree::project_for_path;
 use crate::tmux::{list_panes_all, SessionPaneInfo};
@@ -61,7 +62,23 @@ pub struct EnrichedSession {
     pub run: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub role: Option<String>,
+    /// Stable agent id (`@cdamux_id`); used for inbox badges and `msg answer`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cdamux_id: Option<String>,
+    /// Unread inbox lines for [`Self::cdamux_id`] (Fleet ✉N).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub unread: usize,
+    /// Worker has an unanswered `ask` in its parent's unread inbox (Fleet `?`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub pending_ask: bool,
 }
+
+fn is_zero(n: &usize) -> bool {
+    *n == 0
+}
+
+/// Fleet / web glyph for `role=orchestrator` (state colour still applies).
+pub const ORCH_GLYPH: char = '◎';
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionGroup {
@@ -170,6 +187,11 @@ pub fn enrich_sessions_ex(
             let issue = crate::issue_ref::issue_from_branch_or_path(&branch, &s.path);
             let (state, working_stale) =
                 classify_session_ex(s, &info, idle_seconds_for_needs_input, working_warn_seconds);
+            let cdamux_id = info.cdamux_id.clone();
+            let (unread, pending_ask) = cdamux_id
+                .as_deref()
+                .map(inbox_badges)
+                .unwrap_or((0, false));
             EnrichedSession {
                 name: s.name.clone(),
                 path: s.path.clone(),
@@ -184,6 +206,9 @@ pub fn enrich_sessions_ex(
                 parent: s.parent.clone(),
                 run: s.run.clone(),
                 role: s.role.clone(),
+                cdamux_id,
+                unread,
+                pending_ask,
             }
         })
         .collect()

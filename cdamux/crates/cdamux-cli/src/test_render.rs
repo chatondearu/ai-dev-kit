@@ -148,6 +148,9 @@ pub(crate) fn fixture_children_rows() -> Vec<TreeRow> {
             kind: ChildKind::Subagent,
             state,
             preview: PreviewSource::None,
+            agent_id: None,
+            unread: 0,
+            pending_ask: false,
         },
         depth: 2,
         project_path: "/src/alpha".into(),
@@ -386,6 +389,7 @@ pub(crate) fn render_app_ex(
         graph_view,
         composer_line: "",
         composer_session: Some("alpha-main"),
+        composer_answer: false,
         session_chrome: Some(&chrome),
         status_line: "",
     };
@@ -466,6 +470,7 @@ fn form_controls_render_input_bg_select_checkbox_and_active_tab() {
         graph_view: None,
         composer_line: "",
         composer_session: Some("alpha-main"),
+        composer_answer: false,
         session_chrome: Some(&chrome),
         status_line: "",
     };

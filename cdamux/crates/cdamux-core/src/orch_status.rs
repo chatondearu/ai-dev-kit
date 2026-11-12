@@ -42,6 +42,12 @@ pub struct OrchWorkerStatus {
     pub effort: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tier: Option<String>,
+    /// `$CDAMUX_HOME/agents/<id>.json` stem (Fleet inbox badges / answer).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_id: Option<String>,
+    /// Parent orchestrator agent id when known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent: Option<String>,
 }
 
 impl OrchWorkerStatus {
@@ -113,6 +119,8 @@ struct AgentDoc {
     effort: Option<String>,
     #[serde(default)]
     tier: Option<String>,
+    #[serde(default)]
+    parent: Option<String>,
 }
 
 fn phase_from_agent(a: &AgentDoc) -> String {
@@ -127,7 +135,7 @@ fn phase_from_agent(a: &AgentDoc) -> String {
     }
 }
 
-fn worker_from_agent(a: AgentDoc) -> Option<OrchWorkerStatus> {
+fn worker_from_agent(agent_id: String, a: AgentDoc) -> Option<OrchWorkerStatus> {
     if a.role != "worker" || a.name.is_empty() {
         return None;
     }
@@ -148,6 +156,8 @@ fn worker_from_agent(a: AgentDoc) -> Option<OrchWorkerStatus> {
         model: a.model.filter(|s| !s.is_empty()),
         effort: a.effort.filter(|s| !s.is_empty()),
         tier: a.tier.filter(|s| !s.is_empty()),
+        agent_id: Some(agent_id),
+        parent: a.parent.filter(|s| !s.is_empty()),
     })
 }
 
@@ -197,7 +207,14 @@ pub fn load_orch_run_status(repo: &Path) -> Option<OrchRunStatusFile> {
                 updated_at = u.to_string();
             }
         }
-        if let Some(w) = worker_from_agent(doc) {
+        let agent_id = path
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        if agent_id.is_empty() {
+            continue;
+        }
+        if let Some(w) = worker_from_agent(agent_id, doc) {
             workers.push(w);
         }
     }

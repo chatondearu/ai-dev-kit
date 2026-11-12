@@ -100,6 +100,9 @@ fn agent_rows(agents: &[LedgerAgent], now: u64) -> Vec<ChildRow> {
                 .transcript
                 .clone()
                 .map_or(PreviewSource::None, PreviewSource::FileTail),
+            agent_id: None,
+            unread: 0,
+            pending_ask: false,
         })
         .collect()
 }

@@ -11,7 +11,7 @@ use crate::widgets::{draw_scrollbar, draw_text_modal, text_field, text_modal_inn
 use ansi_to_tui::IntoText as _;
 use cdamux_core::{
     state_icon, ChildKind, Config, EnrichedSession, GroupBy, NodeState, SessionChrome,
-    SessionState,
+    SessionState, ORCH_GLYPH,
 };
 use ratatui::{
     layout::{Constraint, Direction, Layout},
@@ -22,6 +22,45 @@ use ratatui::{
 };
 
 pub(crate) const COMPOSER_LABEL: &str = "send";
+pub(crate) const COMPOSER_ANSWER_LABEL: &str = "answer";
+
+/// Badge spans shared by session and worker rows (`✉N`, `?`).
+fn inbox_badge_spans(unread: usize, pending_ask: bool) -> Vec<Span<'static>> {
+    let mut out = Vec::new();
+    if unread > 0 {
+        out.push(Span::styled(
+            format!("✉{unread} "),
+            Style::default().fg(CLR_ACCENT),
+        ));
+    }
+    if pending_ask {
+        out.push(Span::styled("? ", Style::default().fg(CLR_WARN).add_modifier(Modifier::BOLD)));
+    }
+    out
+}
+
+/// Plain badge suffix for tests / web parity (`✉N`, `?`).
+pub(crate) fn inbox_badge_text(unread: usize, pending_ask: bool) -> String {
+    let mut s = String::new();
+    if unread > 0 {
+        s.push_str(&format!("✉{unread}"));
+    }
+    if pending_ask {
+        if !s.is_empty() {
+            s.push(' ');
+        }
+        s.push('?');
+    }
+    s
+}
+
+pub(crate) fn session_row_icon(session: &EnrichedSession) -> char {
+    if session.role.as_deref() == Some("orchestrator") {
+        ORCH_GLYPH
+    } else {
+        state_icon(session.state)
+    }
+}
 
 /// Palette aligned with PRD-41 (archived HTML mockup: `foam/archive/cdamux-prototype/`).
 pub(crate) const CLR_TEXT: Color = Color::Rgb(230, 234, 240);
@@ -146,6 +185,8 @@ pub(crate) struct DrawState<'a> {
     pub(crate) graph_view: Option<usize>,
     pub(crate) composer_line: &'a str,
     pub(crate) composer_session: Option<&'a str>,
+    /// Composer title: `answer` when the selection has a pending ask.
+    pub(crate) composer_answer: bool,
     pub(crate) session_chrome: Option<&'a SessionChrome>,
     pub(crate) status_line: &'a str,
 }
@@ -469,19 +510,21 @@ pub(crate) fn tree_row_item(row: &TreeRow) -> ListItem<'_> {
                 ),
                 ChildKind::Run => (format!("run {} ", row.id), row.label.clone()),
             };
-            ListItem::new(Line::from(vec![
+            let mut spans = vec![
                 Span::raw(tree_indent(*depth)),
                 Span::styled(format!("{icon} "), Style::default().fg(color)),
                 Span::styled(head, Style::default().fg(CLR_TEXT).add_modifier(Modifier::BOLD)),
-                Span::styled(tail, Style::default().fg(CLR_MUTED)),
-            ]))
+            ];
+            spans.extend(inbox_badge_spans(row.unread, row.pending_ask));
+            spans.push(Span::styled(tail, Style::default().fg(CLR_MUTED)));
+            ListItem::new(Line::from(spans))
         }
         TreeRow::Session {
             session: s,
             depth,
             expanded,
         } => {
-            let icon = state_icon(s.state);
+            let icon = session_row_icon(s);
             let mut spans = vec![Span::raw(tree_indent(*depth))];
             if let Some(open) = expanded {
                 let chevron = if *open { "▼ " } else { "▶ " };
@@ -497,6 +540,7 @@ pub(crate) fn tree_row_item(row: &TreeRow) -> ListItem<'_> {
                     Style::default().fg(CLR_TEXT).add_modifier(Modifier::BOLD),
                 ),
             ]);
+            spans.extend(inbox_badge_spans(s.unread, s.pending_ask));
             if s.working_stale {
                 spans.push(Span::styled("⚠  ", Style::default().fg(CLR_WARN)));
             }
@@ -661,11 +705,16 @@ pub(crate) fn draw_sidecar(
             Span::raw(format!("{target} ")),
             text_field(state.composer_line, editing, avail),
         ]);
+        let title = if state.composer_answer {
+            COMPOSER_ANSWER_LABEL
+        } else {
+            COMPOSER_LABEL
+        };
         let composer = Paragraph::new(line).block(
             Block::default()
                 .borders(Borders::TOP)
                 .border_style(Style::default().fg(border_color))
-                .title(COMPOSER_LABEL),
+                .title(title),
         );
         f.render_widget(composer, area);
     }
@@ -675,6 +724,26 @@ pub(crate) fn draw_sidecar(
 mod tests {
     use super::*;
     use cdamux_core::EnrichedSession;
+
+    #[test]
+    fn orch_glyph_and_inbox_badge_text() {
+        let orch = EnrichedSession {
+            role: Some("orchestrator".into()),
+            state: SessionState::Working,
+            ..Default::default()
+        };
+        assert_eq!(session_row_icon(&orch), ORCH_GLYPH);
+        assert_eq!(
+            session_row_icon(&EnrichedSession {
+                state: SessionState::Idle,
+                ..Default::default()
+            }),
+            '○'
+        );
+        assert_eq!(inbox_badge_text(2, false), "✉2");
+        assert_eq!(inbox_badge_text(0, true), "?");
+        assert_eq!(inbox_badge_text(3, true), "✉3 ?");
+    }
 
     fn session_rows(n: usize) -> Vec<TreeRow> {
         (0..n)

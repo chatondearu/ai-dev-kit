@@ -2,6 +2,7 @@
 //! generic [`ChildRow`] that non-session children (orch workers, CLI sub-agents)
 //! render through in the Fleet tree.
 
+use crate::msg::inbox_badges;
 use crate::orch_graph::OrchGraphRunSummary;
 use crate::orch_status::OrchWorkerStatus;
 use crate::session::{EnrichedSession, SessionState};
@@ -38,6 +39,12 @@ pub struct ChildRow {
     pub kind: ChildKind,
     pub state: SessionState,
     pub preview: PreviewSource,
+    /// `$CDAMUX_HOME/agents/<id>.json` stem when known (orch workers).
+    pub agent_id: Option<String>,
+    /// Unread inbox count for [`Self::agent_id`].
+    pub unread: usize,
+    /// Unanswered `ask` still in the parent's unread inbox.
+    pub pending_ask: bool,
 }
 
 impl ChildRow {
@@ -58,6 +65,11 @@ impl ChildRow {
         if let Some(tag) = w.agent_tag() {
             label.push_str(&format!("  [{tag}]"));
         }
+        let agent_id = w.agent_id.clone();
+        let (unread, pending_ask) = agent_id
+            .as_deref()
+            .map(inbox_badges)
+            .unwrap_or((0, false));
         Self {
             id: w.id.clone(),
             label,
@@ -68,6 +80,9 @@ impl ChildRow {
                 (_, Some(log)) => PreviewSource::FileTail(PathBuf::from(log)),
                 _ => PreviewSource::None,
             },
+            agent_id,
+            unread,
+            pending_ask,
         }
     }
 }
@@ -87,6 +102,9 @@ impl ChildRow {
             kind: ChildKind::Run,
             state,
             preview: PreviewSource::None,
+            agent_id: None,
+            unread: 0,
+            pending_ask: false,
         }
     }
 }

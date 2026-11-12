@@ -1,6 +1,6 @@
 # PLAN-257 — Fleet/web orch tree, unread badges and ask reply
 
-- **Status**: draft
+- **Status**: done
 - **PRD**: [[../prd/PRD-239-orchestrator-session|PRD-239]]
 - **GitHub**: [#257](https://github.com/chatondearu/ai-dev-kit/issues/257)
 - **Date**: 2026-11-12
@@ -42,11 +42,11 @@ web dashboard; wire composer send to `cdamux msg send --kind answer`.
 
 ## Tasks
 
-- [ ] **Tree**: orch glyph + workers nested under parent agent/host (acceptance: fleet unit/snapshot)
-- [ ] **Badges**: ✉N from unread inbox; ? when pending ask (acceptance: unit tests with temp home fixtures)
-- [ ] **Reply**: Fleet composer on ask → `answer` msg (acceptance: integration or unit of send path)
-- [ ] **Web**: same tree/badges/asks in tailnet static UI (acceptance: web/unit or snapshot)
-- [ ] **Verify**: `nix develop -c bash scripts/verify.sh` green
+- [x] **Tree**: orch glyph + workers nested under parent agent/host (acceptance: fleet unit/snapshot)
+- [x] **Badges**: ✉N from unread inbox; ? when pending ask (acceptance: unit tests with temp home fixtures)
+- [x] **Reply**: Fleet composer on ask → `answer` msg (acceptance: integration or unit of send path)
+- [x] **Web**: same tree/badges/asks in tailnet static UI (acceptance: web/unit or snapshot)
+- [x] **Verify**: `nix develop -c bash scripts/verify.sh` green
 
 ## Risks & mitigations
 
@@ -58,11 +58,11 @@ web dashboard; wire composer send to `cdamux msg send --kind answer`.
 
 Seams: (1) tree nesting, (2) badge counts, (3) answer send, (4) web parity.
 
-- [ ] Temp `CDAMUX_HOME` fixtures
-- [ ] Fleet snapshots
-- [ ] Full verify
+- [x] Temp `CDAMUX_HOME` fixtures
+- [x] Fleet snapshots (no new golden needed: glyph/badges covered by unit tests)
+- [x] Full verify
 
 ## Verification
 
-- [ ] Lint / test / build per project conventions
-- [ ] Update foam / ADR only if a new decision was made
+- [x] Lint / test / build per project conventions
+- [x] Update foam / ADR only if a new decision was made (none)

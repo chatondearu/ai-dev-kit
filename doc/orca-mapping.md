@@ -43,7 +43,7 @@ vs kit graph orchestration ([graph-orchestration.md](graph-orchestration.md), AD
 | Orca capability | cdamux today | Kit touchpoint |
 | --------------- | ------------ | -------------- |
 | Worktree sidebar | Fleet tree + optional `cdamux worktree list` | `.orch/worktrees/` (orch only; not auto-linked — see `cdamux/docs/architecture.md`) |
-| Terminal send | `cdamux send`, Fleet composer | — |
+| Terminal send | `cdamux send`, Fleet composer (`kind=answer` on pending ask) | — |
 | Parallel agents | Multiple `cdamux spawn` sessions | `orch.sh --max-parallel` |
 | Preview / status | Pane capture, idle / needs_input | — |
 | Diff review → agent | `cdamux review` (hunks) | `cda-review` on PR |

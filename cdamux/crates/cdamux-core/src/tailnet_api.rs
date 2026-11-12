@@ -1,11 +1,11 @@
 //! Tailnet HTTP API dispatch (testable without binding a socket).
 
 use crate::orch_graph::{
-    find_orch_graph_from_cwd, find_orch_run, list_live_orch_runs, list_orch_graph_runs,
+    find_orch_graph_for_session_from_cwd, find_orch_run, list_live_orch_runs, list_orch_graph_runs,
     load_orch_graph, load_orch_graph_at, OrchGraphError,
 };
 use crate::orch_status::load_orch_run_status;
-use crate::tmux::{capture_pane_text, list_tmux_sessions, send_line_to_session};
+use crate::tmux::{capture_pane_text, list_tmux_sessions, send_line_to_session, TmuxSession};
 use crate::{grouped_for_list_ex, GroupedSessions, ProjectsConfig, SessionsConfig};
 use serde::{Deserialize, Serialize};
 use std::net::IpAddr;
@@ -296,14 +296,18 @@ fn query_param(query: Option<&str>, key: &str) -> Option<String> {
     None
 }
 
-/// Path of the tmux session named exactly `session_id` (also the existence check).
-fn session_path(session_id: &str) -> Result<String, TailnetApiError> {
+/// tmux session named exactly `session_id` (also the existence check).
+fn find_tmux_session(session_id: &str) -> Result<TmuxSession, TailnetApiError> {
     list_tmux_sessions()
         .unwrap_or_default()
         .into_iter()
         .find(|s| s.name == session_id)
-        .map(|s| s.path)
         .ok_or_else(|| TailnetApiError::NotFound(format!("session not found: {session_id}")))
+}
+
+/// Path of the tmux session named exactly `session_id` (also the existence check).
+fn session_path(session_id: &str) -> Result<String, TailnetApiError> {
+    find_tmux_session(session_id).map(|s| s.path)
 }
 
 /// Percent-decode a single URL path segment (enough for tmux session names).
@@ -472,17 +476,22 @@ pub fn dispatch_tailnet_request(
             }
             if action == "orch-graph" && method == "GET" {
                 // One `tmux list-sessions`, not full enrichment: the dashboard polls this at 1 Hz.
-                let cwd = match session_path(&session_id) {
-                    Ok(p) => p,
+                // Prefer this session's own run / `@cdamux_run` — not the repo's latest (#236.4).
+                let sess = match find_tmux_session(&session_id) {
+                    Ok(s) => s,
                     Err(e) => return json_error(status_of(&e), e),
                 };
-                match find_orch_graph_from_cwd(&cwd) {
+                match find_orch_graph_for_session_from_cwd(
+                    &sess.path,
+                    &sess.name,
+                    sess.run.as_deref(),
+                ) {
                     Ok((graph, _)) => return json_ok(200, &graph),
                     Err(OrchGraphError::NotFound(_)) => {
                         return json_error(
                             404,
                             TailnetApiError::NotFound(
-                                "no $CDAMUX_HOME run for this session cwd".into(),
+                                "no $CDAMUX_HOME run for this session".into(),
                             ),
                         );
                     }

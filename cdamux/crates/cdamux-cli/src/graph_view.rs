@@ -93,7 +93,7 @@ pub(crate) fn load_orch_graph_view(target: &GraphTarget, pick: usize, width: usi
         GraphTarget::Runs { cwd, runs } if !runs.is_empty() => {
             let run = &runs[pick % runs.len()];
             let Some(path) = find_orch_run_from_cwd(cwd, run) else {
-                return OrchGraphView::text_only(format!("(run {run} not found under .orch/graph)"));
+                return OrchGraphView::text_only(format!("(run {run} not found under $CDAMUX_HOME/runs)"));
             };
             match load_orch_graph_at(&path) {
                 Ok((g, age)) => {
@@ -147,7 +147,7 @@ fn load_latest_view(cwd: &str, width: usize) -> OrchGraphView {
             OrchGraphView::text_only(s)
         }
         Err(OrchGraphError::Invalid { path, message }) => OrchGraphView::text_only(format!(
-            "invalid current.json at {}:\n{}",
+            "invalid run graph at {}:\n{}",
             path.display(),
             message
         )),

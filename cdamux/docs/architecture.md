@@ -57,16 +57,16 @@ $CDAMUX_HOME/
 
 Writers use `cdamux state set|get|append` and `cdamux msg send|read` (private JSON).
 `orch.sh` / `graph-node.sh` publish run + nodes and one Agent per worker through
-`cdamux state` (silent no-op without the binary). Until #252 they dual-write
-repo `.orch/graph` + `status.json`; with `$CDAMUX_AGENT_ID` set the run's
-`parent` is that agent (sub-run). Spawn mints `a-xxxxx`,
-sets `@cdamux_id`, exports `CDAMUX_AGENT_ID`, and records the product client name
-(`claude` | `cursor` | `opencode` | `codex`; aliases like `agent` / `cursor-agent`
-normalise on write — orch `@cdamux_agent` uses the same product names). Entity
-`parent` is the parent's agent id (resolved from the registry), or `null` when
-unknown; `@cdamux_parent` stays the tmux session name for Fleet nesting. Renaming
-a tmux session updates `host` via `session_registry::rename` and does not move
-`agents/<id>.json`.
+`cdamux state` only (hard cut #252; silent no-op without the binary). Repo
+`.orch/` keeps work artefacts (locks, worker logs, progress) — not Fleet state.
+With `$CDAMUX_AGENT_ID` set the run's `parent` is that agent (sub-run). Spawn
+mints `a-xxxxx`, sets `@cdamux_id`, exports `CDAMUX_AGENT_ID`, and records the
+product client name (`claude` | `cursor` | `opencode` | `codex`; aliases like
+`agent` / `cursor-agent` normalise on write — orch `@cdamux_agent` uses the same
+product names). Entity `parent` is the parent's agent id (resolved from the
+registry), or `null` when unknown; `@cdamux_parent` stays the tmux session name
+for Fleet nesting. Renaming a tmux session updates `host` via
+`session_registry::rename` and does not move `agents/<id>.json`.
 
 ### Inbox messages (ADR-011 §4)
 
@@ -144,20 +144,20 @@ See `config/cdamux.example.toml`. Highlights:
   the top of its project. Non-session children (orch workers, CLI sub-agents) are
   `ChildRow`s with a `PreviewSource` (`Pane` / `FileTail` / `None`). Decision record:
   [ADR-007](../../foam/decisions/ADR-007-cdamux-session-hierarchy.md).
-- **tmux workers** — with `ORCH_TMUX=1`, orch runs a worker's agent in a detached session
-  `orch-<run>-<worker>` carrying the three options above (`@cdamux_role=worker`); the
-  `status.json` entry gains `tmux_session` and `log`. A live session previews its pane,
-  otherwise the Worker row tails the log (64 KiB bound). Without `ORCH_TMUX` nothing changes:
-  Worker rows have no preview.
-- **Steps** — each worker entry of `status.json` has `phases` (`{phase, started_at}`);
+- **tmux workers** — with `ORCH_TMUX=1` (default), orch runs a worker's agent in a detached
+  session `orch-<run>-<worker>` carrying the three options above (`@cdamux_role=worker`); the
+  worker Agent under `$CDAMUX_HOME/agents/` gains `tmux_session` and `log`. A live session
+  previews its pane, otherwise the Worker row tails the log (64 KiB bound). Without
+  `ORCH_TMUX` Worker rows have no pane preview.
+- **Steps** — each worker Agent has `phases` (`{phase, started_at}`);
   `cdamux-core::orch_steps` maps them to implement / verify / review / CI / PR with state and
   duration. Shown under the node detail in the Graph view and as a list in the Worker sidecar.
-- **Agent** — a worker entry may also carry `cli`, `model`, `effort`, `tier` (ADR-010; all
+- **Agent** — a worker may also carry `cli`, `model`, `effort`, `tier` (ADR-010; all
   optional, older files parse). The Worker row ends with `[cli·tier]`; the sidecar leads with
   `cli·tier model effort`. `GET /v1/orch-status` passes them through. Read-only.
-- **Refresh** — `refresh.rs` is the one scheduler: injectable-clock intervals, `status.json`
-  parsed only when its mtime moves, session chrome fetched only for a session row, redraw
-  only when something changed.
+- **Refresh** — `refresh.rs` is the one scheduler: injectable-clock intervals, `$CDAMUX_HOME`
+  runs/agents parsed when their mtime moves, session chrome fetched only for a session row,
+  redraw only when something changed.
 - `sessions.attach_mode` — `mirror | exclusive` (tmux `-d`), same semantics as skzv.
 - `daemon.listen_tailnet`, `daemon.tailnet_port`.
 - `[agents.cursor]` command override (kit: `cursor-agent`).
@@ -215,14 +215,13 @@ Operator curl examples: [tailnet-api.md](tailnet-api.md).
 - Orch worktrees stay `.orch/worktrees/` (no auto-bridge, ADR-003). cdamux spawn may
   create worktrees under `[worktrees].root` in `config.toml` only when the operator
   toggles worktree mode in the Fleet modal (`cdamux worktree list` inspects links).
-- Fleet **reads** repo-local orch state: one graph per run under `.orch/graph/live/`
-  (listed through the refresh scheduler, mtime-gated on `live/`, `runs/` and
-  `current.json`; a running pre-#178 `current.json` stands in when `live/` is missing),
-  `current.json` for the latest run (project rows, `GET /v1/orch-graph?repo=`, `&run=`
-  picks one) and `.orch/run/status.json` (workers, nested under the run with the same
-  `run_id`). A run row (`ChildKind::Run`) sits under the session in its `session`
-  field, headless runs under the project; the session sidecar and Graph view show the
-  session's own newest run, else its `@cdamux_run`.
+- Fleet **reads** `$CDAMUX_HOME/runs/` and `$CDAMUX_HOME/agents/` (hard cut #252): one
+  graph file per run, workers as Agents with matching `run`. Project rows and
+  `GET /v1/orch-graph?repo=` take the newest live run (`&run=` picks one);
+  `GET /v1/sessions/:id/orch-graph` prefers that session's own run, else its
+  `@cdamux_run`. A run row (`ChildKind::Run`) sits under the session in its
+  `session` field, headless runs under the project; the session sidecar and Graph
+  view show the session's own newest run, else its `@cdamux_run`.
   The Orch graph tab and the full-screen Graph view (`g`) draw a layered DAG
   (`cdamux-core::orch_graph_layout`, longest-path layers over `edges` + `parent`)
   and fall back to the indented text tree when the layers do not fit the width.

@@ -77,9 +77,24 @@ orch_graph_locked_jq() {
   lock="$(orch_cdamux_run_lock "$ORCH_RUN_ID")" || return 1
   tmp="$(mktemp "${TMPDIR:-/tmp}/orch-graph.XXXXXX")"
   # Shared body for flock/no-flock paths (args forwarded to jq).
-  _do() {
+  # Load existing run JSON; never invent a skeleton when the file already exists
+  # (a failed `state get` must not wipe nodes via publish).
+  _orch_graph_rmw_load() {
     raw="$(orch_cdamux_state_get runs "$ORCH_RUN_ID" 2>/dev/null || true)"
-    [ -n "$raw" ] || raw="$(jq -n --arg id "$ORCH_RUN_ID" '{run_id:$id,nodes:[],edges:[],status:"running"}')"
+    if [ -n "$raw" ]; then
+      return 0
+    fi
+    local f
+    f="$(orch_cdamux_run_path "$ORCH_RUN_ID" 2>/dev/null || true)"
+    if [ -n "$f" ] && [ -f "$f" ]; then
+      raw="$(cat "$f" 2>/dev/null || true)"
+      [ -n "$raw" ] || return 1
+      return 0
+    fi
+    raw="$(jq -n --arg id "$ORCH_RUN_ID" '{run_id:$id,nodes:[],edges:[],status:"running"}')"
+  }
+  _do() {
+    _orch_graph_rmw_load || return 1
     if ! printf '%s' "$raw" | jq "$@" >"$tmp"; then
       rm -f "$tmp"
       return 1
@@ -90,11 +105,11 @@ orch_graph_locked_jq() {
   }
   if command -v flock >/dev/null 2>&1; then
     export -f orch_cdamux_available orch_cdamux_state_get orch_cdamux_state_set
-    export -f orch_cdamux_publish_run_json orch_cdamux_home
+    export -f orch_cdamux_publish_run_json orch_cdamux_home orch_cdamux_run_path
+    export -f _orch_graph_rmw_load
     (
       flock 200
-      raw="$(orch_cdamux_state_get runs "$ORCH_RUN_ID" 2>/dev/null || true)"
-      [ -n "$raw" ] || raw="$(jq -n --arg id "$ORCH_RUN_ID" '{run_id:$id,nodes:[],edges:[],status:"running"}')"
+      _orch_graph_rmw_load || exit 1
       if ! printf '%s' "$raw" | jq "$@" >"$tmp"; then
         rm -f "$tmp"
         exit 1

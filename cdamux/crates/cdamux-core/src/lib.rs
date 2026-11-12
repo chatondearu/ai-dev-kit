@@ -66,7 +66,8 @@ pub use orch_graph_layout::{
     graph_node_order, layout_orch_graph, CellClass, GraphCell, GraphLayout, NodeBox, NodeState, BOX_H,
 };
 pub use orch_graph::{
-    find_orch_graph_from_cwd, find_orch_run, find_orch_run_from_cwd, orch_graph_is_stale, orch_graph_header,
+    find_orch_graph_for_session, find_orch_graph_for_session_from_cwd, find_orch_graph_from_cwd,
+    find_orch_run, find_orch_run_from_cwd, orch_graph_is_stale, orch_graph_header,
     format_orch_graph_panel, format_orch_graph_panel_ex, format_orch_graph_panel_with_history,
     list_live_orch_runs, list_orch_graph_runs, load_orch_graph, load_orch_graph_at, orch_graph_live_dir,
     orch_graph_path, orch_graph_runs_dir, run_repo_matches, OrchGraphError, OrchGraphFile, OrchGraphNode,
@@ -74,8 +75,8 @@ pub use orch_graph::{
 };
 pub use issue_ref::{issue_from_branch_or_path, parse_issue_number};
 pub use orch_status::{
-    find_orch_run_status_from_cwd, load_orch_run_status, orch_agents_dir, orch_run_status_path,
-    project_has_orch_artifacts, OrchRunStatusFile, OrchWorkerStatus, PhaseMark,
+    find_orch_run_status_from_cwd, load_orch_run_status, orch_agents_dir, project_has_orch_artifacts,
+    OrchRunStatusFile, OrchWorkerStatus, PhaseMark,
 };
 pub use orch_steps::{step_worker_id, worker_steps, Step};
 pub use agents_util::{

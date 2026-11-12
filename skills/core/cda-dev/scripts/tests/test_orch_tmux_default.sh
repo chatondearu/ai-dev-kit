@@ -26,4 +26,15 @@ assert_eq "$rc" "1" "sandbox disables tmux even when ORCH_TMUX=1"
 help="$(bash "$TROOT/../orch.sh" --help)"
 assert_contains "$help" "ORCH_TMUX=1" "orch.sh --help mentions ORCH_TMUX=1 default"
 
+# --sandbox: warn only when the caller explicitly set ORCH_TMUX=1.
+err_explicit="$(ORCH_TMUX=1 bash "$TROOT/../orch.sh" --repo /tmp --mode intake --sandbox 2>&1 || true)"
+assert_contains "$err_explicit" "ORCH_TMUX ignored with --sandbox" "warn when ORCH_TMUX=1 + sandbox"
+err_implicit="$(unset ORCH_TMUX; bash "$TROOT/../orch.sh" --repo /tmp --mode intake --sandbox 2>&1 || true)"
+if [[ "$err_implicit" == *"ORCH_TMUX ignored with --sandbox"* ]]; then
+  FAILS=$((FAILS + 1))
+  printf 'FAIL sandbox alone must not warn about ORCH_TMUX\n  got: %s\n' "$err_implicit" >&2
+else
+  PASSES=$((PASSES + 1))
+fi
+
 summary

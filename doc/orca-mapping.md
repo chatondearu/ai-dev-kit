@@ -16,7 +16,7 @@ tools and planning incremental parity where it pays off.
 | Desktop shell (editor, GPU terminal, browser) | Native app | tmux + cdamux TUI / tailnet web |
 | Git worktrees per task | First-class UI + CLI | `orch.sh` worktrees; cdamux optional spawn |
 | GitHub / Linear task UI | In-app | `gh` + Kanban skills; no in-app board |
-| Multi-agent orchestration contract | Run / Task / Dispatch / inbox | `orch.sh` + `.orch/graph/current.json`, dual-written to `$CDAMUX_HOME/runs/` via `cdamux state` until #252 |
+| Multi-agent orchestration contract | Run / Task / Dispatch / inbox | `orch.sh` + `$CDAMUX_HOME/runs/` via `cdamux state` (hard cut #252; silent no-op without cdamux) |
 | Project memory (ADRs, PRDs) | Notes / generic | foam + `cda-foam` |
 | CI-green PR pipeline | Operator workflow | `cda-dev` verify loop, frontier, integrator |
 
@@ -27,14 +27,14 @@ vs kit graph orchestration ([graph-orchestration.md](graph-orchestration.md), AD
 
 | Orca concept | Role | CDA equivalent | Gap |
 | ------------ | ---- | -------------- | --- |
-| **Run** | Durable namespace + coordinator inbox | One `orch.sh` invocation; `run_id` in `current.json` | No persistent inbox across runs; no `run-create` CLI |
-| **Task** | Spec, deps, status lifecycle | GitHub issue + optional `plans/graph/*.json` tasks | Status not stored as Orca enum; use issue state + `.orch/run/*.status` |
+| **Run** | Durable namespace + coordinator inbox | One `orch.sh` invocation; `run_id` in `$CDAMUX_HOME/runs/<id>.json` | No persistent inbox across runs; no `run-create` CLI |
+| **Task** | Spec, deps, status lifecycle | GitHub issue + optional `plans/graph/*.json` tasks | Status not stored as Orca enum; use issue state + worker Agents under `$CDAMUX_HOME/agents/` |
 | **Dispatch** | One attempt; authority for completion | One worker worktree / one graph-plan task attempt | No `dispatchId`; retries are new agent iterations inside `orch_graph_worker` |
 | **Message / Delivery** | FIFO inbox, `check --wait --ack` | `cdamux msg send\|read [--ack]` under `$CDAMUX_HOME/inbox/` (ADR-011 §4); idle nudge + turn-end digest hooks | No native `--wait` wake yet; Cursor `beforeSubmitPrompt` cannot inject |
 | **worker_done** | Required completion with `taskId` + `dispatchId` | `.orch/worker-result.json` (convention); `.orch/run/<id>.rc` | No stale-dispatch guard; schema not enforced in harness |
 | **heartbeat** | Long-run liveness | None | Optional future: `.orch/run/<id>.heartbeat` |
 | **ask / decision gate** | Block task until coordinator answers | `ORCH_GRAPH_VERIFY` verifier; human in chat | No `gate-create` / `gate-resolve` API |
-| **worker-start** | Supervised agent on worktree | `cdamux worker spawn` (interactive) + `orch_ready_pickup_one`; `orch.sh` publishes run/nodes/Agents via `cdamux state` (dual-write until #252; no-op without binary) | Hard cut of `.orch` graph/status writers is #252 |
+| **worker-start** | Supervised agent on worktree | `cdamux worker spawn` (interactive) + `orch_ready_pickup_one`; `orch.sh` publishes run/nodes/Agents via `cdamux state` only (no-op without binary) | Fleet visibility needs cdamux (ADR-001) |
 | **Integrator** | Coordinator synthesis | `orch_graph_integrator_run` (2+ issues or graph-plan) | Same idea; different trigger rules |
 | **Frontier / deps** | Task `blocked` until deps done | Issue body `Blocked by: #n` + `orch_frontier_partition` | Same dependency idea, GitHub-native |
 
@@ -48,7 +48,7 @@ vs kit graph orchestration ([graph-orchestration.md](graph-orchestration.md), AD
 | Preview / status | Pane capture, idle / needs_input | — |
 | Diff review → agent | `cdamux review` (hunks) | `cda-review` on PR |
 | Inline diff line comments | Rich diff UI | Hunk-based review only |
-| Orch graph view | Sidecar + `GET …/orch-graph` | Dual-writes `.orch/graph/current.json` + `$CDAMUX_HOME/runs/` via `cdamux state` (until #252) |
+| Orch graph view | Sidecar + `GET …/orch-graph` | Reads `$CDAMUX_HOME/runs/` (+ Agents); session endpoint filters by `session` / `@cdamux_run` |
 | SSH remote worktrees | Tailnet API (read/send); Mosh doc | No remote file/git IDE |
 | Mobile app | Web UI on tailnet (partial) | — |
 | GitHub / Linear in-app | — | `cda-kanban`, `gh-board.sh` |
@@ -64,8 +64,8 @@ Rough “same intent” paths (Orca → CDA). Orca commands require the Orca app
 | ------ | ---------------- | --- |
 | One-shot prompt in existing pane | `orca terminal send` | `cdamux send <session> "…"` |
 | New isolated branch + agent | `orca worktree create` / `worker-start --worktree new-child` | `orch.sh --mode ready-pickup --issue N` or spawn modal + git worktree |
-| Supervised worker with completion | `orca orchestration worker-start` … `worker_done` | Worker prompt + `worker-result.json`; graph nodes in `current.json` |
-| Wait for workers | `orca orchestration check --wait` | Poll `.orch/run/*.rc` or watch cdamux Orch graph |
+| Supervised worker with completion | `orca orchestration worker-start` … `worker_done` | Worker prompt + `worker-result.json`; graph nodes in `$CDAMUX_HOME/runs/` |
+| Wait for workers | `orca orchestration check --wait` | Poll `.orch/run/*.rc` or watch cdamux Orch graph (`$CDAMUX_HOME/runs/`) |
 | Multi-issue parallel + merge story | Run + tasks + workers | `orch.sh --issue A --issue B` → integrator |
 | Intra-issue parallel (disjoint paths) | Multiple tasks / workers | `--graph-plan plans/graph/….json` |
 | DAG blocked on dependency | Task deps / gates | `Blocked by:` on issue body |
@@ -93,9 +93,9 @@ Shipped / in progress (visibility slice):
 
 Shipped (P1 visibility):
 
-6. Fleet worker rows from `.orch/run/status.json` + orch-only projects.
-7. Project-level orch graph in TUI + `GET /v1/orch-graph?repo=` / `orch-status`.
-8. Atomic graph writes (`flock`) + sandbox bind of `ORCH_REPO/.orch`.
+6. Fleet worker rows from `$CDAMUX_HOME/agents/` + `$CDAMUX_HOME/runs/` (+ orch-only projects).
+7. Project-level orch graph in TUI + `GET /v1/orch-graph?repo=` / `orch-status` / session `orch-graph`.
+8. Atomic graph writes (`flock` + `cdamux state`) + sandbox bind of `ORCH_REPO/.orch` artefacts.
 
 Shipped (P1.5 / P2 slice):
 

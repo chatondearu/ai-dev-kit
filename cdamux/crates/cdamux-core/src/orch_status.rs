@@ -74,12 +74,6 @@ pub struct OrchRunStatusFile {
     pub workers: Vec<OrchWorkerStatus>,
 }
 
-/// Historical path (removed by #252). Kept so refresh mtime helpers compile; always
-/// points at a non-status artefact under the repo (unused for reads).
-pub fn orch_run_status_path(repo: &Path) -> PathBuf {
-    repo.join(".orch/run/status.json")
-}
-
 /// `$CDAMUX_HOME/agents` when the home resolves.
 pub fn orch_agents_dir() -> Option<PathBuf> {
     cdamux_state_dir("agents")
@@ -299,9 +293,9 @@ mod tests {
     }
 
     #[test]
-    fn legacy_status_json_path_unused_for_reads() {
+    fn legacy_status_json_ignored_without_cdamux_agents() {
         let dir = tempfile::tempdir().unwrap();
-        let path = orch_run_status_path(dir.path());
+        let path = dir.path().join(".orch/run/status.json");
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         let mut f = fs::File::create(&path).unwrap();
         write!(
@@ -309,7 +303,7 @@ mod tests {
             r#"{{"updated_at":"t","workers":[{{"id":"72","phase":"ci"}}]}}"#
         )
         .unwrap();
-        // Without CDAMUX_HOME runs, the legacy file is ignored.
+        // Without CDAMUX_HOME agents/runs, the legacy file is ignored.
         assert!(load_orch_run_status(dir.path()).is_none());
     }
 }

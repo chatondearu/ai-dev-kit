@@ -98,10 +98,16 @@ fi
 # One run id for $CDAMUX_HOME/runs/<id>.json and tmux worker sessions (orch-<run>-<worker>).
 export ORCH_RUN_ID="${ORCH_RUN_ID:-$(date -u +%Y%m%dT%H%M%SZ)}"
 # ADR-011 §1: tmux workers by default; tests set ORCH_TMUX=0; --sandbox forces headless.
+# Warn only when the caller explicitly asked for tmux and sandbox overrides it.
+_ORCH_TMUX_WAS="${ORCH_TMUX-}"
 export ORCH_TMUX="${ORCH_TMUX:-1}"
 if [ "$SANDBOX" = 1 ]; then
+  if [ "${_ORCH_TMUX_WAS}" = "1" ]; then
+    echo "orch: ORCH_TMUX ignored with --sandbox (tmux runs agents outside bwrap)" >&2
+  fi
   export ORCH_TMUX=0
 fi
+unset _ORCH_TMUX_WAS
 if [ -n "${ORCH_TIERS_FILE:-}" ] && [ ! -r "$ORCH_TIERS_FILE" ]; then
   echo "orch: ORCH_TIERS_FILE not readable: $ORCH_TIERS_FILE" >&2
   exit 2
@@ -110,11 +116,6 @@ case "${ORCH_TIER_MAX:-large}" in small|medium|large) ;; *)
   echo "orch: ORCH_TIER_MAX must be small, medium or large (got: $ORCH_TIER_MAX)" >&2
   exit 2 ;;
 esac
-if [ "${ORCH_TMUX}" = 1 ]; then
-  : # tmux workers on
-elif [ "$SANDBOX" = 1 ]; then
-  echo "orch: ORCH_TMUX ignored with --sandbox (tmux runs agents outside bwrap)" >&2
-fi
 
 # Project opt-in: AGENTS.md line `orch: allow-no-checks` (repos without Actions).
 orch_apply_agents_orch_flags() {

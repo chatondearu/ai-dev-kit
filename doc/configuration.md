@@ -39,7 +39,7 @@ these (`./scripts/doctor.sh` only checks `PATH`). With a Cursor CLI present it a
 | `ORCH_REPO` | cwd / `--repo` | Target git tree (required in systemd env) |
 | `ORCH_GH_BOARD` | discovered | Path to `gh-board.sh` for orch-auto |
 | `CDA_DESIGN_LOOP` | off | Opt-in design loop for UI diffs |
-| `ORCH_GRAPH` | `1` | Live `.orch/graph/live/<run_id>.json` (`0` / `--no-graph` off; the worker loop and verifier still run) |
+| `ORCH_GRAPH` | `1` | Live `$CDAMUX_HOME/runs/<run_id>.json` via `cdamux state` (`0` / `--no-graph` off; the worker loop and verifier still run) |
 | `ORCH_GRAPH_VERIFY` | `1` | foam/plan verifier agent after local verify; `0` disables |
 | `ORCH_GRAPH_INTEGRATOR` | `auto` | Integrator after workers (`1` always, `0` never) |
 | `ORCH_GRAPH_PLAN_PARALLEL` | `auto` | Graph-plan tasks: `auto` / `parallel` / `sequential` |

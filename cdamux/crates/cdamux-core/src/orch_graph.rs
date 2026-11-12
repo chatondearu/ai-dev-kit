@@ -152,6 +152,53 @@ pub fn load_orch_graph_at(path: &Path) -> Result<(OrchGraphFile, Option<u64>), O
     Ok((graph, age))
 }
 
+/// Graph for a tmux session: newest live run with `session == name`, else `@cdamux_run`.
+/// Does **not** fall back to the repo's latest run (#236 item 4).
+pub fn find_orch_graph_for_session(
+    repo: &Path,
+    session: &str,
+    cdamux_run: Option<&str>,
+) -> Result<(OrchGraphFile, Option<u64>), OrchGraphError> {
+    if let Some(summary) = list_live_orch_runs(repo)
+        .into_iter()
+        .find(|r| r.session.as_deref() == Some(session))
+    {
+        return load_orch_graph_at(&summary.path);
+    }
+    if let Some(run_id) = cdamux_run.filter(|s| !s.is_empty()) {
+        if let Some(path) = find_orch_run(repo, run_id) {
+            return load_orch_graph_at(&path);
+        }
+    }
+    Err(OrchGraphError::NotFound(
+        cdamux_home()
+            .map(|h| h.join("runs"))
+            .unwrap_or_else(|| PathBuf::from("$CDAMUX_HOME/runs")),
+    ))
+}
+
+/// Like [`find_orch_graph_for_session`] walking parents from `cwd` for the repo root.
+pub fn find_orch_graph_for_session_from_cwd(
+    cwd: &str,
+    session: &str,
+    cdamux_run: Option<&str>,
+) -> Result<(OrchGraphFile, Option<u64>), OrchGraphError> {
+    if cwd.is_empty() {
+        return Err(OrchGraphError::NotFound(PathBuf::from("$CDAMUX_HOME/runs")));
+    }
+    let mut last_nf = OrchGraphError::NotFound(PathBuf::from("$CDAMUX_HOME/runs"));
+    for cur in Path::new(cwd).ancestors() {
+        match find_orch_graph_for_session(cur, session, cdamux_run) {
+            Ok(loaded) => return Ok(loaded),
+            Err(OrchGraphError::Invalid { path, message }) => {
+                return Err(OrchGraphError::Invalid { path, message });
+            }
+            Err(e @ OrchGraphError::NotFound(_)) => last_nf = e,
+        }
+    }
+    Err(last_nf)
+}
+
 /// Walk parents from `cwd` until a `$CDAMUX_HOME` run matches that repo path.
 /// A present-but-invalid file stops the walk with [`OrchGraphError::Invalid`].
 pub fn find_orch_graph_from_cwd(cwd: &str) -> Result<(OrchGraphFile, Option<u64>), OrchGraphError> {
@@ -602,6 +649,13 @@ mod tests {
             Some(runs.join("new.json"))
         );
         assert_eq!(find_orch_run(&repo, "../live/new"), None);
+        // Session API: prefer that session's live run, not the newest repo run (#236.4).
+        let (g, _) = find_orch_graph_for_session(&repo, "a", None).unwrap();
+        assert_eq!(g.run_id, "old");
+        let (g2, _) = find_orch_graph_for_session(&repo, "other", Some("done")).unwrap();
+        assert_eq!(g2.run_id, "done");
+        assert!(find_orch_graph_for_session(&repo, "missing", None).is_err());
+        assert!(find_orch_graph_for_session(&repo, "missing", Some("new")).is_ok());
         std::env::remove_var("CDAMUX_HOME");
     }
 

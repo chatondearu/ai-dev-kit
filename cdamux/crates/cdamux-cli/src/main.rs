@@ -997,6 +997,26 @@ fn cmd_projects() -> ExitCode {
 pub(crate) const DASHBOARD_REVIEW_INSTRUCTION: &str =
     "Please review these diff hunks and suggest fixes.";
 
+/// Max foam paths painted around the selection (full list stays in `entries`).
+const FOAM_SIDECAR_LIST_ROWS: usize = 6;
+
+/// Window `[start, end)` around `sel`, biased high so under-item preview stays on screen.
+fn foam_list_window(sel: usize, len: usize, max_rows: usize) -> (usize, usize) {
+    if len == 0 || max_rows == 0 {
+        return (0, 0);
+    }
+    if len <= max_rows {
+        return (0, len);
+    }
+    // One row above the selection when possible; preview is painted under the ▸ line.
+    let before = 1.min(max_rows.saturating_sub(1));
+    let mut start = sel.saturating_sub(before);
+    if start + max_rows > len {
+        start = len - max_rows;
+    }
+    (start, start + max_rows)
+}
+
 /// Sidecar Foam tab: list `foam/**/*.md` for the session cwd (read-only, ADR-012).
 ///
 /// Returns display text and a clamped selection index into the listing.
@@ -1035,22 +1055,29 @@ pub(crate) fn foam_sidecar_for_cwd(cwd: &str, selected: usize) -> (String, usize
             ..
         } => {
             let sel = selected.min(paths.len().saturating_sub(1));
+            let (start, end) = foam_list_window(sel, paths.len(), FOAM_SIDECAR_LIST_ROWS);
             let mut lines = vec![
                 format!("foam/ · {}", project.display()),
                 String::new(),
             ];
-            for (i, path) in paths.iter().enumerate() {
+            if start > 0 {
+                lines.push(format!("… ({start} more above)"));
+            }
+            for (i, path) in paths.iter().enumerate().take(end).skip(start) {
                 let mark = if i == sel { "▸" } else { " " };
                 lines.push(format!("{mark} {path}"));
+                // Preview under the selected row so a long list cannot push it off-screen.
+                if i == sel {
+                    lines.push("── preview ──".to_string());
+                    lines.push(cdamux_core::preview_foam_markdown(&project, path));
+                }
+            }
+            if end < paths.len() {
+                lines.push(format!("… ({} more below)", paths.len() - end));
             }
             if truncated {
                 lines.push(String::new());
                 lines.push(format!("… truncated at {FOAM_LIST_CAP} files"));
-            }
-            if let Some(path) = paths.get(sel) {
-                lines.push(String::new());
-                lines.push("── preview ──".to_string());
-                lines.push(cdamux_core::preview_foam_markdown(&project, path));
             }
             (lines.join("\n"), sel, paths)
         }
@@ -1181,8 +1208,10 @@ pub(crate) fn apply_foam_deep_link_from_preview(
 #[cfg(test)]
 mod foam_sidecar_tests {
     use super::{
-        apply_foam_deep_link_from_preview, foam_sidecar_for_cwd, open_foam_in_sidecar, FoamOpen,
+        apply_foam_deep_link_from_preview, foam_list_window, foam_sidecar_for_cwd,
+        open_foam_in_sidecar, FoamOpen, FOAM_SIDECAR_LIST_ROWS,
     };
+    use crate::test_render::render_fleet_foam;
     use std::fs;
     use tempfile::tempdir;
 
@@ -1193,15 +1222,15 @@ mod foam_sidecar_tests {
         fs::create_dir_all(&foam).unwrap();
         fs::write(foam.join("index.md"), "# moc").unwrap();
         fs::write(foam.join("adr.md"), "a").unwrap();
+        // Sorted: adr.md then index.md — selection 1 is index.md.
         let (text, sel, entries) =
             foam_sidecar_for_cwd(tmp.path().to_str().unwrap(), 1);
         assert_eq!(sel, 1);
         assert_eq!(entries.len(), 2);
-        assert!(text.contains("▸ foam/index.md") || text.contains("▸ foam/adr.md"));
-        assert!(text.contains("foam/adr.md"));
-        assert!(text.contains("foam/index.md"));
+        assert!(text.contains("▸ foam/index.md"), "{text}");
+        assert!(text.contains("foam/adr.md"), "{text}");
         assert!(text.contains("── preview ──"), "{text}");
-        assert!(text.contains("# moc") || text.contains("a"), "{text}");
+        assert!(text.contains("# moc"), "{text}");
     }
 
     #[test]
@@ -1336,6 +1365,51 @@ mod foam_sidecar_tests {
         assert!(!restored.contains("not found"), "{restored}");
     }
 
+    #[test]
+    fn list_window_keeps_selection_and_biases_high() {
+        assert_eq!(foam_list_window(0, 3, 10), (0, 3));
+        assert_eq!(foam_list_window(35, 40, 6), (34, 40));
+        let (start, end) = foam_list_window(20, 80, 6);
+        assert_eq!(end - start, 6);
+        assert!(start <= 20 && 20 < end);
+        assert_eq!(20 - start, 1);
+    }
+
+    #[test]
+    fn long_list_keeps_preview_visible_in_short_pane() {
+        let tmp = tempdir().unwrap();
+        let foam = tmp.path().join("foam");
+        fs::create_dir_all(&foam).unwrap();
+        for i in 0..40 {
+            fs::write(
+                foam.join(format!("f{i:02}.md")),
+                format!("# File {i}\n\nbody {i}\n"),
+            )
+            .unwrap();
+        }
+        let sel = 35;
+        let (text, got_sel, entries) =
+            foam_sidecar_for_cwd(tmp.path().to_str().unwrap(), sel);
+        assert_eq!(got_sel, sel);
+        assert!(entries.len() > FOAM_SIDECAR_LIST_ROWS);
+        assert!(entries.len() > 24, "fixture must exceed a 24-row pane");
+        let preview_at = text
+            .lines()
+            .position(|l| l.contains("── preview ──"))
+            .expect("preview marker");
+        // Header + ellipsis + ≤10 list rows + gaps → preview well above a 24-row body.
+        assert!(
+            preview_at < 20,
+            "preview too far down for a short pane: at line {preview_at}\n{text}"
+        );
+        assert!(text.contains("▸ foam/f35.md"), "{text}");
+        assert!(text.contains("# File 35"), "{text}");
+
+        let screen = render_fleet_foam(80, 24, &text).join("\n");
+        assert!(screen.contains("── preview ──"), "{screen}");
+        assert!(screen.contains("# File 35"), "{screen}");
+        assert!(screen.contains("▸ foam/f35.md"), "{screen}");
+    }
 }
 
 pub(crate) fn run_review_for_session(session: &str) -> ExitCode {

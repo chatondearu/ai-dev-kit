@@ -17,6 +17,7 @@ Status values: `proposed` | `accepted` | `deprecated` | `superseded`.
 | [[ADR-009-cdamux-session-restore-registry|ADR-009]] | cdamux session restore registry | accepted | #architecture #tooling #resilience |
 | [[ADR-010-worker-cli-inheritance-and-tiers|ADR-010]] | Worker CLI inheritance and tiers | accepted | #architecture #tooling #autonomy #cost |
 | [[ADR-011-cdamux-unified-state-model|ADR-011]] | cdamux unified state model | accepted | #architecture #tooling #autonomy #resilience |
+| [[ADR-012-foam-browser-replaces-notes-sidecar|ADR-012]] | Foam browser replaces Fleet Notes sidecar | accepted | #architecture #cdamux #foam |
 
 ## Template
 

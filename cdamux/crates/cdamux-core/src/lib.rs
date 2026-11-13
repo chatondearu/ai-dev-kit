@@ -66,8 +66,9 @@ pub use tailnet_api::{
     LiveTailnetBackend, TailnetApiBackend, TailnetResponse, TAILNET_TOKEN_HEADER,
 };
 pub use foam::{
-    list_foam, preview_foam_markdown, resolve_foam_root, resolve_project_root, FoamListing,
-    FOAM_DIR, FOAM_LIST_CAP, FOAM_PREVIEW_MAX_BYTES, FOAM_PREVIEW_MAX_LINES,
+    extract_foam_path_from_text, find_foam_entry, list_foam, normalize_foam_path,
+    preview_foam_markdown, resolve_foam_root, resolve_project_root, FoamListing, FOAM_DIR,
+    FOAM_LIST_CAP, FOAM_PREVIEW_MAX_BYTES, FOAM_PREVIEW_MAX_LINES,
 };
 pub use markdown::{render_markdown_terminal, truncate_lines};
 pub use notes::{ensure_note_file, note_refs_for_projects, resolve_note_path, NoteRef};

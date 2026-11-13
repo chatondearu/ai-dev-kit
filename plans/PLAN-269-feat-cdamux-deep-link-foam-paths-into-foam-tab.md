@@ -42,10 +42,10 @@ Fleet action “open in Foam”. Hook from the highest-signal existing context
 
 ## Tasks
 
-- [ ] Normalize and validate paths under the anchored project’s `foam/`
-- [ ] Action: set SideTab Foam + select file (or empty state if missing)
-- [ ] Wire at least one context source (document which in PR)
-- [ ] Tests: foam path focuses; non-foam ignored; missing file empty state
+- [x] Normalize and validate paths under the anchored project’s `foam/`
+- [x] Action: set SideTab Foam + select file (or empty state if missing)
+- [x] Wire at least one context source (document which in PR)
+- [x] Tests: foam path focuses; non-foam ignored; missing file empty state
 
 ## Risks & mitigations
 
@@ -56,10 +56,15 @@ Fleet action “open in Foam”. Hook from the highest-signal existing context
 
 ## Test plan
 
-- [ ] Unit: path normalize + escape rejection
-- [ ] UI/integration or snapshot: deep-link selects expected row
+- [x] Unit: path normalize + escape rejection
+- [x] UI/integration or snapshot: deep-link selects expected row
 
 ## Verification
 
-- [ ] `nix develop -c bash scripts/verify.sh`
+- [x] `nix develop -c bash scripts/verify.sh`
 - [ ] PR `Closes #269`
+
+## Context source (shipping)
+
+Pane **preview** capture text: last `foam/...` (or absolute `…/foam/...`)
+token wins; Fleet switches to Foam and selects the row (or missing empty state).

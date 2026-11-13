@@ -1057,9 +1057,132 @@ pub(crate) fn foam_sidecar_for_cwd(cwd: &str, selected: usize) -> (String, usize
     }
 }
 
+/// Result of opening a foam path in the Fleet Foam tab (#269).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum FoamOpen {
+    /// Non-foam path — leave the current tab alone.
+    Ignored,
+    /// Select an existing listing row and switch to Foam.
+    Focus {
+        text: String,
+        selected: usize,
+        entries: Vec<String>,
+        path: String,
+    },
+    /// Foam path normalized but missing from the tree — empty/error state.
+    /// `entries` kept so the operator can `[`/`]` back into the list.
+    Missing {
+        text: String,
+        path: String,
+        entries: Vec<String>,
+    },
+}
+
+/// In-app Foam deep-link: normalize `raw`, select the row or show a missing state.
+pub(crate) fn open_foam_in_sidecar(cwd: &str, raw: &str) -> FoamOpen {
+    use cdamux_core::{find_foam_entry, normalize_foam_path, resolve_project_root};
+    use std::path::Path;
+
+    if cwd.is_empty() {
+        return FoamOpen::Ignored;
+    }
+    let project = resolve_project_root(Path::new(cwd));
+    let Some(path) = normalize_foam_path(raw, &project) else {
+        return FoamOpen::Ignored;
+    };
+    // One listing pass at idx 0; re-render only when focusing a different row.
+    let (list_text, sel0, entries) = foam_sidecar_for_cwd(cwd, 0);
+    if let Some(idx) = find_foam_entry(&entries, &path) {
+        let (text, selected, entries) = if idx == 0 {
+            (list_text, sel0, entries)
+        } else {
+            foam_sidecar_for_cwd(cwd, idx)
+        };
+        return FoamOpen::Focus {
+            text,
+            selected,
+            entries,
+            path,
+        };
+    }
+    // Explicit miss banner above the listing so `[`/`]` can recover browse
+    // without changing session (clear = obvious empty/error, not wipe the tree).
+    let miss = if entries.is_empty() && list_text.contains("No foam/") {
+        format!(
+            "{path} not found under {}\n\nDeep-link target missing from foam/.\n{}",
+            project.display(),
+            list_text
+        )
+    } else {
+        format!(
+            "{path} not found under {}\n\nDeep-link target missing from foam/.\n`[`/`]` resumes the list.\n\n{}",
+            project.display(),
+            list_text
+        )
+    };
+    FoamOpen::Missing {
+        text: miss,
+        path,
+        entries,
+    }
+}
+
+/// Apply a preview-capture deep-link once per distinct foam path.
+///
+/// Context source: pane preview text (last `foam/...` token). Returns true when
+/// Foam tab state changed.
+pub(crate) fn apply_foam_deep_link_from_preview(
+    cwd: &str,
+    preview: &str,
+    applied: &mut Option<String>,
+    foam_text: &mut String,
+    foam_selected: &mut usize,
+    foam_entries: &mut Vec<String>,
+) -> bool {
+    use cdamux_core::extract_foam_path_from_text;
+
+    let Some(raw) = extract_foam_path_from_text(preview) else {
+        return false;
+    };
+    match open_foam_in_sidecar(cwd, &raw) {
+        FoamOpen::Ignored => false,
+        FoamOpen::Focus {
+            text,
+            selected,
+            entries,
+            path,
+        } => {
+            if applied.as_deref() == Some(path.as_str()) {
+                return false;
+            }
+            *applied = Some(path);
+            *foam_text = text;
+            *foam_selected = selected;
+            *foam_entries = entries;
+            true
+        }
+        FoamOpen::Missing {
+            text,
+            path,
+            entries,
+        } => {
+            if applied.as_deref() == Some(path.as_str()) {
+                return false;
+            }
+            *applied = Some(path);
+            *foam_text = text;
+            *foam_selected = 0;
+            *foam_entries = entries;
+            true
+        }
+    }
+}
+
 #[cfg(test)]
 mod foam_sidecar_tests {
-    use super::foam_sidecar_for_cwd;
+    use super::{
+        apply_foam_deep_link_from_preview, foam_sidecar_for_cwd, open_foam_in_sidecar, FoamOpen,
+    };
     use std::fs;
     use tempfile::tempdir;
 
@@ -1102,6 +1225,117 @@ mod foam_sidecar_tests {
         assert!(text.contains("# Preview me"), "{text}");
         assert!(text.contains("- item"), "{text}");
     }
+    #[test]
+    fn deep_link_focuses_matching_row() {
+        let tmp = tempdir().unwrap();
+        let foam = tmp.path().join("foam");
+        fs::create_dir_all(foam.join("decisions")).unwrap();
+        fs::write(foam.join("index.md"), "# moc").unwrap();
+        fs::write(foam.join("decisions/ADR-001.md"), "a").unwrap();
+        let cwd = tmp.path().to_str().unwrap();
+        match open_foam_in_sidecar(cwd, "foam/decisions/ADR-001.md") {
+            FoamOpen::Focus {
+                selected,
+                entries,
+                path,
+                text,
+            } => {
+                assert_eq!(path, "foam/decisions/ADR-001.md");
+                assert_eq!(entries[selected], "foam/decisions/ADR-001.md");
+                assert!(text.contains("▸ foam/decisions/ADR-001.md"));
+            }
+            other => panic!("expected Focus, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn deep_link_missing_file_empty_state() {
+        let tmp = tempdir().unwrap();
+        fs::create_dir_all(tmp.path().join("foam")).unwrap();
+        fs::write(tmp.path().join("foam/index.md"), "x").unwrap();
+        let cwd = tmp.path().to_str().unwrap();
+        match open_foam_in_sidecar(cwd, "foam/nope.md") {
+            FoamOpen::Missing {
+                text,
+                path,
+                entries,
+            } => {
+                assert_eq!(path, "foam/nope.md");
+                assert!(text.contains("not found"), "{text}");
+                assert!(text.contains("foam/index.md"), "must keep listing: {text}");
+                assert!(text.contains("`[`/`]` resumes"), "{text}");
+                assert_eq!(entries, vec!["foam/index.md".to_string()]);
+            }
+            other => panic!("expected Missing, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn deep_link_ignores_non_foam() {
+        let tmp = tempdir().unwrap();
+        fs::create_dir_all(tmp.path().join("foam")).unwrap();
+        assert_eq!(
+            open_foam_in_sidecar(tmp.path().to_str().unwrap(), "prd/PRD-1.md"),
+            FoamOpen::Ignored
+        );
+    }
+
+    #[test]
+    fn preview_deep_link_selects_once() {
+        let tmp = tempdir().unwrap();
+        let foam = tmp.path().join("foam");
+        fs::create_dir_all(&foam).unwrap();
+        fs::write(foam.join("index.md"), "# moc").unwrap();
+        fs::write(foam.join("adr.md"), "a").unwrap();
+        let cwd = tmp.path().to_str().unwrap();
+        let mut applied = None;
+        let mut text = String::new();
+        let mut sel = 0usize;
+        let mut entries = Vec::new();
+        let preview = "working on foam/adr.md now";
+        assert!(apply_foam_deep_link_from_preview(
+            cwd,
+            preview,
+            &mut applied,
+            &mut text,
+            &mut sel,
+            &mut entries
+        ));
+        assert_eq!(applied.as_deref(), Some("foam/adr.md"));
+        assert!(text.contains("▸ foam/adr.md"));
+        assert!(!apply_foam_deep_link_from_preview(
+            cwd,
+            preview,
+            &mut applied,
+            &mut text,
+            &mut sel,
+            &mut entries
+        ));
+    }
+
+    #[test]
+    fn deep_link_missing_resume_refreshes_listing() {
+        let tmp = tempdir().unwrap();
+        let foam = tmp.path().join("foam");
+        fs::create_dir_all(&foam).unwrap();
+        fs::write(foam.join("only.md"), "# one").unwrap();
+        let cwd = tmp.path().to_str().unwrap();
+        let FoamOpen::Missing { text, entries, .. } =
+            open_foam_in_sidecar(cwd, "foam/gone.md")
+        else {
+            panic!("expected Missing");
+        };
+        assert!(text.contains("not found"), "{text}");
+        assert!(text.contains("foam/only.md"), "banner+list: {text}");
+        assert_eq!(entries, vec!["foam/only.md".to_string()]);
+        // Operator presses [/] with one row: index unchanged; refresh must restore list.
+        let (restored, sel, entries2) = foam_sidecar_for_cwd(cwd, 0);
+        assert_eq!(sel, 0);
+        assert_eq!(entries2, entries);
+        assert!(restored.contains("▸ foam/only.md"), "{restored}");
+        assert!(!restored.contains("not found"), "{restored}");
+    }
+
 }
 
 pub(crate) fn run_review_for_session(session: &str) -> ExitCode {

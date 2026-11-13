@@ -65,9 +65,11 @@ Cursor rule (if present): `.cursor/rules/product-memory.mdc`.
 
 ## Stack — Infrastructure / Nix
 
-- Project toolchain: host/direnv first, `nix develop -c` only as fallback
-  (**nix-develop-shell**). Never wrap `git`/`gh`/OS tools just because a
-  `flake.nix` exists.
+- Project toolchain: host / activated Mise PATH first, `nix develop -c` only as
+  fallback (**nix-develop-shell**, [[foam/decisions/ADR-013-mise-alongside-nix-devshell|ADR-013]]).
+  Never wrap `git`/`gh`/OS tools just because a `flake.nix` exists. Optional
+  Mise may pin Node/Rust; keep the flake for packages, modules, and `devShell`
+  fallback. Prefer `mise activate` / one `mise run` — not shims.
 - New projects: **nix-direnv-setup** for flake + direnv scaffold.
 - Deployment / hosting decisions → ADR in `foam/decisions/`.
 

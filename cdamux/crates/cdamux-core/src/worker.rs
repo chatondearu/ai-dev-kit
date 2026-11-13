@@ -418,11 +418,6 @@ mod tests {
     use super::*;
 
     #[test]
-<<<<<<< HEAD
-    fn first_prompt_read_from_file_on_the_command_line() {
-        let f = Path::new("/st/prompts/w1.md");
-        let (cmd, paste) = with_first_prompt("opencode", "opencode", Some("go"), Some(f));
-=======
     fn worker_ls_shows_dormant_when_host_is_not_live() {
         let _g = crate::paths::env_lock();
         // Throwaway tmux dir: no server there, so no host is live and the real server is untouched.
@@ -443,9 +438,9 @@ mod tests {
     }
 
     #[test]
-    fn opencode_uses_prompt_flag() {
-        let (cmd, paste) = with_first_prompt("opencode", "opencode", Some("go"));
->>>>>>> origin/main
+    fn first_prompt_read_from_file_on_the_command_line() {
+        let f = Path::new("/st/prompts/w1.md");
+        let (cmd, paste) = with_first_prompt("opencode", "opencode", Some("go"), Some(f));
         assert!(!paste);
         assert_eq!(cmd, "opencode --prompt \"$(cat /st/prompts/w1.md)\"");
         let (cmd, paste) = with_first_prompt("claude --x", "claude", Some("hi"), Some(f));

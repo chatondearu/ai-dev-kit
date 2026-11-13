@@ -47,6 +47,47 @@ enum RenameAction {
     Confirm,
 }
 
+/// Foam walk/render only while the Foam tab is visible (#294 / PRD-293).
+///
+/// Deep-link from preview text runs on Foam focus and while Foam stays selected —
+/// not on every Preview session focus (no auto-switch to Foam from Preview).
+fn maybe_refresh_foam_sidecar(
+    side_tab: SideTab,
+    cwd: &str,
+    session_key: &str,
+    preview_text: &str,
+    foam_for_session: &mut Option<String>,
+    foam_text: &mut String,
+    foam_selected: &mut usize,
+    foam_entries: &mut Vec<String>,
+    foam_deep_link_applied: &mut Option<String>,
+) -> bool {
+    if side_tab != SideTab::Foam {
+        return false;
+    }
+    let mut changed = false;
+    if foam_for_session.as_deref() != Some(session_key) {
+        let (text, sel, entries) = crate::foam_sidecar_for_cwd(cwd, 0);
+        *foam_text = text;
+        *foam_selected = sel;
+        *foam_entries = entries;
+        *foam_for_session = Some(session_key.to_string());
+        *foam_deep_link_applied = None;
+        changed = true;
+    }
+    if crate::apply_foam_deep_link_from_preview(
+        cwd,
+        preview_text,
+        foam_deep_link_applied,
+        foam_text,
+        foam_selected,
+        foam_entries,
+    ) {
+        changed = true;
+    }
+    changed
+}
+
 fn rename_on_key(state: &mut RenameState, key: KeyEvent) -> RenameAction {
     match key.code {
         KeyCode::Esc => RenameAction::Cancel,
@@ -352,25 +393,17 @@ pub fn run_dashboard() -> ExitCode {
                 }
                 Sidecar::Idle => {}
             }
-            if foam_for_session.as_deref() != Some(s.name.as_str()) {
-                let (text, sel, entries) = crate::foam_sidecar_for_cwd(&s.path, 0);
-                foam_text = text;
-                foam_selected = sel;
-                foam_entries = entries;
-                foam_for_session = Some(s.name.clone());
-                foam_deep_link_applied = None;
-            }
-            if crate::apply_foam_deep_link_from_preview(
+            needs_draw |= maybe_refresh_foam_sidecar(
+                side_tab,
                 &s.path,
+                &s.name,
                 &preview_text,
-                &mut foam_deep_link_applied,
+                &mut foam_for_session,
                 &mut foam_text,
                 &mut foam_selected,
                 &mut foam_entries,
-            ) {
-                side_tab = SideTab::Foam;
-                needs_draw = true;
-            }
+                &mut foam_deep_link_applied,
+            );
         } else if let Some(repo) = orch_repo_at_row(&rows, selected_row) {
             session_chrome = None;
             match rows.get(selected_row) {
@@ -448,25 +481,17 @@ pub fn run_dashboard() -> ExitCode {
                     preview_text = "(select a session for preview)".to_string();
                 }
             }
-            if foam_for_session.as_deref() != Some(repo.as_str()) {
-                let (text, sel, entries) = crate::foam_sidecar_for_cwd(&repo, 0);
-                foam_text = text;
-                foam_selected = sel;
-                foam_entries = entries;
-                foam_for_session = Some(repo.clone());
-                foam_deep_link_applied = None;
-            }
-            if crate::apply_foam_deep_link_from_preview(
+            needs_draw |= maybe_refresh_foam_sidecar(
+                side_tab,
+                &repo,
                 &repo,
                 &preview_text,
-                &mut foam_deep_link_applied,
+                &mut foam_for_session,
                 &mut foam_text,
                 &mut foam_selected,
                 &mut foam_entries,
-            ) {
-                side_tab = SideTab::Foam;
-                needs_draw = true;
-            }
+                &mut foam_deep_link_applied,
+            );
         } else {
             preview_for_session = None;
             session_chrome = None;
@@ -1223,5 +1248,73 @@ mod tests {
         assert_eq!(map_key_event(key(KeyCode::Char('F'))), DashboardAction::FoldAll);
         assert_eq!(map_key_event(key(KeyCode::Char('G'))), DashboardAction::CycleGroupBy);
         assert_eq!(map_key_event(key(KeyCode::Char('?'))), DashboardAction::ToggleHelp);
+    }
+
+    #[test]
+    fn preview_tab_skips_foam_walk() {
+        let tmp = tempfile::tempdir().unwrap();
+        let foam = tmp.path().join("foam");
+        std::fs::create_dir_all(&foam).unwrap();
+        std::fs::write(foam.join("index.md"), "# moc").unwrap();
+        let cwd = tmp.path().to_str().unwrap();
+        let mut for_session = None;
+        let mut text = String::from("(untouched)");
+        let mut sel = 0usize;
+        let mut entries = Vec::new();
+        let mut applied = None;
+        assert!(!maybe_refresh_foam_sidecar(
+            SideTab::Preview,
+            cwd,
+            "sess-a",
+            "see foam/index.md",
+            &mut for_session,
+            &mut text,
+            &mut sel,
+            &mut entries,
+            &mut applied,
+        ));
+        assert_eq!(text, "(untouched)");
+        assert!(for_session.is_none());
+        assert!(entries.is_empty());
+    }
+
+    #[test]
+    fn foam_tab_loads_and_deep_links() {
+        let tmp = tempfile::tempdir().unwrap();
+        let foam = tmp.path().join("foam");
+        std::fs::create_dir_all(&foam).unwrap();
+        std::fs::write(foam.join("index.md"), "# moc").unwrap();
+        std::fs::write(foam.join("adr.md"), "a").unwrap();
+        let cwd = tmp.path().to_str().unwrap();
+        let mut for_session = None;
+        let mut text = String::new();
+        let mut sel = 0usize;
+        let mut entries = Vec::new();
+        let mut applied = None;
+        assert!(maybe_refresh_foam_sidecar(
+            SideTab::Foam,
+            cwd,
+            "sess-a",
+            "working on foam/adr.md",
+            &mut for_session,
+            &mut text,
+            &mut sel,
+            &mut entries,
+            &mut applied,
+        ));
+        assert_eq!(for_session.as_deref(), Some("sess-a"));
+        assert_eq!(applied.as_deref(), Some("foam/adr.md"));
+        assert!(text.contains("▸ foam/adr.md"), "{text}");
+        assert!(!maybe_refresh_foam_sidecar(
+            SideTab::Foam,
+            cwd,
+            "sess-a",
+            "working on foam/adr.md",
+            &mut for_session,
+            &mut text,
+            &mut sel,
+            &mut entries,
+            &mut applied,
+        ));
     }
 }

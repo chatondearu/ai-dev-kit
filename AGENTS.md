@@ -65,7 +65,9 @@ Cursor rule (if present): `.cursor/rules/product-memory.mdc`.
 
 ## Stack — Infrastructure / Nix
 
-- Run project commands inside `nix develop` (**nix-develop-shell**).
+- Project toolchain: host/direnv first, `nix develop -c` only as fallback
+  (**nix-develop-shell**). Never wrap `git`/`gh`/OS tools just because a
+  `flake.nix` exists.
 - New projects: **nix-direnv-setup** for flake + direnv scaffold.
 - Deployment / hosting decisions → ADR in `foam/decisions/`.
 
@@ -90,9 +92,12 @@ see `cdamux/AGENTS.md` and `cdamux/docs/research.md`. Nix package: `nix build .#
 Experimental opt-in companion: `aitools/` (`cda.aitools` Nix modules, ADR-003).
 Never enabled by `install.sh`. Relocatable root: `CDA_AITOOLS_HOME`.
 
-**Verify (run before every PR):** `nix develop -c bash scripts/verify.sh`
+**Verify (run before every PR):** prefer host tools when the verify toolchain is
+already on `PATH`; otherwise `nix develop -c bash scripts/verify.sh`.
 
 ```bash
+bash scripts/verify.sh
+# fallback if cargo/jq/… missing:
 nix develop -c bash scripts/verify.sh
 ```
 
@@ -115,4 +120,4 @@ nix develop -c bash scripts/verify.sh
   (or `ORCH_ALLOW_NO_CHECKS=1`). Poll live worker state under `$CDAMUX_HOME/runs/`
   (and agents); `.orch/run/` keeps work artefacts only.
 
-verify: nix develop -c bash scripts/verify.sh
+verify: bash scripts/verify.sh (or nix develop -c bash scripts/verify.sh)

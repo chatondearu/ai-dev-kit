@@ -176,6 +176,34 @@ Form pieces (Select, Toggle, TextInput, FieldList, text modal) live in
 | `?` | Keyboard help (Esc to close) |
 | `1`–`5` | Fleet / Projects / Sessions / Agents / Settings |
 
+## Orchestration loop (live, ≤ 15 min)
+
+Real Claude orchestrator + 2 workers on a **scratch git repo** (not a repo you care
+about): proves what the stub-based test ([`orch_loop_tmux.rs`](../crates/cdamux-core/tests/orch_loop_tmux.rs))
+cannot — real clients, real hooks, real status transitions. Needs `install.sh --cdamux-hooks`
+and a `cdamux` binary on `PATH`.
+
+```bash
+git init -b main /tmp/dogfood && cd /tmp/dogfood && git commit --allow-empty -m init
+mkdir -p /tmp/specs
+printf 'Create hello.txt containing "hi". Then ask me which greeting file name you should use BEFORE writing it.' > /tmp/specs/a.md
+printf 'Create bye.txt containing "bye", commit it, then report done.' > /tmp/specs/b.md
+```
+
+| # | Step (≈ min) | Do | Expect |
+| - | ------------ | -- | ------ |
+| 1 | Orchestrator (1) | `cdamux orch new --path /tmp/dogfood`, attach | Claude boots and announces skill `cda-orchestrator`; Fleet shows an orch glyph row |
+| 2 | Spawn (2) | In the orchestrator: ask it to run `cdamux worker spawn a --prompt-file /tmp/specs/a.md` and `… b --prompt-file /tmp/specs/b.md` | Two `c-…` worker sessions nest under the orchestrator; `cdamux worker ls` lists both; each first prompt starts with the worker preamble, then the **whole** spec |
+| 3 | Peek (1) | `cdamux worker peek a` | Last lines of a's pane, spec visible |
+| 4 | Ask (3) | Worker `a` reaches its question and runs `cdamux msg send --kind ask` | Worker row `blocked` + `?`; orchestrator row `✉1`; orchestrator pane shows a `📨 N messages` nudge (idle) or digests it at its next prompt (busy). `nudged` or `queued`, never lost |
+| 5 | Answer (2) | Orchestrator answers (`cdamux msg send --to a --kind answer "use greeting.txt"`, or `answer` in the Fleet composer) | `blocked` and `?` clear; text lands in a's pane (`pasted`) or at its next prompt (`queued`); `✉` on the worker is 0 once seen |
+| 6 | Done (2) | Worker `b` finishes (`--kind done`), then `a` | Rows turn `done`; orchestrator `✉` counts up, digest lists `[done] from …` lines; `cdamux msg read --ack` (as orchestrator) zeroes `✉` |
+| 7 | Review (3) | In the orchestrator: ask it to review each worker with `gh pr diff <n>` (or `git -C <worktree> diff main`) before accepting | Orchestrator reads the diff itself and answers `accept` / `fix` to the worker; it never merges |
+| 8 | Cleanup (1) | `tmux kill-session` both workers and the orchestrator, `rm -rf /tmp/dogfood /tmp/specs` | No stray `c-*` sessions; `cdamux state gc` if the Fleet still lists dormant rows |
+
+Pass = every "Expect" holds. Any miss: file an issue (`area:cdamux`, parent #315) with the
+step number and a `cdamux worker peek` / `cdamux state get agents <id>` excerpt.
+
 ## Regression vs skzv/ccmux
 
 - [ ] Can still use skzv/ccmux in parallel on same tmux server (document session name collisions on `c-*`)

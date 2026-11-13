@@ -38,9 +38,9 @@ New `crates/cdamux-core/tests/orch_loop_tmux.rs` reusing helpers of `worker_tmux
 
 ## Tasks
 
-- [ ] Scenario test, one assertion per hop, with a clear failure message per hop
-- [ ] Dogfood checklist section (spawn, relay, ask/answer, done, review on `gh pr diff`)
-- [ ] File follow-up issues for any failing hop (`area:cdamux`, Parent #315)
+- [x] Scenario test, one assertion per hop, with a clear failure message per hop
+- [x] Dogfood checklist section (spawn, relay, ask/answer, done, review on `gh pr diff`)
+- [x] File follow-up issues for any failing hop (`area:cdamux`, Parent #315) — #322 (cosmetic: "1 messages")
 
 ## Risks & mitigations
 
@@ -51,7 +51,7 @@ New `crates/cdamux-core/tests/orch_loop_tmux.rs` reusing helpers of `worker_tmux
 
 ## Test plan
 
-- [ ] Scenario passes; each hop fails with a named message when broken
+- [x] Scenario passes; each hop fails with a named message when broken
 
 ## Verification
 

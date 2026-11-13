@@ -117,6 +117,55 @@ fn state_gc_rejects_zero_retention_days() {
 }
 
 #[test]
+fn state_gc_sweep_orphans_dry_run_then_finalize() {
+    let tmp = tempfile::tempdir().unwrap();
+    let home = tmp.path().join("home");
+    let bin = env!("CARGO_BIN_EXE_cdamux");
+
+    let run = |args: &[&str]| {
+        Command::new(bin)
+            .args(args)
+            .env("CDAMUX_HOME", &home)
+            .output()
+            .expect("spawn cdamux")
+    };
+
+    let set = run(&[
+        "state",
+        "set",
+        "agents",
+        "a-orphan",
+        r#"{"id":"a-orphan","host":"definitely-not-a-live-tmux-session","status":"working"}"#,
+    ]);
+    assert!(
+        set.status.success(),
+        "set: {}",
+        String::from_utf8_lossy(&set.stderr)
+    );
+
+    let dry = run(&["state", "gc", "--sweep-orphans", "--dry-run"]);
+    assert!(
+        dry.status.success(),
+        "dry-run: {}",
+        String::from_utf8_lossy(&dry.stderr)
+    );
+    let dry_out = String::from_utf8_lossy(&dry.stdout);
+    assert!(dry_out.contains("would finalize"), "{dry_out}");
+    assert!(dry_out.contains("a-orphan"), "{dry_out}");
+    let still = fs::read_to_string(home.join("agents/a-orphan.json")).unwrap();
+    assert!(still.contains("working"), "{still}");
+
+    let sweep = run(&["state", "gc", "--sweep-orphans"]);
+    assert!(
+        sweep.status.success(),
+        "sweep: {}",
+        String::from_utf8_lossy(&sweep.stderr)
+    );
+    let after = fs::read_to_string(home.join("agents/a-orphan.json")).unwrap();
+    assert!(after.contains(r#""status": "error""#) || after.contains(r#""status":"error"#), "{after}");
+}
+
+#[test]
 fn state_gc_aborts_when_tmux_unavailable() {
     let tmp = tempfile::tempdir().unwrap();
     let home = tmp.path().join("home");

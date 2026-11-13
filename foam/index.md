@@ -51,6 +51,7 @@ Index: [[decisions/index|All ADRs]]
 
 | PRD | Status |
 | --- | ------ |
+| [[../prd/PRD-307-finalize-stale-session-kill|PRD-307-finalize-stale-session-kill]] | approved |
 | [[../prd/PRD-293-cdamux-fast-popup-open|PRD-293]] fast Alt-P / dashboard open (plans: [[../plans/PLAN-294-perf-cdamux-lazy-load-foam-sidecar-until-foam-tab-selected|PLAN-294]], [[../plans/PLAN-295-perf-cdamux-bound-run-agent-listing-on-dashboard-open|PLAN-295]], [[../plans/PLAN-296-chore-cdamux-first-paint-timing-hook-dogfood-alt-p-checklist|PLAN-296]], [[../plans/PLAN-297-feat-cdamux-optional-fast-alt-p-bind-via-cdamux-pick|PLAN-297]]) | approved |
 | [[../prd/PRD-290-mise-alongside-nix|PRD-290]] Mise alongside Nix (plan: [[../plans/PLAN-290-feat-kit-add-mise-toml-and-optional-mise-run-verify-adr-013|PLAN-290]]) | approved |
 | [[../prd/PRD-239-orchestrator-session|PRD-239]] orchestrator session (unified state; slice 4 last: [[../plans/PLAN-257-cdamux-fleet-orch-ui|PLAN-257]], [[../plans/PLAN-258-cdamux-orch-restore|PLAN-258]], [[../plans/PLAN-259-cdamux-state-gc|PLAN-259]]) | shipped |

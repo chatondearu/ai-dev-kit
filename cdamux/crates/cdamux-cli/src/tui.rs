@@ -23,7 +23,8 @@ use crate::spawn_modal::{
 };
 use cdamux_core::{
     build_project_session_tree_ex, capture_pane_text, config_path, current_tmux_session,
-    discover_projects, kill_tmux_session, load_config, preferred_spawn_agent, rename_tmux_session,
+    discover_projects, finalize_session_host, kill_tmux_session, load_config, preferred_spawn_agent,
+    rename_tmux_session,
     configured_agent_ids, resolve_agent_command, reply_to_ask, restore_one, restore_targets,
     send_to_session,
     session_name_for_path, spawn_tmux_session_with_layout, switch_client_to_session, tail_lines,
@@ -1022,8 +1023,20 @@ pub fn run_dashboard() -> ExitCode {
                                 Ok(()) => {
                                     // Closed from cdamux: forget it (an external kill stays restorable).
                                     let _ = session_registry::remove(&s.name);
+                                    // Finalize agents/runs for this host so a recreate cannot
+                                    // re-attach stuck live graphs (#307). Not used by restart.
+                                    let fin = finalize_session_host(&s.name).unwrap_or_default();
                                     tree_dirty = true;
-                                    status_line = format!("killed {}", s.name);
+                                    status_line = if fin.agents.is_empty() && fin.runs.is_empty() {
+                                        format!("killed {}", s.name)
+                                    } else {
+                                        format!(
+                                            "killed {} (finalized {} agent(s), {} run(s))",
+                                            s.name,
+                                            fin.agents.len(),
+                                            fin.runs.len()
+                                        )
+                                    };
                                     selected_row = selected_row.saturating_sub(1);
                                 }
                                 Err(e) => status_line = format!("kill: {e}"),

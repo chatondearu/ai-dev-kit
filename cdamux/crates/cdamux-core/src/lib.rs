@@ -26,6 +26,7 @@ mod session_manage;
 pub mod session_registry;
 mod spawn;
 mod state;
+mod state_finalize;
 mod state_gc;
 mod subagent_ledger;
 mod worktree;
@@ -77,7 +78,7 @@ pub use orch_graph_layout::{
 };
 pub use orch_graph::{
     find_orch_graph_for_session, find_orch_graph_for_session_from_cwd, find_orch_graph_from_cwd,
-    find_orch_run, find_orch_run_from_cwd, orch_graph_is_stale, orch_graph_header,
+    find_orch_run, find_orch_run_from_cwd, is_live_run_status, orch_graph_is_stale, orch_graph_header,
     format_orch_graph_panel, format_orch_graph_panel_ex, format_orch_graph_panel_with_history,
     list_live_orch_runs, list_orch_graph_runs, load_orch_graph, load_orch_graph_at, orch_graph_live_dir,
     orch_graph_path, orch_graph_runs_dir, run_repo_matches, OrchGraphError, OrchGraphFile, OrchGraphNode,
@@ -101,6 +102,9 @@ pub use orch::{
 pub use state::{
     agent_state_path, generate_agent_id, generate_run_id, initial_agent_value, state_append,
     state_get, state_set, valid_state_id, StateKind,
+};
+pub use state_finalize::{
+    finalize_session_host, orphan_agent_eligible, orphan_run_eligible, sweep_orphans, FinalizeReport,
 };
 pub use state_gc::{
     agent_eligible, agent_has_no_host, is_gc_agent_status, is_gc_run_status, is_resumable_dormant,

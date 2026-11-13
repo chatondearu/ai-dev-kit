@@ -41,11 +41,11 @@ rendered lines in the sidecar pane. Plain text fallback if render fails.
 
 ## Tasks
 
-- [ ] Reuse pulldown-cmark render for a selected foam file path
-- [ ] Define and test truncation (lines and/or bytes) with visible cue when
+- [x] Reuse pulldown-cmark render for a selected foam file path
+- [x] Define and test truncation (lines and/or bytes) with visible cue when
       truncated
-- [ ] Wire selection from Foam list → preview pane
-- [ ] Snapshot or unit coverage for rendered preview chrome
+- [x] Wire selection from Foam list → preview pane
+- [x] Snapshot or unit coverage for rendered preview chrome
 
 ## Risks & mitigations
 
@@ -56,8 +56,8 @@ rendered lines in the sidecar pane. Plain text fallback if render fails.
 
 ## Test plan
 
-- [ ] Fixture markdown renders expected headings/lists subset
-- [ ] Oversize file truncates without panic
+- [x] Fixture markdown renders expected headings/lists subset
+- [x] Oversize file truncates without panic
 
 ## Verification
 

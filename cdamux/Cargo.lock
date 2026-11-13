@@ -175,7 +175,6 @@ dependencies = [
  "cdamux-core",
  "clap",
  "crossterm",
- "pulldown-cmark",
  "ratatui",
  "serde_json",
  "skim",
@@ -188,6 +187,7 @@ dependencies = [
 name = "cdamux-core"
 version = "0.0.1"
 dependencies = [
+ "pulldown-cmark",
  "serde",
  "serde_json",
  "tempfile",

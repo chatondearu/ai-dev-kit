@@ -7,6 +7,41 @@ use crate::paths::{cdamux_home, cdamux_state_dir};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
+use std::time::SystemTime;
+
+/// Same fingerprint idea as run listing: dir mtime alone misses in-place rewrites.
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct DirStamp {
+    dir_mtime: Option<SystemTime>,
+    json_count: usize,
+    newest_file: Option<SystemTime>,
+}
+
+fn dir_stamp(dir: &Path) -> DirStamp {
+    let dir_mtime = fs::metadata(dir).ok().and_then(|m| m.modified().ok());
+    let mut json_count = 0;
+    let mut newest_file = None;
+    if let Ok(rd) = fs::read_dir(dir) {
+        for ent in rd.flatten() {
+            let path = ent.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("json") {
+                continue;
+            }
+            json_count += 1;
+            if let Some(m) = ent.metadata().ok().and_then(|m| m.modified().ok()) {
+                if newest_file.is_none_or(|n| m > n) {
+                    newest_file = Some(m);
+                }
+            }
+        }
+    }
+    DirStamp {
+        dir_mtime,
+        json_count,
+        newest_file,
+    }
+}
 
 /// One phase change: `started_at` is epoch seconds (written by `lib/progress.sh`).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -161,9 +196,93 @@ fn worker_from_agent(agent_id: String, a: AgentDoc) -> Option<OrchWorkerStatus> 
     })
 }
 
+/// Parsed worker row keyed by its run id (mtime-gated agents dir index).
+#[derive(Clone)]
+struct IndexedAgent {
+    run: String,
+    updated_at: String,
+    worker: OrchWorkerStatus,
+}
+
+struct AgentsIndex {
+    home: PathBuf,
+    stamp: DirStamp,
+    agents: Vec<IndexedAgent>,
+}
+
+fn agents_index_lock() -> std::sync::MutexGuard<'static, Option<AgentsIndex>> {
+    static CACHE: OnceLock<Mutex<Option<AgentsIndex>>> = OnceLock::new();
+    CACHE
+        .get_or_init(|| Mutex::new(None))
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+}
+
+fn rebuild_agents_index(home: PathBuf, stamp: DirStamp) -> AgentsIndex {
+    let dir = home.join("agents");
+    let mut agents = Vec::new();
+    if let Ok(rd) = fs::read_dir(&dir) {
+        for ent in rd.flatten() {
+            let path = ent.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("json") {
+                continue;
+            }
+            let Ok(raw) = fs::read_to_string(&path) else {
+                continue;
+            };
+            let Ok(doc) = serde_json::from_str::<AgentDoc>(&raw) else {
+                continue;
+            };
+            let Some(run) = doc
+                .run
+                .as_ref()
+                .map(|s| s.as_str())
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
+            else {
+                continue;
+            };
+            let agent_id = path
+                .file_stem()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            if agent_id.is_empty() {
+                continue;
+            }
+            let updated_at = doc.updated_at.clone().unwrap_or_default();
+            if let Some(worker) = worker_from_agent(agent_id, doc) {
+                agents.push(IndexedAgent {
+                    run,
+                    updated_at,
+                    worker,
+                });
+            }
+        }
+    }
+    AgentsIndex { home, stamp, agents }
+}
+
+fn agents_for_home() -> Vec<IndexedAgent> {
+    let Some(home) = cdamux_home() else {
+        return Vec::new();
+    };
+    let stamp = dir_stamp(&home.join("agents"));
+    let mut guard = agents_index_lock();
+    let needs_rebuild = match guard.as_ref() {
+        Some(idx) => idx.home != home || idx.stamp != stamp,
+        None => true,
+    };
+    if needs_rebuild {
+        *guard = Some(rebuild_agents_index(home, stamp));
+    }
+    guard
+        .as_ref()
+        .map(|idx| idx.agents.clone())
+        .unwrap_or_default()
+}
+
 /// Load workers for `repo` from `$CDAMUX_HOME/agents`, scoped to that repo's runs.
 pub fn load_orch_run_status(repo: &Path) -> Option<OrchRunStatusFile> {
-    let dir = orch_agents_dir()?;
     let live = list_live_orch_runs(repo);
     let recent = list_orch_graph_runs(repo, 20);
     if live.is_empty() && recent.is_empty() {
@@ -184,39 +303,15 @@ pub fn load_orch_run_status(repo: &Path) -> Option<OrchRunStatusFile> {
 
     let mut workers = Vec::new();
     let mut updated_at = String::new();
-    let rd = fs::read_dir(&dir).ok()?;
-    for ent in rd.flatten() {
-        let path = ent.path();
-        if path.extension().and_then(|e| e.to_str()) != Some("json") {
+    // Agents dir is parsed once per directory mtime (shared across repos on refresh).
+    for a in agents_for_home() {
+        if !scope.contains(&a.run) {
             continue;
         }
-        let Ok(raw) = fs::read_to_string(&path) else {
-            continue;
-        };
-        let Ok(doc) = serde_json::from_str::<AgentDoc>(&raw) else {
-            continue;
-        };
-        let Some(run) = doc.run.as_deref().filter(|s| !s.is_empty()) else {
-            continue;
-        };
-        if !scope.contains(run) {
-            continue;
+        if a.updated_at.as_str() > updated_at.as_str() {
+            updated_at = a.updated_at;
         }
-        if let Some(u) = doc.updated_at.as_deref() {
-            if u > updated_at.as_str() {
-                updated_at = u.to_string();
-            }
-        }
-        let agent_id = path
-            .file_stem()
-            .map(|s| s.to_string_lossy().into_owned())
-            .unwrap_or_default();
-        if agent_id.is_empty() {
-            continue;
-        }
-        if let Some(w) = worker_from_agent(agent_id, doc) {
-            workers.push(w);
-        }
+        workers.push(a.worker);
     }
     workers.sort_by(|a, b| a.id.cmp(&b.id));
     Some(OrchRunStatusFile {

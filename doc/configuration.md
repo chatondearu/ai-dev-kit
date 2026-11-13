@@ -8,11 +8,31 @@
 | `gh`, `git` | Kanban / CI modes of orch |
 | `jq`, `flock` | `orch-auto.sh`, `orch.sh` (ready-pickup / pr-fix) |
 | `bwrap` (required for `--sandbox`) | `--sandbox` exits if missing (no unsandboxed fallback) |
+| Optional `mise` | Pins Node/Rust from root `mise.toml` (ADR-013); not required |
 
 See [`docs/recommended.md`](../docs/recommended.md). The kit never installs
 these (`./scripts/doctor.sh` only checks `PATH`). With a Cursor CLI present it also runs
 `--list-models` once and warns for each `cursor` model id of the active tier table
 (`ORCH_TIERS_FILE` or the kit default) that is not listed; warning only, exit status unchanged.
+
+## Optional Mise toolchain (Node / Rust)
+
+Root [`mise.toml`](../mise.toml) (+ [`mise.lock`](../mise.lock)) may pin Node and
+Rust to match the flake `devShell` (today: Node 24.15.x, Rust 1.95). Stance:
+**Mise alongside Nix** — keep flake packages, modules, and `devShells.default`
+([ADR-013](../foam/decisions/ADR-013-mise-alongside-nix-devshell.md)).
+
+Verify ladder (same as `AGENTS.md`):
+
+1. Host PATH when Node/Rust/jq/… are already correct.
+2. Else one outer Mise: `mise install` once, then `mise activate` (preferred) or
+   `mise run verify` / `mise exec -- bash scripts/verify.sh`. **Do not** use
+   Mise shims as the primary agent PATH.
+3. Else `nix develop -c bash scripts/verify.sh`.
+
+`scripts/verify.sh` stays Nix- and Mise-agnostic; Mise only supplies PATH when
+you wrap or activate. On NixOS, enable **nix-ld** so Mise can use prebuilt Node
+binaries (`all_compile = false` in `mise.toml`).
 
 ## Environment variables
 

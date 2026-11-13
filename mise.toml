@@ -1,0 +1,16 @@
+# Optional language pins (ADR-013). Prefer `mise activate` or one outer
+# `mise run` / `mise exec` — not shim-primary PATH for agents.
+# Versions match flake.nix devShells.default (nodejs 24.15 / rustc 1.95).
+
+[tools]
+node = "24.15.0"
+rust = "1.95.0"
+
+[settings]
+# Prefer prebuilt Node binaries. On NixOS enable nix-ld (or fall back to
+# `nix develop`); do not rely on Mise compiling Node from source.
+all_compile = false
+
+[tasks.verify]
+description = "Run scripts/verify.sh under Mise-pinned Node/Rust"
+run = "bash scripts/verify.sh"

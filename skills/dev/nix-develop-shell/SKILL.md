@@ -17,17 +17,21 @@ and hammers disk when many agents wrap every command. Use it sparingly.
 1. **Host / system tools — run bare.** Never wrap: `git`, `gh`, `rg`, `fd`,
    `alejandra`, `journalctl`, `df`, `ps`, editors, and other OS/NixOS packages
    already on `PATH`. A root `flake.nix` alone is **not** a reason to wrap.
-2. **Already in the right env — run bare.** If `IN_NIX_SHELL` is set, or direnv
-   has loaded the project (tool on `PATH` and version OK), call the tool directly.
+2. **Already in the right env — run bare.** If `IN_NIX_SHELL` is set, direnv
+   has loaded the project, or **activated Mise** put the right tools on `PATH`
+   (version OK), call the tool directly. Prefer activate / one outer
+   `mise exec`|`mise run` — **not** Mise shims as the primary agent PATH.
 3. **Project toolchain missing or wrong version — then wrap.** For `pnpm`,
-   `npm`, `node`, `python`, `uv`, `cargo`, `pytest`, etc.: try host first; on
-   `command not found` or a version that breaks the repo, use `nix develop -c`.
+   `npm`, `node`, `python`, `uv`, `cargo`, `pytest`, etc.: try host (or
+   activated Mise) first; on `command not found` or a version that breaks the
+   repo, use `nix develop -c`.
 4. **No usable `devShell` — do not wrap.** If `nix develop -c true` fails
    (flake has no `devShells.default`), stay on host PATH and say so. Do not
    retry every command through a broken develop.
 
 Presence of `flake.nix` or `.envrc` means “a project shell *may* exist”, not
-“wrap every shell invocation”.
+“wrap every shell invocation”. Optional `mise.toml` pins language tools only
+(ADR-013); it does not replace flake packages or modules.
 
 ## Command patterns (fallback only)
 
@@ -35,22 +39,29 @@ Presence of `flake.nix` or `.envrc` means “a project shell *may* exist”, not
 # Prefer
 pnpm test
 
-# Fallback when host tool missing / wrong
+# Optional Mise pins (one outer wrap when activate is not loaded)
+mise exec -- pnpm test
+mise run verify
+
+# Fallback when host / Mise tool missing / wrong
 nix develop -c pnpm test
 nix develop -c bash -c 'export CI=true && pnpm check'
 ```
 
-## direnv vs flake
+## direnv vs flake vs Mise
 
 - **`.envrc` (direnv)**: prefer the loaded environment; wrap only after
   `command not found` or a bad version.
+- **Activated Mise** (`mise activate` / direnv+mise): same as host PATH once
+  tools are real binaries; do not use shim-primary PATH for agents.
 - **`flake.nix` with `devShells.default`**: wrap project toolchain only when
-  step 2 failed.
+  host/Mise failed.
 - **`flake.nix` without a devShell** (e.g. NixOS config flakes): never use
   `nix develop` for day-to-day commands.
-- **Both**: same ladder — host → direnv → `nix develop` fallback.
+- **Combined**: host → activated Mise / direnv → `nix develop` fallback.
 
 ## Verification
 
 If a project command fails with `command not found` for a **toolchain** binary,
-retry once inside `nix develop -c …`. Do not pre-wrap “just in case”.
+retry once inside `nix develop -c …` (or one outer `mise exec` / `mise run`
+when `mise.toml` pins that tool). Do not pre-wrap “just in case”.

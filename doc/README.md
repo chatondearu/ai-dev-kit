@@ -9,7 +9,7 @@ English operator docs for this kit. Skills and agent prompts live under
 | [Orchestration](orchestration.md) | Commands: `orch.sh`, `orch-auto.sh`, `headless.sh`, systemd |
 | [Graph orchestration](graph-orchestration.md) | `cda-graph`, `$CDAMUX_HOME/runs/`, graph-plan, cdamux view |
 | [Orca ↔ kit mapping](orca-mapping.md) | Competitor crosswalk; visibility quick wins status |
-| [Configuration](configuration.md) | Env vars, locks, logs, host CLIs, `cda-floorplan` output paths |
+| [Configuration](configuration.md) | Env vars, locks, logs, host CLIs, optional Mise Node/Rust pins, `cda-floorplan` output paths |
 
 Related (not duplicated here):
 

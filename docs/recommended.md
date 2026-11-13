@@ -23,6 +23,15 @@ first of `agent`, `cursor-agent`, `claude`, `opencode` on `PATH` (override with
 Optional: `bwrap` for `--sandbox`, `llama-swap` for local models (point
 `ORCH_AGENT` at a harness that talks to your local endpoint).
 
+## Optional Mise (Node / Rust pins)
+
+- Site: https://mise.jdx.dev/
+- Repo root `mise.toml` / `mise.lock` pin Node and Rust alongside the Nix
+  flake ([ADR-013](../foam/decisions/ADR-013-mise-alongside-nix-devshell.md)).
+- Install Mise from upstream; then `mise install`, prefer `mise activate` (or
+  direnv+mise), or one outer `mise run verify`. Do **not** use shim-primary
+  PATH for agents. Operator detail: [`doc/configuration.md`](../doc/configuration.md).
+
 ## AFK orch-auto (systemd, opt-in)
 
 Poll Ready Kanban cards and run `orch.sh --mode ready-pickup` without sitting in

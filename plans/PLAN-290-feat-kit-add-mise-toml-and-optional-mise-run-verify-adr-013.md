@@ -44,12 +44,12 @@ document activate (no shims), and wire verify to prefer host → Mise →
 
 ## Tasks
 
-- [ ] Add `mise.toml` pinning Node and Rust to flake-shell-equivalent versions
-- [ ] Add `mise.lock` (or document why a backend cannot lock)
-- [ ] Document activate / `mise run`|`mise exec` verify path (no shims)
-- [ ] Update AGENTS.md verify oracle: host → Mise → `nix develop -c`
-- [ ] Ensure flake `devShell` / packages / modules untouched
-- [ ] Sanity: with Mise installed, `mise install` then verify without nix develop
+- [x] Add `mise.toml` pinning Node and Rust to flake-shell-equivalent versions
+- [x] Add `mise.lock` (or document why a backend cannot lock)
+- [x] Document activate / `mise run`|`mise exec` verify path (no shims)
+- [x] Update AGENTS.md verify oracle: host → Mise → `nix develop -c`
+- [x] Ensure flake `devShell` / packages / modules untouched
+- [x] Sanity: with Mise installed, `mise install` then verify without nix develop
       when possible; without Mise, Nix fallback still documented and runnable
 
 ## Risks & mitigations
@@ -62,12 +62,12 @@ document activate (no shims), and wire verify to prefer host → Mise →
 
 ## Test plan
 
-- [ ] `mise install` succeeds from repo root (when mise present)
-- [ ] `bash scripts/verify.sh` under Mise env or host
-- [ ] Documented Nix fallback still valid
-- [ ] No accidental edits to `aitools/` modules or `install.sh`
+- [x] `mise install` succeeds from repo root (when mise present)
+- [x] `bash scripts/verify.sh` under Mise env or host
+- [x] Documented Nix fallback still valid
+- [x] No accidental edits to `aitools/` modules or `install.sh`
 
 ## Verification
 
-- [ ] `bash scripts/verify.sh` or `nix develop -c bash scripts/verify.sh`
+- [x] `bash scripts/verify.sh` or `nix develop -c bash scripts/verify.sh`
 - [ ] PR `Closes #290`

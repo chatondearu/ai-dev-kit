@@ -113,6 +113,10 @@ A worker is **done** only when its PR is open, the **independent review** said
 `REVIEW: approved`, **and** `gh pr checks` reports green (or the run is
 **blocked** with a documented reason). **Never merge** automatically.
 
+In cdamux state (ADR-011 §3), `orch.sh` reports a wait (held by a dependency, no verify
+command, tier ceiling, no CI checks, not mergeable) as `blocked` and a failure (worktree,
+agent loop, review fix, missing PR, red CI, no worker status) as `error`.
+
 ## Ready-pickup flow (ADR-006)
 
 1. Worktree + branch `feat/<id>-issue-<id>`; render `prompts/worker.md`.

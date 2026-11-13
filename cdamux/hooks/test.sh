@@ -244,4 +244,30 @@ printf '%s' "$(wc -c < "$INBOX/a-hook1.jsonl" | tr -d ' ')" > "$INBOX/a-hook1.cu
 out="$(run_status '{"hook_event_name":"Stop"}')"
 [ -z "$out" ] || fail "acked inbox must yield empty Stop output, got: $out"
 
+# opencode status: `session.status` busy on the main session writes working; a child's busy does not.
+printf '{"id":"a-hook1","status":"idle"}\n' > "$AF"
+: > "$CDAMUX_LOG"
+node --input-type=module -e '
+const { CdamuxSubagent } = await import(process.argv[1]);
+const { event } = await CdamuxSubagent();
+await event({ event: { type: "session.created", properties: { info: { id: "ses_main" } } } });
+await event({ event: { type: "session.created", properties: { info: { id: "ses_c1", parentID: "ses_main" } } } });
+await event({ event: { type: "session.status", properties: { sessionID: "ses_c1", status: { type: "busy" } } } });
+' "$PWD/opencode-subagent.js" || fail "opencode plugin threw"
+[ "$(jq -r .status "$AF")" = idle ] || fail "opencode child busy changed the main status"
+node --input-type=module -e '
+const { CdamuxSubagent } = await import(process.argv[1]);
+const { event } = await CdamuxSubagent();
+await event({ event: { type: "session.created", properties: { info: { id: "ses_main" } } } });
+await event({ event: { type: "session.status", properties: { sessionID: "ses_main", status: { type: "busy" } } } });
+' "$PWD/opencode-subagent.js" || fail "opencode plugin threw"
+[ "$(jq -r .status "$AF")" = working ] || fail "opencode busy not written as working"
+node --input-type=module -e '
+const { CdamuxSubagent } = await import(process.argv[1]);
+const { event } = await CdamuxSubagent();
+await event({ event: { type: "session.created", properties: { info: { id: "ses_main" } } } });
+await event({ event: { type: "session.idle", properties: { sessionID: "ses_main" } } });
+' "$PWD/opencode-subagent.js" || fail "opencode plugin threw"
+[ "$(jq -r .status "$AF")" = idle ] || fail "opencode idle not written after busy"
+
 echo "ok: cdamux sub-agent + session id + status adapters"

@@ -82,6 +82,7 @@ orch_cdamux_status_from_phase() {
   case "$1" in
     done) printf 'done\n';;
     blocked) printf 'blocked\n';;
+    error) printf 'error\n';;
     pending) printf 'idle\n';;
     *) printf 'working\n';;
   esac

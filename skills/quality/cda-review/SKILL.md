@@ -52,7 +52,17 @@ Analyze the code changes based on the following pillars:
 *   **Testability**: Does each new or changed branch have a test that fails without it (even if preflight passes)? Suggest additional test cases that would improve coverage or robustness.
 *   **Leanness & reuse** (KISS lens): Could this fully work with less code? Does it reinvent a helper, component, service or pattern that already exists in the repo — or something the standard library, the platform, or an already-installed dependency provides? Flag unrequested abstractions, options, wrappers and "for later" code. **Read beyond the diff**: open the code the change touches *and its callers* — the worst finding is often an untouched file that now breaks. State each finding as: what the code does, what goes wrong, the fix, and the cost of skipping it. Never label removing validation, security, accessibility or error handling as "leaner".
 
-### 4. Provide Feedback
+**Prove it.** A Critical or Important finding carries its proof, the way `cda-diagnose` Phase 1 does: a loop that goes red on it (failing test, scratch script, curl; outside the tracked tree or deleted after), or the failing input (values, order, timing) traced through every caller to an observable effect. One hop is not a trace. A leanness finding is proven by quoting the existing helper or the request it goes beyond. No proof → it is a question for the author, not a finding.
+
+### 4. Refute
+Before the conclusion, hand the Critical and Important findings (not your reasoning) to a fresh sub-agent when the host can start one; otherwise re-check them yourself, each file re-opened. Each must survive:
+*   the line exists, says what you quote, and is new or made worse by the change;
+*   the input can occur: no type, schema or caller upstream rules it out, nothing downstream absorbs it;
+*   it is not a recorded decision (ADRs, plan, issue, `git log -S '<snippet>'`).
+
+Drop what fails; never downgrade a finding to keep it.
+
+### 5. Provide Feedback
 
 #### Structure
 *   **Summary**: A high-level overview of the review.
@@ -60,12 +70,13 @@ Analyze the code changes based on the following pillars:
     *   **Critical**: Bugs, security issues, or breaking changes.
     *   **Improvements**: Suggestions for better code quality or performance.
     *   **Nitpicks**: Formatting or minor style issues (optional).
+*   **Refute**: kept n / dropped n.
 *   **Conclusion**: Clear recommendation (Approved / Request Changes).
 
 #### Tone
-*   Be constructive, professional, and friendly.
+*   Plain and factual: what the code does, what goes wrong, the fix. No filler praise.
 *   Explain *why* a change is requested.
-*   For approvals, acknowledge the specific value of the contribution.
+*   Make wins visible: one line on what now works.
 
-### 5. Cleanup (Remote PRs only)
+### 6. Cleanup (Remote PRs only)
 *   After the review, ask the user if they want to switch back to the default branch (e.g., `main` or `master`) (skip when running as a cda-dev worker; see Local preflight above).

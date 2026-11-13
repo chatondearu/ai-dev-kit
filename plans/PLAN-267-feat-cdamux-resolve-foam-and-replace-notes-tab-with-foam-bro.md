@@ -69,4 +69,4 @@ Fleet sidecar load path to list foam entries. Reuse project discovery /
 ## Verification
 
 - [x] `nix develop -c bash scripts/verify.sh`
-- [ ] PR `Closes #267`
+- [x] PR `Closes #267` (#272)

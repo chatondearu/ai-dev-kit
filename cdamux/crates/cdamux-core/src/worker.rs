@@ -228,6 +228,13 @@ fn find_worker_doc(key: &str, parent: Option<&str>) -> Result<(String, Value), W
 
 /// List workers whose `parent` is `caller_id` (or all workers when `caller_id` is empty — unused).
 pub fn list_workers(caller_id: &str) -> Result<Vec<WorkerRow>, WorkerError> {
+    // Hosts that are not live tmux sessions show `dormant`, like Fleet (a killed worker
+    // keeps its stored `working`).
+    let live: Vec<String> = crate::tmux::list_tmux_sessions()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|s| s.name)
+        .collect();
     let mut rows: Vec<WorkerRow> = state_list(StateKind::Agents)
         .into_iter()
         .filter(|(_, _, v)| {
@@ -259,6 +266,12 @@ pub fn list_workers(caller_id: &str) -> Result<Vec<WorkerRow>, WorkerError> {
                 .get("status")
                 .and_then(|s| s.as_str())
                 .map(str::to_string),
+        })
+        .map(|mut row| {
+            if !live.contains(&row.host) {
+                row.status = Some("dormant".into());
+            }
+            row
         })
         .collect();
     rows.sort_by(|a, b| a.name.cmp(&b.name));
@@ -405,9 +418,34 @@ mod tests {
     use super::*;
 
     #[test]
+<<<<<<< HEAD
     fn first_prompt_read_from_file_on_the_command_line() {
         let f = Path::new("/st/prompts/w1.md");
         let (cmd, paste) = with_first_prompt("opencode", "opencode", Some("go"), Some(f));
+=======
+    fn worker_ls_shows_dormant_when_host_is_not_live() {
+        let _g = crate::paths::env_lock();
+        // Throwaway tmux dir: no server there, so no host is live and the real server is untouched.
+        let tmux_dir = tempfile::tempdir().unwrap();
+        let home = tempfile::tempdir().unwrap();
+        std::env::set_var("TMUX_TMPDIR", tmux_dir.path());
+        std::env::set_var("CDAMUX_HOME", home.path());
+        state_set(
+            StateKind::Agents,
+            "a-w1",
+            &json!({"id": "a-w1", "role": "worker", "parent": "a-orch", "host": "gone-host", "status": "working"}),
+        )
+        .unwrap();
+        let rows = list_workers("a-orch").unwrap();
+        std::env::remove_var("TMUX_TMPDIR");
+        std::env::remove_var("CDAMUX_HOME");
+        assert_eq!(rows[0].status.as_deref(), Some("dormant"));
+    }
+
+    #[test]
+    fn opencode_uses_prompt_flag() {
+        let (cmd, paste) = with_first_prompt("opencode", "opencode", Some("go"));
+>>>>>>> origin/main
         assert!(!paste);
         assert_eq!(cmd, "opencode --prompt \"$(cat /st/prompts/w1.md)\"");
         let (cmd, paste) = with_first_prompt("claude --x", "claude", Some("hi"), Some(f));

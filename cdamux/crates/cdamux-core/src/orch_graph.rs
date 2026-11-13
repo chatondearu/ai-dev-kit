@@ -153,23 +153,25 @@ pub fn load_orch_graph_at(path: &Path) -> Result<(OrchGraphFile, Option<u64>), O
     Ok((graph, age))
 }
 
-/// Graph for a tmux session: newest live run with `session == name`, else `@cdamux_run`.
-/// Does **not** fall back to the repo's latest run (#236 item 4).
+/// Graph for a tmux session: prefer `@cdamux_run` / agent run, else newest live run
+/// with `session == name`. Does **not** fall back to the repo's latest run (#236.4).
+/// Preferring the explicit run avoids re-attaching an orphaned live graph after the
+/// same session name is recreated (#307).
 pub fn find_orch_graph_for_session(
     repo: &Path,
     session: &str,
     cdamux_run: Option<&str>,
 ) -> Result<(OrchGraphFile, Option<u64>), OrchGraphError> {
+    if let Some(run_id) = cdamux_run.filter(|s| !s.is_empty()) {
+        if let Some(path) = find_orch_run(repo, run_id) {
+            return load_orch_graph_at(&path);
+        }
+    }
     if let Some(summary) = list_live_orch_runs(repo)
         .into_iter()
         .find(|r| r.session.as_deref() == Some(session))
     {
         return load_orch_graph_at(&summary.path);
-    }
-    if let Some(run_id) = cdamux_run.filter(|s| !s.is_empty()) {
-        if let Some(path) = find_orch_run(repo, run_id) {
-            return load_orch_graph_at(&path);
-        }
     }
     Err(OrchGraphError::NotFound(
         cdamux_home()
@@ -421,9 +423,13 @@ fn summary(g: OrchGraphFile, path: PathBuf, live: bool) -> OrchGraphRunSummary {
     OrchGraphRunSummary { run_id: g.run_id, path, status: g.status, session: g.session, live }
 }
 
+/// True when a run status string means the graph is still live (no `ended_at` yet).
+pub fn is_live_run_status(status: &str) -> bool {
+    matches!(status.trim(), "" | "running")
+}
+
 fn is_live_run(g: &OrchGraphFile) -> bool {
-    g.ended_at.is_none()
-        && matches!(g.status.as_deref(), None | Some("" | "running"))
+    g.ended_at.is_none() && is_live_run_status(g.status.as_deref().unwrap_or(""))
 }
 
 /// One parsed run under `$CDAMUX_HOME/runs/`, newest-first in the index.
@@ -756,9 +762,12 @@ mod tests {
             Some(runs.join("new.json"))
         );
         assert_eq!(find_orch_run(&repo, "../live/new"), None);
-        // Session API: prefer that session's live run, not the newest repo run (#236.4).
+        // Session API: prefer @cdamux_run over a stale live session match (#307),
+        // else that session's live run — never the newest unrelated repo run (#236.4).
         let (g, _) = find_orch_graph_for_session(&repo, "a", None).unwrap();
         assert_eq!(g.run_id, "old");
+        let (g_pref, _) = find_orch_graph_for_session(&repo, "a", Some("done")).unwrap();
+        assert_eq!(g_pref.run_id, "done");
         let (g2, _) = find_orch_graph_for_session(&repo, "other", Some("done")).unwrap();
         assert_eq!(g2.run_id, "done");
         assert!(find_orch_graph_for_session(&repo, "missing", None).is_err());

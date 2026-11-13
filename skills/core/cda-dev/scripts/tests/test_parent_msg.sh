@@ -48,31 +48,39 @@ assert_eq "$(inbox_count a-parent253)" "2" "blocked adds second msg"
 assert_eq "$(tail -n1 "$HOME_DIR/inbox/a-parent253.jsonl" | jq -r .kind)" "error" \
   "blocked maps to kind error"
 
+ORCH_PROGRESS=0 orch_progress_set 8 error "worker loop failed" 2>/dev/null
+assert_eq "$(inbox_count a-parent253)" "3" "error adds a msg"
+assert_eq "$(tail -n1 "$HOME_DIR/inbox/a-parent253.jsonl" | jq -r .kind)" "error" "error maps to kind error"
+
 # held frontier (never dispatched) must not parent-notify
 ORCH_PROGRESS=0 orch_progress_set 21 blocked "waiting on #15" 2>/dev/null
-assert_eq "$(inbox_count a-parent253)" "2" "held waiting-on does not parent-notify"
+assert_eq "$(inbox_count a-parent253)" "3" "held waiting-on does not parent-notify"
 assert_eq "$(test -f "$REPO/.orch/run/run-msg-1.21.parent_msg" && echo yes || echo no)" "no" \
   "held leaves no parent_msg marker"
 
 # --- (2) run-end msg with integrator-report ref ---
+printf 'report\n' >"$REPO/.orch/integrator-report.md"
 orch_graph_finish ok
-assert_eq "$(inbox_count a-parent253)" "3" "run end adds one msg"
+assert_eq "$(inbox_count a-parent253)" "4" "run end adds one msg"
 last="$(tail -n1 "$HOME_DIR/inbox/a-parent253.jsonl")"
 assert_eq "$(printf '%s' "$last" | jq -r .kind)" "report" "run-end kind report"
 assert_contains "$(printf '%s' "$last" | jq -r .ref)" "integrator-report.md" "run-end ref"
 assert_contains "$(printf '%s' "$last" | jq -r .text)" "run-msg-1" "run id in text"
 orch_graph_finish ok
-assert_eq "$(inbox_count a-parent253)" "3" "run-end at-most-once"
+assert_eq "$(inbox_count a-parent253)" "4" "run-end at-most-once"
 
 # --- (2b) new run same worker id → notify again (AFK / retry) ---
 orch_graph_init "run-msg-2"
 ORCH_PROGRESS=0 orch_progress_set 7 done "retry succeeded" 2>/dev/null
-assert_eq "$(inbox_count a-parent253)" "4" "run2 done after run1 blocked sends again"
+assert_eq "$(inbox_count a-parent253)" "5" "run2 done after run1 blocked sends again"
 assert_file "$REPO/.orch/run/run-msg-2.7.parent_msg" "run2 marker distinct from run1"
 assert_eq "$(tail -n1 "$HOME_DIR/inbox/a-parent253.jsonl" | jq -r .kind)" "done" \
   "run2 msg kind done"
+rm -f "$REPO/.orch/integrator-report.md"
 orch_graph_finish ok
-assert_eq "$(inbox_count a-parent253)" "5" "run2 end adds msg"
+assert_eq "$(inbox_count a-parent253)" "6" "run2 end adds msg"
+assert_eq "$(tail -n1 "$HOME_DIR/inbox/a-parent253.jsonl" | jq -r '.ref // "none"')" "none" \
+  "run-end without integrator report carries no ref"
 
 # --- (3) no-op without parent ---
 unset CDAMUX_AGENT_ID

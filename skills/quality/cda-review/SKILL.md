@@ -25,6 +25,7 @@ When `CDA_GRAPHIFY=1` and `graphify-out/graph.json` exists, read `graphify-out/G
     ```bash
     gh pr checkout <PR_NUMBER>
     ```
+    If its branch is already checked out in another worktree (a worker's), review there or from `gh pr diff <PR_NUMBER>` instead; do not check it out.
 2.  **Preflight**: Execute the project's standard verification suite to catch automated failures early. **Detect the command** rather than assuming one — look for the conventional entrypoint in this order and run the first that applies:
     *   A `Makefile` target such as `make check` / `make test` / `make lint`.
     *   An npm/pnpm/yarn script (`package.json` → `preflight`, `check`, `test`, `lint`).
@@ -68,8 +69,8 @@ Drop what fails; never downgrade a finding to keep it.
 *   **Summary**: A high-level overview of the review.
 *   **Findings**:
     *   **Critical**: Bugs, security issues, or breaking changes.
-    *   **Improvements**: Suggestions for better code quality or performance.
-    *   **Nitpicks**: Formatting or minor style issues (optional).
+    *   **Important**: Maintainability, leanness/reuse, missing tests, performance problems worth fixing before merge.
+    *   **Minor**: Formatting or minor style issues (optional).
 *   **Refute**: kept n / dropped n.
 *   **Conclusion**: Clear recommendation (Approved / Request Changes).
 

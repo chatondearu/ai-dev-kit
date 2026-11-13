@@ -225,7 +225,7 @@ orch_ready_pickup_one() {
 
   orch_progress_set "$id" worktree "creating ${path##*/}"
   if ! orch_worktree_add "$ORCH_REPO" "$id" "$slug" "$branch" HEAD; then
-    orch_progress_set "$id" blocked "worktree create failed"
+    orch_progress_set "$id" error "worktree create failed"
     if ! orch_progress_enabled; then
       printf 'blocked: failed to create worktree for issue %s\n' "$id" >&2
     fi
@@ -317,7 +317,7 @@ orch_ready_pickup_one() {
   if [ "$loop_rc" -ne 0 ]; then
     # rc 3 = no verify command, rc 4 = tier ceiling (loop already set the progress reason).
     if [ "$loop_rc" -ne 3 ] && [ "$loop_rc" -ne 4 ]; then
-      orch_progress_set "$id" blocked "worker loop failed"
+      orch_progress_set "$id" error "worker loop failed"
     fi
     if ! orch_progress_enabled; then
       if [ "$loop_rc" -eq 3 ]; then
@@ -343,7 +343,7 @@ orch_ready_pickup_one() {
   fi
 
   if [ -z "$pr_num" ]; then
-    orch_progress_set "$id" blocked "no PR for ${branch}"
+    orch_progress_set "$id" error "no PR for ${branch}"
     if ! orch_progress_enabled; then
       printf 'blocked: issue %s (no PR for branch %s)\n' "$id" "$branch" >&2
     fi
@@ -370,7 +370,7 @@ orch_ready_pickup_one() {
       break
     fi
     if [ "$round" -eq 2 ]; then
-      orch_progress_set "$id" blocked "review: changes_requested"
+      orch_progress_set "$id" error "review: changes_requested"
       if ! orch_progress_enabled; then
         printf 'blocked: issue %s review: changes_requested (see %s)\n' "$id" "$review_log" >&2
       fi
@@ -382,7 +382,7 @@ orch_ready_pickup_one() {
     loop_rc=0
     orch_sandbox_wrap bash -c "$worker_env ORCH_MAX_ITER=1 orch_loop_worker \"$path\" \"$fix_prompt\"" || loop_rc=$?
     if [ "$loop_rc" -ne 0 ]; then
-      orch_progress_set "$id" blocked "review fix iteration failed"
+      orch_progress_set "$id" error "review fix iteration failed"
       if ! orch_progress_enabled; then
         printf 'blocked: review fix iteration failed for issue %s\n' "$id" >&2
       fi
@@ -401,7 +401,7 @@ orch_ready_pickup_one() {
           "$pr_num" "$id" >&2
       fi
     else
-      orch_progress_set "$id" blocked "CI failed/timeout PR #${pr_num}"
+      orch_progress_set "$id" error "CI failed/timeout PR #${pr_num}"
       if ! orch_progress_enabled; then
         printf 'blocked: CI checks failed or pending timeout for PR %s (issue %s)\n' "$pr_num" "$id" >&2
       fi
@@ -583,7 +583,7 @@ case "$MODE" in
     done
     for id in "${ISSUES[@]}"; do
       if [ ! -f "$REPO/.orch/run/${id}.rc" ]; then
-        orch_progress_set "$id" blocked "no worker status file"
+        orch_progress_set "$id" error "no worker status file"
         any_blocked=1
       fi
     done

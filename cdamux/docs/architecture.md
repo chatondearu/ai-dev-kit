@@ -64,6 +64,19 @@ tmux cannot be probed (fail closed). An archived agent's `inbox/<id>.jsonl` and
 `.cursor` move to `archive/inbox/`; an existing archive of the same name is kept and
 the new one gets a `.<unix_secs>` suffix. Dormant resumable agents (session restore
 registry, ADR-009) are never GC'd. Manual only (no timer in v0).
+
+Fleet permanent kill (`x`) finalizes agents with that host and live runs with that
+`session` (`status=error`, `ended_at`, clear host) so recreating the same tmux name
+cannot re-attach stuck graphs (#307). `cdamux restart` does **not** finalize (restore
+needs the agent). One-shot cleanup for already-orphaned dogfood state:
+
+```bash
+cdamux state gc --sweep-orphans --dry-run   # preview
+cdamux state gc --sweep-orphans            # finalize dead-host working/running, then retention
+```
+
+`--sweep-orphans` skips ADR-009 resumable dormant agents; headless live runs (no
+`session`) are left alone.
 State files are written tmp + rename (`<file>.tmp.<pid>.<n>`). New agent ids skip any
 id that already has `agents/<id>.json` or `inbox/<id>.jsonl`.
 `orch.sh` / `graph-node.sh` publish run + nodes and one Agent per worker through
@@ -91,15 +104,23 @@ an agent id, tmux host, or worker `name` (slice 2).
 
 Delivery:
 
-- **Worker** (`role=worker`): also pastes `text` into the worker pane (`send_to_session`).
+- **Worker** (`role=worker`): when its status is `idle`, `done`, `error` or unset (no
+  hooks) and the pane has been quiet ≥ 10 s, also pastes `text` into the worker pane
+  (`send_to_session`) and acks that line when the cursor sat right before it. Otherwise
+  (mid-turn, permission prompt, recent activity) the line stays unread and the status
+  hook's digest delivers it at the next prompt submit or turn end: a paste ends with
+  Enter and would merge with what the user is typing.
 - **Orchestrator / other**: append only; when status is `idle` and the pane has been
-  quiet ≥ 10 s, types `📨 N messages — cdamux msg read` into the pane (no daemon).
+  quiet ≥ 10 s, types `📨 N messages — cdamux msg read --ack` into the pane (no daemon).
+
+`msg send` prints the message id and `pasted`, `nudged` or `queued` (inbox only).
 
 `cdamux msg read [--agent id] [--ack] [--digest]` prints unread lines after the
 ack cursor; `--ack` advances `inbox/<id>.cursor` to the end of the last complete line
 read (a line still being written stays unread). Each line is appended with a single
 `write(2)`, so concurrent senders do not interleave. `kind=ask` sets the sender
-`blocked`; `kind=answer` clears the recipient to `idle`.
+`blocked`; `kind=done` / `kind=error` set the sender `done` / `error` (a sticky status
+is kept); `kind=answer` clears the recipient to `idle`.
 
 ### Orchestrator session (`cdamux orch`)
 
@@ -126,7 +147,8 @@ Requires `$CDAMUX_AGENT_ID` (caller must be an orchestrator session).
   prefixes the first message with `cdamux/prompts/worker-preamble.md` (report via
   `cdamux msg`); `--prompt-file` content is appended. opencode's first message uses
   `--prompt`; other clients get a pane paste after launch.
-- `cdamux worker ls` — workers whose `parent` is the caller.
+- `cdamux worker ls` — workers whose `parent` is the caller; a worker whose host is not a live
+  tmux session shows `dormant` instead of its stored status.
 - `cdamux worker peek <name> [--lines N]` — last N pane lines.
 
 Opt-in hooks (`--cdamux-hooks`) inject an unread digest on turn-end (Claude `Stop`
@@ -158,8 +180,11 @@ See `config/cdamux.example.toml`. Highlights:
 - **Session links** — spawn sets `@cdamux_role` (`agent`/`shell`/`orchestrator`/`worker`);
   fork also sets `@cdamux_parent` (source session). `@cdamux_run` carries an orch run id.
   All three come from the one `list-sessions -F` call. Fleet nests a session under its
-  parent in the same project (any depth, `l`/`→` expands, `h`/`←` collapses); a dead parent
-  or a parent cycle leaves it at the top of its project. `role=orchestrator` uses glyph
+  parent (any depth, `l`/`→` expands, `h`/`←` collapses); a dead parent
+  or a parent cycle leaves it at the top of its project. A session also joins the project
+  (or web group) of its tree root, so a worker whose worktree sits outside the orchestrator's
+  project (default `$CDAMUX_HOME/worktrees`) still nests under it (`tree_roots`, shared by the
+  Fleet tree and `group_sessions`, which the tailnet web renders). `role=orchestrator` uses glyph
   `◎`. Unread inbox count shows as `✉N`; a worker with an unanswered `ask` shows `?`.
   Fleet composer Enter on a pending-ask row sends `cdamux msg` `kind=answer` (same on the
   tailnet web send form via `"kind":"answer"`). Non-session children (orch workers, CLI
@@ -308,9 +333,10 @@ Operator curl examples: [tailnet-api.md](tailnet-api.md).
 - **Dormant rows** (Fleet): the dashboard caches the registry in `StatusCache`
   (`refresh_registry`: re-read only when the `sessions/` dir mtime moves, no tmux call
   per row). Records with no live tmux session (home excluded) render as dimmed `◌ name
-  dormant · agent cwd` rows (`TreeRow::Dormant`) after the live rows of the project
+  dormant · agent cwd` rows (`TreeRow::Dormant`) nested under the live (or dormant)
+  session they were forked from (`parent`), else after the live rows of the project
   holding their cwd (longest path; non-`project` `group_by` and project-less cwds → the
-  unassigned list); a project with only dormant records keeps its node. Waiting-only
+  unassigned list); the tailnet web lists no dormant rows; a project with only dormant records keeps its node. Waiting-only
   hides them. `Enter` restores the row (`restore_targets` — orch expands to workers),
   `x` twice forgets it (`session_registry::remove`); any other key cancels the pending
   forget.

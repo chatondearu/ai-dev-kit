@@ -22,7 +22,8 @@ use cdamux_core::{
     parents_first, peek_worker, read_messages, parse_unified_diff, resolve_agent_command,
     restore_one, restore_targets, restart_plan, session_registry, resolve_note_path, send_to_session,
     session_name_for_path, spawn_orchestrator, spawn_tmux_session_with_layout, spawn_worker,
-    state_append, state_get, state_set, run_gc, tmux_has_session, unique_session_name, valid_kind,
+    state_append, state_get, state_set, run_gc, sweep_orphans, tmux_has_session, unique_session_name,
+    valid_kind,
     AttachMode, DEFAULT_NUDGE_QUIET_SECS, DiffError, GroupBy, OrchNewRequest, PaneLayout,
     SendError, SpawnError, StateKind, WorkerSpawnRequest, ORCHESTRATOR_SKILL,
 };
@@ -215,6 +216,12 @@ enum StateCommands {
         /// Override `[state].retention_days` from config (must be ≥ 1).
         #[arg(long, value_parser = clap::value_parser!(u32).range(1..))]
         retention_days: Option<u32>,
+        /// Finalize non-terminal agents/runs whose tmux host is dead (before retention).
+        #[arg(long)]
+        sweep_orphans: bool,
+        /// With `--sweep-orphans`, print what would be finalized without writing.
+        #[arg(long)]
+        dry_run: bool,
     },
 }
 
@@ -357,7 +364,11 @@ fn main() -> ExitCode {
             StateCommands::Set { kind, id, json } => cmd_state_set(&kind, &id, &json),
             StateCommands::Get { kind, id } => cmd_state_get(&kind, &id),
             StateCommands::Append { kind, id, json } => cmd_state_append(&kind, &id, &json),
-            StateCommands::Gc { retention_days } => cmd_state_gc(retention_days),
+            StateCommands::Gc {
+                retention_days,
+                sweep_orphans,
+                dry_run,
+            } => cmd_state_gc(retention_days, sweep_orphans, dry_run),
         },
         Some(Commands::Msg { command }) => match command {
             MsgCommands::Send {
@@ -578,7 +589,7 @@ fn cmd_msg_send(
         None,
     ) {
         Ok(out) => {
-            println!("{}", out.message.id);
+            println!("{} {}", out.message.id, out.delivery_word());
             ExitCode::SUCCESS
         }
         Err(e) => {
@@ -692,7 +703,11 @@ fn cmd_state_append(kind: &str, id: &str, json: &str) -> ExitCode {
     }
 }
 
-fn cmd_state_gc(retention_days: Option<u32>) -> ExitCode {
+fn cmd_state_gc(retention_days: Option<u32>, sweep: bool, dry_run: bool) -> ExitCode {
+    if dry_run && !sweep {
+        eprintln!("state gc: --dry-run requires --sweep-orphans");
+        return ExitCode::from(2);
+    }
     let days = retention_days.unwrap_or_else(|| {
         load_config()
             .map(|c| c.state.retention_days)
@@ -708,6 +723,31 @@ fn cmd_state_gc(retention_days: Option<u32>) -> ExitCode {
         // Rare after preflight; treat as alive so we never archive on probe failure.
         Err(_) => true,
     };
+    if sweep {
+        match sweep_orphans(&host_alive, dry_run) {
+            Ok(report) => {
+                let verb = if dry_run { "would finalize" } else { "finalized" };
+                println!(
+                    "state gc: {verb} {} orphan agent(s), {} orphan run(s)",
+                    report.agents.len(),
+                    report.runs.len()
+                );
+                for id in &report.agents {
+                    println!("  agent {id}");
+                }
+                for id in &report.runs {
+                    println!("  run {id}");
+                }
+                if dry_run {
+                    return ExitCode::SUCCESS;
+                }
+            }
+            Err(e) => {
+                eprintln!("state gc: sweep-orphans: {e}");
+                return ExitCode::from(1);
+            }
+        }
+    }
     match run_gc(days, std::time::SystemTime::now(), &host_alive) {
         Ok(report) => {
             println!(

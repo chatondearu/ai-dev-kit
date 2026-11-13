@@ -70,7 +70,7 @@ files.
    - English title/body; link plan + epic PRD when `full`, or the issue brief when `fast`
    - Move board card → In review
 8. **CI**
-   - Ensure PR exists; wait for checks green (harness `orch_pr_checks_watch` or `gh pr checks`)
+   - Ensure PR exists; wait for checks green (`gh pr checks --watch`)
    - Do **not** merge
 9. **Report to master** — also write it to `.orch/worker-result.json` (cdamux reads it). Exact shape:
 

@@ -82,11 +82,45 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
     })
 }
 
+extern "C" {
+    fn flock(fd: std::os::raw::c_int, operation: std::os::raw::c_int) -> std::os::raw::c_int;
+}
+
+/// Run `f` holding an exclusive advisory lock on the sidecar `<path>.lock`, so the
+/// read-merge-write of concurrent writers (hooks, answer, restore, …) never loses a key.
+/// The lock dies with the fd, a crashed writer cannot wedge it. The sidecar is never
+/// removed: unlinking it would let two writers lock different inodes.
+fn with_entity_lock<T>(path: &Path, f: impl FnOnce() -> io::Result<T>) -> io::Result<T> {
+    use std::os::unix::io::AsRawFd;
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let mut lock_name = path.as_os_str().to_owned();
+    lock_name.push(".lock");
+    let lock = std::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(false)
+        .open(lock_name)?;
+    const LOCK_EX: std::os::raw::c_int = 2; // same value on Linux and macOS
+    loop {
+        // SAFETY: valid open fd for the whole call.
+        if unsafe { flock(lock.as_raw_fd(), LOCK_EX) } == 0 {
+            break;
+        }
+        let err = io::Error::last_os_error();
+        if err.kind() != io::ErrorKind::Interrupted {
+            return Err(err);
+        }
+    }
+    f()
+}
+
 /// Replace the entity file with `value` (pretty JSON).
 pub fn state_set(kind: StateKind, id: &str, value: &Value) -> io::Result<()> {
     let path = entity_path(kind, id)?;
     let bytes = serde_json::to_vec_pretty(value)?;
-    write_atomic(&path, &bytes)
+    with_entity_lock(&path, || write_atomic(&path, &bytes))
 }
 
 /// Read the entity file; `None` when missing.
@@ -103,16 +137,18 @@ pub fn state_get(kind: StateKind, id: &str) -> io::Result<Option<Value>> {
 /// Non-object existing values are replaced by `patch` when `patch` is an object.
 pub fn state_append(kind: StateKind, id: &str, patch: &Value) -> io::Result<()> {
     let path = entity_path(kind, id)?;
-    let merged = match std::fs::read_to_string(&path) {
-        Err(e) if e.kind() == io::ErrorKind::NotFound => patch.clone(),
-        Err(e) => return Err(e),
-        Ok(text) => {
-            let existing: Value = serde_json::from_str(&text)?;
-            merge_shallow(existing, patch)
-        }
-    };
-    let bytes = serde_json::to_vec_pretty(&merged)?;
-    write_atomic(&path, &bytes)
+    with_entity_lock(&path, || {
+        let merged = match std::fs::read_to_string(&path) {
+            Err(e) if e.kind() == io::ErrorKind::NotFound => patch.clone(),
+            Err(e) => return Err(e),
+            Ok(text) => {
+                let existing: Value = serde_json::from_str(&text)?;
+                merge_shallow(existing, patch)
+            }
+        };
+        let bytes = serde_json::to_vec_pretty(&merged)?;
+        write_atomic(&path, &bytes)
+    })
 }
 
 fn merge_shallow(existing: Value, patch: &Value) -> Value {
@@ -315,6 +351,25 @@ mod tests {
             assert_eq!(runs.len(), 1);
             assert_eq!(runs[0].0, "r-run");
             assert_eq!(runs[0].1, home.join("runs/r-1.json"));
+        });
+    }
+
+    #[test]
+    fn concurrent_appends_keep_every_key() {
+        with_temp_home(|_| {
+            let id = "a-race2";
+            std::thread::scope(|s| {
+                for w in 0..4 {
+                    s.spawn(move || {
+                        for i in 0..50 {
+                            let patch = serde_json::json!({ format!("k{w}_{i}"): i });
+                            state_append(StateKind::Agents, id, &patch).unwrap();
+                        }
+                    });
+                }
+            });
+            let got = state_get(StateKind::Agents, id).unwrap().unwrap();
+            assert_eq!(got.as_object().unwrap().len(), 200);
         });
     }
 

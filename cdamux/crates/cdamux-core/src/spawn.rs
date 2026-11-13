@@ -182,8 +182,15 @@ pub fn spawn_tmux_session_ex(
 /// No `--session-id` is added here: the caller built the exact command (restore).
 pub(crate) fn respawn_recorded(rec: &SessionRecord, primary_command: &str) -> Result<SpawnOutcome, SpawnError> {
     let primary_command = with_agent_id_env(primary_command, rec.cdamux_id.as_deref());
+    // The registry record has no run: it lives in the agent state, restore `@cdamux_run` from there.
+    let run = rec
+        .cdamux_id
+        .as_deref()
+        .and_then(|id| state_get(StateKind::Agents, id).ok().flatten())
+        .and_then(|doc| doc["run"].as_str().map(str::to_string));
     let extra = SpawnExtra {
         role: Some(rec.role.as_str()),
+        run: run.as_deref(),
         ..Default::default()
     };
     create_tmux_session(

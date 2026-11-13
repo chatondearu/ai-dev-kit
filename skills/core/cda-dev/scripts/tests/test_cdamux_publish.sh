@@ -54,6 +54,12 @@ assert_eq "$(jq -r .parent "$HOME_DIR/agents/${aid7}.json")" "a-parent1" "worker
 assert_eq "$(jq -r .status "$HOME_DIR/agents/${aid7}.json")" "idle" "phase pending → idle"
 unset CDAMUX_AGENT_ID
 
+# --- failure is `error`, a wait stays `blocked` (ADR-011 §3) ---
+ORCH_PROGRESS=0 orch_progress_set 7 error "worker loop failed" 2>/dev/null
+assert_eq "$(jq -r .status "$HOME_DIR/agents/${aid7}.json")" "error" "phase error → error"
+ORCH_PROGRESS=0 orch_progress_set 7 blocked "waiting on #15" 2>/dev/null
+assert_eq "$(jq -r .status "$HOME_DIR/agents/${aid7}.json")" "blocked" "phase blocked → blocked"
+
 # --- mint skips ids already under agents/: first draw aaaaa, then bbbbb ---
 tr() {
   [ "${1:-}" = -dc ] || { command tr "$@"; return; }

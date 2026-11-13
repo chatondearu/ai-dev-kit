@@ -76,8 +76,9 @@ Resolve context (repo, foam, board, agent CLI)
   → Aggregate ledger → human report (mergeable PRs; do not merge)
 ```
 
-Verify oracle (order): project commands from `AGENTS.md` / `nix develop` →
-systematic review (critical/important fixed or BLOCKED) → remote CI green.
+Verify oracle (order): project commands from `AGENTS.md` (host/Mise first;
+`nix develop` last resort per **nix-develop-shell**) → systematic review
+(critical/important fixed or BLOCKED) → remote CI green.
 Graph motion budget: `ORCH_MAX_ITER=10` per worker (separate implement/verify nodes, not one fat loop).
 `ORCH_GRAPH=0` disables graph file; `ORCH_GRAPH_VERIFY=1` enables foam-grounded verifier agent.
 

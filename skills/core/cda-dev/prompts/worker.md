@@ -54,7 +54,8 @@ files.
      it to review
 4. **Test / verify**
    - Run the project’s normal verification (see `AGENTS.md`, plan/brief test
-     section; **nix-develop-shell**: host/direnv first, `nix develop -c` fallback)
+     section; **nix-develop-shell**: host/Mise/direnv bare; `nix develop` only
+     after command-not-found, once per batch — never wrap every command)
    - Fix failures you can fix without product decisions
 5. **Design loop (opt-in only)**
    - If `CDA_DESIGN_LOOP=1` or `AGENTS.md` notes `design-loop: auto` or dispatch passed `--design-loop`,

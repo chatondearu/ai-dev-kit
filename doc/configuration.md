@@ -22,13 +22,14 @@ Rust to match the flake `devShell` (today: Node 24.15.x, Rust 1.95). Stance:
 **Mise alongside Nix** — keep flake packages, modules, and `devShells.default`
 ([ADR-013](../foam/decisions/ADR-013-mise-alongside-nix-devshell.md)).
 
-Verify ladder (same as `AGENTS.md`):
+Verify ladder (same as `AGENTS.md`; **default: no `nix develop`**):
 
 1. Host PATH when Node/Rust/jq/… are already correct.
 2. Else one outer Mise: `mise install` once, then `mise activate` (preferred) or
    `mise run verify` / `mise exec -- bash scripts/verify.sh`. **Do not** use
    Mise shims as the primary agent PATH.
-3. Else `nix develop -c bash scripts/verify.sh`.
+3. Else (toolchain still missing) **one** `nix develop -c bash scripts/verify.sh`
+   — never wrap every subcommand (skill **nix-develop-shell**, ADR-013).
 
 `scripts/verify.sh` stays Nix- and Mise-agnostic; Mise only supplies PATH when
 you wrap or activate. On NixOS, enable **nix-ld** so Mise can use prebuilt Node

@@ -1,10 +1,11 @@
 ---
 name: cda-graph
 description: >-
-  Graph-first orchestration for CDA: parallel workers with structured outputs,
-  integrator synthesize, foam-grounded verifier, live $CDAMUX_HOME/runs/<run_id>.json
-  for cdamux. Use instead of brute-force single-context loops for multi-file or
-  multi-issue work. Complements cda-dev (orch.sh) and OpenClaw Swarm patterns.
+  Reference for orch.sh graph features: intra-issue task fan-out (--graph-plan),
+  the integrator, the foam-grounded verifier, and the live run JSON
+  ($CDAMUX_HOME/runs/<run_id>.json). Use when writing or validating a graph plan,
+  reading a run's graph, or debugging a verifier/integrator step. To run issues,
+  use cda-dev; to drive interactive workers, use cda-orchestrator.
 ---
 
 # CDA graph orchestration
@@ -28,7 +29,7 @@ Loops are for **convergence** (one PR, CI, TDD) — not for carrying a whole epi
 ### 1 — Multi-issue ready pickup
 
 ```bash
-SKILL=~/.cursor/skills/cda-dev
+SKILL=~/.cursor/skills/cda-dev   # or ${CLAUDE_CONFIG_DIR:-~/.claude}/skills/cda-dev
 export ORCH_REPO=/path/to/project
 cd "$ORCH_REPO"
 
@@ -42,7 +43,7 @@ bash "$SKILL/scripts/orch.sh" --mode ready-pickup --issue 12 --issue 15
 ORCH_GRAPH_VERIFY=1 bash "$SKILL/scripts/orch.sh" --mode ready-pickup --issue 12
 ```
 
-Worker must create `.orch/verifier-ok` or `.orch/verifier-fail` in the worktree.
+The verifier creates `.orch/verifier-ok` or `.orch/verifier-fail` in the worktree.
 
 ### 3 — Intra-issue graph plan
 

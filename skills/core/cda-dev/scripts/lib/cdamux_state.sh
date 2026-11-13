@@ -238,6 +238,8 @@ orch_cdamux_parent_msg_run_end() {
   marker="$dir/${ORCH_RUN_ID}.parent_msg_run"
   [ -f "$marker" ] && return 0
   ref="${ORCH_REPO:-.}/.orch/integrator-report.md"
+  # Single-issue runs skip the integrator: no report, no ref.
+  [ -f "$ref" ] || ref=""
   text="run $ORCH_RUN_ID finished: $status"
   # from=parent: orch harness has no separate run Agent; inbox still gets the line.
   orch_cdamux_msg_send "$parent" report "$text" "$parent" "$ref"

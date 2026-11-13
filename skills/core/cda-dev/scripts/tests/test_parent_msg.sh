@@ -55,6 +55,7 @@ assert_eq "$(test -f "$REPO/.orch/run/run-msg-1.21.parent_msg" && echo yes || ec
   "held leaves no parent_msg marker"
 
 # --- (2) run-end msg with integrator-report ref ---
+printf 'report\n' >"$REPO/.orch/integrator-report.md"
 orch_graph_finish ok
 assert_eq "$(inbox_count a-parent253)" "3" "run end adds one msg"
 last="$(tail -n1 "$HOME_DIR/inbox/a-parent253.jsonl")"
@@ -71,8 +72,11 @@ assert_eq "$(inbox_count a-parent253)" "4" "run2 done after run1 blocked sends a
 assert_file "$REPO/.orch/run/run-msg-2.7.parent_msg" "run2 marker distinct from run1"
 assert_eq "$(tail -n1 "$HOME_DIR/inbox/a-parent253.jsonl" | jq -r .kind)" "done" \
   "run2 msg kind done"
+rm -f "$REPO/.orch/integrator-report.md"
 orch_graph_finish ok
 assert_eq "$(inbox_count a-parent253)" "5" "run2 end adds msg"
+assert_eq "$(tail -n1 "$HOME_DIR/inbox/a-parent253.jsonl" | jq -r '.ref // "none"')" "none" \
+  "run-end without integrator report carries no ref"
 
 # --- (3) no-op without parent ---
 unset CDAMUX_AGENT_ID

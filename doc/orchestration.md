@@ -12,6 +12,14 @@ Host readiness (checks only, never installs):
 ./scripts/doctor.sh
 ```
 
+## Interactive orchestrator (`cdamux orch new`)
+
+`cdamux orch new [--agent X]` starts one long-lived session you chat with; it
+follows skill `cda-orchestrator`: Kanban issues go to an `orch.sh` sub-run,
+research and small fixes to interactive workers (`cdamux worker spawn`), and
+results come back through `cdamux msg`. Requires a `cdamux` with `orch`,
+`worker`, `msg` (Nix: `cda.aitools.cdamux`).
+
 ## Graph orchestration (`cda-graph`)
 
 See **[graph-orchestration.md](graph-orchestration.md)** (cookbook, env vars, graph-plan, cdamux).

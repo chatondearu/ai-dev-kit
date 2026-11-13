@@ -408,6 +408,8 @@ orch_graph_integrator_run() {
   local gf prompts="$ORCH_PROMPTS_DIR"
   local tpl="$prompts/integrator.md"
   local out="$ORCH_REPO/.orch/integrator-prompt.md"
+  # A report left by an earlier run must not be sent as this run's result.
+  rm -f "$ORCH_REPO/.orch/integrator-report.md"
   local summaries="" id path wt
 
   [ "${#ids[@]}" -ge 1 ] || return 0

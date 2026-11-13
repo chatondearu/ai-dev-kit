@@ -45,7 +45,7 @@ The same opt-in `--cdamux-hooks` wire also reports agent status into
 `$CDAMUX_HOME/agents/<id>.json` via `cdamux state append` (`status.js` +
 `setAgentStatus` in `ledger.js`). Fleet prefers that field over `@cdamux_state`.
 No-op without `CDAMUX_AGENT_ID` / `@cdamux_id` or without `cdamux` on `PATH`.
-`done` / `error` stick until the next `working` (prompt submit).
+`done` / `error` / `blocked` stick until the next `working` (prompt submit); an `answer` also clears `blocked`.
 
 | CLI | Events → status |
 | --- | --------------- |

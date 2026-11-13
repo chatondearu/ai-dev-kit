@@ -126,7 +126,8 @@ function readAgentStatus(env, id) {
 }
 
 function stickyOk(current, next) {
-  if (current === 'done' || current === 'error') return next === 'working';
+  // A pending ask (`blocked`) must survive the asker's own turn-end hook.
+  if (current === 'done' || current === 'error' || current === 'blocked') return next === 'working';
   return true;
 }
 

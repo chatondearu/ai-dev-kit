@@ -64,6 +64,19 @@ tmux cannot be probed (fail closed). An archived agent's `inbox/<id>.jsonl` and
 `.cursor` move to `archive/inbox/`; an existing archive of the same name is kept and
 the new one gets a `.<unix_secs>` suffix. Dormant resumable agents (session restore
 registry, ADR-009) are never GC'd. Manual only (no timer in v0).
+
+Fleet permanent kill (`x`) finalizes agents with that host and live runs with that
+`session` (`status=error`, `ended_at`, clear host) so recreating the same tmux name
+cannot re-attach stuck graphs (#307). `cdamux restart` does **not** finalize (restore
+needs the agent). One-shot cleanup for already-orphaned dogfood state:
+
+```bash
+cdamux state gc --sweep-orphans --dry-run   # preview
+cdamux state gc --sweep-orphans            # finalize dead-host working/running, then retention
+```
+
+`--sweep-orphans` skips ADR-009 resumable dormant agents; headless live runs (no
+`session`) are left alone.
 State files are written tmp + rename (`<file>.tmp.<pid>.<n>`). New agent ids skip any
 id that already has `agents/<id>.json` or `inbox/<id>.jsonl`.
 `orch.sh` / `graph-node.sh` publish run + nodes and one Agent per worker through

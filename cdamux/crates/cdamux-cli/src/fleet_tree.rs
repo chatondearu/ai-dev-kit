@@ -273,7 +273,7 @@ pub(crate) enum GraphTarget {
 }
 
 /// Graph of the selected row: a run row (or worker under it) shows its run; a session
-/// its own live runs, else the run of its `@cdamux_run`; a project the latest run.
+/// its `@cdamux_run` when set, else its own live runs; a project the latest run (#307).
 pub(crate) fn graph_target_at_row(
     rows: &[TreeRow],
     idx: usize,
@@ -284,6 +284,9 @@ pub(crate) fn graph_target_at_row(
     match rows.get(idx) {
         Some(TreeRow::Child { project_path, run: Some(run), .. }) => runs_from(project_path, vec![run.clone()]),
         Some(TreeRow::Session { session: s, .. }) => {
+            if let Some(run) = &s.run {
+                return runs_from(&s.path, vec![run.clone()]);
+            }
             let repo = tree
                 .nodes
                 .iter()
@@ -295,10 +298,9 @@ pub(crate) fn graph_target_at_row(
                 .filter(|r| r.session.as_deref() == Some(s.name.as_str()))
                 .map(|r| r.run_id.clone())
                 .collect();
-            match (own.is_empty(), &s.run, repo) {
-                (false, _, Some((path, _))) => runs_from(&path.to_string_lossy(), own),
-                (true, Some(run), _) => runs_from(&s.path, vec![run.clone()]),
-                (true, None, Some(_)) => GraphTarget::NoRun,
+            match (own.is_empty(), repo) {
+                (false, Some((path, _))) => runs_from(&path.to_string_lossy(), own),
+                (true, Some(_)) => GraphTarget::NoRun,
                 _ => GraphTarget::Latest(s.path.clone()),
             }
         }
@@ -859,7 +861,7 @@ mod tests {
     }
 
     #[test]
-    fn graph_target_follows_run_row_own_run_then_cdamux_run() {
+    fn graph_target_follows_run_row_cdamux_run_then_own_live() {
         use crate::test_render::{fixture_runs, fixture_runs_rows, RUN_42, RUN_MAIN};
         let (tree, status) = fixture_runs();
         let rows = fixture_runs_rows();

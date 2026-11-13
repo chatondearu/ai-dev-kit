@@ -9,7 +9,7 @@ cdamux — fleet  ○ idle ● working ◆ needs ⊘ blocked ✓ done
     ▼ ● alpha-main  claude  /src/alpha                                         █
     └ ◈ run 20261103T100000Z running                                           █
 ───────────────────────────────────────────────────────────────────────────────║
- Preview  Notes  Review  Orch graph
+ Preview  Foam  Review  Orch graph
 ┌ session ─────────────────────────────────────────────────────────────────────┐
 │repo: alpha  │  worktree: main  │  branch: main                               │
 │agent: claude  │  up: 12m  │  context: 40%  │  tasks: 2/5                     │

@@ -45,13 +45,13 @@ Fleet sidecar load path to list foam entries. Reuse project discovery /
 
 ## Tasks
 
-- [ ] Add foam-root resolution from project/session path (git toplevel + `foam/`)
+- [x] Add foam-root resolution from project/session path (git toplevel + `foam/`)
       with tests for cwd-vs-root and missing foam
-- [ ] Expose a list of relative `foam/**/*.md` paths (deterministic order)
-- [ ] Replace Notes sidecar data binding with Foam list + selection state
-- [ ] Empty state when foam missing or empty
-- [ ] Update Fleet snapshots / draw tests for the Foam tab label and list
-- [ ] Document behaviour in `cdamux/docs/architecture.md` notes→foam pointer
+- [x] Expose a list of relative `foam/**/*.md` paths (deterministic order)
+- [x] Replace Notes sidecar data binding with Foam list + selection state
+- [x] Empty state when foam missing or empty
+- [x] Update Fleet snapshots / draw tests for the Foam tab label and list
+- [x] Document behaviour in `cdamux/docs/architecture.md` notes→foam pointer
 
 ## Risks & mitigations
 
@@ -62,11 +62,11 @@ Fleet sidecar load path to list foam entries. Reuse project discovery /
 
 ## Test plan
 
-- [ ] Unit: resolve foam root from nested cwd
-- [ ] Unit/snapshot: Foam tab shows fixtures under a temp `foam/`
-- [ ] Empty foam / missing dir covered
+- [x] Unit: resolve foam root from nested cwd
+- [x] Unit/snapshot: Foam tab shows fixtures under a temp `foam/`
+- [x] Empty foam / missing dir covered
 
 ## Verification
 
-- [ ] `nix develop -c bash scripts/verify.sh`
+- [x] `nix develop -c bash scripts/verify.sh`
 - [ ] PR `Closes #267`

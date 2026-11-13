@@ -382,7 +382,7 @@ pub(crate) fn render_app_ex(
         focus: FocusArea::Tree,
         preview_text: PREVIEW,
         preview_scroll: 0,
-        notes_text: "(no notes)",
+        foam_text: "(no foam)",
         review_text: "Select a session.",
         orch_graph: &graph,
         graph_view,
@@ -430,7 +430,7 @@ fn rename_fixture() -> RenameState {
 fn short_terminals_keep_tabs_composer_and_modal_hints() {
     // 99x14: stacked sidecar is too short for the chrome box; tabs and the input row stay.
     let screen = render_app(99, 14, AppTab::Fleet, SideTab::Preview).join("\n");
-    assert!(screen.contains("Preview  Notes") && screen.contains("→ alpha-main"), "{screen}");
+    assert!(screen.contains("Preview  Foam") && screen.contains("→ alpha-main"), "{screen}");
     assert!(!screen.contains("┌ session"), "{screen}");
     let modal = render(80, 8, |f| draw_rename_modal(f, &rename_fixture())).join("\n");
     assert!(modal.contains("Enter save · Esc cancel"), "{modal}");
@@ -463,7 +463,7 @@ fn form_controls_render_input_bg_select_checkbox_and_active_tab() {
         focus: FocusArea::Tree,
         preview_text: PREVIEW,
         preview_scroll: 0,
-        notes_text: "(no notes)",
+        foam_text: "(no foam)",
         review_text: "Select a session.",
         orch_graph: &graph,
         graph_view: None,
@@ -549,7 +549,7 @@ fn golden_screens() {
             ("spawn-modal", render_spawn_modal(w, h)),
             ("rename-modal", render(w, h, |f| draw_rename_modal(f, &rename_fixture()))),
             ("settings", render_app(w, h, AppTab::Settings, SideTab::Preview)),
-            ("fleet-notes", render_app(w, h, AppTab::Fleet, SideTab::Notes)),
+            ("fleet-foam", render_app(w, h, AppTab::Fleet, SideTab::Foam)),
             ("fleet-review", render_app(w, h, AppTab::Fleet, SideTab::Review)),
             ("projects", render_app(w, h, AppTab::Projects, SideTab::Preview)),
             ("sessions", render_app(w, h, AppTab::Sessions, SideTab::Preview)),

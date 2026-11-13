@@ -82,7 +82,7 @@ pub(crate) enum FocusArea {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SideTab {
     Preview,
-    Notes,
+    Foam,
     Review,
     OrchGraph,
 }
@@ -90,8 +90,8 @@ pub(crate) enum SideTab {
 impl SideTab {
     pub(crate) fn next(self) -> Self {
         match self {
-            SideTab::Preview => SideTab::Notes,
-            SideTab::Notes => SideTab::Review,
+            SideTab::Preview => SideTab::Foam,
+            SideTab::Foam => SideTab::Review,
             SideTab::Review => SideTab::OrchGraph,
             SideTab::OrchGraph => SideTab::Preview,
         }
@@ -100,7 +100,7 @@ impl SideTab {
     pub(crate) fn label(self) -> &'static str {
         match self {
             SideTab::Preview => "Preview",
-            SideTab::Notes => "Notes",
+            SideTab::Foam => "Foam",
             SideTab::Review => "Review",
             SideTab::OrchGraph => "Orch graph",
         }
@@ -151,10 +151,10 @@ pub(crate) fn scroll_preview(cur: usize, delta: isize, total: usize, view: u16) 
     cur.saturating_add_signed(delta).min(total.saturating_sub(view as usize))
 }
 
-pub(crate) fn sidecar_plain_body(tab: SideTab, notes: &str, review: &str, orch_graph: &str) -> String {
+pub(crate) fn sidecar_plain_body(tab: SideTab, foam: &str, review: &str, orch_graph: &str) -> String {
     match tab {
         SideTab::Preview => String::new(),
-        SideTab::Notes => notes.to_string(),
+        SideTab::Foam => foam.to_string(),
         SideTab::Review => review.to_string(),
         SideTab::OrchGraph => orch_graph.to_string(),
     }
@@ -178,7 +178,7 @@ pub(crate) struct DrawState<'a> {
     pub(crate) focus: FocusArea,
     pub(crate) preview_text: &'a str,
     pub(crate) preview_scroll: usize,
-    pub(crate) notes_text: &'a str,
+    pub(crate) foam_text: &'a str,
     pub(crate) review_text: &'a str,
     pub(crate) orch_graph: &'a OrchGraphView,
     /// Full-screen Graph view open, with the selected node (navigation order).
@@ -614,7 +614,7 @@ pub(crate) fn draw_sidecar(
     let tabs = Line::from(
         [
             SideTab::Preview,
-            SideTab::Notes,
+            SideTab::Foam,
             SideTab::Review,
             SideTab::OrchGraph,
         ]
@@ -678,7 +678,7 @@ pub(crate) fn draw_sidecar(
     } else {
         Paragraph::new(sidecar_plain_body(
             state.side_tab,
-            state.notes_text,
+            state.foam_text,
             state.review_text,
             &state.orch_graph.text,
         ))
@@ -829,7 +829,7 @@ mod tests {
 
     #[test]
     fn side_tab_cycles() {
-        assert_eq!(SideTab::Preview.next(), SideTab::Notes);
+        assert_eq!(SideTab::Preview.next(), SideTab::Foam);
         assert_eq!(SideTab::Review.next(), SideTab::OrchGraph);
         assert_eq!(SideTab::OrchGraph.next(), SideTab::Preview);
     }

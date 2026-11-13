@@ -5,6 +5,7 @@ mod agents_util;
 mod client_name;
 mod daemon;
 mod diff;
+mod foam;
 mod notes;
 mod issue_ref;
 mod msg;
@@ -62,6 +63,9 @@ pub use session::{
 pub use tailnet_api::{
     check_tailnet_token, decode_path_segment, dispatch_tailnet_request, resolve_tailnet_bind_ip,
     LiveTailnetBackend, TailnetApiBackend, TailnetResponse, TAILNET_TOKEN_HEADER,
+};
+pub use foam::{
+    list_foam, resolve_foam_root, resolve_project_root, FoamListing, FOAM_DIR, FOAM_LIST_CAP,
 };
 pub use notes::{ensure_note_file, note_refs_for_projects, resolve_note_path, NoteRef};
 pub use orch_graph_layout::{

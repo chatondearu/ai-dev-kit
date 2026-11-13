@@ -1157,7 +1157,8 @@ pub(crate) fn open_foam_in_sidecar(cwd: &str, raw: &str) -> FoamOpen {
 /// Apply a preview-capture deep-link once per distinct foam path.
 ///
 /// Context source: pane preview text (last `foam/...` token). Returns true when
-/// Foam tab state changed.
+/// Foam tab state changed. Callers should invoke only while the Foam tab is
+/// visible (#294) — Preview-first open must not walk foam for deep-link.
 pub(crate) fn apply_foam_deep_link_from_preview(
     cwd: &str,
     preview: &str,

@@ -102,19 +102,35 @@ pub fn shell_single_quote(s: &str) -> String {
     }
 }
 
-/// Build the pane launch command; opencode takes `--prompt`, others paste after spawn.
-/// Returns `(command, paste_prompt_after)`.
-pub fn with_first_prompt(command: &str, client: &str, prompt: Option<&str>) -> (String, bool) {
-    let Some(text) = prompt.map(str::trim).filter(|s| !s.is_empty()) else {
+/// Build the pane launch command. Product clients read the first prompt from
+/// `prompt_file` on their command line (opencode `--prompt`, others positional);
+/// the typed command stays short because a tty in canonical mode keeps only
+/// ~1 KB of pending input (macOS), which truncated long pasted prompts.
+/// Other clients, or no file: paste after spawn. Returns `(command, paste_prompt_after)`.
+pub fn with_first_prompt(
+    command: &str,
+    client: &str,
+    prompt: Option<&str>,
+    prompt_file: Option<&Path>,
+) -> (String, bool) {
+    if prompt.map(str::trim).filter(|s| !s.is_empty()).is_none() {
         return (command.to_string(), false);
-    };
-    match normalize_client_name(client) {
-        "opencode" => (
-            format!("{command} --prompt {}", shell_single_quote(text)),
-            false,
-        ),
+    }
+    let arg = |file: &Path| format!("\"$(cat {})\"", shell_single_quote(&file.to_string_lossy()));
+    match (normalize_client_name(client), prompt_file) {
+        ("opencode", Some(f)) => (format!("{command} --prompt {}", arg(f)), false),
+        ("claude" | "cursor" | "codex", Some(f)) => (format!("{command} {}", arg(f)), false),
         _ => (command.to_string(), true),
     }
+}
+
+/// Write the first prompt under `$CDAMUX_HOME/prompts/<host>.md`; `None` when no home.
+fn write_first_prompt(host: &str, prompt: &str) -> Option<PathBuf> {
+    let dir = cdamux_state_dir("prompts")?;
+    std::fs::create_dir_all(&dir).ok()?;
+    let file = dir.join(format!("{host}.md"));
+    std::fs::write(&file, prompt.trim()).ok()?;
+    Some(file)
 }
 
 fn sanitize_worker_name(name: &str) -> Result<String, WorkerError> {
@@ -340,7 +356,6 @@ pub fn spawn_worker(req: WorkerSpawnRequest<'_>) -> Result<WorkerSpawnResult, Wo
     };
 
     let base_cmd = resolve_agent_command(req.agents, &client)?;
-    let (launch_cmd, paste_after) = with_first_prompt(&base_cmd, &client, Some(&prompt));
 
     let session_base = if req.here {
         session_name_for_path(&spawn_path)
@@ -348,6 +363,9 @@ pub fn spawn_worker(req: WorkerSpawnRequest<'_>) -> Result<WorkerSpawnResult, Wo
         slug_session(&name)
     };
     let host = unique_session_name(&session_base);
+    let prompt_file = write_first_prompt(&host, &prompt);
+    let (launch_cmd, paste_after) =
+        with_first_prompt(&base_cmd, &client, Some(&prompt), prompt_file.as_deref());
 
     let extra = SpawnExtra {
         role: Some("worker"),
@@ -387,25 +405,31 @@ mod tests {
     use super::*;
 
     #[test]
-    fn opencode_uses_prompt_flag() {
-        let (cmd, paste) = with_first_prompt("opencode", "opencode", Some("go"));
+    fn first_prompt_read_from_file_on_the_command_line() {
+        let f = Path::new("/st/prompts/w1.md");
+        let (cmd, paste) = with_first_prompt("opencode", "opencode", Some("go"), Some(f));
         assert!(!paste);
-        assert_eq!(cmd, "opencode --prompt go");
-        let (cmd, paste) = with_first_prompt("opencode", "opencode", Some("do the thing"));
+        assert_eq!(cmd, "opencode --prompt \"$(cat /st/prompts/w1.md)\"");
+        let (cmd, paste) = with_first_prompt("claude --x", "claude", Some("hi"), Some(f));
         assert!(!paste);
-        assert_eq!(cmd, "opencode --prompt 'do the thing'");
-        let (cmd, paste) = with_first_prompt("claude", "claude", Some("hi"));
+        assert_eq!(cmd, "claude --x \"$(cat /st/prompts/w1.md)\"");
+        // No file (no CDAMUX_HOME) or an unknown client: paste after spawn.
+        let (cmd, paste) = with_first_prompt("claude", "claude", Some("hi"), None);
         assert_eq!(cmd, "claude");
         assert!(paste);
-        let (cmd, paste) = with_first_prompt("opencode", "opencode", None);
+        let (cmd, paste) = with_first_prompt("aider", "aider", Some("hi"), Some(f));
+        assert_eq!(cmd, "aider");
+        assert!(paste);
+        let (cmd, paste) = with_first_prompt("opencode", "opencode", None, Some(f));
         assert_eq!(cmd, "opencode");
         assert!(!paste);
     }
 
     #[test]
-    fn opencode_prompt_escapes_quotes() {
-        let (cmd, _) = with_first_prompt("opencode", "opencode", Some("it's fine"));
-        assert_eq!(cmd, "opencode --prompt 'it'\\''s fine'");
+    fn prompt_file_path_is_quoted() {
+        let f = Path::new("/st/it's dir/w1.md");
+        let (cmd, _) = with_first_prompt("opencode", "opencode", Some("go"), Some(f));
+        assert_eq!(cmd, "opencode --prompt \"$(cat '/st/it'\\''s dir/w1.md')\"");
     }
 
     #[test]

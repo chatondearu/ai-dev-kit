@@ -29,7 +29,7 @@ When `CDA_GRAPHIFY=1` and `graphify-out/graph.json` exists, read `graphify-out/G
     *   A `Makefile` target such as `make check` / `make test` / `make lint`.
     *   An npm/pnpm/yarn script (`package.json` → `preflight`, `check`, `test`, `lint`).
     *   A language-native runner (`cargo test`, `pytest`, `go test ./...`, etc.).
-    *   If the repo root has a `flake.nix` or `.envrc` (direnv), wrap the command with `nix develop -c …` per the `nix-develop-shell` skill.
+    *   For project toolchain commands, follow **nix-develop-shell** (host/direnv first; `nix develop -c` only as fallback — never wrap `git`/`gh`/system tools).
 
     If no verification command is discoverable, skip this step and note it in the review.
 3.  **Context**: Read the PR description and any existing comments to understand the goal and history.

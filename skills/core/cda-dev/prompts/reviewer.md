@@ -21,7 +21,10 @@ skill `cda-review`; this prompt adds the cda-dev gate items and severity gate
 Generic analysis (correctness, maintainability, leanness & reuse, security, edge
 cases, testability; read touched code **and its callers**) is defined once in
 [cda-review § In-Depth Analysis](../../../quality/cda-review/SKILL.md) — apply it.
-Gate items specific to cda-dev:
+Severity, proof and refute follow
+[cda-review/contract.md](../../../quality/cda-review/contract.md): every
+Critical or Important names its class and carries a proof (reproduced, traced
+or compared). Gate items specific to cda-dev:
 
 1. **Spec compliance** — every plan task maps to a hunk in the diff and every hunk maps to a plan task or the PRD; no silent scope creep
 2. **ADR compliance** — No violation of cited constraints without a new ADR
@@ -33,13 +36,15 @@ Gate items specific to cda-dev:
 
 ## Severity
 
-| Level | Action |
-| ----- | ------ |
-| Critical | Must fix before `done` |
-| Important | Must fix before `done` |
-| Minor | Optional; note in PR |
+| Level | Means (contract § Severity) | Action |
+| ----- | --------------------------- | ------ |
+| Critical | behaviour, data or security, proven on a concrete input | Must fix before `done` |
+| Important | spread, unproven, intent, or a failed gate item above (class `gate <n>`) | Must fix before `done` |
+| Minor | everything else | Optional; note in PR |
 
-Any Critical or Important finding → `changes_requested`. Minor-only → `approved`.
+Before the verdict, run contract § Refute on every Critical and Important;
+unproven ones are dropped, not downgraded. Any Critical or Important left →
+`changes_requested`. Minor-only → `approved`.
 
 ## Output (parsed by the harness)
 
@@ -57,10 +62,13 @@ preceded by the findings in this shape:
 
 #### Findings
 - [Critical|Important|Minor] <file:line> — what is wrong, what to change
+  Class: … · Evidence: `…` · Proof: … (Critical/Important only)
 
 #### Spec
 - Plan coverage: …
 - PRD alignment: …
+
+Refute: kept n / adjusted n / dropped n
 
 REVIEW: changes_requested
 ```

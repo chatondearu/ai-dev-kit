@@ -95,3 +95,9 @@ lazy worker is caught by nobody before the operator opens the PR.
   tail of `.orch/verifier-fail` is appended to the next iteration's prompt.
   `pr-fix` checks the PR (fork, head = default branch, unreadable metadata →
   `blocked`) before any worktree or checkout of its code.
+- **2026-11-13**: severity is graded by materiality and every Critical or
+  Important carries a proof (reproduced, traced or compared), then goes
+  through a refute pass where unproven findings are dropped
+  ([cda-review/contract.md](../../skills/quality/cda-review/contract.md),
+  adapted from the beamy-factory review contract). Levels, the verdict line
+  and the one-fix-iteration loop are unchanged.

@@ -10,6 +10,8 @@ description:
 
 This skill guides the agent in conducting professional and thorough code reviews for both local development and remote Pull Requests.
 
+Severity, proof and refute follow [contract.md](contract.md): read it before step 3. A finding without proof is not a finding.
+
 When `CDA_GRAPHIFY=1` and `graphify-out/graph.json` exists, read `graphify-out/GRAPH_REPORT.md` (or query the graph) before grepping or reading files.
 
 ## Workflow
@@ -32,7 +34,7 @@ When `CDA_GRAPHIFY=1` and `graphify-out/graph.json` exists, read `graphify-out/G
     *   For project toolchain commands, follow **nix-develop-shell** (host/Mise/direnv bare; `nix develop -c` only after command-not-found, once per batch — never wrap `git`/`gh`/system tools or every command).
 
     If no verification command is discoverable, skip this step and note it in the review.
-3.  **Context**: Read the PR description and any existing comments to understand the goal and history.
+3.  **Context**: Read the PR description, linked issue/plan and any existing comments: that is the **stated intent** every hunk must serve (contract § intent).
 
 #### For Local Changes:
 1.  **Identify Changes**:
@@ -41,7 +43,7 @@ When `CDA_GRAPHIFY=1` and `graphify-out/graph.json` exists, read `graphify-out/G
 2.  **Preflight (Optional)**: If the changes are substantial, ask the user if they want to run the project's verification suite (detected as in the Remote PR flow above) before reviewing. **Unattended (cda-dev worker):** run the preflight unconditionally, do not prompt to switch branches; ask nothing.
 
 ### 3. In-Depth Analysis
-Analyze the code changes based on the following pillars:
+The pillars below say **where to look**. What you report, and at which severity, follows [contract.md](contract.md): a Critical or Important carries a class and a proof (reproduced, traced or compared).
 
 *   **Correctness**: Does the code achieve its stated purpose without bugs or logical errors?
 *   **Maintainability**: Is the code clean, well-structured, and easy to understand and modify in the future? Check: names say what things do, no function does two jobs, existing repo patterns are followed.
@@ -52,20 +54,22 @@ Analyze the code changes based on the following pillars:
 *   **Testability**: Does each new or changed branch have a test that fails without it (even if preflight passes)? Suggest additional test cases that would improve coverage or robustness.
 *   **Leanness & reuse** (KISS lens): Could this fully work with less code? Does it reinvent a helper, component, service or pattern that already exists in the repo — or something the standard library, the platform, or an already-installed dependency provides? Flag unrequested abstractions, options, wrappers and "for later" code. **Read beyond the diff**: open the code the change touches *and its callers* — the worst finding is often an untouched file that now breaks. State each finding as: what the code does, what goes wrong, the fix, and the cost of skipping it. Never label removing validation, security, accessibility or error handling as "leaner".
 
-### 4. Provide Feedback
+### 4. Refute
+Before any verdict, run contract § Refute on every Critical and Important: in a fresh sub-agent (findings + contract only) when the host can start one, otherwise yourself, file re-opened. Unproven findings are dropped, not downgraded.
+
+### 5. Provide Feedback
 
 #### Structure
-*   **Summary**: A high-level overview of the review.
-*   **Findings**:
-    *   **Critical**: Bugs, security issues, or breaking changes.
-    *   **Improvements**: Suggestions for better code quality or performance.
-    *   **Nitpicks**: Formatting or minor style issues (optional).
-*   **Conclusion**: Clear recommendation (Approved / Request Changes).
+*   **Summary**: What the change does, what blocks, what must happen to pass (2-4 sentences).
+*   **Intent**: ok / missing / mismatch — one line.
+*   **Findings**: Critical, then Important, then Minor, in the contract's finding format.
+*   **Checks**: preflight commands and results, or "not run".
+*   **Refute**: kept / adjusted / dropped counts.
+*   **Conclusion**: Request Changes iff a Critical or Important survived the refute; otherwise Approved (Minors listed).
 
 #### Tone
-*   Be constructive, professional, and friendly.
+*   Plain and factual: what the code does, what goes wrong, the fix. No praise, no hedging.
 *   Explain *why* a change is requested.
-*   For approvals, acknowledge the specific value of the contribution.
 
-### 5. Cleanup (Remote PRs only)
+### 6. Cleanup (Remote PRs only)
 *   After the review, ask the user if they want to switch back to the default branch (e.g., `main` or `master`) (skip when running as a cda-dev worker; see Local preflight above).

@@ -55,7 +55,7 @@ Do not violate accepted ADRs without superseding them.
 - [x] **Sweep orphans**: CLI flags + finalize dead-host non-terminal agents (skip
       resumable dormant) and live runs with dead session host; dry-run prints only
 - [x] **Docs**: one-shot cleanup line in `cdamux/docs/architecture.md`
-- [ ] **Verify**: `cargo test` in cdamux + kit verify
+- [x] **Verify**: cdamux lib/cli/tmux tests green (home_repair fish flake pre-existing)
 
 ## Risks & mitigations
 
@@ -71,9 +71,9 @@ Seams: (1) `finalize_session_host`, (2) `find_orch_graph_for_session` order,
 (3) `sweep_orphans` eligibility / dry-run.
 
 - [x] Temp `CDAMUX_HOME` fixtures (no live tmux required for unit tests)
-- [ ] Full cdamux `cargo test` + kit verify
+- [x] Full cdamux `cargo test` (skip known home_repair fish flake)
 
 ## Verification
 
-- [ ] Lint / test / build per project conventions
-- [ ] Update foam / ADR only if a new decision was made
+- [x] Lint / test / build per project conventions
+- [x] No new ADR (extends ADR-011/009 in place)

@@ -61,9 +61,10 @@ fn spawn_ls_peek_and_msg_by_name() {
         format!("#!/bin/sh\nexec {real_tmux} -L {SOCKET} -f /dev/null \"$@\"\n"),
     )
     .unwrap();
-    // Stub agent CLI: keep the pane alive so peek / msg paste work.
+    // Stub agent CLI: print its args (the first prompt arrives on the command
+    // line) and keep the pane alive so peek / msg paste work.
     let stub = bin.join("claude");
-    std::fs::write(&stub, "#!/bin/sh\nexec sleep 30\n").unwrap();
+    std::fs::write(&stub, "#!/bin/sh\nprintf '%s\\n' \"$@\"\nexec sleep 30\n").unwrap();
     use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o755)).unwrap();
     std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();

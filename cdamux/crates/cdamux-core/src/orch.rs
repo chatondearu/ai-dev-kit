@@ -65,7 +65,7 @@ pub fn spawn_orchestrator(req: OrchNewRequest<'_>) -> Result<OrchNewResult, Orch
     let run = generate_run_id().ok_or(OrchError::NoRunId)?;
     let base_cmd = resolve_agent_command(req.agents, &client)?;
     let (launch_cmd, paste_after) =
-        with_first_prompt(&base_cmd, &client, Some(orch_boot_prompt()));
+        with_first_prompt(&base_cmd, &client, Some(orch_boot_prompt()), None);
 
     let host = unique_session_name(&session_name_for_path(req.path));
     let extra = SpawnExtra {

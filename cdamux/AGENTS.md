@@ -43,7 +43,11 @@ cargo run -p cdamux-cli -- doctor
 
 Golden TUI snapshots live in `crates/cdamux-cli/tests/snapshots/`; after an intended render change run `CDAMUX_UPDATE_SNAPSHOTS=1 cargo test` and commit the diff.
 
-Use `nix develop` at ai-dev-kit root if Rust toolchain comes from the flake.
+**Toolchain (ADR-013 / nix-develop-shell):** run `cargo` on host PATH, activated
+Mise, or `mise exec -- …` from the kit root (`mise.toml`). Do **not** wrap
+routine build/test in `nix develop -c` — that saturates disk. Only after a real
+`command not found` / wrong version may you use one outer
+`mise exec` / `mise run`, or as last resort one `nix develop -c` batch.
 
 ## Testing against tmux
 

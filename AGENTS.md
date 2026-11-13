@@ -65,11 +65,15 @@ Cursor rule (if present): `.cursor/rules/product-memory.mdc`.
 
 ## Stack — Infrastructure / Nix
 
-- Project toolchain: host / activated Mise PATH first, `nix develop -c` only as
-  fallback (**nix-develop-shell**, [[foam/decisions/ADR-013-mise-alongside-nix-devshell|ADR-013]]).
-  Never wrap `git`/`gh`/OS tools just because a `flake.nix` exists. Optional
-  Mise may pin Node/Rust; keep the flake for packages, modules, and `devShell`
-  fallback. Prefer `mise activate` / one `mise run` — not shims.
+- **Default: no `nix develop`.** Host / activated Mise / direnv PATH first;
+  `nix develop -c` only after real `command not found` / wrong version, and at
+  most **once per batch** (**nix-develop-shell**,
+  [[foam/decisions/ADR-013-mise-alongside-nix-devshell|ADR-013]]). Never wrap
+  `git`/`gh`/OS tools because a `flake.nix` exists. Never open a fresh develop
+  for every `cargo`/`node`/`verify` call — that saturates disk under parallel
+  agents. Optional Mise may pin Node/Rust; keep the flake for packages,
+  modules, and hermetic `devShell` fallback. Prefer `mise activate` / one
+  `mise run` — not shims.
 - New projects: **nix-direnv-setup** for flake + direnv scaffold.
 - Deployment / hosting decisions → ADR in `foam/decisions/`.
 
@@ -95,20 +99,23 @@ Experimental opt-in companion: `aitools/` (`cda.aitools` Nix modules, ADR-003).
 Never enabled by `install.sh`. Relocatable root: `CDA_AITOOLS_HOME`.
 
 **Verify (run before every PR):** host PATH first; optional Mise pins for
-Node/Rust (`mise.toml`); then `nix develop` fallback. Prefer `mise activate`
-(or direnv+mise) so tools are real binaries — **not** Mise shims. One outer
-`mise run verify` / `mise exec -- bash scripts/verify.sh` when pins are needed.
+Node/Rust (`mise.toml`); `nix develop` only if toolchain binaries are missing.
+Prefer `mise activate` (or direnv+mise) so tools are real binaries — **not**
+Mise shims. One outer `mise run verify` when pins are needed — never
+`nix develop` around every subcommand.
 
 ```bash
 bash scripts/verify.sh
 # optional Mise pins (after `mise install`; activate or one outer run/exec):
 # mise run verify
-# fallback if cargo/jq/node/… missing:
+# last resort if cargo/jq/node/… missing on host/Mise:
 nix develop -c bash scripts/verify.sh
 ```
 
 **Gotchas**
 
+- **Disk / I/O:** do not wrap routine agent commands in `nix develop -c`. See
+  Stack — Infrastructure / Nix and skill **nix-develop-shell**.
 - Never run `install.sh` against the real user config from a test or a worker:
   override `HOME`, `CLAUDE_CONFIG_DIR`, `CURSOR_HOME`, `XDG_CONFIG_HOME` with temp dirs.
 - The live Claude config on the maintainer's machine is `CLAUDE_CONFIG_DIR=/cda/.claude`.
@@ -126,4 +133,4 @@ nix develop -c bash scripts/verify.sh
   (or `ORCH_ALLOW_NO_CHECKS=1`). Poll live worker state under `$CDAMUX_HOME/runs/`
   (and agents); `.orch/run/` keeps work artefacts only.
 
-verify: bash scripts/verify.sh (or mise run verify; or nix develop -c bash scripts/verify.sh)
+verify: bash scripts/verify.sh (or mise run verify; nix develop only if toolchain missing)

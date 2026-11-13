@@ -3,4 +3,4 @@
 
 - Web: Vue/Nuxt conventions (see web overlay).
 - API: document contracts and `doc/` (see api overlay).
-- Infra: host/direnv first, `nix develop -c` fallback (see infra overlay).
+- Infra: host/Mise/direnv bare; `nix develop` last resort (see infra overlay).

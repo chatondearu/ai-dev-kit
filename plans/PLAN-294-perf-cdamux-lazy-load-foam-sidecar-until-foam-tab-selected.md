@@ -37,10 +37,10 @@ transition into Foam). Keep preview/tmux capture on Preview interval as today.
 
 ## Tasks
 
-- [ ] Defer foam list/preview until Foam tab active
-- [ ] Deep-link: run when entering Foam and/or while Foam visible — one rule
-- [ ] Tests: Preview open does not require foam fixtures; Foam tab still works
-- [ ] Update snapshots if needed
+- [x] Defer foam list/preview until Foam tab active
+- [x] Deep-link: run when entering Foam and/or while Foam visible — one rule
+- [x] Tests: Preview open does not require foam fixtures; Foam tab still works
+- [x] Update snapshots if needed (unchanged — Preview default path)
 
 ## Risks & mitigations
 

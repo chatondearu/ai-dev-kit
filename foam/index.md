@@ -49,6 +49,7 @@ Index: [[decisions/index|All ADRs]]
 
 | PRD | Status |
 | --- | ------ |
+| [[../prd/PRD-265-cdamux-foam-browser|PRD-265-cdamux-foam-browser]] | approved |
 | [[../prd/PRD-239-orchestrator-session|PRD-239]] orchestrator session (unified state; slice 4 last: [[../plans/PLAN-257-cdamux-fleet-orch-ui|PLAN-257]], [[../plans/PLAN-258-cdamux-orch-restore|PLAN-258]], [[../plans/PLAN-259-cdamux-state-gc|PLAN-259]]) | shipped |
 | [[../prd/PRD-33-cda-aitools|PRD-33]] cda.aitools companion | shipped |
 | [[../prd/PRD-25-kiss-audit-orch-gh-board|PRD-25]] kiss-audit orch+gh-board | shipped |
@@ -61,6 +62,7 @@ Index: [[decisions/index|All ADRs]]
 | [[../prd/PRD-129-kiss-audit-2026-11-03|PRD-129]] kiss-audit 2026-11-03 fixes (plan: [[archive/plans/PLAN-129-kiss-audit-2026-11-03|PLAN-129]]) | shipped |
 | [[../prd/PRD-155-cdamux-agent-map-ux|PRD-155]] cdamux agent map UX (plan: [[archive/plans/PLAN-155-cdamux-agent-map-ux|PLAN-155]]) | shipped |
 | [[../prd/PRD-195-cdamux-session-resume|PRD-195]] cdamux session resume (plan: [[../plans/PLAN-195-cdamux-session-resume|PLAN-195]]) | approved |
+| [[../prd/PRD-265-cdamux-foam-browser|PRD-265]] cdamux Foam browser replaces Notes (plans: [[../plans/PLAN-266-docs-foam-record-adr-foam-browser-replaces-notes-sidecar|PLAN-266]], [[../plans/PLAN-267-feat-cdamux-resolve-foam-and-replace-notes-tab-with-foam-bro|PLAN-267]], [[../plans/PLAN-268-feat-cdamux-render-selected-foam-markdown-in-sidecar|PLAN-268]], [[../plans/PLAN-269-feat-cdamux-deep-link-foam-paths-into-foam-tab|PLAN-269]]) | approved |
 
 - PRD template: `prd/template.md`
 - Plan template: `plans/template.md`

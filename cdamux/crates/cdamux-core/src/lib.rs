@@ -47,7 +47,7 @@ pub use project_tree::{
     ProjectTreeNode,
 };
 pub use session_links::{
-    session_forest, tail_lines, ChildKind, ChildRow, PreviewSource, SessionForest,
+    session_forest, tail_lines, tree_roots, ChildKind, ChildRow, PreviewSource, SessionForest,
 };
 pub use subagent_ledger::{session_subagents, subagent_ledger_path, transcript_tail};
 pub use session_chrome::{session_agent_label, SessionChrome, AGENT_LABEL_MISSING};

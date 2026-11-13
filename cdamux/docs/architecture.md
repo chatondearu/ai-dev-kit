@@ -126,7 +126,8 @@ Requires `$CDAMUX_AGENT_ID` (caller must be an orchestrator session).
   prefixes the first message with `cdamux/prompts/worker-preamble.md` (report via
   `cdamux msg`); `--prompt-file` content is appended. opencode's first message uses
   `--prompt`; other clients get a pane paste after launch.
-- `cdamux worker ls` — workers whose `parent` is the caller.
+- `cdamux worker ls` — workers whose `parent` is the caller; a worker whose host is not a live
+  tmux session shows `dormant` instead of its stored status.
 - `cdamux worker peek <name> [--lines N]` — last N pane lines.
 
 Opt-in hooks (`--cdamux-hooks`) inject an unread digest on turn-end (Claude `Stop`
@@ -158,8 +159,11 @@ See `config/cdamux.example.toml`. Highlights:
 - **Session links** — spawn sets `@cdamux_role` (`agent`/`shell`/`orchestrator`/`worker`);
   fork also sets `@cdamux_parent` (source session). `@cdamux_run` carries an orch run id.
   All three come from the one `list-sessions -F` call. Fleet nests a session under its
-  parent in the same project (any depth, `l`/`→` expands, `h`/`←` collapses); a dead parent
-  or a parent cycle leaves it at the top of its project. `role=orchestrator` uses glyph
+  parent (any depth, `l`/`→` expands, `h`/`←` collapses); a dead parent
+  or a parent cycle leaves it at the top of its project. A session also joins the project
+  (or web group) of its tree root, so a worker whose worktree sits outside the orchestrator's
+  project (default `$CDAMUX_HOME/worktrees`) still nests under it (`tree_roots`, shared by the
+  Fleet tree and `group_sessions`, which the tailnet web renders). `role=orchestrator` uses glyph
   `◎`. Unread inbox count shows as `✉N`; a worker with an unanswered `ask` shows `?`.
   Fleet composer Enter on a pending-ask row sends `cdamux msg` `kind=answer` (same on the
   tailnet web send form via `"kind":"answer"`). Non-session children (orch workers, CLI
@@ -308,9 +312,10 @@ Operator curl examples: [tailnet-api.md](tailnet-api.md).
 - **Dormant rows** (Fleet): the dashboard caches the registry in `StatusCache`
   (`refresh_registry`: re-read only when the `sessions/` dir mtime moves, no tmux call
   per row). Records with no live tmux session (home excluded) render as dimmed `◌ name
-  dormant · agent cwd` rows (`TreeRow::Dormant`) after the live rows of the project
+  dormant · agent cwd` rows (`TreeRow::Dormant`) nested under the live (or dormant)
+  session they were forked from (`parent`), else after the live rows of the project
   holding their cwd (longest path; non-`project` `group_by` and project-less cwds → the
-  unassigned list); a project with only dormant records keeps its node. Waiting-only
+  unassigned list); the tailnet web lists no dormant rows; a project with only dormant records keeps its node. Waiting-only
   hides them. `Enter` restores the row (`restore_targets` — orch expands to workers),
   `x` twice forgets it (`session_registry::remove`); any other key cancels the pending
   forget.

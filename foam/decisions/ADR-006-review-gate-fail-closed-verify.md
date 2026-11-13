@@ -95,3 +95,8 @@ lazy worker is caught by nobody before the operator opens the PR.
   tail of `.orch/verifier-fail` is appended to the next iteration's prompt.
   `pr-fix` checks the PR (fork, head = default branch, unreadable metadata →
   `blocked`) before any worktree or checkout of its code.
+- **2026-11-13**: a Critical or Important finding carries a proof (a loop
+  that goes red, as in `cda-diagnose` Phase 1, or a trace through every
+  caller) and survives a refute pass, in a fresh sub-agent when the host
+  can start one; unproven findings are dropped. Levels, the verdict line and
+  the one-fix loop are unchanged.

@@ -20,7 +20,8 @@ skill `cda-review`; this prompt adds the cda-dev gate items and severity gate
 
 Generic analysis (correctness, maintainability, leanness & reuse, security, edge
 cases, testability; read touched code **and its callers**) is defined once in
-[cda-review § In-Depth Analysis](../../../quality/cda-review/SKILL.md) — apply it.
+[cda-review § In-Depth Analysis](../../../quality/cda-review/SKILL.md) — apply it,
+including its proof rule and § Refute before the verdict.
 Gate items specific to cda-dev:
 
 1. **Spec compliance** — every plan task maps to a hunk in the diff and every hunk maps to a plan task or the PRD; no silent scope creep
@@ -39,7 +40,7 @@ Gate items specific to cda-dev:
 | Important | Must fix before `done` |
 | Minor | Optional; note in PR |
 
-Any Critical or Important finding → `changes_requested`. Minor-only → `approved`.
+Any Critical or Important finding left after the refute → `changes_requested`. Minor-only → `approved`.
 
 ## Output (parsed by the harness)
 
@@ -61,6 +62,8 @@ preceded by the findings in this shape:
 #### Spec
 - Plan coverage: …
 - PRD alignment: …
+
+Refute: kept n / dropped n
 
 REVIEW: changes_requested
 ```

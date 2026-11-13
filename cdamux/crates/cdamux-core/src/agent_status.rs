@@ -1,8 +1,9 @@
 //! Agent status set, precedence and stickiness (ADR-011 §3).
 //! Reported status wins; pane heuristics apply when none is stored, and
 //! `needs_input` from the pane can still override reported `idle`/`working`
-//! (Cursor has no permission event). `done` / `error` stick until the next
-//! prompt submit (`working`). A quiet `working` pane past the warn threshold
+//! (Cursor has no permission event). `done` / `error` / `blocked` stick until
+//! the next prompt submit (`working`); an `answer` message also clears
+//! `blocked`. A quiet `working` pane past the warn threshold
 //! is shown as `working ⚠` without rewriting state.
 //!
 //! `may_overwrite` is used by JS hooks (`ledger.js`); Rust `state append`/`set`
@@ -32,7 +33,10 @@ pub fn parse_reported_status(raw: &str) -> Option<SessionState> {
 
 /// Sticky statuses that heuristics / idle hooks must not clear.
 pub fn is_sticky(status: SessionState) -> bool {
-    matches!(status, SessionState::Done | SessionState::Error)
+    matches!(
+        status,
+        SessionState::Done | SessionState::Error | SessionState::Blocked
+    )
 }
 
 /// Whether a writer may replace `current` with `next` (stickiness).
@@ -199,8 +203,12 @@ mod tests {
     }
 
     #[test]
-    fn sticky_done_and_error_until_working() {
+    fn sticky_done_error_blocked_until_working() {
         assert!(!may_overwrite(Some(SessionState::Done), SessionState::Idle));
+        // A pending ask survives the asker's turn-end hook.
+        assert!(!may_overwrite(Some(SessionState::Blocked), SessionState::Idle));
+        assert!(!may_overwrite(Some(SessionState::Blocked), SessionState::NeedsInput));
+        assert!(may_overwrite(Some(SessionState::Blocked), SessionState::Working));
         assert!(!may_overwrite(Some(SessionState::Error), SessionState::NeedsInput));
         assert!(may_overwrite(Some(SessionState::Done), SessionState::Working));
         assert!(may_overwrite(Some(SessionState::Idle), SessionState::Working));

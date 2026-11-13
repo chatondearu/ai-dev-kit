@@ -184,6 +184,11 @@ run_status() { printf '%s' "$1" | node "$ST" || fail "status hook exited non-zer
 : > "$CDAMUX_LOG"
 run_status '{"hook_event_name":"Stop"}' >/dev/null
 [ ! -s "$CDAMUX_LOG" ] || fail "sticky done should block idle write"
+# A pending ask (blocked) survives the asker's own turn end; the next prompt clears it below.
+printf '{"id":"a-hook1","status":"blocked"}\n' > "$AF"
+run_status '{"hook_event_name":"Stop"}' >/dev/null
+run_status '{"hook_event_name":"Notification"}' >/dev/null
+[ ! -s "$CDAMUX_LOG" ] || fail "sticky blocked should block idle/needs_input writes"
 out="$(run_status '{"hook_event_name":"beforeSubmitPrompt"}')"
 [ "$out" = '{"continue":true}' ] || fail "cursor beforeSubmitPrompt output, got: $out"
 grep -q 'state append agents a-hook1 {"status":"working"}' "$CDAMUX_LOG" || fail "working not written"

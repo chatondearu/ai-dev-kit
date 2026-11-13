@@ -3,7 +3,7 @@
 // Maps lifecycle events → `cdamux state append agents <id> {"status":…}`.
 // Turn-end / prompt-submit inject an unread inbox digest where the client allows it.
 // Fail-open, local, fast; no-op without CDAMUX_AGENT_ID / @cdamux_id or without
-// `cdamux` on PATH. Stickiness: done/error stay until the next `working`.
+// `cdamux` on PATH. Stickiness: done/error/blocked stay until the next `working`.
 //
 // Cursor: sessionStart/sessionEnd → idle; beforeSubmitPrompt → working when fired
 // (cannot inject context — see docs); stop → idle + followup_message digest.

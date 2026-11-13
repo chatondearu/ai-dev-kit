@@ -152,7 +152,7 @@ See `config/cdamux.example.toml`. Highlights:
   (fail closed). Reported `idle`/`working` still run pane heuristics so Cursor
   (no permission event) can become `needs_input`. Reported `working` with a quiet
   pane past `daemon.working_warn_seconds` (default 600) shows `working ⚠` without
-  rewriting state. `done` / `error` stick until the next prompt submit.
+  rewriting state. `done` / `error` / `blocked` stick until the next prompt submit (an `answer` also clears `blocked`).
 - **Agent tag** — spawn sets `@cdamux_agent` (legacy `@ccmux_agent`); Fleet session rows
   and Preview chrome show that label, or `—` when unset.
 - **Session links** — spawn sets `@cdamux_role` (`agent`/`shell`/`orchestrator`/`worker`);

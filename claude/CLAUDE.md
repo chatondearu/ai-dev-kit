@@ -129,22 +129,18 @@ When `CDA_GRAPHIFY=1` and `<repo>/graphify-out/graph.json` exists:
 
 # Nix development shell (global user rule)
 
-**Default: do not use `nix develop`.** It saturates disk when agents wrap every
-command. Follow skill **nix-develop-shell** (ADR-013):
+Before running project commands (install, build, test, lint, format, scripts, etc.) in a workspace:
 
-1. Run bare on host PATH / direnv / activated Mise first.
-2. Never wrap `git`/`gh`/OS tools just because `flake.nix` exists.
-3. Only after `command not found` (or wrong version) for a **toolchain** binary
-   (`cargo`, `node`, `pnpm`, …): retry **once** with `nix develop -c …`, or one
-   outer `mise exec` / `mise run` when `mise.toml` pins that tool.
-4. Batch toolchain steps in **one** develop/mise wrap — never a fresh develop
-   per small command.
+1. Check if the project root has `flake.nix` or `.envrc` / `.envrc.local` (direnv).
+2. If present, run commands through `nix develop -c <command>` (or confirm direnv already loaded the environment).
+3. Do not assume `pnpm`, `npm`, `node`, `python`, etc. exist on the host PATH outside the dev shell.
 
-```bash
-# Prefer
-bash scripts/verify.sh
-cargo test -p cdamux-cli
+Examples:
 
-# Last resort
-nix develop -c bash scripts/verify.sh
-```
+- `nix develop -c pnpm install`
+- `nix develop -c pnpm test`
+- `nix develop -c bash -c 'export CI=true && pnpm check'`
+
+For compound commands, wrap the full script: `nix develop -c bash -c '...'`.
+
+If a command fails with `command not found`, retry inside `nix develop` before other fixes.

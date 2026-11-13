@@ -192,10 +192,10 @@ fn preview_source_text(row: &ChildRow, max_lines: u32) -> Option<String> {
     }
 }
 
-struct TerminalGuard;
+pub(crate) struct TerminalGuard;
 
 impl TerminalGuard {
-    fn enter() -> io::Result<(Terminal<CrosstermBackend<Stdout>>, Self)> {
+    pub(crate) fn enter() -> io::Result<(Terminal<CrosstermBackend<Stdout>>, Self)> {
         crossterm::terminal::enable_raw_mode()?;
         crossterm::execute!(
             stdout(),

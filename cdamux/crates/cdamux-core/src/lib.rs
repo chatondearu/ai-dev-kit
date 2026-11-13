@@ -23,6 +23,7 @@ mod session;
 mod session_chrome;
 mod session_links;
 mod session_manage;
+mod sidebar;
 pub mod session_registry;
 mod spawn;
 mod state;
@@ -119,6 +120,10 @@ pub use msg::{
     has_pending_ask, inbox_badges, msg_send, nudge_text, read_inbox_all, read_messages, reply_to_ask,
     resolve_agent_id, should_nudge, unread_count, valid_kind, DeliveryMode, Message, MsgError,
     SendOutcome, DEFAULT_NUDGE_QUIET_SECS, MAX_MSG_BYTES,
+};
+pub use sidebar::{
+    client_session, default_client, find_sidebar, focus_main_pane, follow_session, spawn_sidebar,
+    SidebarSide, DEFAULT_SIDEBAR_WIDTH,
 };
 pub use send::{send_to_session, SendError, tmux_has_session};
 pub use session_manage::{

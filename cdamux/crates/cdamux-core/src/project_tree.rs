@@ -2,6 +2,7 @@
 
 use crate::orch_status::project_has_orch_artifacts;
 use crate::session::{EnrichedSession, SessionState};
+use crate::session_links::tree_roots;
 use crate::{
     discover_projects, group_sessions, list_tmux_sessions, GroupBy, GroupedSessions, Project,
     ProjectsConfig,
@@ -80,28 +81,12 @@ pub fn build_project_session_tree_ex(
     }
 
     let projects = discover_projects(projects_cfg);
-    let mut by_project: BTreeMap<String, Vec<EnrichedSession>> = BTreeMap::new();
-    for proj in &projects {
-        by_project.insert(project_key(&proj.path), Vec::new());
-    }
-
     let kept: Vec<String> = keep
         .iter()
         .filter_map(|cwd| project_for_path(&cwd.to_string_lossy(), &projects))
         .map(|p| project_key(&p.path))
         .collect();
-    let mut unassigned = Vec::new();
-    for session in enriched {
-        match project_for_path(&session.path, &projects) {
-            Some(proj) => {
-                by_project
-                    .entry(project_key(&proj.path))
-                    .or_default()
-                    .push(session);
-            }
-            None => unassigned.push(session),
-        }
-    }
+    let (mut by_project, mut unassigned) = assign_to_projects(enriched, &projects);
 
     let nodes = projects
         .into_iter()
@@ -119,6 +104,26 @@ pub fn build_project_session_tree_ex(
     unassigned.sort_by(|a, b| a.name.cmp(&b.name));
 
     ProjectSessionTree { nodes, unassigned }
+}
+
+/// Sessions per project key (every project present) and the unassigned rest. A session
+/// goes where its tree's root sits, so workers in `$CDAMUX_HOME/worktrees` stay under
+/// their orchestrator's project instead of landing outside every project.
+fn assign_to_projects(
+    enriched: Vec<EnrichedSession>,
+    projects: &[Project],
+) -> (BTreeMap<String, Vec<EnrichedSession>>, Vec<EnrichedSession>) {
+    let anchors: Vec<String> = tree_roots(&enriched).into_iter().map(|r| enriched[r].path.clone()).collect();
+    let mut by_project: BTreeMap<String, Vec<EnrichedSession>> =
+        projects.iter().map(|p| (project_key(&p.path), Vec::new())).collect();
+    let mut unassigned = Vec::new();
+    for (session, anchor) in enriched.into_iter().zip(anchors) {
+        match project_for_path(&anchor, projects) {
+            Some(proj) => by_project.entry(project_key(&proj.path)).or_default().push(session),
+            None => unassigned.push(session),
+        }
+    }
+    (by_project, unassigned)
 }
 
 fn tree_from_grouped(grouped: GroupedSessions) -> ProjectSessionTree {
@@ -191,6 +196,24 @@ mod tests {
         ];
         let hit = project_for_path(&inner.to_string_lossy(), &projects).unwrap();
         assert_eq!(hit.name, "repo");
+    }
+
+    #[test]
+    fn worker_outside_every_project_follows_its_orchestrator() {
+        let projects = vec![Project { name: "a".into(), path: PathBuf::from("/src/a"), root_label: "dev".into() }];
+        let s = |name: &str, path: &str, parent: Option<&str>| EnrichedSession {
+            name: name.into(),
+            path: path.into(),
+            parent: parent.map(Into::into),
+            ..Default::default()
+        };
+        let (by_project, unassigned) = assign_to_projects(
+            vec![s("orch", "/src/a", None), s("w", "/home/.cdamux/worktrees/r/w", Some("orch")), s("loner", "/elsewhere", None)],
+            &projects,
+        );
+        let names: Vec<&str> = by_project["/src/a"].iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(names, ["orch", "w"]);
+        assert_eq!(unassigned.len(), 1);
     }
 
     #[test]

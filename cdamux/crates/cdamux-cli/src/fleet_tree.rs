@@ -6,7 +6,7 @@ use cdamux_core::{
     OrchGraphRunSummary, Project, ProjectSessionTree, ProjectTreeNode, SessionForest, SessionState,
 };
 use crate::refresh::StatusCache;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 pub(crate) fn tree_node_key(node: &ProjectTreeNode, group_by: GroupBy) -> String {
@@ -75,9 +75,32 @@ struct Nest<'a> {
     /// CDAMUX agents workers, nested under the row of their run (`CDAMUX agents` `run_id`).
     run_workers: Option<(&'a str, &'a [ChildRow])>,
     project_path: &'a str,
+    /// Restore records of this node (or the unassigned list).
+    dormant: &'a [&'a SessionRecord],
+}
+
+/// Whether the parent chain of `r` ends (no parent, or one that is not a dormant record
+/// here) instead of looping; looping records are listed flat.
+fn dormant_chain_ends(r: &SessionRecord, all: &[&SessionRecord]) -> bool {
+    let mut cur = r;
+    for _ in 0..all.len() {
+        match all.iter().find(|x| Some(x.name.as_str()) == cur.parent.as_deref()) {
+            Some(p) => cur = p,
+            None => return true,
+        }
+    }
+    false
 }
 
 impl Nest<'_> {
+    /// Dormant `r`, then the dormant records forked from it.
+    fn push_dormant(&self, rows: &mut Vec<TreeRow>, r: &SessionRecord, depth: usize) {
+        rows.push(TreeRow::Dormant { record: r.clone(), depth });
+        for k in self.dormant.iter().filter(|k| k.parent.as_deref() == Some(r.name.as_str())) {
+            self.push_dormant(rows, k, depth + 1);
+        }
+    }
+
     /// A row per run of `runs` (its workers, then the sessions of `idxs` tagged with it
     /// via `@cdamux_run`), then the other sessions of `idxs`, all at `depth`.
     fn level(&self, rows: &mut Vec<TreeRow>, idxs: &[usize], runs: &[&OrchGraphRunSummary], depth: usize) {
@@ -111,11 +134,14 @@ impl Nest<'_> {
         let subagents: &[ChildRow] = if self.waiting_only { &[] } else { self.status.subagents(&s.name) };
         let own: Vec<&OrchGraphRunSummary> =
             self.runs.iter().filter(|r| r.session.as_deref() == Some(s.name.as_str())).collect();
+        let dormant_kids: Vec<&SessionRecord> =
+            self.dormant.iter().copied().filter(|r| r.parent.as_deref() == Some(s.name.as_str())).collect();
         let open = !self.expanded.contains(&session_fold_key(&s.name));
         rows.push(TreeRow::Session {
             session: s.clone(),
             depth,
-            expanded: (!kids.is_empty() || !subagents.is_empty() || !own.is_empty()).then_some(open),
+            expanded: (!kids.is_empty() || !subagents.is_empty() || !own.is_empty() || !dormant_kids.is_empty())
+                .then_some(open),
         });
         if open {
             for row in subagents {
@@ -127,15 +153,26 @@ impl Nest<'_> {
                 });
             }
             self.level(rows, kids, &own, depth + 1);
+            for r in dormant_kids {
+                self.push_dormant(rows, r, depth + 1);
+            }
         }
     }
 
-    /// Root sessions, after the runs whose session is not here (headless or gone).
+    /// Root sessions, after the runs whose session is not here (headless or gone), then
+    /// the dormant records not nested under a live session.
     fn push(&self, rows: &mut Vec<TreeRow>) {
         let here = |name: &str| self.sessions.iter().any(|s| s.name == name);
         let headless: Vec<&OrchGraphRunSummary> =
             self.runs.iter().filter(|r| !r.session.as_deref().is_some_and(here)).collect();
         self.level(rows, &self.forest.roots, &headless, 1);
+        for r in self.dormant {
+            if !dormant_chain_ends(r, self.dormant) {
+                rows.push(TreeRow::Dormant { record: (*r).clone(), depth: 1 });
+            } else if !r.parent.as_deref().is_some_and(|p| here(p) || self.dormant.iter().any(|x| x.name == p)) {
+                self.push_dormant(rows, r, 1);
+            }
+        }
     }
 }
 
@@ -155,17 +192,39 @@ pub(crate) fn flatten_tree(
         .chain(&tree.unassigned)
         .map(|s| s.name.as_str())
         .collect();
-    // Dormant records per node (longest project path holding their cwd; Project mode
-    // only), the rest under the unassigned header. Waiting-only shows none.
+    // Dormant records per node. A record goes where its parent chain ends: under a live
+    // session's node, else the node holding the topmost record's cwd (longest project
+    // path; Project mode only), else the unassigned list. Waiting-only shows none.
     let node_projects: Vec<Project> = tree.nodes.iter().map(|n| n.project.clone()).collect();
-    let mut dormant: Vec<Vec<TreeRow>> = vec![Vec::new(); tree.nodes.len() + 1];
+    let live_node: HashMap<&str, usize> = tree
+        .nodes
+        .iter()
+        .enumerate()
+        .flat_map(|(i, n)| n.sessions.iter().map(move |s| (s.name.as_str(), i)))
+        .chain(tree.unassigned.iter().map(|s| (s.name.as_str(), tree.nodes.len())))
+        .collect();
+    let mut dormant: Vec<Vec<&SessionRecord>> = vec![Vec::new(); tree.nodes.len() + 1];
     let records = if waiting_only { &[][..] } else { status.records() };
-    for r in records.iter().filter(|r| !live.contains(r.name.as_str()) && !is_home_session(&r.name)) {
-        let node = project_for_path(&r.cwd.to_string_lossy(), &node_projects)
-            .filter(|_| group_by == GroupBy::Project)
-            .and_then(|p| node_projects.iter().position(|n| n.path == p.path))
-            .unwrap_or(tree.nodes.len());
-        dormant[node].push(TreeRow::Dormant { record: r.clone(), depth: 1 });
+    let candidates: Vec<&SessionRecord> =
+        records.iter().filter(|r| !live.contains(r.name.as_str()) && !is_home_session(&r.name)).collect();
+    for &r in &candidates {
+        let mut top = r;
+        let mut node = None;
+        for _ in 0..=candidates.len() {
+            let parent = top.parent.as_deref();
+            node = parent.and_then(|p| live_node.get(p).copied());
+            match parent.and_then(|p| candidates.iter().find(|x| x.name == p)) {
+                Some(p) if node.is_none() => top = p,
+                _ => break,
+            }
+        }
+        let node = node.unwrap_or_else(|| {
+            project_for_path(&top.cwd.to_string_lossy(), &node_projects)
+                .filter(|_| group_by == GroupBy::Project)
+                .and_then(|p| node_projects.iter().position(|n| n.path == p.path))
+                .unwrap_or(tree.nodes.len())
+        });
+        dormant[node].push(r);
     }
     for (node_idx, node) in tree.nodes.iter().enumerate() {
         let visible: Vec<EnrichedSession> = node
@@ -230,9 +289,9 @@ pub(crate) fn flatten_tree(
                 runs,
                 run_workers,
                 project_path: &project_path,
+                dormant: &dormant[node_idx],
             }
             .push(&mut rows);
-            rows.append(&mut dormant[node_idx]);
         }
     }
     let unassigned: Vec<EnrichedSession> = tree
@@ -241,7 +300,7 @@ pub(crate) fn flatten_tree(
         .filter(|s| session_passes_waiting_filter(s, waiting_only))
         .cloned()
         .collect();
-    let unassigned_dormant = dormant.last_mut().expect("unassigned slot");
+    let unassigned_dormant = dormant.last().expect("unassigned slot");
     if !unassigned.is_empty() || !unassigned_dormant.is_empty() {
         rows.push(TreeRow::UnassignedHeader);
         Nest {
@@ -253,9 +312,9 @@ pub(crate) fn flatten_tree(
             runs: &[],
             run_workers: None,
             project_path: "",
+            dormant: unassigned_dormant,
         }
         .push(&mut rows);
-        rows.append(unassigned_dormant);
     }
     rows
 }
@@ -581,6 +640,39 @@ mod tests {
         // No records: no unassigned header.
         status.insert_records(Vec::new());
         assert_eq!(o(&flatten_tree(&tree, &open, GroupBy::Project, false, &status)), ["0 alpha", "1 alpha-main"]);
+    }
+
+    #[test]
+    fn dormant_agents_nest_under_their_orchestrator() {
+        use crate::test_render::record;
+        let (tree, mut status) = crate::test_render::fixture_dormant();
+        let forked = |name: &str, cwd: &str, parent: &str| SessionRecord {
+            parent: Some(parent.into()),
+            ..record(name, cwd, "claude")
+        };
+        // Workers live in worktrees outside every project; d3/d4 fork each other (cycle).
+        status.insert_records(vec![
+            forked("d1", "/wt/a", "alpha-main"),
+            forked("d2", "/wt/b", "d1"),
+            forked("d3", "/wt/c", "d4"),
+            forked("d4", "/wt/d", "d3"),
+            record("scratch-old", "/tmp/scratch", "claude"),
+        ]);
+        let open: HashSet<String> = ["/src/alpha".to_string()].into_iter().collect();
+        let label = |rows: &[TreeRow]| -> Vec<String> {
+            outline(rows).into_iter().map(|(d, l)| format!("{d} {l}")).collect()
+        };
+        let rows = flatten_tree(&tree, &open, GroupBy::Project, false, &status);
+        assert_eq!(
+            label(&rows),
+            ["0 alpha", "1 alpha-main", "2 dormant d1", "3 dormant d2", "0 unassigned", "1 dormant d3", "1 dormant d4", "1 dormant scratch-old"]
+        );
+        // The orchestrator row folds them away.
+        assert_eq!(shape(&rows)[0], ("alpha-main".into(), 1, Some(true)));
+        let mut exp = open.clone();
+        set_row_fold(&rows, 1, &mut exp, false);
+        let folded = flatten_tree(&tree, &exp, GroupBy::Project, false, &status);
+        assert_eq!(label(&folded)[..3], ["0 alpha", "1 alpha-main", "0 unassigned"]);
     }
 
     #[test]

@@ -186,6 +186,7 @@ fn spawn_ls_peek_and_msg_by_name() {
     let rows = list_workers("a-orch1").unwrap();
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].name, "api");
+    assert_ne!(rows[0].status.as_deref(), Some("dormant"), "live host is not dormant");
 
     let prompt_pane = wait_for_pane(&out.host, "hello-worker-spawn");
     assert!(

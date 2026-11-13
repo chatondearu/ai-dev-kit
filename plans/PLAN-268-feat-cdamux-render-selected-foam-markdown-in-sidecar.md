@@ -61,5 +61,5 @@ rendered lines in the sidecar pane. Plain text fallback if render fails.
 
 ## Verification
 
-- [ ] `nix develop -c bash scripts/verify.sh`
-- [ ] PR `Closes #268`
+- [x] `nix develop -c bash scripts/verify.sh`
+- [x] PR `Closes #268` (#279)

@@ -187,14 +187,23 @@ run_status '{"hook_event_name":"Stop"}' >/dev/null
 # A pending ask (blocked) survives the asker's own turn end; the next prompt clears it below.
 printf '{"id":"a-hook1","status":"blocked"}\n' > "$AF"
 run_status '{"hook_event_name":"Stop"}' >/dev/null
-run_status '{"hook_event_name":"Notification"}' >/dev/null
+run_status '{"hook_event_name":"Notification","notification_type":"permission_prompt","message":"Claude needs your permission to use Bash"}' >/dev/null
 [ ! -s "$CDAMUX_LOG" ] || fail "sticky blocked should block idle/needs_input writes"
 out="$(run_status '{"hook_event_name":"beforeSubmitPrompt"}')"
 [ "$out" = '{"continue":true}' ] || fail "cursor beforeSubmitPrompt output, got: $out"
 grep -q 'state append agents a-hook1 {"status":"working"}' "$CDAMUX_LOG" || fail "working not written"
 [ "$(jq -r .status "$AF")" = working ] || fail "agent file status not working"
-run_status '{"hook_event_name":"Notification"}' >/dev/null
+run_status '{"hook_event_name":"Notification","notification_type":"permission_prompt","message":"Claude needs your permission to use Bash"}' >/dev/null
 [ "$(jq -r .status "$AF")" = needs_input ] || fail "needs_input not sticky-cleared after working"
+# Claude's idle_prompt Notification (~60 s after a turn ends) is not needs_input: an idle
+# agent must stay idle so the orchestrator nudge still fires (msg.rs should_nudge).
+printf '{"id":"a-hook1","status":"idle"}\n' > "$AF"; : > "$CDAMUX_LOG"
+run_status '{"hook_event_name":"Notification","notification_type":"idle_prompt","message":"Claude is waiting for your input"}' >/dev/null
+run_status '{"hook_event_name":"Notification","message":"Claude is waiting for your input"}' >/dev/null
+[ ! -s "$CDAMUX_LOG" ] && [ "$(jq -r .status "$AF")" = idle ] || fail "idle_prompt Notification must not write needs_input"
+# Untyped payload (older clients): only a permission message maps to needs_input.
+run_status '{"hook_event_name":"Notification","message":"Claude needs your permission to use Bash"}' >/dev/null
+[ "$(jq -r .status "$AF")" = needs_input ] || fail "untyped permission Notification not needs_input"
 out="$(run_status '{"hook_event_name":"sessionEnd"}')"
 [ "$out" = '{}' ] || fail "sessionEnd must print {}, got: $out"
 [ "$(jq -r .status "$AF")" = idle ] || fail "sessionEnd did not set idle"

@@ -1,7 +1,8 @@
 //! Worker paste + orch idle nudge on a throwaway tmux server (cdamux/AGENTS.md).
 
 use cdamux_core::{
-    env_lock, msg_send, state_set, DeliveryMode, StateKind, DEFAULT_NUDGE_QUIET_SECS,
+    env_lock, msg_send, read_messages, state_append, state_set, unread_count, DeliveryMode,
+    StateKind,
 };
 use std::process::Command;
 use std::time::{Duration, Instant};
@@ -118,23 +119,58 @@ fn worker_paste_and_orch_nudge() {
     )
     .unwrap();
 
+    // Worker mid-turn: no paste (it would merge with typed input); inbox only.
+    let queued = msg_send(
+        "a-omsg1",
+        "a-wmsg1",
+        "relay",
+        "busy-worker-msg",
+        None,
+        10,
+        Some(Some(15)),
+    )
+    .unwrap();
+    assert_eq!(queued.delivery, DeliveryMode::WorkerPaste);
+    assert!(!queued.pasted);
+    let pane = wait_for_pane("c-worker", "busy-worker-msg");
+    assert!(!pane.contains("busy-worker-msg"), "busy worker got a paste: {pane}");
+    assert_eq!(unread_count("a-wmsg1").unwrap(), 1);
+
+    // Idle + quiet: pasted. The earlier unread line keeps the cursor where it is.
+    state_append(StateKind::Agents, "a-wmsg1", &serde_json::json!({ "status": "idle" }))
+        .unwrap();
     let pasted = msg_send(
         "a-omsg1",
         "a-wmsg1",
         "relay",
         "hello-worker-msg",
         None,
-        DEFAULT_NUDGE_QUIET_SECS,
-        None,
+        10,
+        Some(Some(15)),
     )
     .unwrap();
-    assert_eq!(pasted.delivery, DeliveryMode::WorkerPaste);
     assert!(pasted.pasted);
     let pane = wait_for_pane("c-worker", "hello-worker-msg");
     assert!(
         pane.contains("hello-worker-msg"),
         "worker pane missing paste: {pane}"
     );
+    assert_eq!(unread_count("a-wmsg1").unwrap(), 2);
+
+    // Nothing else unread: the pasted line is acked, so no hook digest repeats it.
+    read_messages("a-wmsg1", true).unwrap();
+    let again = msg_send(
+        "a-omsg1",
+        "a-wmsg1",
+        "relay",
+        "second-worker-msg",
+        None,
+        10,
+        Some(Some(15)),
+    )
+    .unwrap();
+    assert!(again.pasted);
+    assert_eq!(unread_count("a-wmsg1").unwrap(), 0);
 
     // Orch nudge: inject quiet window so we do not depend on window_activity age.
     let nudged = msg_send(
@@ -149,9 +185,9 @@ fn worker_paste_and_orch_nudge() {
     .unwrap();
     assert_eq!(nudged.delivery, DeliveryMode::OrchNudge);
     assert!(nudged.nudged);
-    let orch = wait_for_pane("c-orch", "cdamux msg read");
+    let orch = wait_for_pane("c-orch", "cdamux msg read --ack");
     assert!(
-        orch.contains("cdamux msg read"),
+        orch.contains("cdamux msg read --ack"),
         "orch pane missing nudge: {orch}"
     );
 

@@ -180,6 +180,20 @@ pub fn session_forest(sessions: &[EnrichedSession]) -> SessionForest {
     forest
 }
 
+/// Index of the topmost session of each session's tree (itself for a root). Grouping
+/// uses it so a worker follows its orchestrator even when its cwd (a worktree) falls in
+/// another project; Fleet and the web both go through this one rule.
+pub fn tree_roots(sessions: &[EnrichedSession]) -> Vec<usize> {
+    let forest = session_forest(sessions);
+    let mut root_of = vec![0; sessions.len()];
+    let mut stack: Vec<(usize, usize)> = forest.roots.iter().map(|&r| (r, r)).collect();
+    while let Some((i, root)) = stack.pop() {
+        root_of[i] = root;
+        stack.extend(forest.children[i].iter().map(|&k| (k, root)));
+    }
+    root_of
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -214,6 +228,12 @@ mod tests {
         assert_eq!(f.roots, vec![0, 1]);
         assert_eq!(f.children[0], vec![2]);
         assert!(f.children[1].is_empty());
+    }
+
+    #[test]
+    fn tree_roots_point_at_the_topmost_session() {
+        let s = [sess("w2", Some("w1")), sess("o", None), sess("w1", Some("o")), sess("x", Some("gone"))];
+        assert_eq!(tree_roots(&s), vec![1, 1, 1, 3]);
     }
 
     #[test]

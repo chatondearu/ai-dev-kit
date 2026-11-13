@@ -216,11 +216,16 @@ pub fn enrich_sessions_ex(
 
 pub fn group_sessions(sessions: Vec<EnrichedSession>, group_by: GroupBy) -> GroupedSessions {
     let mut map: BTreeMap<String, Vec<EnrichedSession>> = BTreeMap::new();
-    for s in sessions {
+    // A child session joins its tree root's group (same rule as the Fleet project tree).
+    let keys: Vec<String> = crate::session_links::tree_roots(&sessions)
+        .into_iter()
+        .map(|r| sessions[r].group_key.clone())
+        .collect();
+    for (s, root_key) in sessions.into_iter().zip(keys) {
         let key = if group_by == GroupBy::None {
             String::new()
         } else {
-            s.group_key.clone()
+            root_key
         };
         map.entry(key).or_default().push(s);
     }
@@ -398,6 +403,22 @@ mod tests {
         let enriched = enrich_sessions(&raw, GroupBy::Project, &cfg, 3);
         let grouped = group_sessions(enriched, GroupBy::Project);
         assert_eq!(grouped.groups.len(), 2);
+    }
+
+    #[test]
+    fn child_session_joins_its_orchestrators_group() {
+        let s = |name: &str, key: &str, parent: Option<&str>| EnrichedSession {
+            name: name.into(),
+            group_key: key.into(),
+            parent: parent.map(Into::into),
+            ..Default::default()
+        };
+        let grouped = group_sessions(
+            vec![s("orch", "app", None), s("w", "worktrees", Some("orch")), s("lone", "other", None)],
+            GroupBy::Project,
+        );
+        let keys: Vec<(&str, usize)> = grouped.groups.iter().map(|g| (g.key.as_str(), g.sessions.len())).collect();
+        assert_eq!(keys, [("app", 2), ("other", 1)]);
     }
 
     #[test]

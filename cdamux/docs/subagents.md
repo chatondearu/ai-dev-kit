@@ -49,7 +49,7 @@ No-op without `CDAMUX_AGENT_ID` / `@cdamux_id` or without `cdamux` on `PATH`.
 
 | CLI | Events → status |
 | --- | --------------- |
-| Claude Code | `UserPromptSubmit` → `working`; `Stop` → `idle`; `SessionStart` → `idle` (via `session-start.js`); `Notification` / `PermissionRequest` → `needs_input` |
+| Claude Code | `UserPromptSubmit` → `working`; `Stop` → `idle`; `SessionStart` → `idle` (via `session-start.js`); `PermissionRequest` and `Notification` with `notification_type: permission_prompt` → `needs_input` (`idle_prompt` writes nothing) |
 | Cursor | `beforeSubmitPrompt` → `working`; `sessionStart` / `sessionEnd` → `idle`; `stop` → `idle`; no permission event (pane heuristic). **Print-mode (`cursor-agent -p`) may omit `beforeSubmitPrompt`** — rely on sessionStart/End |
 | Codex | `UserPromptSubmit` → `working`; `Stop` → `idle`; `SessionStart` / `SessionEnd` → `idle`; `PermissionRequest` → `needs_input` (`~/.codex/hooks.json`) |
 | opencode | plugin: main `session.created` / `session.idle` → `idle`; `session.error` → `error` (no prompt-submit event in the plugin API) |

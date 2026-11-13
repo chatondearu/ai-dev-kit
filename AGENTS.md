@@ -94,12 +94,16 @@ see `cdamux/AGENTS.md` and `cdamux/docs/research.md`. Nix package: `nix build .#
 Experimental opt-in companion: `aitools/` (`cda.aitools` Nix modules, ADR-003).
 Never enabled by `install.sh`. Relocatable root: `CDA_AITOOLS_HOME`.
 
-**Verify (run before every PR):** prefer host tools when the verify toolchain is
-already on `PATH`; otherwise `nix develop -c bash scripts/verify.sh`.
+**Verify (run before every PR):** host PATH first; optional Mise pins for
+Node/Rust (`mise.toml`); then `nix develop` fallback. Prefer `mise activate`
+(or direnv+mise) so tools are real binaries — **not** Mise shims. One outer
+`mise run verify` / `mise exec -- bash scripts/verify.sh` when pins are needed.
 
 ```bash
 bash scripts/verify.sh
-# fallback if cargo/jq/… missing:
+# optional Mise pins (after `mise install`; activate or one outer run/exec):
+mise run verify
+# fallback if cargo/jq/node/… missing:
 nix develop -c bash scripts/verify.sh
 ```
 
@@ -122,4 +126,4 @@ nix develop -c bash scripts/verify.sh
   (or `ORCH_ALLOW_NO_CHECKS=1`). Poll live worker state under `$CDAMUX_HOME/runs/`
   (and agents); `.orch/run/` keeps work artefacts only.
 
-verify: bash scripts/verify.sh (or nix develop -c bash scripts/verify.sh)
+verify: bash scripts/verify.sh (or mise run verify; or nix develop -c bash scripts/verify.sh)

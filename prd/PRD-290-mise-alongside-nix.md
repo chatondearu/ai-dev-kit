@@ -16,14 +16,14 @@ before Nix.
 
 ## Goals
 
-- [ ] Root `mise.toml` (+ lock) pins Node and Rust aligned with the current
+- [x] Root `mise.toml` (+ lock) pins Node and Rust aligned with the current
       flake `devShell` (today: Node **24.x**, Rust **1.95** from nixpkgs).
-- [ ] Humans can activate Mise (or direnv+mise); agents must **not** use
+- [x] Humans can activate Mise (or direnv+mise); agents must **not** use
       shim-primary PATH.
-- [ ] Verify runs: host PATH → one outer Mise (`mise exec` / `mise run`) when
+- [x] Verify runs: host PATH → one outer Mise (`mise exec` / `mise run`) when
       present → else `nix develop -c bash scripts/verify.sh`.
-- [ ] `AGENTS.md` / `nix-develop-shell` notes match the ladder.
-- [ ] Flake packages, nix-maid, `cda.aitools`, and `devShells.default` remain.
+- [x] `AGENTS.md` / `nix-develop-shell` notes match the ladder.
+- [x] Flake packages, nix-maid, `cda.aitools`, and `devShells.default` remain.
 
 ## Non-goals
 
@@ -43,12 +43,12 @@ before Nix.
 
 ### Functional
 
-- [ ] `mise.toml` declares Node + Rust (versions ≈ flake shell).
-- [ ] `mise.lock` committed when Mise supports locking for those backends.
-- [ ] Document activate / `mise run` (or equivalent) in operator-facing notes
+- [x] `mise.toml` declares Node + Rust (versions ≈ flake shell).
+- [x] `mise.lock` committed when Mise supports locking for those backends.
+- [x] Document activate / `mise run` (or equivalent) in operator-facing notes
       (`AGENTS.md` and/or short note under `doc/` or skill).
-- [ ] Verify oracle updated: prefer host; optional Mise; Nix fallback.
-- [ ] No change to `install.sh` skill linking or maid modules.
+- [x] Verify oracle updated: prefer host; optional Mise; Nix fallback.
+- [x] No change to `install.sh` skill linking or maid modules.
 
 ### Non-functional
 

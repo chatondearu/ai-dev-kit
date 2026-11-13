@@ -51,6 +51,7 @@ Index: [[decisions/index|All ADRs]]
 
 | PRD | Status |
 | --- | ------ |
+| [[../prd/PRD-290-mise-alongside-nix|PRD-290]] Mise alongside Nix (plan: [[../plans/PLAN-290-feat-kit-add-mise-toml-and-optional-mise-run-verify-adr-013|PLAN-290]]) | approved |
 | [[../prd/PRD-239-orchestrator-session|PRD-239]] orchestrator session (unified state; slice 4 last: [[../plans/PLAN-257-cdamux-fleet-orch-ui|PLAN-257]], [[../plans/PLAN-258-cdamux-orch-restore|PLAN-258]], [[../plans/PLAN-259-cdamux-state-gc|PLAN-259]]) | shipped |
 | [[../prd/PRD-33-cda-aitools|PRD-33]] cda.aitools companion | shipped |
 | [[../prd/PRD-25-kiss-audit-orch-gh-board|PRD-25]] kiss-audit orch+gh-board | shipped |

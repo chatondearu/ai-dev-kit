@@ -1,7 +1,7 @@
 //! Inbox messages under `$CDAMUX_HOME/inbox/` (ADR-011 §4).
 //! JSONL ≤ 2 KB per line; ack cursor is `<agent-id>.cursor` (byte offset).
 
-use crate::agent_status::load_reported_status;
+use crate::agent_status::{load_reported_status, may_overwrite, parse_reported_status};
 use crate::paths::cdamux_state_dir;
 use crate::send::send_to_session;
 use crate::session::SessionState;
@@ -73,6 +73,19 @@ pub struct SendOutcome {
     pub delivery: DeliveryMode,
     pub nudged: bool,
     pub pasted: bool,
+}
+
+impl SendOutcome {
+    /// What happened beyond the inbox append: `pasted`, `nudged` or `queued` (inbox only).
+    pub fn delivery_word(&self) -> &'static str {
+        if self.pasted {
+            "pasted"
+        } else if self.nudged {
+            "nudged"
+        } else {
+            "queued"
+        }
+    }
 }
 
 fn inbox_dir() -> io::Result<PathBuf> {
@@ -214,8 +227,25 @@ pub fn should_nudge(
         && idle_seconds.is_some_and(|s| s >= quiet_secs.max(1))
 }
 
+/// Paste into a worker pane only after a finished turn (`idle`, or sticky `done` /
+/// `error`; no status = no hooks, so the quiet pane alone decides) and the nudge's quiet
+/// window: the paste ends with Enter, so on a busy, a just-active or a permission-prompt
+/// pane it would merge with (and submit) what the user is typing, or answer the prompt.
+/// Otherwise the message stays in the inbox and the status hook's digest delivers it at
+/// the worker's next prompt submit or turn end.
+pub fn should_paste(
+    status: Option<SessionState>,
+    idle_seconds: Option<u32>,
+    quiet_secs: u32,
+) -> bool {
+    matches!(
+        status,
+        None | Some(SessionState::Idle | SessionState::Done | SessionState::Error)
+    ) && idle_seconds.is_some_and(|s| s >= quiet_secs.max(1))
+}
+
 pub fn nudge_text(unread: usize) -> String {
-    format!("📨 {unread} messages — cdamux msg read")
+    format!("📨 {unread} messages — cdamux msg read --ack")
 }
 
 fn read_cursor(path: &Path) -> io::Result<u64> {
@@ -230,8 +260,18 @@ fn write_cursor(path: &Path, offset: u64) -> io::Result<()> {
     write_atomic(path, format!("{offset}\n").as_bytes())
 }
 
+/// Move `agent_id`'s ack cursor from `from` to `to` only when it sits at `from`, so a
+/// pasted line is marked read without skipping older unread lines.
+fn move_cursor_if_at(agent_id: &str, from: u64, to: u64) -> bool {
+    let Ok(path) = cursor_path(agent_id) else {
+        return false;
+    };
+    read_cursor(&path).ok() == Some(from) && write_cursor(&path, to).is_ok()
+}
+
 /// Append one message line (O_APPEND). Rejects lines over [`MAX_MSG_BYTES`].
-pub fn append_message(msg: &Message) -> Result<(), MsgError> {
+/// Returns the byte offset just past the appended line.
+pub fn append_message(msg: &Message) -> Result<u64, MsgError> {
     let line = serde_json::to_string(msg).map_err(|e| MsgError::Io(e.to_string()))?;
     if line.len() > MAX_MSG_BYTES {
         return Err(MsgError::TooLarge);
@@ -243,7 +283,8 @@ pub fn append_message(msg: &Message) -> Result<(), MsgError> {
     let mut f = OpenOptions::new().create(true).append(true).open(&path)?;
     // One write(2) so concurrent O_APPEND senders cannot interleave line and newline.
     f.write_all(format!("{line}\n").as_bytes())?;
-    Ok(())
+    // O_APPEND leaves the fd offset at the end of this write, even with concurrent writers.
+    Ok(f.stream_position()?)
 }
 
 /// Read unread messages after the ack cursor. When `ack`, advance the cursor past the
@@ -381,6 +422,23 @@ fn apply_kind_status(kind: &str, from: &str, to: &str) -> Result<(), MsgError> {
             state_append(StateKind::Agents, from, &json!({ "status": "blocked" }))
                 .map_err(|e| MsgError::Io(e.to_string()))?;
         }
+        "done" | "error" => {
+            // Sticky (agent_status::may_overwrite): orch.sh reports a `blocked` worker as
+            // kind=error, and that `blocked` is kept.
+            let rec =
+                state_get(StateKind::Agents, from).map_err(|e| MsgError::Io(e.to_string()))?;
+            if let Some(v) = rec {
+                let cur = v
+                    .get("status")
+                    .and_then(|s| s.as_str())
+                    .and_then(parse_reported_status);
+                let next = if kind == "done" { SessionState::Done } else { SessionState::Error };
+                if may_overwrite(cur, next) {
+                    state_append(StateKind::Agents, from, &json!({ "status": kind }))
+                        .map_err(|e| MsgError::Io(e.to_string()))?;
+                }
+            }
+        }
         "answer" => {
             // Clear asker blocked → idle only; do not wipe other statuses.
             let blocked = state_get(StateKind::Agents, to)
@@ -438,31 +496,36 @@ pub fn msg_send(
         return Err(MsgError::TooLarge);
     }
 
-    append_message(&msg)?;
+    let end = append_message(&msg)?;
+    let start = end - (line.len() as u64 + 1);
     apply_kind_status(kind, from, &to)?;
 
     let (role, host) = agent_role_and_host(&to)?;
     let delivery = delivery_mode_for_role(&role);
     let mut pasted = false;
     let mut nudged = false;
+    let status = load_reported_status(&to);
+    let idle = match idle_override {
+        Some(v) => v,
+        None => host
+            .as_ref()
+            .and_then(|h| list_panes_all().get(h).and_then(|p| p.idle_seconds)),
+    };
 
     // Inbox append is the source of truth; pane paste/nudge are best-effort.
     match delivery {
         DeliveryMode::WorkerPaste => {
-            if let Some(session) = host.as_deref() {
-                if send_to_session(session, text, true).is_ok() {
-                    pasted = true;
+            let session = host.as_deref().filter(|_| should_paste(status, idle, quiet_secs));
+            if let Some(session) = session {
+                // Ack before the paste: its prompt-submit hook must not digest this line again.
+                let acked = move_cursor_if_at(&to, start, end);
+                pasted = send_to_session(session, text, true).is_ok();
+                if acked && !pasted {
+                    move_cursor_if_at(&to, end, start);
                 }
             }
         }
         DeliveryMode::OrchNudge => {
-            let status = load_reported_status(&to);
-            let idle = match idle_override {
-                Some(v) => v,
-                None => host
-                    .as_ref()
-                    .and_then(|h| list_panes_all().get(h).and_then(|p| p.idle_seconds)),
-            };
             if should_nudge(status, idle, quiet_secs) {
                 if let Some(session) = host.as_deref() {
                     let n = unread_count(&to).unwrap_or(1).max(1);
@@ -759,6 +822,80 @@ mod tests {
         assert!(should_nudge(Some(SessionState::Idle), Some(10), 10));
         assert!(!should_nudge(Some(SessionState::Working), Some(60), 10));
         assert!(!should_nudge(None, Some(60), 10));
+    }
+
+    #[test]
+    fn paste_requires_finished_turn_and_quiet() {
+        for s in [SessionState::Idle, SessionState::Done, SessionState::Error] {
+            assert!(should_paste(Some(s), Some(10), 10));
+            assert!(!should_paste(Some(s), Some(5), 10));
+        }
+        for s in [SessionState::Working, SessionState::NeedsInput, SessionState::Blocked] {
+            assert!(!should_paste(Some(s), Some(60), 10));
+        }
+        assert!(should_paste(None, Some(60), 10));
+        assert!(!should_paste(None, Some(5), 10));
+        assert!(!should_paste(Some(SessionState::Idle), None, 10));
+    }
+
+    #[test]
+    fn nudge_text_acks() {
+        assert!(nudge_text(2).ends_with("cdamux msg read --ack"));
+    }
+
+    #[test]
+    fn delivery_word_names_outcome() {
+        let out = |pasted, nudged| SendOutcome {
+            message: test_msg("m-dw".into(), "a-x"),
+            delivery: DeliveryMode::WorkerPaste,
+            nudged,
+            pasted,
+        };
+        assert_eq!(out(true, false).delivery_word(), "pasted");
+        assert_eq!(out(false, true).delivery_word(), "nudged");
+        assert_eq!(out(false, false).delivery_word(), "queued");
+    }
+
+    #[test]
+    fn cursor_moves_only_from_expected_offset() {
+        with_temp_home(|_| {
+            let a = append_message(&test_msg("m-c1".into(), "a-cur1")).unwrap();
+            let b = append_message(&test_msg("m-c2".into(), "a-cur1")).unwrap();
+            // Cursor at 0, line 2 starts at `a`: line 1 is still unread, keep it.
+            assert!(!move_cursor_if_at("a-cur1", a, b));
+            assert_eq!(unread_count("a-cur1").unwrap(), 2);
+            assert!(move_cursor_if_at("a-cur1", 0, a));
+            assert_eq!(read_messages("a-cur1", false).unwrap()[0].id, "m-c2");
+        });
+    }
+
+    #[test]
+    fn done_and_error_set_sender_status_sticky() {
+        with_temp_home(|_| {
+            let orch = json!({
+                "id": "a-orchd", "client": "claude", "host": "missing-session",
+                "role": "orchestrator", "status": "working"
+            });
+            state_set(StateKind::Agents, "a-orchd", &orch).unwrap();
+            let status =
+                |id: &str| state_get(StateKind::Agents, id).unwrap().unwrap()["status"].clone();
+            for (id, kind, before, after) in [
+                ("a-wd1", "done", "working", "done"),
+                ("a-wd2", "error", "idle", "error"),
+                // orch.sh sends a blocked worker as kind=error: blocked stays.
+                ("a-wd3", "error", "blocked", "blocked"),
+            ] {
+                state_set(
+                    StateKind::Agents,
+                    id,
+                    &json!({ "id": id, "role": "worker", "parent": "a-orchd", "status": before }),
+                )
+                .unwrap();
+                msg_send(id, "a-orchd", kind, "x", None, 10, Some(None)).unwrap();
+                assert_eq!(status(id), after, "{id}");
+            }
+            assert_eq!(status("a-orchd"), "working");
+        });
     }
 
     #[test]

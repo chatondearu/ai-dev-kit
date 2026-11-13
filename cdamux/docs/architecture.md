@@ -104,15 +104,23 @@ an agent id, tmux host, or worker `name` (slice 2).
 
 Delivery:
 
-- **Worker** (`role=worker`): also pastes `text` into the worker pane (`send_to_session`).
+- **Worker** (`role=worker`): when its status is `idle`, `done`, `error` or unset (no
+  hooks) and the pane has been quiet ≥ 10 s, also pastes `text` into the worker pane
+  (`send_to_session`) and acks that line when the cursor sat right before it. Otherwise
+  (mid-turn, permission prompt, recent activity) the line stays unread and the status
+  hook's digest delivers it at the next prompt submit or turn end: a paste ends with
+  Enter and would merge with what the user is typing.
 - **Orchestrator / other**: append only; when status is `idle` and the pane has been
-  quiet ≥ 10 s, types `📨 N messages — cdamux msg read` into the pane (no daemon).
+  quiet ≥ 10 s, types `📨 N messages — cdamux msg read --ack` into the pane (no daemon).
+
+`msg send` prints the message id and `pasted`, `nudged` or `queued` (inbox only).
 
 `cdamux msg read [--agent id] [--ack] [--digest]` prints unread lines after the
 ack cursor; `--ack` advances `inbox/<id>.cursor` to the end of the last complete line
 read (a line still being written stays unread). Each line is appended with a single
 `write(2)`, so concurrent senders do not interleave. `kind=ask` sets the sender
-`blocked`; `kind=answer` clears the recipient to `idle`.
+`blocked`; `kind=done` / `kind=error` set the sender `done` / `error` (a sticky status
+is kept); `kind=answer` clears the recipient to `idle`.
 
 ### Orchestrator session (`cdamux orch`)
 

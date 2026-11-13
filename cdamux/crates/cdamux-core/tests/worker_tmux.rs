@@ -212,7 +212,8 @@ fn spawn_ls_peek_and_msg_by_name() {
         "hello-by-name",
         None,
         DEFAULT_NUDGE_QUIET_SECS,
-        None,
+        // Freshly spawned pane: inject a quiet window so the paste is allowed.
+        Some(Some(DEFAULT_NUDGE_QUIET_SECS)),
     )
     .unwrap();
     assert!(pasted.pasted);

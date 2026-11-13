@@ -589,7 +589,7 @@ fn cmd_msg_send(
         None,
     ) {
         Ok(out) => {
-            println!("{}", out.message.id);
+            println!("{} {}", out.message.id, out.delivery_word());
             ExitCode::SUCCESS
         }
         Err(e) => {

@@ -122,6 +122,7 @@ Diff source: `git diff` plus `git diff --cached` in the resolved repo directory.
 - [ ] `cdamux` shows project → session tree with status icons (○ ● ◆)
 - [ ] Preview sidecar updates when selecting a session
 - [ ] Foam tab lists `foam/**/*.md` for the session’s git toplevel / project root (empty/missing foam → clear empty state; CLI `cdamux notes` unchanged)
+- [ ] Foam tab: `[`/`]` select a listed `.md` → sidecar shows rendered preview under `── preview ──` (oversize files truncate with a visible cue)
 - [ ] Review tab: `Ctrl+R` or Enter opens hunk review TUI for selected session
 - [ ] Composer (`Space`) sends to session without attach
 - [ ] `n` spawn modal: running / discovered / custom path; optional shell-only and pane split

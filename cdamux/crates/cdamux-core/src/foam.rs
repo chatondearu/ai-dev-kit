@@ -4,6 +4,9 @@
 //! lists markdown under `<project>/foam/` only. Never writes.
 
 use crate::git_toplevel;
+use crate::markdown::{render_markdown_terminal, truncate_lines};
+use std::fs::File;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 /// Directory name under the project root.
@@ -11,6 +14,12 @@ pub const FOAM_DIR: &str = "foam";
 
 /// Soft cap for sidecar list rows (large trees stay usable).
 pub const FOAM_LIST_CAP: usize = 500;
+
+/// Hard byte cap before parse/paint (huge ADRs must not freeze the TUI).
+pub const FOAM_PREVIEW_MAX_BYTES: usize = 64 * 1024;
+
+/// Visible line cap for the Foam sidecar preview (replaces silent Notes dump).
+pub const FOAM_PREVIEW_MAX_LINES: usize = 120;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FoamListing {
@@ -96,6 +105,70 @@ fn collect_md(foam_root: &Path, dir: &Path, out: &mut Vec<String>) {
         display.push(rel);
         out.push(display.to_string_lossy().replace('\\', "/"));
     }
+}
+
+/// Absolute path for a `foam/...` listing entry, confined under `<project>/foam`.
+fn resolve_listed_foam_file(project: &Path, foam_rel: &str) -> Option<PathBuf> {
+    let rest = foam_rel.strip_prefix("foam/").or_else(|| foam_rel.strip_prefix("foam\\"))?;
+    if rest.is_empty() || Path::new(rest).is_absolute() {
+        return None;
+    }
+    if rest
+        .split(['/', '\\'])
+        .any(|seg| seg.is_empty() || seg == "..")
+    {
+        return None;
+    }
+    let foam_root = project.join(FOAM_DIR);
+    let candidate = foam_root.join(rest);
+    let Ok(root) = foam_root.canonicalize() else {
+        return None;
+    };
+    let Ok(path) = candidate.canonicalize() else {
+        return None;
+    };
+    path.starts_with(&root).then_some(path)
+}
+
+fn read_capped(path: &Path, max_bytes: usize) -> std::io::Result<(Vec<u8>, bool)> {
+    let mut file = File::open(path)?;
+    let mut buf = vec![0u8; max_bytes.saturating_add(1)];
+    let n = file.read(&mut buf)?;
+    let truncated = n > max_bytes;
+    buf.truncate(n.min(max_bytes));
+    Ok((buf, truncated))
+}
+
+/// Render a selected foam markdown path for the sidecar (bounded, read-only).
+///
+/// `foam_rel` is a listing path such as `foam/index.md`. Non-UTF-8 yields an
+/// error line; oversize input/output is truncated with a visible cue.
+pub fn preview_foam_markdown(project: &Path, foam_rel: &str) -> String {
+    let Some(path) = resolve_listed_foam_file(project, foam_rel) else {
+        return format!("(cannot read {foam_rel})");
+    };
+    let (bytes, truncated_bytes) = match read_capped(&path, FOAM_PREVIEW_MAX_BYTES) {
+        Ok(v) => v,
+        Err(e) => return format!("(read error: {e})"),
+    };
+    let text = match std::str::from_utf8(&bytes) {
+        Ok(s) => s.to_string(),
+        Err(err) => {
+            if err.valid_up_to() == 0 {
+                return "(not valid UTF-8 — skipped)".to_string();
+            }
+            // Byte cap may cut mid-codepoint; keep the valid prefix.
+            String::from_utf8_lossy(&bytes[..err.valid_up_to()]).into_owned()
+        }
+    };
+    let mut rendered = render_markdown_terminal(&text);
+    if truncated_bytes {
+        if !rendered.ends_with('\n') {
+            rendered.push('\n');
+        }
+        rendered.push_str("… (file truncated for preview)");
+    }
+    truncate_lines(&rendered, FOAM_PREVIEW_MAX_LINES)
 }
 
 #[cfg(test)]
@@ -202,5 +275,68 @@ mod tests {
             }
             other => panic!("expected Entries, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn preview_renders_selected_markdown() {
+        let tmp = tempdir().unwrap();
+        let project = tmp.path().join("repo");
+        fs::create_dir_all(project.join("foam")).unwrap();
+        fs::write(
+            project.join("foam/index.md"),
+            "# Hello\n\n- alpha\n- beta\n",
+        )
+        .unwrap();
+        let out = preview_foam_markdown(&project, "foam/index.md");
+        assert!(out.contains("# Hello"), "{out}");
+        assert!(out.contains("- alpha"), "{out}");
+        assert!(!out.contains("… (truncated)"), "{out}");
+    }
+
+    #[test]
+    fn preview_truncates_oversize_without_panic() {
+        let tmp = tempdir().unwrap();
+        let project = tmp.path().join("repo");
+        fs::create_dir_all(project.join("foam")).unwrap();
+        let huge: String = (0..FOAM_PREVIEW_MAX_LINES + 40)
+            .map(|i| format!("- item {i}\n"))
+            .collect();
+        fs::write(project.join("foam/big.md"), &huge).unwrap();
+        let out = preview_foam_markdown(&project, "foam/big.md");
+        assert!(out.contains("… (truncated)"), "{out}");
+        assert!(out.lines().count() <= FOAM_PREVIEW_MAX_LINES + 1);
+    }
+
+    #[test]
+    fn preview_byte_cap_before_parse() {
+        let tmp = tempdir().unwrap();
+        let project = tmp.path().join("repo");
+        fs::create_dir_all(project.join("foam")).unwrap();
+        let mut body = String::from("# Cap\n\n");
+        body.push_str(&"x".repeat(FOAM_PREVIEW_MAX_BYTES + 2048));
+        fs::write(project.join("foam/huge.md"), &body).unwrap();
+        let out = preview_foam_markdown(&project, "foam/huge.md");
+        assert!(out.contains("… (file truncated for preview)"), "{out}");
+        assert!(out.contains("# Cap"), "{out}");
+    }
+
+    #[test]
+    fn preview_rejects_non_utf8() {
+        let tmp = tempdir().unwrap();
+        let project = tmp.path().join("repo");
+        fs::create_dir_all(project.join("foam")).unwrap();
+        fs::write(project.join("foam/bin.md"), [0xff, 0xfe, 0xfd]).unwrap();
+        let out = preview_foam_markdown(&project, "foam/bin.md");
+        assert!(out.contains("UTF-8"), "{out}");
+    }
+
+    #[test]
+    fn preview_blocks_path_escape() {
+        let tmp = tempdir().unwrap();
+        let project = tmp.path().join("repo");
+        fs::create_dir_all(project.join("foam")).unwrap();
+        fs::write(project.join("secret.md"), "nope").unwrap();
+        let out = preview_foam_markdown(&project, "foam/../secret.md");
+        assert!(out.contains("cannot read"), "{out}");
     }
 }

@@ -6,6 +6,7 @@ mod client_name;
 mod daemon;
 mod diff;
 mod foam;
+mod markdown;
 mod notes;
 mod issue_ref;
 mod msg;
@@ -65,8 +66,10 @@ pub use tailnet_api::{
     LiveTailnetBackend, TailnetApiBackend, TailnetResponse, TAILNET_TOKEN_HEADER,
 };
 pub use foam::{
-    list_foam, resolve_foam_root, resolve_project_root, FoamListing, FOAM_DIR, FOAM_LIST_CAP,
+    list_foam, preview_foam_markdown, resolve_foam_root, resolve_project_root, FoamListing,
+    FOAM_DIR, FOAM_LIST_CAP, FOAM_PREVIEW_MAX_BYTES, FOAM_PREVIEW_MAX_LINES,
 };
+pub use markdown::{render_markdown_terminal, truncate_lines};
 pub use notes::{ensure_note_file, note_refs_for_projects, resolve_note_path, NoteRef};
 pub use orch_graph_layout::{
     graph_node_order, layout_orch_graph, CellClass, GraphCell, GraphLayout, NodeBox, NodeState, BOX_H,

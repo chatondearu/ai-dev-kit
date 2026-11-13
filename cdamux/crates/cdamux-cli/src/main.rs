@@ -1047,6 +1047,11 @@ pub(crate) fn foam_sidecar_for_cwd(cwd: &str, selected: usize) -> (String, usize
                 lines.push(String::new());
                 lines.push(format!("… truncated at {FOAM_LIST_CAP} files"));
             }
+            if let Some(path) = paths.get(sel) {
+                lines.push(String::new());
+                lines.push("── preview ──".to_string());
+                lines.push(cdamux_core::preview_foam_markdown(&project, path));
+            }
             (lines.join("\n"), sel, paths)
         }
     }
@@ -1072,6 +1077,8 @@ mod foam_sidecar_tests {
         assert!(text.contains("▸ foam/index.md") || text.contains("▸ foam/adr.md"));
         assert!(text.contains("foam/adr.md"));
         assert!(text.contains("foam/index.md"));
+        assert!(text.contains("── preview ──"), "{text}");
+        assert!(text.contains("# moc") || text.contains("a"), "{text}");
     }
 
     #[test]
@@ -1082,6 +1089,18 @@ mod foam_sidecar_tests {
         assert_eq!(sel, 0);
         assert!(entries.is_empty());
         assert!(text.contains("No foam/"));
+    }
+
+    #[test]
+    fn selected_file_preview_shows_rendered_heading() {
+        let tmp = tempdir().unwrap();
+        let foam = tmp.path().join("foam");
+        fs::create_dir_all(&foam).unwrap();
+        fs::write(foam.join("doc.md"), "# Preview me\n\n- item\n").unwrap();
+        let (text, _, _) = foam_sidecar_for_cwd(tmp.path().to_str().unwrap(), 0);
+        assert!(text.contains("── preview ──"), "{text}");
+        assert!(text.contains("# Preview me"), "{text}");
+        assert!(text.contains("- item"), "{text}");
     }
 }
 
@@ -1578,36 +1597,10 @@ fn cmd_notes_edit(path: Option<String>, session: Option<String>) -> ExitCode {
 }
 
 fn render_markdown_stdout(md: &str) -> io::Result<()> {
-    use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
-    let parser = Parser::new_ext(md, Options::all());
-    let mut out = io::stdout().lock();
-    let mut heading_prefix = false;
-    for event in parser {
-        match event {
-            Event::Start(Tag::Heading { level, .. }) => {
-                writeln!(out)?;
-                for _ in 0..level as usize {
-                    write!(out, "#")?;
-                }
-                write!(out, " ")?;
-                heading_prefix = true;
-            }
-            Event::End(TagEnd::Heading(_)) => {
-                writeln!(out)?;
-                heading_prefix = false;
-            }
-            Event::Start(Tag::List(_)) => writeln!(out)?,
-            Event::Start(Tag::Item) => write!(out, "- ")?,
-            Event::Text(t) => write!(out, "{}", t)?,
-            Event::Code(t) => write!(out, "`{}`", t)?,
-            Event::SoftBreak => write!(out, " ")?,
-            Event::HardBreak => writeln!(out)?,
-            Event::Rule => writeln!(out, "---")?,
-            _ => {}
-        }
-    }
-    if heading_prefix {
-        writeln!(out)?;
+    let rendered = cdamux_core::render_markdown_terminal(md);
+    write!(io::stdout(), "{rendered}")?;
+    if !rendered.ends_with('\n') {
+        writeln!(io::stdout())?;
     }
     Ok(())
 }

@@ -15,10 +15,10 @@ foam/ · <project>
   [-] features/
 ▸       list.md
       index.md
-── preview ──
-ADR-001
 ── links ──
 ▸ [[ADR-001]] → foam/decisions/ADR-001.md
+── preview ──
+ADR-001
 
 j/k nav · Enter attach · n new · m rename · f fork · x kill · ? help · q quit
 

@@ -21,8 +21,9 @@ fn foam_list_rows(height: u16) -> usize {
 pub(crate) const FOAM_FOOTER: &str =
     "foam: j/k ↑↓ move · h/l ←→ fold · Enter open/follow · [ ] link · b back · click row · Esc leave";
 
-/// Max wikilinks listed under the preview.
+/// Max wikilinks kept per file, and painted at once (window around the selection).
 const FOAM_LINKS_MAX: usize = 20;
+const FOAM_LINKS_SHOWN: usize = 4;
 
 /// Window `[start, end)` around `sel`, biased high so the preview stays on screen.
 fn foam_list_window(sel: usize, len: usize, max_rows: usize) -> (usize, usize) {
@@ -64,7 +65,9 @@ pub(crate) struct FoamState {
     links_for: Option<String>,
     link_sel: usize,
     notice: Option<String>,
-    /// Height of the sidecar body (rows), set by the draw loop.
+    /// Size of the sidecar body, set by the draw loop (lines are clipped to `width`
+    /// so one text line is one screen row and clicks map back to rows).
+    width: usize,
     height: u16,
     /// First text line of the painted tree rows and the visible-row window.
     list_line0: usize,
@@ -84,6 +87,7 @@ impl FoamState {
             links_for: None,
             link_sel: 0,
             notice: None,
+            width: usize::MAX,
             height: 24,
             list_line0: 0,
             window: (0, 0),
@@ -128,12 +132,13 @@ impl FoamState {
         }
     }
 
-    /// Track the sidecar body height; true when the body had to be repainted.
-    pub(crate) fn set_height(&mut self, height: u16) -> bool {
-        if self.height == height {
+    /// Track the sidecar body size; true when the body had to be repainted.
+    pub(crate) fn set_size(&mut self, width: u16, height: u16) -> bool {
+        if self.height == height && self.width == width as usize {
             return false;
         }
         self.height = height;
+        self.width = width as usize;
         self.tree.is_some() && {
             self.render();
             true
@@ -147,6 +152,14 @@ impl FoamState {
     #[cfg(test)]
     pub(crate) fn selected_file(&self) -> Option<&str> {
         self.tree.as_ref()?.selected_file()
+    }
+
+    fn clip(&self, line: String) -> String {
+        if line.chars().count() <= self.width {
+            return line;
+        }
+        let keep = self.width.saturating_sub(1);
+        line.chars().take(keep).chain(std::iter::once('…')).collect()
     }
 
     /// Re-render the body from the tree state.
@@ -180,9 +193,9 @@ impl FoamState {
         }
 
         let (start, end) = foam_list_window(cursor, rows.len(), foam_list_rows(self.height));
-        let mut lines = vec![format!("foam/ · {}", self.project.display())];
+        let mut lines = vec![self.clip(format!("foam/ · {}", self.project.display()))];
         if let Some(n) = &self.notice {
-            lines.extend(n.lines().map(str::to_string));
+            lines.extend(n.lines().map(|l| self.clip(l.to_string())));
             lines.push(String::new());
         }
         if start > 0 {
@@ -198,7 +211,7 @@ impl FoamState {
             } else {
                 format!("    {}", row.name())
             };
-            lines.push(format!("{mark} {indent}{label}"));
+            lines.push(self.clip(format!("{mark} {indent}{label}")));
         }
         if end < rows.len() {
             lines.push(format!("… ({} more below)", rows.len() - end));
@@ -206,17 +219,22 @@ impl FoamState {
         if self.truncated {
             lines.push(format!("… truncated at {FOAM_LIST_CAP} files"));
         }
+        if file.is_some() && !self.links.is_empty() {
+            // Before the preview: a long note must not push the links off-screen.
+            lines.push("── links ──".to_string());
+            let (ls, le) = foam_list_window(self.link_sel, self.links.len(), FOAM_LINKS_SHOWN);
+            for (i, (link, target)) in self.links.iter().enumerate().take(le).skip(ls) {
+                let mark = if i == self.link_sel { "▸" } else { " " };
+                let dest = target.as_deref().unwrap_or("(unresolved)");
+                lines.push(self.clip(format!("{mark} [[{}]] → {dest}", link.label)));
+            }
+            if le < self.links.len() {
+                lines.push(format!("… ({} more links)", self.links.len() - le));
+            }
+        }
         if let Some(f) = &file {
             lines.push("── preview ──".to_string());
             lines.push(preview_foam_markdown(&self.project, f));
-            if !self.links.is_empty() {
-                lines.push("── links ──".to_string());
-                for (i, (link, target)) in self.links.iter().enumerate() {
-                    let mark = if i == self.link_sel { "▸" } else { " " };
-                    let dest = target.as_deref().unwrap_or("(unresolved)");
-                    lines.push(format!("{mark} [[{}]] → {dest}", link.label));
-                }
-            }
         }
         self.text = lines.join("\n");
     }
@@ -226,7 +244,8 @@ impl FoamState {
         let Some(tree) = self.tree.as_mut() else {
             return false;
         };
-        self.notice = None;
+        // Cleared up-front; the `_` arm below repaints when it was showing.
+        let had_notice = self.notice.take();
         match code {
             KeyCode::Down | KeyCode::Char('j') => tree.move_cursor(1),
             KeyCode::Up | KeyCode::Char('k') => tree.move_cursor(-1),
@@ -254,7 +273,12 @@ impl FoamState {
                     self.notice = Some("no previous file".to_string());
                 }
             }
-            _ => return false,
+            _ => {
+                if had_notice.is_some() {
+                    self.render();
+                }
+                return false;
+            }
         }
         self.render();
         true
@@ -443,6 +467,19 @@ mod tests {
     }
 
     #[test]
+    fn long_note_keeps_links_above_preview_and_rows_clipped_to_width() {
+        let body = format!("[[b]]\n{}", "line\n".repeat(100));
+        let (_t, cwd) = fixture(&[("a.md", &body), ("b.md", "# b")]);
+        let mut st = FoamState::load(&cwd);
+        st.set_size(30, 12);
+        assert_eq!(st.selected_file(), Some("foam/a.md"));
+        let at = |needle: &str| st.text.lines().position(|l| l.contains(needle)).unwrap();
+        assert!(at("── links ──") < at("── preview ──"), "{}", st.text);
+        // Header / rows never exceed the width, so no wrap shifts click rows.
+        assert!(st.text.lines().take(4).all(|l| l.chars().count() <= 30), "{}", st.text);
+    }
+
+    #[test]
     fn click_line_maps_inside_area_only() {
         let area = Rect::new(10, 5, 20, 8);
         assert_eq!(foam_click_line(area, 10, 5), Some(0));
@@ -554,7 +591,7 @@ mod tests {
         let refs: Vec<(&str, &str)> = files.iter().map(|(a, b)| (a.as_str(), b.as_str())).collect();
         let (_t, cwd) = fixture(&refs);
         let mut st = FoamState::load(&cwd);
-        st.set_height(9); // the 80x24 fleet layout leaves a 9-row sidecar body
+        st.set_size(80, 9); // the 80x24 fleet layout leaves a 9-row sidecar body
         for _ in 0..35 {
             st.on_key(KeyCode::Down);
         }

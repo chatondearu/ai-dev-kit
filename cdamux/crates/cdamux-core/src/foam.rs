@@ -436,6 +436,9 @@ impl FoamTree {
 
     /// Jump to a wikilink target, remembering the current file for [`Self::back`].
     pub fn follow(&mut self, target: &str) {
+        if self.cursor == target {
+            return;
+        }
         if let Some(cur) = self.selected_file().map(str::to_string) {
             if self.history.last() != Some(&cur) {
                 self.history.push(cur);

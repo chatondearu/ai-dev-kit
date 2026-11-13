@@ -486,7 +486,7 @@ pub fn run_dashboard() -> ExitCode {
             foam = FoamState::message("Select a session to browse project foam.");
         }
         if let Some(area) = sidecar_preview_rect {
-            needs_draw |= foam.set_height(area.height);
+            needs_draw |= foam.set_size(area.width, area.height);
         }
         let target = graph_target_at_row(&rows, selected_row, tree, &status);
         let target_key = format!("{target:?}");
@@ -890,20 +890,30 @@ pub fn run_dashboard() -> ExitCode {
                     }
                 }
 
+                if focus == FocusArea::Foam && !foam.has_tree() {
+                    focus = FocusArea::Tree;
+                }
                 if side_tab == SideTab::Foam && foam.has_tree() {
-                    if focus == FocusArea::Foam {
+                    let foam_ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+                    let consumed = if focus == FocusArea::Foam {
                         if key.code == KeyCode::Esc {
                             focus = FocusArea::Tree;
-                            continue;
-                        }
-                        if !key.modifiers.contains(KeyModifiers::CONTROL) && foam.on_key(key.code) {
-                            continue;
+                            true
+                        } else {
+                            !foam_ctrl && foam.on_key(key.code)
                         }
                     } else if focus == FocusArea::Tree
                         && key.modifiers.is_empty()
                         && key.code == KeyCode::Char('t')
                     {
                         focus = FocusArea::Foam;
+                        true
+                    } else {
+                        false
+                    };
+                    if consumed {
+                        // A consumed key still cancels a pending forget.
+                        pending_forget = None;
                         continue;
                     }
                 }

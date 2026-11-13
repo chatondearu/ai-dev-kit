@@ -117,6 +117,12 @@ TUI keybindings:
 
 Diff source: `git diff` plus `git diff --cached` in the resolved repo directory.
 
+## Large `$CDAMUX_HOME` (Alt-P / Fleet)
+
+Dashboard open indexes `$CDAMUX_HOME/runs` and `agents` once per dir fingerprint
+(shared across projects). Hundreds of stale finished runs still cost that first
+parse — periodically prune with `cdamux state gc` (see `docs/architecture.md`).
+
 ## Mission control dashboard (v2)
 
 - [ ] `cdamux` shows project → session tree with status icons (○ ● ◆)

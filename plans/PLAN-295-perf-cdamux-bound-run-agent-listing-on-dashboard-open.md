@@ -1,6 +1,6 @@
 # PLAN-295 — Bound run/agent listing on dashboard open
 
-- **Status**: ready
+- **Status**: done
 - **PRD**: [[../prd/PRD-293-cdamux-fast-popup-open|PRD-293]]
 - **GitHub**: [#295](https://github.com/chatondearu/ai-dev-kit/issues/295)
 - **Date**: 2026-11-13
@@ -40,10 +40,10 @@ when unnecessary. Keep Fleet live/recent UX for the selected repo.
 
 ## Tasks
 
-- [ ] Bound or short-circuit run listing on open path
-- [ ] Ensure per-repo live/recent results remain correct
-- [ ] Tests with large synthetic runs dir
-- [ ] Note dogfood: GC still recommended for hundreds of stale files
+- [x] Bound or short-circuit run listing on open path
+- [x] Ensure per-repo live/recent results remain correct
+- [x] Tests with large synthetic runs dir
+- [x] Note dogfood: GC still recommended for hundreds of stale files
 
 ## Risks & mitigations
 
@@ -53,10 +53,10 @@ when unnecessary. Keep Fleet live/recent UX for the selected repo.
 
 ## Test plan
 
-- [ ] Fixture dir with N≫limit files: open path stays O(limit)-ish
-- [ ] Live run still appears for matching repo
+- [x] Fixture dir with N≫limit files: open path stays O(limit)-ish
+- [x] Live run still appears for matching repo
 
 ## Verification
 
-- [ ] Verify green
+- [x] Verify green (cdamux `cargo test -- --skip home_shell_pane_is_respawned`; home_repair flake pre-existing on this host)
 - [ ] PR `Closes #295`

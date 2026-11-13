@@ -6,6 +6,7 @@ use crate::session_chrome::format_age;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
 use std::time::SystemTime;
 
 /// Age after which a still-`running` graph is shown as stale in the TUI.
@@ -425,34 +426,140 @@ fn is_live_run(g: &OrchGraphFile) -> bool {
         && matches!(g.status.as_deref(), None | Some("" | "running"))
 }
 
+/// One parsed run under `$CDAMUX_HOME/runs/`, newest-first in the index.
+struct IndexedRun {
+    repo: String,
+    summary: OrchGraphRunSummary,
+}
+
+/// Cheap fingerprint of `runs/`: dir mtime + json count + newest file mtime.
+/// File rewrites bump file mtime without always bumping the directory mtime.
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct DirStamp {
+    dir_mtime: Option<SystemTime>,
+    json_count: usize,
+    newest_file: Option<SystemTime>,
+}
+
+fn dir_stamp(dir: &Path) -> DirStamp {
+    let dir_mtime = fs::metadata(dir).ok().and_then(|m| m.modified().ok());
+    let mut json_count = 0;
+    let mut newest_file = None;
+    if let Ok(rd) = fs::read_dir(dir) {
+        for ent in rd.flatten() {
+            let path = ent.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("json") {
+                continue;
+            }
+            json_count += 1;
+            if let Some(m) = ent.metadata().ok().and_then(|m| m.modified().ok()) {
+                if newest_file.is_none_or(|n| m > n) {
+                    newest_file = Some(m);
+                }
+            }
+        }
+    }
+    DirStamp {
+        dir_mtime,
+        json_count,
+        newest_file,
+    }
+}
+
+struct RunsIndex {
+    home: PathBuf,
+    stamp: DirStamp,
+    /// Newest-first (by file mtime).
+    entries: Vec<IndexedRun>,
+}
+
+#[cfg(test)]
+static RUN_FILE_PARSE_COUNT: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
+/// How many run JSON files were parsed since the last [`test_reset_run_file_parse_count`].
+#[cfg(test)]
+pub fn test_run_file_parse_count() -> usize {
+    RUN_FILE_PARSE_COUNT.load(std::sync::atomic::Ordering::SeqCst)
+}
+
+#[cfg(test)]
+pub fn test_reset_run_file_parse_count() {
+    RUN_FILE_PARSE_COUNT.store(0, std::sync::atomic::Ordering::SeqCst);
+}
+
+fn runs_index_lock() -> std::sync::MutexGuard<'static, Option<RunsIndex>> {
+    static CACHE: OnceLock<Mutex<Option<RunsIndex>>> = OnceLock::new();
+    CACHE
+        .get_or_init(|| Mutex::new(None))
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+}
+
+fn rebuild_runs_index(home: PathBuf, stamp: DirStamp) -> RunsIndex {
+    let dir = home.join("runs");
+    let mut dated: Vec<(Option<SystemTime>, IndexedRun)> = Vec::new();
+    if let Ok(rd) = fs::read_dir(&dir) {
+        for ent in rd.flatten() {
+            let path = ent.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("json") {
+                continue;
+            }
+            let mtime = ent.metadata().ok().and_then(|m| m.modified().ok());
+            let Ok(raw) = fs::read_to_string(&path) else {
+                continue;
+            };
+            let Ok(g) = serde_json::from_str::<OrchGraphFile>(&raw) else {
+                continue;
+            };
+            #[cfg(test)]
+            RUN_FILE_PARSE_COUNT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let live = is_live_run(&g);
+            dated.push((
+                mtime,
+                IndexedRun {
+                    repo: g.repo.clone(),
+                    summary: summary(g, path, live),
+                },
+            ));
+        }
+    }
+    dated.sort_by_key(|(m, _)| std::cmp::Reverse(*m));
+    RunsIndex {
+        home,
+        stamp,
+        entries: dated.into_iter().map(|(_, e)| e).collect(),
+    }
+}
+
+/// Newest-first runs for `repo`, filtered by live/archived. Parses each JSON at most
+/// once per `$CDAMUX_HOME/runs` fingerprint so Fleet refresh over many projects
+/// does not re-parse the whole dir per project (Alt-P / #295).
 fn list_runs_for_repo(repo: &Path, limit: usize, live_only: bool) -> Vec<OrchGraphRunSummary> {
-    let dir = orch_graph_runs_dir(repo);
-    let Ok(rd) = fs::read_dir(&dir) else {
+    let Some(home) = cdamux_home() else {
         return Vec::new();
     };
-    let mut entries: Vec<_> = rd
-        .filter_map(|e| e.ok())
-        .filter(|e| e.path().extension().map(|x| x == "json").unwrap_or(false))
-        .collect();
-    entries.sort_by_key(|e| std::cmp::Reverse(e.metadata().ok().and_then(|m| m.modified().ok())));
-    entries
-        .into_iter()
-        .filter_map(|e| {
-            let path = e.path();
-            let raw = fs::read_to_string(&path).ok()?;
-            let g: OrchGraphFile = serde_json::from_str(&raw).ok()?;
-            if !run_repo_matches(&g.repo, repo) {
-                return None;
+    let stamp = dir_stamp(&home.join("runs"));
+    let mut guard = runs_index_lock();
+    let needs_rebuild = match guard.as_ref() {
+        Some(idx) => idx.home != home || idx.stamp != stamp,
+        None => true,
+    };
+    if needs_rebuild {
+        *guard = Some(rebuild_runs_index(home, stamp));
+    }
+    let Some(idx) = guard.as_ref() else {
+        return Vec::new();
+    };
+    idx.entries
+        .iter()
+        .filter(|e| {
+            if live_only != e.summary.live {
+                return false;
             }
-            let live = is_live_run(&g);
-            if live_only && !live {
-                return None;
-            }
-            if !live_only && live {
-                return None;
-            }
-            Some(summary(g, path, live))
+            run_repo_matches(&e.repo, repo)
         })
+        .map(|e| e.summary.clone())
         .take(limit)
         .collect()
 }
@@ -656,6 +763,55 @@ mod tests {
         assert_eq!(g2.run_id, "done");
         assert!(find_orch_graph_for_session(&repo, "missing", None).is_err());
         assert!(find_orch_graph_for_session(&repo, "missing", Some("new")).is_ok());
+        std::env::remove_var("CDAMUX_HOME");
+    }
+
+    #[test]
+    fn large_runs_dir_parses_once_across_repos_and_keeps_live() {
+        let _g = crate::paths::env_lock();
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("cdamux");
+        let repo_a = dir.path().join("repo-a");
+        let repo_b = dir.path().join("repo-b");
+        fs::create_dir_all(&repo_a).unwrap();
+        fs::create_dir_all(&repo_b).unwrap();
+        std::env::set_var("CDAMUX_HOME", &home);
+        let runs = home.join("runs");
+        fs::create_dir_all(&runs).unwrap();
+        let a = repo_a.display().to_string();
+        let b = repo_b.display().to_string();
+        // Hundreds of finished noise runs for other repos (shared CDAMUX_HOME).
+        for i in 0..300 {
+            write(
+                &runs.join(format!("noise-{i}.json")),
+                &format!(
+                    r#"{{"run_id":"noise-{i}","repo":"{b}","status":"ok","ended_at":"t"}}"#
+                ),
+                100 + i as u64,
+            );
+        }
+        write(
+            &runs.join("a-live.json"),
+            &format!(r#"{{"run_id":"a-live","repo":"{a}","status":"running"}}"#),
+            2,
+        );
+        write(
+            &runs.join("a-old.json"),
+            &format!(r#"{{"run_id":"a-old","repo":"{a}","status":"ok","ended_at":"t"}}"#),
+            50,
+        );
+        test_reset_run_file_parse_count();
+        let live = list_live_orch_runs(&repo_a);
+        assert_eq!(live.len(), 1);
+        assert_eq!(live[0].run_id, "a-live");
+        let recent = list_orch_graph_runs(&repo_a, 5);
+        assert_eq!(recent[0].run_id, "a-old");
+        let after_a = test_run_file_parse_count();
+        assert!(after_a >= 302, "expected full dir parse, got {after_a}");
+        // Second repo must reuse the mtime index (no re-parse).
+        let _ = list_live_orch_runs(&repo_b);
+        let _ = list_orch_graph_runs(&repo_b, 5);
+        assert_eq!(test_run_file_parse_count(), after_a);
         std::env::remove_var("CDAMUX_HOME");
     }
 

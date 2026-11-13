@@ -70,4 +70,4 @@ document activate (no shims), and wire verify to prefer host → Mise →
 ## Verification
 
 - [x] `bash scripts/verify.sh` or `nix develop -c bash scripts/verify.sh`
-- [ ] PR `Closes #290`
+- [x] PR `Closes #290`

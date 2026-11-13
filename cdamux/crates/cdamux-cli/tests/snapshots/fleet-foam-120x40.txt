@@ -1,8 +1,8 @@
 [ 1 Fleet ] [ 2 Projects ] [ 3 Sessions ] [ 4 Agents ] [ 5 Settings ]
 cdamux — fleet  ○ idle ● working ◆ needs ⊘ blocked ✓ done
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
- projects → sessions                         │ Preview  Notes  Review  Orch graph
-  ▼ ◇ alpha (2 sess · 2 orch) /src/alpha     │(no notes)
+ projects → sessions                         │ Preview  Foam  Review  Orch graph
+  ▼ ◇ alpha (2 sess · 2 orch) /src/alpha     │(no foam)
 ▸   ● alpha-main  claude  /src/alpha         │
     ◆ alpha-42  #42  cursor  /src/alpha      │
     ⚙ #7 running  implementing parser        │

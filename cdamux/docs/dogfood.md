@@ -121,7 +121,7 @@ Diff source: `git diff` plus `git diff --cached` in the resolved repo directory.
 
 - [ ] `cdamux` shows project → session tree with status icons (○ ● ◆)
 - [ ] Preview sidecar updates when selecting a session
-- [ ] Notes tab shows `<project>/.cdamux/notes.md` (or central path) for session cwd
+- [ ] Foam tab lists `foam/**/*.md` for the session’s git toplevel / project root (empty/missing foam → clear empty state; CLI `cdamux notes` unchanged)
 - [ ] Review tab: `Ctrl+R` or Enter opens hunk review TUI for selected session
 - [ ] Composer (`Space`) sends to session without attach
 - [ ] `n` spawn modal: running / discovered / custom path; optional shell-only and pane split
@@ -154,7 +154,7 @@ Form pieces (Select, Toggle, TextInput, FieldList, text modal) live in
 | --- | --- |
 | `j`/`k` (`↓`/`↑`) | Move the selection (always, whatever the sidecar tab) |
 | `l`/`→` · `h`/`←` | Expand · collapse the selected project or parent session |
-| `Tab` | Cycle Preview / Notes / Review / Orch graph |
+| `Tab` | Cycle Preview / Foam / Review / Orch graph |
 | `PgUp`/`PgDn` · `[`/`]` | Scroll the preview into older / newer lines (page · 3 lines), clamped to the capture |
 | `Ctrl+R` | Open review TUI |
 | `n` | Spawn modal |

@@ -186,6 +186,10 @@ See `config/cdamux.example.toml`. Highlights:
   - Default file: `<project>/.cdamux/notes.md`.
   - Optional `central_root` → one `{slug}.md` per project path under that directory.
   - CLI: `cdamux notes list|show|edit` (`show --render` uses **pulldown-cmark** for terminal output).
+  - **Fleet sidecar**: the former Notes tab is **Foam** (ADR-012) — read-only list of
+    `foam/**/*.md` anchored at git toplevel / discovered project root (not pane cwd).
+    Missing or empty `foam/` shows an explicit empty state. CLI notes are unchanged;
+    markdown preview and deep-link are follow-up issues.
 
 ## Session naming
 

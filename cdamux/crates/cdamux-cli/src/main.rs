@@ -997,36 +997,92 @@ fn cmd_projects() -> ExitCode {
 pub(crate) const DASHBOARD_REVIEW_INSTRUCTION: &str =
     "Please review these diff hunks and suggest fixes.";
 
-/// Sidecar Notes tab: load project note from session cwd (truncated).
-pub(crate) fn note_text_for_session_cwd(cfg: &cdamux_core::Config, cwd: &str) -> String {
+/// Sidecar Foam tab: list `foam/**/*.md` for the session cwd (read-only, ADR-012).
+///
+/// Returns display text and a clamped selection index into the listing.
+pub(crate) fn foam_sidecar_for_cwd(cwd: &str, selected: usize) -> (String, usize, Vec<String>) {
+    use cdamux_core::{list_foam, FoamListing, FOAM_LIST_CAP};
+
     if cwd.is_empty() {
-        return "Select a session with a working directory.".to_string();
-    }
-    let project = PathBuf::from(cwd);
-    let note_path = resolve_note_path(&cfg.notes, &project);
-    let header = format!("{}\n\n", note_path.display());
-    if !note_path.exists() {
-        return format!(
-            "{}(file missing — `cdamux notes edit --path {}`)",
-            header,
-            cwd
+        return (
+            "Select a session with a working directory.".to_string(),
+            0,
+            Vec::new(),
         );
     }
-    match std::fs::read_to_string(&note_path) {
-        Ok(body) if body.trim().is_empty() => format!("{}(empty note)", header),
-        Ok(body) => format!("{}{}", header, truncate_note_for_sidecar(&body, 120)),
-        Err(e) => format!("{}read error: {e}", header),
+    let listing = list_foam(std::path::Path::new(cwd));
+    match listing {
+        FoamListing::Missing { project } => (
+            format!(
+                "No foam/ under {}\n\nCreate a foam/ tree (ADRs, MOC) to browse it here.\nCLI notes remain: `cdamux notes edit`.",
+                project.display()
+            ),
+            0,
+            Vec::new(),
+        ),
+        FoamListing::Empty { project, .. } => (
+            format!(
+                "foam/ is empty under {}\n\nAdd markdown under foam/ to list it here.",
+                project.display()
+            ),
+            0,
+            Vec::new(),
+        ),
+        FoamListing::Entries {
+            project,
+            paths,
+            truncated,
+            ..
+        } => {
+            let sel = selected.min(paths.len().saturating_sub(1));
+            let mut lines = vec![
+                format!("foam/ · {}", project.display()),
+                String::new(),
+            ];
+            for (i, path) in paths.iter().enumerate() {
+                let mark = if i == sel { "▸" } else { " " };
+                lines.push(format!("{mark} {path}"));
+            }
+            if truncated {
+                lines.push(String::new());
+                lines.push(format!("… truncated at {FOAM_LIST_CAP} files"));
+            }
+            (lines.join("\n"), sel, paths)
+        }
     }
 }
 
-fn truncate_note_for_sidecar(body: &str, max_lines: usize) -> String {
-    let lines: Vec<&str> = body.lines().collect();
-    if lines.len() <= max_lines {
-        return body.to_string();
+#[cfg(test)]
+mod foam_sidecar_tests {
+    use super::foam_sidecar_for_cwd;
+    use std::fs;
+    use tempfile::tempdir;
+
+    #[test]
+    fn lists_fixture_foam_with_selection_mark() {
+        let tmp = tempdir().unwrap();
+        let foam = tmp.path().join("foam");
+        fs::create_dir_all(&foam).unwrap();
+        fs::write(foam.join("index.md"), "# moc").unwrap();
+        fs::write(foam.join("adr.md"), "a").unwrap();
+        let (text, sel, entries) =
+            foam_sidecar_for_cwd(tmp.path().to_str().unwrap(), 1);
+        assert_eq!(sel, 1);
+        assert_eq!(entries.len(), 2);
+        assert!(text.contains("▸ foam/index.md") || text.contains("▸ foam/adr.md"));
+        assert!(text.contains("foam/adr.md"));
+        assert!(text.contains("foam/index.md"));
     }
-    let mut out = lines[..max_lines].join("\n");
-    out.push_str("\n… (truncated)");
-    out
+
+    #[test]
+    fn missing_foam_empty_state() {
+        let tmp = tempdir().unwrap();
+        let (text, sel, entries) =
+            foam_sidecar_for_cwd(tmp.path().to_str().unwrap(), 0);
+        assert_eq!(sel, 0);
+        assert!(entries.is_empty());
+        assert!(text.contains("No foam/"));
+    }
 }
 
 pub(crate) fn run_review_for_session(session: &str) -> ExitCode {

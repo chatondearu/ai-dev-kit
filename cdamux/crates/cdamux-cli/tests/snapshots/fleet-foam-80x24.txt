@@ -9,8 +9,8 @@ cdamux — fleet  ○ idle ● working ◆ needs ⊘ blocked ✓ done
     ⊘ #8 blocked  waiting on review                                            │
   ▶ ◇ beta (0) /src/beta                                                       │
 ───────────────────────────────────────────────────────────────────────────────┘
- Preview  Notes  Review  Orch graph
-(no notes)
+ Preview  Foam  Review  Orch graph
+(no foam)
 
 
 

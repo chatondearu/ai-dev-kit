@@ -218,8 +218,10 @@ pub fn run_dashboard() -> ExitCode {
     let mut preview_for_session: Option<String> = None;
     // Only gathered for a session row: tmux is never queried with an empty target.
     let mut session_chrome: Option<SessionChrome> = None;
-    let mut notes_text = String::new();
-    let mut notes_for_session: Option<String> = None;
+    let mut foam_text = String::new();
+    let mut foam_for_session: Option<String> = None;
+    let mut foam_entries: Vec<String> = Vec::new();
+    let mut foam_selected: usize = 0;
     let mut orch_graph = load_orch_graph_view(&GraphTarget::None, 0, 72);
     let mut orch_graph_for_session: Option<String> = None;
     // Graph view `Tab`: which of the selected session's runs; reset when the target changes.
@@ -348,9 +350,12 @@ pub fn run_dashboard() -> ExitCode {
                 }
                 Sidecar::Idle => {}
             }
-            if notes_for_session.as_deref() != Some(s.name.as_str()) {
-                notes_text = crate::note_text_for_session_cwd(&cfg, &s.path);
-                notes_for_session = Some(s.name.clone());
+            if foam_for_session.as_deref() != Some(s.name.as_str()) {
+                let (text, sel, entries) = crate::foam_sidecar_for_cwd(&s.path, 0);
+                foam_text = text;
+                foam_selected = sel;
+                foam_entries = entries;
+                foam_for_session = Some(s.name.clone());
             }
         } else if let Some(repo) = orch_repo_at_row(&rows, selected_row) {
             session_chrome = None;
@@ -429,17 +434,22 @@ pub fn run_dashboard() -> ExitCode {
                     preview_text = "(select a session for preview)".to_string();
                 }
             }
-            if notes_for_session.as_deref() != Some(repo.as_str()) {
-                notes_text = crate::note_text_for_session_cwd(&cfg, &repo);
-                notes_for_session = Some(repo.clone());
+            if foam_for_session.as_deref() != Some(repo.as_str()) {
+                let (text, sel, entries) = crate::foam_sidecar_for_cwd(&repo, 0);
+                foam_text = text;
+                foam_selected = sel;
+                foam_entries = entries;
+                foam_for_session = Some(repo.clone());
             }
         } else {
             preview_for_session = None;
             session_chrome = None;
             preview_scroll = 0;
             preview_text = "(select a session for preview)".to_string();
-            notes_for_session = None;
-            notes_text = "Select a session to view project notes.".to_string();
+            foam_for_session = None;
+            foam_entries.clear();
+            foam_selected = 0;
+            foam_text = "Select a session to browse project foam.".to_string();
         }
         let target = graph_target_at_row(&rows, selected_row, tree, &status);
         let target_key = format!("{target:?}");
@@ -506,7 +516,7 @@ pub fn run_dashboard() -> ExitCode {
                                 focus,
                                 preview_text: &preview_text,
                                 preview_scroll,
-                                notes_text: &notes_text,
+                                foam_text: &foam_text,
                                 review_text: &review_text,
                                 orch_graph: &orch_graph,
                                 graph_view,
@@ -579,7 +589,7 @@ pub fn run_dashboard() -> ExitCode {
                                 {
                                     selected_row = clamp_selection(&rows, idx);
                                     preview_for_session = None;
-                                    notes_for_session = None;
+                                    foam_for_session = None;
                                 }
                             }
                         } else if side_tab == SideTab::Preview
@@ -834,6 +844,33 @@ pub fn run_dashboard() -> ExitCode {
                     }
                 }
 
+                if side_tab == SideTab::Foam && !foam_entries.is_empty() {
+                    let step = match key.code {
+                        KeyCode::Char('[') | KeyCode::PageUp => -1isize,
+                        KeyCode::Char(']') | KeyCode::PageDown => 1isize,
+                        _ => 0,
+                    };
+                    if step != 0 {
+                        let next = foam_selected
+                            .saturating_add_signed(step)
+                            .min(foam_entries.len().saturating_sub(1));
+                        if next != foam_selected {
+                            foam_selected = next;
+                            let cwd_owned = session
+                                .map(|s| s.path.clone())
+                                .or_else(|| orch_repo_at_row(&rows, selected_row));
+                            let (text, sel, entries) = crate::foam_sidecar_for_cwd(
+                                cwd_owned.as_deref().unwrap_or(""),
+                                foam_selected,
+                            );
+                            foam_text = text;
+                            foam_selected = sel;
+                            foam_entries = entries;
+                        }
+                        continue;
+                    }
+                }
+
                 // Any other key cancels a pending forget.
                 let forget_armed = pending_forget.take();
                 match map_key_event(key) {
@@ -847,12 +884,12 @@ pub fn run_dashboard() -> ExitCode {
                     DashboardAction::SelectNext => {
                         selected_row = move_selection(&rows, selected_row, 1);
                         preview_for_session = None;
-                        notes_for_session = None;
+                        foam_for_session = None;
                     }
                     DashboardAction::SelectPrev => {
                         selected_row = move_selection(&rows, selected_row, -1);
                         preview_for_session = None;
-                        notes_for_session = None;
+                        foam_for_session = None;
                     }
                     DashboardAction::Collapse => {
                         set_row_fold(&rows, selected_row, &mut expanded, false);

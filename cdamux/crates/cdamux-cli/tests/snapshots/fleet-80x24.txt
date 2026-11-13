@@ -9,7 +9,7 @@ cdamux — fleet  ○ idle ● working ◆ needs ⊘ blocked ✓ done
     ⊘ #8 blocked  waiting on review                                            │
   ▶ ◇ beta (0) /src/beta                                                       │
 ───────────────────────────────────────────────────────────────────────────────┘
- Preview  Notes  Review  Orch graph
+ Preview  Foam  Review  Orch graph
 ┌ session ─────────────────────────────────────────────────────────────────────┐
 │repo: alpha  │  worktree: main  │  branch: main                               │
 │agent: claude  │  up: 12m  │  context: 40%  │  tasks: 2/5                     │

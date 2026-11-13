@@ -20,7 +20,6 @@ const MAP = {
   sessionStart: 'idle',
   SessionEnd: 'idle',
   sessionEnd: 'idle',
-  Notification: 'needs_input',
   PermissionRequest: 'needs_input',
 };
 
@@ -31,7 +30,14 @@ function writeJson(obj) {
 function main() {
   const input = JSON.parse(fs.readFileSync(0, 'utf8'));
   const event = input.hook_event_name || input.event || '';
-  const status = MAP[event];
+  let status = MAP[event];
+  // Claude also fires Notification as `idle_prompt` ~60 s after a turn ends; only a
+  // permission prompt means needs_input (older payloads have no type: match the text).
+  if (event === 'Notification') {
+    const type = input.notification_type;
+    const perm = type ? type === 'permission_prompt' : /permission/i.test(input.message || '');
+    if (perm) status = 'needs_input';
+  }
   if (status) setAgentStatus(process.env, status);
 
   const digest = unreadDigest(process.env);

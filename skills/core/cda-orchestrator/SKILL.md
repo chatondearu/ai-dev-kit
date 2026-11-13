@@ -17,9 +17,22 @@ through the `cdamux` CLI (ADR-011).
 
 | Work | How |
 | ---- | --- |
-| Kanban issue with a plan or agent brief | `orch.sh` sub-run from skill `cda-dev` (e.g. `bash <cda-dev>/scripts/orch.sh --mode ready-pickup --issue 12`): verify, review gate and CI come with it; one message per worker reaches you |
-| Ad-hoc change or research | `cdamux worker spawn` with a spec (below) |
+| Kanban issue with a plan or agent brief | `orch.sh` sub-run (below): verify, review gate and CI come with it |
+| Feature or fix asked in chat, no issue yet | Skill `cda-dev` intake first (issue, plan or brief), then the row above |
+| Research, spike, or trivial fix | `cdamux worker spawn` with a spec (below) |
 | A quick lookup or answer | Do it yourself; no worker |
+
+`orch.sh` sub-run: one call per repo with every issue, **in the background**
+(Claude Code `run_in_background`; elsewhere `setsid … &`): it runs for long and
+kills its workers if cut off. `CDA_DEV` is the `cda-dev` skill folder
+(`${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills/cda-dev` in Claude Code).
+
+```bash
+bash "$CDA_DEV/scripts/orch.sh" --mode ready-pickup --repo <repo> --issue 12 --issue 15
+```
+
+One message per worker (`done` / `blocked` / `error`) and one at run end reach
+your inbox.
 
 One worker per disjoint scope. Never start a second worker on the same scope:
 `peek` the first one.
@@ -50,6 +63,8 @@ worker how to report, verify, self-review and open a PR.
 
 ## Relay (maintainer → worker)
 
+Spawned workers only: `orch.sh` workers run in print mode and read no messages.
+
 | Case | Action |
 | ---- | ------ |
 | You decide a worker should see it | `cdamux msg send --to <name> --kind relay "…"` then confirm in **one line** to the maintainer |
@@ -63,12 +78,10 @@ behind `--ref`.
 
 1. `cdamux msg read [--ack] [--digest]` when nudged or after a turn.
 2. Inside the spec: `cdamux msg send --to <worker> --kind answer "…"`.
-3. A product decision, or outside the spec: ask the maintainer. Before you ask,
-   mark yourself waiting so Fleet shows it:
-   `cdamux state append agents "$CDAMUX_AGENT_ID" '{"status":"blocked"}'`
-   (cleared when they reply). Answer the worker once they decide.
+3. A product decision, or outside the spec: ask the maintainer in your chat,
+   then answer the worker once they decide.
 
-`kind=ask` leaves the worker `blocked` until an `answer`.
+`kind=ask` leaves the worker `blocked` (Fleet `?`) until an `answer`.
 
 ## Stuck workers
 
@@ -78,12 +91,20 @@ spec covers → relay the answer; anything else → escalate to the maintainer.
 
 ## Done → ready to merge
 
-On `done` with a PR:
+**From an `orch.sh` worker**: its PR already passed verify, the review gate and
+CI. Report it ready to merge. `blocked` / `error` → read the `ref`, then
+`orch.sh --mode pr-fix --pr <N>` (background) or escalate.
 
-1. `gh pr checks <url>`: red → relay the failure to the worker once.
-2. Review the PR with skill `cda-review` in a **fresh sub-agent**, not in your
-   own context. Critical/Important → relay them once; still failing after the
-   fix → escalate to the maintainer.
+**From a spawned worker**, on `done` with a PR:
+
+1. `gh pr checks <url>`: pending → wait (`gh pr checks <url> --watch`, in the
+   background); red → relay the failure to the worker once; no checks
+   configured → say so.
+2. Review with skill `cda-review` in a **fresh sub-agent**, not in your own
+   context, on `gh pr diff <url>` or in the worker's worktree. Never
+   `gh pr checkout` it: the branch is already checked out there.
+   Critical/Important → relay them once; still failing after the fix →
+   escalate to the maintainer.
 3. Tell the maintainer the PR is ready to merge. Never merge.
 4. After the merge, offer to remove the worktree; never remove one with
    unpushed commits.
@@ -94,9 +115,8 @@ Read `ref` paths instead of pasting bodies; do not dump JSON. Messages stay
 
 ## Talking to the maintainer
 
-Start every message with one state line, one entry per worker:
-`api ✅ PR #12 · ui ⏳ · db ❓ waiting on you`. Then the one thing they need to
-do or decide.
+First line: the one thing they need to do or decide (or "nothing to do"). Second
+line: the state, one entry per worker: `api ✅ PR #12 · ui ⏳ · db ❓ waiting on you`.
 
 ## Out of scope
 

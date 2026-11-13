@@ -60,6 +60,18 @@ assert_eq "$(jq -r .status "$HOME_DIR/agents/${aid7}.json")" "error" "phase erro
 ORCH_PROGRESS=0 orch_progress_set 7 blocked "waiting on #15" 2>/dev/null
 assert_eq "$(jq -r .status "$HOME_DIR/agents/${aid7}.json")" "blocked" "phase blocked → blocked"
 
+# --- PR/issue links: recorded once, kept by later progress publishes (state set replaces) ---
+orch_cdamux_publish_links 7 7 '[{"number":12,"url":"https://github.com/o/r/pull/12","state":"OPEN","title":"feat: x"}]'
+assert_eq "$(jq -r .pr.number "$HOME_DIR/agents/${aid7}.json")" "12" "orch records the PR"
+assert_eq "$(jq -r .pr.url "$HOME_DIR/agents/${aid7}.json")" "https://github.com/o/r/pull/12" "orch records the PR url"
+assert_eq "$(jq -r .issue.url "$HOME_DIR/agents/${aid7}.json")" "https://github.com/o/r/issues/7" "issue url derived from the PR"
+ORCH_PROGRESS=0 orch_progress_set 7 done "PR #12 green" 2>/dev/null
+assert_eq "$(jq -r .status "$HOME_DIR/agents/${aid7}.json")" "done" "progress publish still updates the agent"
+assert_eq "$(jq -r .pr.number "$HOME_DIR/agents/${aid7}.json")" "12" "progress publish keeps the PR link"
+assert_eq "$(jq -r .issue.number "$HOME_DIR/agents/${aid7}.json")" "7" "progress publish keeps the issue link"
+orch_cdamux_publish_links 7 7 'not json'
+assert_eq "$(jq -r .pr.number "$HOME_DIR/agents/${aid7}.json")" "12" "bad gh output leaves links untouched"
+
 # --- mint skips ids already under agents/: first draw aaaaa, then bbbbb ---
 tr() {
   [ "${1:-}" = -dc ] || { command tr "$@"; return; }

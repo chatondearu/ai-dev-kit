@@ -39,10 +39,10 @@ New `crates/cdamux-core/src/links.rs` (parse + detect + cache), CLI subcommand i
 
 ## Tasks
 
-- [ ] Parsing (branch number, Closes/Fixes) + tests
-- [ ] Detection with injectable `gh` runner + cache TTL tests
-- [ ] `cdamux link` + override precedence test
-- [ ] orch.sh writes pr/issue + shell test
+- [x] Parsing (branch number, Closes/Fixes) + tests
+- [x] Detection with injectable `gh` runner + cache TTL tests
+- [x] `cdamux link` + override precedence test
+- [x] orch.sh writes pr/issue + shell test
 
 ## Risks & mitigations
 
@@ -53,7 +53,7 @@ New `crates/cdamux-core/src/links.rs` (parse + detect + cache), CLI subcommand i
 
 ## Test plan
 
-- [ ] Unit: parse, precedence, TTL; shell: orch.sh writes fields
+- [x] Unit: parse, precedence, TTL; shell: orch.sh writes fields
 
 ## Verification
 

@@ -28,6 +28,7 @@ bash "$SKILL/scripts/orch.sh" --repo "$REPO" --mode ready-pickup --issue 42 \
 | ---- | ------- |
 | `$CDAMUX_HOME/runs/<run_id>.json` | Live DAG of one run via `cdamux state`: workers, implement/verify nodes, integrator; `session`, `pid`, `status` (`running` vs finished); `parent` = `$CDAMUX_AGENT_ID` for sub-runs ([ADR-011](../foam/decisions/ADR-011-cdamux-unified-state-model.md) §5) |
 | `$CDAMUX_HOME/agents/<id>.json` | One Agent per orch worker (`role=worker`, includes `phase` / `tmux_session`); silent no-op without `cdamux` |
+| `pr` / `issue` on an Agent | PR and source issue (`{number,url,…}`): `orch.sh` records them when the worker's PR exists; `cdamux link <agent-id\|session>` detects them from the branch (`gh pr list --head`, cached 10 min as `links_checked_at`), `--pr N\|URL` / `--issue N` pin one (wins over detection), `--clear` drops both. No `gh` or offline: no link, no error |
 | `.orch/run/<id>.json` | Per-worker progress artefact (TTY dashboard); not the Fleet source of truth |
 | `.orch/integrator-report.md` | Human-readable synthesis after multi-worker runs |
 

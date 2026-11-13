@@ -22,6 +22,7 @@ use cdamux_core::{
     parents_first, peek_worker, read_messages, parse_unified_diff, resolve_agent_command,
     restore_one, restore_targets, restart_plan, session_registry, resolve_note_path, send_to_session,
     session_name_for_path, spawn_orchestrator, spawn_tmux_session_with_layout, spawn_worker,
+    agent_cwd, clear_links, parse_link_ref, refresh_links, resolve_agent_id, set_link_override,
     state_append, state_get, state_set, run_gc, sweep_orphans, tmux_has_session, unique_session_name,
     valid_kind,
     AttachMode, DEFAULT_NUDGE_QUIET_SECS, DiffError, GroupBy, OrchNewRequest, PaneLayout,
@@ -132,6 +133,21 @@ enum Commands {
     State {
         #[command(subcommand)]
         command: StateCommands,
+    },
+    /// Show, set or clear the PR and source issue linked to an agent.
+    #[command(after_help = "No flag: detect from the agent's branch (needs `gh`).\nA --pr / --issue pins the link; detection no longer replaces it.")]
+    Link {
+        /// Agent id (`a-xxxxx`) or tmux session name.
+        target: String,
+        /// Pin the PR: number or URL.
+        #[arg(long)]
+        pr: Option<String>,
+        /// Pin the source issue: number or URL.
+        #[arg(long)]
+        issue: Option<String>,
+        /// Drop the pin and the cached links.
+        #[arg(long, conflicts_with_all = ["pr", "issue"])]
+        clear: bool,
     },
     /// Inbox send/read under `$CDAMUX_HOME/inbox/` (ADR-011 §4).
     Msg {
@@ -370,6 +386,7 @@ fn main() -> ExitCode {
                 dry_run,
             } => cmd_state_gc(retention_days, sweep_orphans, dry_run),
         },
+        Some(Commands::Link { target, pr, issue, clear }) => cmd_link(&target, pr, issue, clear),
         Some(Commands::Msg { command }) => match command {
             MsgCommands::Send {
                 to,
@@ -636,6 +653,52 @@ fn parse_state_json(json: &str) -> Result<serde_json::Value, ExitCode> {
         eprintln!("state: invalid JSON: {e}");
         ExitCode::from(2)
     })
+}
+
+fn cmd_link(target: &str, pr: Option<String>, issue: Option<String>, clear: bool) -> ExitCode {
+    let parse = |flag: &str, v: Option<String>| match v.map(|s| (parse_link_ref(&s), s)) {
+        None => Ok(None),
+        Some((Some(r), _)) => Ok(Some(r)),
+        Some((None, s)) => {
+            eprintln!("link: --{flag} wants a number or a URL (got '{s}')");
+            Err(ExitCode::from(2))
+        }
+    };
+    let (pr, issue) = match (parse("pr", pr), parse("issue", issue)) {
+        (Ok(p), Ok(i)) => (p, i),
+        (Err(c), _) | (_, Err(c)) => return c,
+    };
+    let id = match resolve_agent_id(target) {
+        Ok(id) => id,
+        Err(e) => {
+            eprintln!("link: {e}");
+            return ExitCode::from(1);
+        }
+    };
+    let res = if clear {
+        clear_links(&id)
+    } else if pr.is_some() || issue.is_some() {
+        set_link_override(&id, pr, issue)
+    } else {
+        match agent_cwd(&id) {
+            Some(cwd) => refresh_links(&id, &cwd, true),
+            None => {
+                eprintln!("link: no working directory known for {id}");
+                return ExitCode::from(1);
+            }
+        }
+    };
+    if let Err(e) = res {
+        eprintln!("link: {e}");
+        return ExitCode::from(1);
+    }
+    let agent = state_get(StateKind::Agents, &id).ok().flatten().unwrap_or_default();
+    for field in ["pr", "issue"] {
+        let link = &agent[field];
+        let n = link["number"].as_u64().map_or("—".into(), |n| format!("#{n}"));
+        println!("{field}: {n} {}", link["url"].as_str().unwrap_or_default());
+    }
+    ExitCode::SUCCESS
 }
 
 fn cmd_state_set(kind: &str, id: &str, json: &str) -> ExitCode {

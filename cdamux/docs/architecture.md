@@ -188,13 +188,15 @@ See `config/cdamux.example.toml`. Highlights:
   - CLI: `cdamux notes list|show|edit` (`show --render` uses **pulldown-cmark** for terminal output).
   - **Fleet sidecar**: the former Notes tab is **Foam** (ADR-012) — read-only list of
     `foam/**/*.md` anchored at git toplevel / discovered project root (not pane cwd).
-    Missing or empty `foam/` shows an explicit empty state. Selecting a listed file
-    shows a **rendered markdown preview** below the list (same pulldown-cmark path as
-    `notes show --render`), capped at 64 KiB input and 120 output lines with a visible
-    `… (truncated)` cue — no `[[wikilink]]` resolution, HTML, or images in v0. CLI notes
-    are unchanged. Deep-link (#269): when pane **preview** text contains a `foam/...`
-    path (last match wins), Fleet switches to the Foam tab and selects that row (or a
-    missing empty state). Non-foam paths are ignored; in-app only (no `$EDITOR`).
+    Missing or empty `foam/` shows an explicit empty state. The painted list is a
+    **window around the selection** (full listing still drives `[`/`]`); selecting a
+    file shows a **rendered markdown preview** directly under the ▸ row (same
+    pulldown-cmark path as `notes show --render`), capped at 64 KiB input and 120
+    output lines with a visible `… (truncated)` cue — no `[[wikilink]]` resolution,
+    HTML, or images in v0. CLI notes are unchanged. Deep-link (#269): when pane
+    **preview** text contains a `foam/...` path (last match wins), Fleet switches to
+    the Foam tab and selects that row (or a missing empty state). Non-foam paths are
+    ignored; in-app only (no `$EDITOR`).
 
 ## Session naming
 

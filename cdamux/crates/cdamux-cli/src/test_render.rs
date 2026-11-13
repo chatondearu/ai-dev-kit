@@ -348,6 +348,21 @@ pub(crate) fn render_app(w: u16, h: u16, tab: AppTab, side_tab: SideTab) -> Vec<
     render_app_ex(w, h, tab, side_tab, fixture_rows(), fixture_graph(), None, false)
 }
 
+/// Fleet Foam tab with a caller-supplied body (overflow / preview chrome tests).
+pub(crate) fn render_fleet_foam(w: u16, h: u16, foam_text: &str) -> Vec<String> {
+    render_app_ex_foam(
+        w,
+        h,
+        AppTab::Fleet,
+        SideTab::Foam,
+        fixture_rows(),
+        fixture_graph(),
+        None,
+        false,
+        foam_text,
+    )
+}
+
 /// [`render_app`] with `rows`, `graph`, the full-screen Graph view open on node
 /// `graph_view`, and the `?` overlay on top when `help`.
 #[allow(clippy::too_many_arguments)]
@@ -360,6 +375,32 @@ pub(crate) fn render_app_ex(
     graph: OrchGraphView,
     graph_view: Option<usize>,
     help: bool,
+) -> Vec<String> {
+    render_app_ex_foam(
+        w,
+        h,
+        tab,
+        side_tab,
+        rows,
+        graph,
+        graph_view,
+        help,
+        "(no foam)",
+    )
+}
+
+/// Like [`render_app_ex`] but with an explicit Foam sidecar body.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn render_app_ex_foam(
+    w: u16,
+    h: u16,
+    tab: AppTab,
+    side_tab: SideTab,
+    rows: Vec<TreeRow>,
+    graph: OrchGraphView,
+    graph_view: Option<usize>,
+    help: bool,
+    foam_text: &str,
 ) -> Vec<String> {
     let chrome = SessionChrome {
         repo: "alpha".into(),
@@ -382,7 +423,7 @@ pub(crate) fn render_app_ex(
         focus: FocusArea::Tree,
         preview_text: PREVIEW,
         preview_scroll: 0,
-        foam_text: "(no foam)",
+        foam_text,
         review_text: "Select a session.",
         orch_graph: &graph,
         graph_view,

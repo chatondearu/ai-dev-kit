@@ -222,6 +222,8 @@ pub fn run_dashboard() -> ExitCode {
     let mut foam_for_session: Option<String> = None;
     let mut foam_entries: Vec<String> = Vec::new();
     let mut foam_selected: usize = 0;
+    // Last foam path focused from preview capture (#269); reset on session change.
+    let mut foam_deep_link_applied: Option<String> = None;
     let mut orch_graph = load_orch_graph_view(&GraphTarget::None, 0, 72);
     let mut orch_graph_for_session: Option<String> = None;
     // Graph view `Tab`: which of the selected session's runs; reset when the target changes.
@@ -356,6 +358,18 @@ pub fn run_dashboard() -> ExitCode {
                 foam_selected = sel;
                 foam_entries = entries;
                 foam_for_session = Some(s.name.clone());
+                foam_deep_link_applied = None;
+            }
+            if crate::apply_foam_deep_link_from_preview(
+                &s.path,
+                &preview_text,
+                &mut foam_deep_link_applied,
+                &mut foam_text,
+                &mut foam_selected,
+                &mut foam_entries,
+            ) {
+                side_tab = SideTab::Foam;
+                needs_draw = true;
             }
         } else if let Some(repo) = orch_repo_at_row(&rows, selected_row) {
             session_chrome = None;
@@ -440,6 +454,18 @@ pub fn run_dashboard() -> ExitCode {
                 foam_selected = sel;
                 foam_entries = entries;
                 foam_for_session = Some(repo.clone());
+                foam_deep_link_applied = None;
+            }
+            if crate::apply_foam_deep_link_from_preview(
+                &repo,
+                &preview_text,
+                &mut foam_deep_link_applied,
+                &mut foam_text,
+                &mut foam_selected,
+                &mut foam_entries,
+            ) {
+                side_tab = SideTab::Foam;
+                needs_draw = true;
             }
         } else {
             preview_for_session = None;
@@ -447,6 +473,7 @@ pub fn run_dashboard() -> ExitCode {
             preview_scroll = 0;
             preview_text = "(select a session for preview)".to_string();
             foam_for_session = None;
+            foam_deep_link_applied = None;
             foam_entries.clear();
             foam_selected = 0;
             foam_text = "Select a session to browse project foam.".to_string();
@@ -854,19 +881,18 @@ pub fn run_dashboard() -> ExitCode {
                         let next = foam_selected
                             .saturating_add_signed(step)
                             .min(foam_entries.len().saturating_sub(1));
-                        if next != foam_selected {
-                            foam_selected = next;
-                            let cwd_owned = session
-                                .map(|s| s.path.clone())
-                                .or_else(|| orch_repo_at_row(&rows, selected_row));
-                            let (text, sel, entries) = crate::foam_sidecar_for_cwd(
-                                cwd_owned.as_deref().unwrap_or(""),
-                                foam_selected,
-                            );
-                            foam_text = text;
-                            foam_selected = sel;
-                            foam_entries = entries;
-                        }
+                        foam_selected = next;
+                        let cwd_owned = session
+                            .map(|s| s.path.clone())
+                            .or_else(|| orch_repo_at_row(&rows, selected_row));
+                        // Always re-render so Missing deep-link banner clears when index is unchanged.
+                        let (text, sel, entries) = crate::foam_sidecar_for_cwd(
+                            cwd_owned.as_deref().unwrap_or(""),
+                            foam_selected,
+                        );
+                        foam_text = text;
+                        foam_selected = sel;
+                        foam_entries = entries;
                         continue;
                     }
                 }

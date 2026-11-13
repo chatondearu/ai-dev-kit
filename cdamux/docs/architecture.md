@@ -192,7 +192,9 @@ See `config/cdamux.example.toml`. Highlights:
     shows a **rendered markdown preview** below the list (same pulldown-cmark path as
     `notes show --render`), capped at 64 KiB input and 120 output lines with a visible
     `… (truncated)` cue — no `[[wikilink]]` resolution, HTML, or images in v0. CLI notes
-    are unchanged; deep-link into Foam is a follow-up (#269).
+    are unchanged. Deep-link (#269): when pane **preview** text contains a `foam/...`
+    path (last match wins), Fleet switches to the Foam tab and selects that row (or a
+    missing empty state). Non-foam paths are ignored; in-app only (no `$EDITOR`).
 
 ## Session naming
 

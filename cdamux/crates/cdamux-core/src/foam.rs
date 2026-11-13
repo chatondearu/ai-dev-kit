@@ -2,12 +2,13 @@
 //!
 //! Anchors on git toplevel (or the given path when not a git work tree), then
 //! lists markdown under `<project>/foam/` only. Never writes.
+//! Deep-link helpers normalize `foam/...` paths and reject escapes (#269).
 
 use crate::git_toplevel;
 use crate::markdown::{render_markdown_terminal, truncate_lines};
 use std::fs::File;
 use std::io::Read;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 /// Directory name under the project root.
 pub const FOAM_DIR: &str = "foam";
@@ -105,6 +106,142 @@ fn collect_md(foam_root: &Path, dir: &Path, out: &mut Vec<String>) {
         display.push(rel);
         out.push(display.to_string_lossy().replace('\\', "/"));
     }
+}
+
+/// Trim quotes / trailing punctuation from a path-like token.
+/// Does not strip `.` inside extensions (`.md`); only a lone trailing period.
+fn trim_path_token(raw: &str) -> &str {
+    let s = raw.trim().trim_start_matches(|c: char| {
+        matches!(c, '`' | '"' | '\'' | '(' | '[' | '{' | '<')
+    });
+    let s = s.trim_end_matches(|c: char| {
+        matches!(
+            c,
+            '`' | '"' | '\'' | ')' | ']' | '}' | '>' | ',' | ';' | ':' | '!'
+        )
+    });
+    s.strip_suffix('.').filter(|t| t.contains('/')).unwrap_or(s)
+}
+
+fn has_parent_dir(path: &Path) -> bool {
+    path.components().any(|c| matches!(c, Component::ParentDir))
+}
+
+fn foam_display(rel_under_foam: &Path) -> String {
+    let mut display = PathBuf::from(FOAM_DIR);
+    display.push(rel_under_foam);
+    display.to_string_lossy().replace('\\', "/")
+}
+
+/// Normalize `raw` to a `foam/...` path under the anchored project, or `None`.
+///
+/// Accepts repo-relative `foam/...` and absolute paths under `<project>/foam/`.
+/// Rejects `..` escapes (lexical and after canonicalize when the path exists).
+/// Non-foam paths return `None` (caller must ignore).
+pub fn normalize_foam_path(raw: &str, cwd_or_project: &Path) -> Option<String> {
+    let token = trim_path_token(raw);
+    if token.is_empty() {
+        return None;
+    }
+    let project = resolve_project_root(cwd_or_project);
+    let foam_root = project.join(FOAM_DIR);
+    let candidate = Path::new(token);
+    if has_parent_dir(candidate) {
+        return None;
+    }
+
+    let abs = if candidate.is_absolute() {
+        candidate.to_path_buf()
+    } else {
+        let rel = token.trim_start_matches("./");
+        if rel == FOAM_DIR {
+            return None;
+        }
+        if let Some(rest) = rel.strip_prefix("foam/") {
+            if rest.is_empty() || has_parent_dir(Path::new(rest)) {
+                return None;
+            }
+            foam_root.join(rest)
+        } else if let Some(idx) = token.find("/foam/") {
+            // e.g. relative worktree prefix …/repo/foam/index.md without leading /
+            return normalize_foam_path(&token[idx + 1..], &project);
+        } else {
+            return None;
+        }
+    };
+
+    if has_parent_dir(&abs) {
+        return None;
+    }
+
+    // Existing paths: canonicalize so symlink/`..` cannot escape foam/.
+    if abs.exists() && foam_root.is_dir() {
+        if let (Ok(a), Ok(f)) = (abs.canonicalize(), foam_root.canonicalize()) {
+            let rel = a.strip_prefix(&f).ok()?;
+            if rel.as_os_str().is_empty() || has_parent_dir(rel) {
+                return None;
+            }
+            return Some(foam_display(rel));
+        }
+    }
+
+    let rel = abs.strip_prefix(&foam_root).ok()?;
+    if rel.as_os_str().is_empty() || has_parent_dir(rel) {
+        return None;
+    }
+    Some(foam_display(rel))
+}
+
+/// Index of `foam_rel` in a listing, if present.
+pub fn find_foam_entry(paths: &[String], foam_rel: &str) -> Option<usize> {
+    paths.iter().position(|p| p == foam_rel)
+}
+
+fn is_path_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || matches!(c, '/' | '-' | '_' | '.' | '~')
+}
+
+/// Last `foam/...` (or `…/foam/...`) path-like token in `text`, if any.
+///
+/// Fleet deep-links from pane preview capture (#269): agents often mention the
+/// file they just touched last in the buffer.
+pub fn extract_foam_path_from_text(text: &str) -> Option<String> {
+    let mut last: Option<String> = None;
+    let mut i = 0usize;
+    while i < text.len() {
+        let rest = &text[i..];
+        let Some(rel) = rest.find("foam/") else {
+            break;
+        };
+        let abs_at = i + rel;
+        // Walk back over absolute / relative path prefix before foam/.
+        let mut start = abs_at;
+        while start > 0 {
+            let Some((prev_idx, prev)) = text[..start].char_indices().next_back() else {
+                break;
+            };
+            if is_path_char(prev) || prev == ':' {
+                start = prev_idx;
+            } else {
+                break;
+            }
+        }
+        let mut end = abs_at + "foam/".len();
+        while end < text.len() {
+            let ch = text[end..].chars().next().unwrap();
+            if is_path_char(ch) {
+                end += ch.len_utf8();
+            } else {
+                break;
+            }
+        }
+        let token = trim_path_token(&text[start..end]);
+        if token.contains("foam/") && !token.ends_with("foam/") {
+            last = Some(token.to_string());
+        }
+        i = abs_at + "foam/".len();
+    }
+    last
 }
 
 /// Absolute path for a `foam/...` listing entry, confined under `<project>/foam`.
@@ -339,4 +476,72 @@ mod tests {
         let out = preview_foam_markdown(&project, "foam/../secret.md");
         assert!(out.contains("cannot read"), "{out}");
     }
+    #[test]
+    fn normalize_accepts_relative_and_absolute_foam_paths() {
+        let tmp = tempdir().unwrap();
+        let project = tmp.path().join("repo");
+        fs::create_dir_all(project.join("foam/decisions")).unwrap();
+        fs::write(project.join("foam/decisions/ADR-001.md"), "a").unwrap();
+        init_git(&project);
+
+        assert_eq!(
+            normalize_foam_path("foam/decisions/ADR-001.md", &project).as_deref(),
+            Some("foam/decisions/ADR-001.md")
+        );
+        assert_eq!(
+            normalize_foam_path("./foam/decisions/ADR-001.md", &project).as_deref(),
+            Some("foam/decisions/ADR-001.md")
+        );
+        let abs = project.join("foam/decisions/ADR-001.md");
+        assert_eq!(
+            normalize_foam_path(abs.to_str().unwrap(), &project).as_deref(),
+            Some("foam/decisions/ADR-001.md")
+        );
+        assert_eq!(
+            normalize_foam_path("`foam/decisions/ADR-001.md`", &project).as_deref(),
+            Some("foam/decisions/ADR-001.md")
+        );
+    }
+    #[test]
+    fn normalize_rejects_escape_and_non_foam() {
+        let tmp = tempdir().unwrap();
+        let project = tmp.path().join("repo");
+        fs::create_dir_all(project.join("foam")).unwrap();
+        fs::write(project.join("secret.md"), "no").unwrap();
+        init_git(&project);
+
+        assert_eq!(normalize_foam_path("prd/PRD-1.md", &project), None);
+        assert_eq!(normalize_foam_path("foam/../secret.md", &project), None);
+        assert_eq!(
+            normalize_foam_path(
+                project.join("foam/../secret.md").to_str().unwrap(),
+                &project
+            ),
+            None
+        );
+        assert_eq!(normalize_foam_path("foam", &project), None);
+    }
+    #[test]
+    fn extract_prefers_last_foam_token() {
+        let text = "see foam/index.md then foam/decisions/ADR-004.md.";
+        assert_eq!(
+            extract_foam_path_from_text(text).as_deref(),
+            Some("foam/decisions/ADR-004.md")
+        );
+        assert_eq!(extract_foam_path_from_text("no foam here"), None);
+        assert_eq!(
+            extract_foam_path_from_text("touch `foam/a.md` please").as_deref(),
+            Some("foam/a.md")
+        );
+    }
+    #[test]
+    fn find_entry_index() {
+        let paths = vec![
+            "foam/a.md".to_string(),
+            "foam/b.md".to_string(),
+        ];
+        assert_eq!(find_foam_entry(&paths, "foam/b.md"), Some(1));
+        assert_eq!(find_foam_entry(&paths, "foam/missing.md"), None);
+    }
+
 }

@@ -211,17 +211,24 @@ See `config/cdamux.example.toml`. Highlights:
   - Default file: `<project>/.cdamux/notes.md`.
   - Optional `central_root` → one `{slug}.md` per project path under that directory.
   - CLI: `cdamux notes list|show|edit` (`show --render` uses **pulldown-cmark** for terminal output).
-  - **Fleet sidecar**: the former Notes tab is **Foam** (ADR-012) — read-only list of
-    `foam/**/*.md` anchored at git toplevel / discovered project root (not pane cwd).
-    Missing or empty `foam/` shows an explicit empty state. The painted list is a
-    **window around the selection** (full listing still drives `[`/`]`); selecting a
-    file shows a **rendered markdown preview** directly under the ▸ row (same
-    pulldown-cmark path as `notes show --render`), capped at 64 KiB input and 120
-    output lines with a visible `… (truncated)` cue — no `[[wikilink]]` resolution,
-    HTML, or images in v0. CLI notes are unchanged. Deep-link (#269): when pane
-    **preview** text contains a `foam/...` path (last match wins), Fleet switches to
-    the Foam tab and selects that row (or a missing empty state). Non-foam paths are
-    ignored; in-app only (no `$EDITOR`).
+  - **Fleet sidecar**: the former Notes tab is **Foam** (ADR-012) — read-only
+    **collapsible tree** of `foam/**/*.md` anchored at git toplevel / discovered
+    project root (not pane cwd), capped at 500 files. Missing or empty `foam/`
+    shows an explicit empty state. Press `t` on the Foam tab to focus the tree
+    (`Esc` leaves): `j k` / `↑ ↓` move, `h l` / `← →` collapse / expand (`h` on a
+    file jumps to its directory), `Enter` toggles a directory; a mouse click on a
+    row selects it (and toggles a directory). The painted rows are a **window
+    around the cursor** sized to the pane, with a **rendered markdown preview**
+    below (same pulldown-cmark path as `notes show --render`, capped at 64 KiB
+    input and 120 output lines with a `… (truncated)` cue; no HTML or images).
+    **Wikilinks**: `[[name]]`, `[[path|label]]` and `[[name#heading]]` of the
+    selected file are listed under the preview; `[` `]` pick one, `Enter` opens it,
+    `b` / `Backspace` goes back (50-entry history). A target resolves only against
+    the listing — exact `foam/<target>.md`, then first file with the same stem —
+    otherwise it shows `(unresolved)`. CLI notes are unchanged. Deep-link (#269):
+    when pane **preview** text contains a `foam/...` path (last match wins), Fleet
+    selects that row (expanding its directories) on the Foam tab, or shows a
+    missing banner. Non-foam paths are ignored; in-app only (no `$EDITOR`).
 
 ## Session naming
 

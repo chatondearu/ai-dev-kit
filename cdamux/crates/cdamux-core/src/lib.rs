@@ -67,8 +67,9 @@ pub use tailnet_api::{
     LiveTailnetBackend, TailnetApiBackend, TailnetResponse, TAILNET_TOKEN_HEADER,
 };
 pub use foam::{
-    extract_foam_path_from_text, find_foam_entry, list_foam, normalize_foam_path,
-    preview_foam_markdown, resolve_foam_root, resolve_project_root, FoamListing, FOAM_DIR,
+    extract_foam_path_from_text, extract_wikilinks, find_foam_entry, foam_file_wikilinks,
+    list_foam, normalize_foam_path, preview_foam_markdown, resolve_foam_root,
+    resolve_project_root, resolve_wikilink, FoamListing, FoamRow, FoamTree, WikiLink, FOAM_DIR,
     FOAM_LIST_CAP, FOAM_PREVIEW_MAX_BYTES, FOAM_PREVIEW_MAX_LINES,
 };
 pub use markdown::{render_markdown_terminal, truncate_lines};

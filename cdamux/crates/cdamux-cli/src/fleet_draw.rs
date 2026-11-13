@@ -4,6 +4,7 @@ use crate::app_tabs::{
     draw_agents, draw_projects, draw_sessions_list, draw_tab_bar, help_for_tab, AppTab,
 };
 use crate::fleet_tree::TreeRow;
+use crate::foam_tab::FOAM_FOOTER;
 use crate::graph_view::{draw_graph_screen, draw_orch_graph_panel, OrchGraphView, GRAPH_FOOTER};
 use crate::keymap::{fit_footer, fleet_help_groups, fleet_help_text, HELP_LEFT, HELP_RIGHT};
 use crate::settings_form::{draw_settings, SettingsForm};
@@ -77,6 +78,8 @@ pub(crate) const CLR_ERR: Color = Color::Rgb(240, 113, 120);
 pub(crate) enum FocusArea {
     Tree,
     Composer,
+    /// Foam tab tree: arrows / Enter / `[` `]` / `b` drive the tree, `Esc` leaves.
+    Foam,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -320,6 +323,8 @@ pub(crate) fn draw_app_screen(
 
     let help = if app_tab == AppTab::Fleet && state.focus == FocusArea::Composer {
         "composer: type · Enter send+↵ · Esc back".to_string()
+    } else if app_tab == AppTab::Fleet && state.focus == FocusArea::Foam {
+        FOAM_FOOTER.to_string()
     } else if app_tab == AppTab::Fleet && state.graph_view.is_some() {
         GRAPH_FOOTER.to_string()
     } else {

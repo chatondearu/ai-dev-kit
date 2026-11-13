@@ -30,7 +30,8 @@ orch graph behaviour.
    pane cwd — so worktree sessions still resolve the kit’s foam tree.
 3. **Read-only in-app**: no CDAMUX write path into `foam/` from this feature.
    Preview reuses the existing markdown render path (pulldown-cmark) where
-   applicable; `[[wikilink]]` resolution is out of scope for v0.
+   applicable. `[[wikilink]]` following was out of scope for v0 and is now in
+   scope (see Amendment).
 4. **Narrow supersede of the Teep / file-rail non-goal** (PRD-39 / PRD-41):
    browsing **`foam/` only** in this sidecar slot is in scope. A generic Teep
    file rail, browsing `prd/` / `plans/` / `doc/`, or a sidecar process remain
@@ -40,6 +41,24 @@ orch graph behaviour.
 6. **Local filesystem only** ([[ADR-004-cdamux|ADR-004]]): no cloud notes store.
 
 Implementation children: #267 (resolve + tab), #268 (render), #269 (deep-link).
+
+## Amendment — 2026-11-14 (tree navigation and wikilinks, #317)
+
+[PRD-315](../../prd/PRD-315-cdamux-orchestration-cockpit.md) brings **following
+`[[wikilinks]]`** into scope; the flat list becomes a collapsible tree.
+
+- The Foam tab shows `foam/` as a **collapsible tree** (directories + `.md`),
+  navigable with keys (`t` focuses it; arrows / `j k h l`, `Enter`) and mouse
+  clicks on rows. Existing caps (500 files, 64 KiB preview, 120 lines) stay.
+- `[[name]]`, `[[path|label]]` and `[[name#heading]]` found in the opened file
+  are listed under the preview. Targets resolve **only against the capped
+  `foam/` listing**: exact `foam/<target>.md` path first, then the first file
+  whose stem matches (case-insensitive). Anything else shows as unresolved and
+  is never read — links cannot escape `foam/`.
+- `Enter` on a resolved link opens it; `b` / `Backspace` returns through an
+  in-memory history (50 entries). No write path is added.
+- Still out of scope: editing, graph view, other roots, raw/rendered toggle
+  (#318).
 
 ## Alternatives considered
 

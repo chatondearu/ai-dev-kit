@@ -93,6 +93,7 @@ pub const FLEET_KEYMAP: &[Binding] = &[
     Binding { codes: &[K::Char('r')], ctrl: true, label: "Ctrl+R", action: A::StartReview, help: "hunk review TUI", footer: None, group: G::Session },
     b(&[K::Tab], "Tab", A::CycleSideTab, "next sidecar tab", None, G::View),
     b(&[], "PgUp PgDn [ ]", A::None, "scroll preview", None, G::View),
+    b(&[], "t (Foam tab)", A::None, "focus Foam tree", None, G::View),
     b(&[K::Char('w')], "w", A::ToggleWaitingFilter, "waiting filter (◆)", None, G::View),
     b(&[K::Char('g')], "g", A::GraphView, "Graph view (Tab: run)", Some("g graph"), G::View),
     b(&[K::Char('G')], "G", A::CycleGroupBy, "cycle group_by", None, G::View),

@@ -5,6 +5,7 @@ use crate::fleet_draw::{
     draw_app_screen, draw_rename_modal, review_sidecar_hint, row_index_from_mouse,
     scroll_preview, DrawState, FocusArea, RenameState, SideTab,
 };
+use crate::foam_tab::{foam_click_line, FoamState};
 use crate::graph_view::{load_orch_graph_view, node_session, worker_steps_text};
 use crate::fleet_tree::{
     clamp_selection, default_expanded, dormant_at_row, fleet_attention_hint, flatten_tree,
@@ -58,9 +59,7 @@ fn maybe_refresh_foam_sidecar(
     session_key: &str,
     preview_text: &str,
     foam_for_session: &mut Option<String>,
-    foam_text: &mut String,
-    foam_selected: &mut usize,
-    foam_entries: &mut Vec<String>,
+    foam: &mut FoamState,
     foam_deep_link_applied: &mut Option<String>,
 ) -> bool {
     if side_tab != SideTab::Foam {
@@ -68,22 +67,12 @@ fn maybe_refresh_foam_sidecar(
     }
     let mut changed = false;
     if foam_for_session.as_deref() != Some(session_key) {
-        let (text, sel, entries) = crate::foam_sidecar_for_cwd(cwd, 0);
-        *foam_text = text;
-        *foam_selected = sel;
-        *foam_entries = entries;
+        *foam = FoamState::load(cwd);
         *foam_for_session = Some(session_key.to_string());
         *foam_deep_link_applied = None;
         changed = true;
     }
-    if crate::apply_foam_deep_link_from_preview(
-        cwd,
-        preview_text,
-        foam_deep_link_applied,
-        foam_text,
-        foam_selected,
-        foam_entries,
-    ) {
+    if foam.apply_deep_link_from_preview(preview_text, foam_deep_link_applied) {
         changed = true;
     }
     changed
@@ -260,10 +249,8 @@ pub fn run_dashboard() -> ExitCode {
     let mut preview_for_session: Option<String> = None;
     // Only gathered for a session row: tmux is never queried with an empty target.
     let mut session_chrome: Option<SessionChrome> = None;
-    let mut foam_text = String::new();
+    let mut foam = FoamState::message("");
     let mut foam_for_session: Option<String> = None;
-    let mut foam_entries: Vec<String> = Vec::new();
-    let mut foam_selected: usize = 0;
     // Last foam path focused from preview capture (#269); reset on session change.
     let mut foam_deep_link_applied: Option<String> = None;
     let mut orch_graph = load_orch_graph_view(&GraphTarget::None, 0, 72);
@@ -400,9 +387,7 @@ pub fn run_dashboard() -> ExitCode {
                 &s.name,
                 &preview_text,
                 &mut foam_for_session,
-                &mut foam_text,
-                &mut foam_selected,
-                &mut foam_entries,
+                &mut foam,
                 &mut foam_deep_link_applied,
             );
         } else if let Some(repo) = orch_repo_at_row(&rows, selected_row) {
@@ -488,9 +473,7 @@ pub fn run_dashboard() -> ExitCode {
                 &repo,
                 &preview_text,
                 &mut foam_for_session,
-                &mut foam_text,
-                &mut foam_selected,
-                &mut foam_entries,
+                &mut foam,
                 &mut foam_deep_link_applied,
             );
         } else {
@@ -500,9 +483,10 @@ pub fn run_dashboard() -> ExitCode {
             preview_text = "(select a session for preview)".to_string();
             foam_for_session = None;
             foam_deep_link_applied = None;
-            foam_entries.clear();
-            foam_selected = 0;
-            foam_text = "Select a session to browse project foam.".to_string();
+            foam = FoamState::message("Select a session to browse project foam.");
+        }
+        if let Some(area) = sidecar_preview_rect {
+            needs_draw |= foam.set_height(area.height);
         }
         let target = graph_target_at_row(&rows, selected_row, tree, &status);
         let target_key = format!("{target:?}");
@@ -569,7 +553,7 @@ pub fn run_dashboard() -> ExitCode {
                                 focus,
                                 preview_text: &preview_text,
                                 preview_scroll,
-                                foam_text: &foam_text,
+                                foam_text: &foam.text,
                                 review_text: &review_text,
                                 orch_graph: &orch_graph,
                                 graph_view,
@@ -627,7 +611,15 @@ pub fn run_dashboard() -> ExitCode {
                     } else if app_tab == AppTab::Projects {
                         projects_scroll = wheel_step(projects_scroll, wheel, discovered.len());
                     } else if app_tab == AppTab::Fleet && graph_view.is_none() {
-                        if focus == FocusArea::Tree
+                        let foam_line = (side_tab == SideTab::Foam
+                            && m.kind == MouseEventKind::Down(MouseButton::Left))
+                        .then(|| sidecar_preview_rect.and_then(|a| foam_click_line(a, m.column, m.row)))
+                        .flatten();
+                        if let Some(line) = foam_line {
+                            if foam.click_line(line) {
+                                focus = FocusArea::Foam;
+                            }
+                        } else if focus != FocusArea::Composer
                             && m.kind == MouseEventKind::Down(MouseButton::Left)
                         {
                             if let Some(area) = fleet_tree_rect {
@@ -641,6 +633,7 @@ pub fn run_dashboard() -> ExitCode {
                                     )
                                 {
                                     selected_row = clamp_selection(&rows, idx);
+                                    focus = FocusArea::Tree;
                                     preview_for_session = None;
                                     foam_for_session = None;
                                 }
@@ -897,28 +890,20 @@ pub fn run_dashboard() -> ExitCode {
                     }
                 }
 
-                if side_tab == SideTab::Foam && !foam_entries.is_empty() {
-                    let step = match key.code {
-                        KeyCode::Char('[') | KeyCode::PageUp => -1isize,
-                        KeyCode::Char(']') | KeyCode::PageDown => 1isize,
-                        _ => 0,
-                    };
-                    if step != 0 {
-                        let next = foam_selected
-                            .saturating_add_signed(step)
-                            .min(foam_entries.len().saturating_sub(1));
-                        foam_selected = next;
-                        let cwd_owned = session
-                            .map(|s| s.path.clone())
-                            .or_else(|| orch_repo_at_row(&rows, selected_row));
-                        // Always re-render so Missing deep-link banner clears when index is unchanged.
-                        let (text, sel, entries) = crate::foam_sidecar_for_cwd(
-                            cwd_owned.as_deref().unwrap_or(""),
-                            foam_selected,
-                        );
-                        foam_text = text;
-                        foam_selected = sel;
-                        foam_entries = entries;
+                if side_tab == SideTab::Foam && foam.has_tree() {
+                    if focus == FocusArea::Foam {
+                        if key.code == KeyCode::Esc {
+                            focus = FocusArea::Tree;
+                            continue;
+                        }
+                        if !key.modifiers.contains(KeyModifiers::CONTROL) && foam.on_key(key.code) {
+                            continue;
+                        }
+                    } else if focus == FocusArea::Tree
+                        && key.modifiers.is_empty()
+                        && key.code == KeyCode::Char('t')
+                    {
+                        focus = FocusArea::Foam;
                         continue;
                     }
                 }
@@ -927,7 +912,12 @@ pub fn run_dashboard() -> ExitCode {
                 let forget_armed = pending_forget.take();
                 match map_key_event(key) {
                     DashboardAction::Quit => should_quit = true,
-                    DashboardAction::CycleSideTab => side_tab = side_tab.next(),
+                    DashboardAction::CycleSideTab => {
+                        side_tab = side_tab.next();
+                        if focus == FocusArea::Foam {
+                            focus = FocusArea::Tree;
+                        }
+                    }
                     DashboardAction::FocusComposer => {
                         if side_tab == SideTab::Preview && composer_session.is_some() {
                             focus = FocusArea::Composer;
@@ -1266,14 +1256,12 @@ mod tests {
     #[test]
     fn preview_tab_skips_foam_walk() {
         let tmp = tempfile::tempdir().unwrap();
-        let foam = tmp.path().join("foam");
-        std::fs::create_dir_all(&foam).unwrap();
-        std::fs::write(foam.join("index.md"), "# moc").unwrap();
+        let foam_dir = tmp.path().join("foam");
+        std::fs::create_dir_all(&foam_dir).unwrap();
+        std::fs::write(foam_dir.join("index.md"), "# moc").unwrap();
         let cwd = tmp.path().to_str().unwrap();
         let mut for_session = None;
-        let mut text = String::from("(untouched)");
-        let mut sel = 0usize;
-        let mut entries = Vec::new();
+        let mut foam = FoamState::message("(untouched)");
         let mut applied = None;
         assert!(!maybe_refresh_foam_sidecar(
             SideTab::Preview,
@@ -1281,28 +1269,24 @@ mod tests {
             "sess-a",
             "see foam/index.md",
             &mut for_session,
-            &mut text,
-            &mut sel,
-            &mut entries,
+            &mut foam,
             &mut applied,
         ));
-        assert_eq!(text, "(untouched)");
+        assert_eq!(foam.text, "(untouched)");
         assert!(for_session.is_none());
-        assert!(entries.is_empty());
+        assert!(!foam.has_tree());
     }
 
     #[test]
     fn foam_tab_loads_and_deep_links() {
         let tmp = tempfile::tempdir().unwrap();
-        let foam = tmp.path().join("foam");
-        std::fs::create_dir_all(&foam).unwrap();
-        std::fs::write(foam.join("index.md"), "# moc").unwrap();
-        std::fs::write(foam.join("adr.md"), "a").unwrap();
+        let foam_dir = tmp.path().join("foam");
+        std::fs::create_dir_all(&foam_dir).unwrap();
+        std::fs::write(foam_dir.join("index.md"), "# moc").unwrap();
+        std::fs::write(foam_dir.join("adr.md"), "a").unwrap();
         let cwd = tmp.path().to_str().unwrap();
         let mut for_session = None;
-        let mut text = String::new();
-        let mut sel = 0usize;
-        let mut entries = Vec::new();
+        let mut foam = FoamState::message("");
         let mut applied = None;
         assert!(maybe_refresh_foam_sidecar(
             SideTab::Foam,
@@ -1310,23 +1294,20 @@ mod tests {
             "sess-a",
             "working on foam/adr.md",
             &mut for_session,
-            &mut text,
-            &mut sel,
-            &mut entries,
+            &mut foam,
             &mut applied,
         ));
         assert_eq!(for_session.as_deref(), Some("sess-a"));
         assert_eq!(applied.as_deref(), Some("foam/adr.md"));
-        assert!(text.contains("▸ foam/adr.md"), "{text}");
+        assert_eq!(foam.selected_file(), Some("foam/adr.md"));
+        assert!(foam.text.contains("▸     adr.md"), "{}", foam.text);
         assert!(!maybe_refresh_foam_sidecar(
             SideTab::Foam,
             cwd,
             "sess-a",
             "working on foam/adr.md",
             &mut for_session,
-            &mut text,
-            &mut sel,
-            &mut entries,
+            &mut foam,
             &mut applied,
         ));
     }

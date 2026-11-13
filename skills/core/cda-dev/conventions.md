@@ -188,6 +188,12 @@ Graph orchestration cookbook: [doc/graph-orchestration.md](../../../doc/graph-or
 - With `ORCH_MAX_PARALLEL=1`, workers run strictly sequentially.
 - **`--graph-plan`**: tasks share one worktree; parallel only when every task
   `paths` prefix is disjoint (`graph-plan-validate.sh`). Default `ORCH_GRAPH_PLAN_PARALLEL=auto`.
+- **Path overlap → stack, don't fan-out.** If two children will touch the same
+  paths (or the same feature surface), do **not** dispatch them in parallel from
+  the same `main`. Prefer a `Blocked by:` chain (B waits for A to merge) or an
+  explicit **stack** (B's branch is cut from A's branch / PR). The maintainer
+  often rebases when merging; parallel PRs on shared files become CONFLICTING
+  after the first merge (dogfood: #268/#269 → PR #280 dirty on main).
 
 ## Blocking edges and the frontier
 

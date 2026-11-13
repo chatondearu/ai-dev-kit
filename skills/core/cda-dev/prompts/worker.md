@@ -106,6 +106,18 @@ without a fix path), stop and report:
 
 Do not invent product decisions. Do not merge. Do not start another child issue.
 
+## Stacking and rebase (maintainer merges with rebase)
+
+- If this child shares paths with another open PR, treat that as a **stack**: base
+  on the dependency branch (or wait until it merges), do not race the same files
+  from stale `main`.
+- Before opening or updating the PR, `git fetch origin main` and rebase (or
+  merge) onto the current base. If `gh pr view` reports `CONFLICTING` /
+  `DIRTY`, rebase onto the updated base, resolve, and
+  `git push --force-with-lease` on **this feature branch only**.
+- Prefer reporting `blocked` with reason `needs rebase onto main / stack base`
+  over leaving a dirty PR for the human to discover at merge time.
+
 ## Forbidden
 
 - Editing files owned by another parallel worker’s plan without master sequencing

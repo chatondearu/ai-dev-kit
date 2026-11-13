@@ -249,6 +249,8 @@ fn restore_orch_restores_workers_with_resume_and_parent() {
         );
         assert_eq!(tmux(&["show-options", "-v", "-t", worker, "@cdamux_parent"]).trim(), orch);
         assert_eq!(tmux(&["show-options", "-v", "-t", worker, "@cdamux_role"]).trim(), "worker");
+        assert_eq!(tmux(&["show-options", "-v", "-t", worker, "@cdamux_run"]).trim(), "r-test1");
+        assert_eq!(tmux(&["show-options", "-v", "-t", orch, "@cdamux_run"]).trim(), "r-test1");
         assert_eq!(tmux(&["show-options", "-v", "-t", orch, "@cdamux_role"]).trim(), "orchestrator");
         assert_eq!(
             tmux(&["show-options", "-v", "-t", worker, "@cdamux_id"]).trim(),

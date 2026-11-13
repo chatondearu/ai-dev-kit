@@ -2,7 +2,8 @@
 // with a parentID, i.e. the `task` tool's sub-agents) to the sub-agent ledger of
 // the tmux session opencode runs in (schema: cdamux/docs/subagents.md), and stores
 // the main session id (no parentID) as agent_session_id in its restore record
-// (ADR-009). ESM, as opencode loads plugins. Fail-open: errors are swallowed; local only.
+// (ADR-009), and reports the main session's working / idle / error status (ADR-011 §3).
+// ESM, as opencode loads plugins. Fail-open: errors are swallowed; local only.
 // Enable: install.sh --cdamux-hooks links it into ~/.config/opencode/plugins/.
 import { createRequire } from 'node:module';
 import fs from 'node:fs';
@@ -42,6 +43,8 @@ export const CdamuxSubagent = async () => {
         const p = event.properties || {};
         // shortcut: a child resumed after going idle is not shown again; revisit if opencode reuses child sessions.
         if (event.type === 'session.created') add(p.info);
+        // A reported `idle` beats the pane heuristic, so busy must be reported too (stickiness: ledger.js).
+        else if (event.type === 'session.status' && p.status && p.status.type === 'busy' && p.sessionID === mainId) setAgentStatus(process.env, 'working');
         else if (event.type === 'session.idle') stop(p.sessionID);
         else if (event.type === 'session.error') stop(p.sessionID, 'error');
         else if (event.type === 'session.deleted') stop(p.info && p.info.id);

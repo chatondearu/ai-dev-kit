@@ -8,7 +8,8 @@ _ORCH_CDAMUX_STATE_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/cdamux_sta
 source "$_ORCH_CDAMUX_STATE_LIB"
 unset _ORCH_CDAMUX_STATE_LIB
 
-# Status line format: PHASE|message  (PHASE = pending|worktree|agent|verify|review|ci|done|blocked)
+# Status line format: PHASE|message  (PHASE = pending|worktree|agent|verify|review|ci|done|blocked|error)
+# `blocked` = waiting on the orchestrator or a dependency; `error` = the worker failed (ADR-011 §3).
 
 orch_progress_dir() {
   printf '%s/.orch/run\n' "${ORCH_REPO:-.}"
@@ -110,7 +111,7 @@ orch_progress_tmux_state() {
   tmux has-session -t "=$s:" 2>/dev/null || return 0
   case "$2" in
     done) state=done ;;
-    blocked) state=error ;;
+    blocked|error) state=error ;;
     pending) state=idle ;;
     *) state=running ;;
   esac
@@ -121,7 +122,7 @@ orch_progress_icon() {
   local phase="$1" frame="$2"
   case "$phase" in
     done) printf '✓';;
-    blocked) printf '✗';;
+    blocked|error) printf '✗';;
     pending) printf '·';;
     *) printf '%s' "$frame";;
   esac

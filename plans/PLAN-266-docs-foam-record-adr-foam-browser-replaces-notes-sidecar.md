@@ -1,6 +1,6 @@
 # PLAN-266 — Record ADR: Foam browser replaces Notes sidecar
 
-- **Status**: ready
+- **Status**: done
 - **PRD**: [[../prd/PRD-265-cdamux-foam-browser|PRD-265]]
 - **GitHub**: [#266](https://github.com/chatondearu/ai-dev-kit/issues/266)
 - **Date**: 2026-11-13
@@ -39,12 +39,12 @@ narrow supersede explicitly. English only.
 
 ## Tasks
 
-- [ ] Draft ADR with context (Notes = scratch; foam = project memory), decision
+- [x] Draft ADR with context (Notes = scratch; foam = project memory), decision
       (replace sidecar; read-only; git-toplevel + `foam/`; Teep narrow supersede),
       alternatives (dual pane, rename-only, full Teep), consequences
-- [ ] Link GitHub #265 / #266 and PRD-265
-- [ ] Update foam MOC / decisions index
-- [ ] Comment on the issue with the ADR path
+- [x] Link GitHub #265 / #266 and PRD-265
+- [x] Update foam MOC / decisions index
+- [x] Comment on the issue with the ADR path
 
 ## Risks & mitigations
 
@@ -54,10 +54,10 @@ narrow supersede explicitly. English only.
 
 ## Test plan
 
-- [ ] ADR readable from `foam/index.md` wikilink
-- [ ] No contradiction left unstated vs ADR-005 graph naming
+- [x] ADR readable from `foam/index.md` wikilink
+- [x] No contradiction left unstated vs ADR-005 graph naming
 
 ## Verification
 
-- [ ] Docs-only change; `nix develop -c bash scripts/verify.sh` if required by hooks
+- [x] Docs-only change; `nix develop -c bash scripts/verify.sh` if required by hooks
 - [ ] PR `Closes #266`

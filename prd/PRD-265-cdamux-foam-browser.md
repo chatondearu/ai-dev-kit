@@ -77,7 +77,8 @@ notes store in the same UI slot.
 - ADRs: [[../foam/decisions/ADR-004-cdamux|ADR-004]],
   [[../foam/decisions/ADR-005-cda-graph-orchestration|ADR-005]],
   [[../foam/decisions/ADR-008-graphify-code-graph|ADR-008]] (`CDA_FOAM_HOME` for
-  skills — not required for CDAMUX v0 root), upcoming ADR from #266
+  skills — not required for CDAMUX v0 root),
+  [[../foam/decisions/ADR-012-foam-browser-replaces-notes-sidecar|ADR-012]] (#266)
 - Product: [[../foam/product/documentation-layout|Documentation layout]]
 - Prior Notes: #47, #62; PRD-39 / PRD-41 Teep non-goal (narrow supersede)
 - Architecture: `cdamux/docs/architecture.md` `[notes]` section (update when

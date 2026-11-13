@@ -43,6 +43,7 @@ Index: [[decisions/index|All ADRs]]
 - [[decisions/ADR-009-cdamux-session-restore-registry|ADR-009 — cdamux session restore registry]]
 - [[decisions/ADR-010-worker-cli-inheritance-and-tiers|ADR-010 — Worker CLI inheritance and tiers]]
 - [[decisions/ADR-011-cdamux-unified-state-model|ADR-011 — cdamux unified state model]]
+- [[decisions/ADR-012-foam-browser-replaces-notes-sidecar|ADR-012 — Foam browser replaces Notes sidecar]]
 - [[graph/README|Foam machine graph + orch overlay]]
 
 ## PRDs & plans

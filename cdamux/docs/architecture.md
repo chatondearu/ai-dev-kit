@@ -222,7 +222,7 @@ See `config/cdamux.example.toml`. Highlights:
     below (same pulldown-cmark path as `notes show --render`, capped at 64 KiB
     input and 120 output lines with a `… (truncated)` cue; no HTML or images).
     **Wikilinks**: `[[name]]`, `[[path|label]]` and `[[name#heading]]` of the
-    selected file are listed under the preview; `[` `]` pick one, `Enter` opens it,
+    selected file are listed above the preview (4 at a time); `[` `]` pick one, `Enter` opens it,
     `b` / `Backspace` goes back (50-entry history). A target resolves only against
     the listing — exact `foam/<target>.md`, then first file with the same stem —
     otherwise it shows `(unresolved)`. CLI notes are unchanged. Deep-link (#269):

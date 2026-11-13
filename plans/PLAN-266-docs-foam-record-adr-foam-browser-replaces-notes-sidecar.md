@@ -60,4 +60,4 @@ narrow supersede explicitly. English only.
 ## Verification
 
 - [x] Docs-only change; `nix develop -c bash scripts/verify.sh` if required by hooks
-- [ ] PR `Closes #266`
+- [x] PR `Closes #266`

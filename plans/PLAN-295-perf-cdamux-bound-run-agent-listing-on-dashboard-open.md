@@ -59,4 +59,4 @@ when unnecessary. Keep Fleet live/recent UX for the selected repo.
 ## Verification
 
 - [x] Verify green (cdamux `cargo test -- --skip home_shell_pane_is_respawned`; home_repair flake pre-existing on this host)
-- [ ] PR `Closes #295`
+- [x] PR `Closes #295` (#308)

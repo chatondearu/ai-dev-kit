@@ -62,7 +62,7 @@ Fleet action “open in Foam”. Hook from the highest-signal existing context
 ## Verification
 
 - [x] `nix develop -c bash scripts/verify.sh`
-- [ ] PR `Closes #269`
+- [x] PR `Closes #269`
 
 ## Context source (shipping)
 

@@ -102,7 +102,7 @@ Node/Rust (`mise.toml`); then `nix develop` fallback. Prefer `mise activate`
 ```bash
 bash scripts/verify.sh
 # optional Mise pins (after `mise install`; activate or one outer run/exec):
-mise run verify
+# mise run verify
 # fallback if cargo/jq/node/… missing:
 nix develop -c bash scripts/verify.sh
 ```

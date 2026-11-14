@@ -1,6 +1,6 @@
 # PLAN-335 — fix residual graph/worker reattach after session kill
 
-- **Status**: in-progress
+- **Status**: done
 - **PRD**: [[../prd/PRD-334-cdamux-fleet-hygiene-navigator|PRD-334]]
 - **GitHub**: [#335](https://github.com/chatondearu/ai-dev-kit/issues/335)
 - **Date**: 2026-11-14

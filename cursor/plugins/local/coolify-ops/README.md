@@ -1,37 +1,36 @@
 # coolify-ops
 
-Cursor plugin scaffold to operate Coolify with an API-first approach.
+Cursor plugin to operate Coolify via the **official CLI** (`coolify`).
+
+Install the binary with the kit flake / companion (see `aitools/README.md`):
+
+```bash
+nix build .#coolify-cli
+# or: cda.aitools.coolify.enable = true;
+```
 
 ## Included components
 
-- `commands/`
-  - `coolify-health.md`
-  - `coolify-list-apps.md`
-  - `coolify-deploy-app.md`
-  - `coolify-deploy-and-watch.md`
-- `skills/`
-  - `coolify-api-basics/SKILL.md`
-- `examples/`
-  - `coolify-client.ts` (TypeScript API client with deploy polling/retries)
-  - `deploy-and-watch.ts` (CLI runner executable with `tsx`)
+- `commands/` — health, list apps, deploy, deploy-and-watch (CLI)
+- `skills/coolify-api-basics/` — agent workflow for the CLI
+- `examples/` — **legacy** TypeScript/curl helpers (not the primary path)
 
 ## Quick start
 
-1. Generate a Coolify API token from `/security/api-tokens`.
-2. Export environment variables:
-   - `COOLIFY_BASE_URL`
-   - `COOLIFY_TOKEN`
-3. Use command templates from `commands/` to drive workflows.
+1. Create an API token in Coolify (`/security/api-tokens`).
+2. Export host secrets (never bake the token into Nix):
 
-### CLI runner example
+   ```bash
+   export COOLIFY_BASE_URL="https://coolify.example.com"
+   export COOLIFY_TOKEN="***"
+   coolify-env-sync   # writes ~/.config/coolify context
+   ```
 
-```bash
-COOLIFY_BASE_URL="https://coolify.example.com" \
-COOLIFY_TOKEN="***" \
-tsx examples/deploy-and-watch.ts --app <app-uuid>
-```
+3. Run command templates under `commands/`.
 
 ## Notes
 
-- This scaffold is intentionally minimal.
-- It is safe to extend with rules, agents, hooks, and MCP server wiring.
+- Prefer the CLI over inventing or wiring an MCP for Coolify ops.
+- Upstream CLI may expose `coolify mcp`; this kit still treats the CLI as the
+  agent-facing interface.
+- Token stays host-side (`COOLIFY_TOKEN` + `coolify-env-sync` / `coolify context`).

@@ -1,6 +1,6 @@
 # PLAN-345 — docs(coolify): point coolify-ops at CLI + note CLI-first preference
 
-- **Status**: draft
+- **Status**: in-progress
 - **PRD**: [[../prd/PRD-343-coolify-cli-in-kit|PRD-343]]
 - **GitHub**: [#345](https://github.com/chatondearu/ai-dev-kit/issues/345)
 - **Date**: 2026-11-14

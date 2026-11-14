@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.0
+
+- Primary path is the official `coolify` CLI (kit flake / `cda.aitools.coolify`).
+- Commands and skill rewritten for CLI; TypeScript/curl examples demoted to legacy.
+
 ## 0.1.0
 
 - Initial Coolify Cursor plugin scaffold.

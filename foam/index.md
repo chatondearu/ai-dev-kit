@@ -52,11 +52,8 @@ Index: [[decisions/index|All ADRs]]
 
 | PRD | Status |
 | --- | ------ |
-<<<<<<< HEAD
 | [[../prd/PRD-348-cdamux-opt-in-nav-bind-and-docs|PRD-348]] opt-in nav bind + docs (plans: [[../plans/PLAN-349-feat-aitools-install-opt-in-cdamux-nav-bind|PLAN-349]], [[../plans/PLAN-350-docs-cdamux-kit-nav-dismiss-hygiene|PLAN-350]]) | approved |
-=======
 | [[../prd/PRD-343-coolify-cli-in-kit|PRD-343]] Coolify CLI in kit (plans: [[../plans/PLAN-344-feat-aitools-package-coolify-cli-opt-in-cda-aitools-coolify|PLAN-344]], [[../plans/PLAN-345-docs-coolify-point-coolify-ops-at-cli-note-cli-first-prefere|PLAN-345]]) | approved |
->>>>>>> 9cd8898 (feat(aitools): package Coolify CLI with opt-in cda.aitools.coolify)
 | [[../prd/PRD-334-cdamux-fleet-hygiene-navigator|PRD-334]] Fleet hygiene + dedicated navigator (plans: [[../plans/PLAN-335-fix-cdamux-residual-reattach-after-session-kill|PLAN-335]], [[../plans/PLAN-336-feat-cdamux-fleet-ui-dismiss-under-session-rows|PLAN-336]], [[../plans/PLAN-337-feat-cdamux-dedicated-navigator-session|PLAN-337]]) | shipped |
 | [[../prd/PRD-329-cdamux-sidebar-hover-click-activate|PRD-329]] sidebar hover/click (plan: [[../plans/PLAN-331-feat-cdamux-sidebar-hover-and-click-to-activate|PLAN-331]]) | approved |
 | [[../prd/PRD-315-cdamux-orchestration-cockpit|PRD-315-cdamux-orchestration-cockpit]] | approved |

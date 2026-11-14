@@ -70,7 +70,7 @@ pub use tailnet_api::{
 };
 pub use foam::{
     extract_foam_path_from_text, extract_wikilinks, find_foam_entry, foam_file_wikilinks,
-    list_foam, normalize_foam_path, preview_foam_markdown, resolve_foam_root,
+    list_foam, normalize_foam_path, preview_foam_markdown, preview_foam_raw, resolve_foam_root,
     resolve_project_root, resolve_wikilink, FoamListing, FoamRow, FoamTree, WikiLink, FOAM_DIR,
     FOAM_LIST_CAP, FOAM_PREVIEW_MAX_BYTES, FOAM_PREVIEW_MAX_LINES,
 };

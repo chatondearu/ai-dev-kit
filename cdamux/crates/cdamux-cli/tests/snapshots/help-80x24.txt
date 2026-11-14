@@ -13,7 +13,7 @@
 │  m              rename session          q              quit                  │
 │  f              fork session            Ctrl+C         quit                  │
 │  x              kill / forget (x x)                                          │
-│  o              open GitHub issue                                            │
+│  o              open PR / issue                                              │
 │  Space          send text                                                    │
 │  Ctrl+R         hunk review TUI                                              │
 │                                                                              │

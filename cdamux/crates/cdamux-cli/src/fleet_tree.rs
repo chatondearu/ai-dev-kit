@@ -5,6 +5,7 @@ use cdamux_core::{
     session_registry::SessionRecord, ChildKind, ChildRow, EnrichedSession, GroupBy,
     OrchGraphRunSummary, Project, ProjectSessionTree, ProjectTreeNode, SessionForest, SessionState,
 };
+use crate::link_ui::OpenTarget;
 use crate::refresh::StatusCache;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -593,21 +594,25 @@ pub(crate) fn focus_session_in_tree(
     0
 }
 
-pub(crate) fn issue_at_row(rows: &[TreeRow], idx: usize) -> Option<(String, u32)> {
-    match rows.get(idx)? {
-        TreeRow::Session { session: s, .. } => s.issue.map(|n| (s.path.clone(), n)),
+/// What `o` opens for the row: its PR, else its issue (cached link, else the branch / worker id).
+pub(crate) fn link_at_row(rows: &[TreeRow], idx: usize) -> Option<OpenTarget> {
+    let (cwd, links, fallback_issue) = match rows.get(idx)? {
+        TreeRow::Session { session: s, .. } => (s.path.clone(), s.links.clone(), s.issue),
         TreeRow::Child {
             row, project_path, ..
-        } if row.kind == ChildKind::Worker => {
-            let n = row
-                .id
-                .parse()
-                .ok()
-                .or_else(|| cdamux_core::parse_issue_number(&row.id))?;
-            Some((project_path.clone(), n))
-        }
-        _ => None,
+        } if row.kind == ChildKind::Worker => (
+            project_path.clone(),
+            row.links.clone(),
+            row.id.parse().ok().or_else(|| cdamux_core::parse_issue_number(&row.id)),
+        ),
+        _ => return None,
+    };
+    if let Some(pr) = links.pr {
+        return Some(OpenTarget { cwd, pr: true, number: pr.number, url: pr.url });
     }
+    let issue = links.issue;
+    let number = issue.as_ref().map(|i| i.number).or(fallback_issue)?;
+    Some(OpenTarget { cwd, pr: false, number, url: issue.and_then(|i| i.url) })
 }
 
 #[cfg(test)]
@@ -618,6 +623,22 @@ mod tests {
 
     fn no_status() -> StatusCache {
         StatusCache::new(std::time::Duration::ZERO)
+    }
+
+    #[test]
+    fn o_targets_the_pr_then_the_issue() {
+        let rows = crate::test_render::fixture_link_rows();
+        // Session with a PR: the PR wins over its issue.
+        let t = link_at_row(&rows, 1).unwrap();
+        assert_eq!((t.pr, t.number), (true, 318));
+        assert_eq!(t.url.as_deref(), Some("https://github.com/o/r/pull/318"));
+        // No cached link: the branch issue, no URL.
+        let t = link_at_row(&rows, 2).unwrap();
+        assert_eq!((t.pr, t.number, t.url), (false, 9, None));
+        // Worker with a PR.
+        assert_eq!(link_at_row(&rows, 3).map(|t| (t.pr, t.number)), Some((true, 321)));
+        // Project row: nothing.
+        assert!(link_at_row(&rows, 0).is_none());
     }
 
     #[test]

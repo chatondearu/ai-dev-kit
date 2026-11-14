@@ -4,6 +4,7 @@ use crate::agent_status::{
     heuristic_applies, load_reported_status, parse_reported_status, resolve_display_status,
     DEFAULT_WORKING_WARN_SECONDS,
 };
+use crate::links::AgentLinks;
 use crate::msg::inbox_badges;
 use crate::session_chrome::{resolve_agent_label, AGENT_LABEL_MISSING};
 use crate::project_tree::project_for_path;
@@ -71,6 +72,9 @@ pub struct EnrichedSession {
     /// Worker has an unanswered `ask` in its parent's inbox (Fleet `?`).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub pending_ask: bool,
+    /// Cached PR / source issue of [`Self::cdamux_id`] (Fleet badge, Review header).
+    #[serde(default, skip_serializing_if = "AgentLinks::is_empty")]
+    pub links: AgentLinks,
 }
 
 fn is_zero(n: &usize) -> bool {
@@ -192,6 +196,7 @@ pub fn enrich_sessions_ex(
                 .as_deref()
                 .map(inbox_badges)
                 .unwrap_or((0, false));
+            let links = cdamux_id.as_deref().map(AgentLinks::load).unwrap_or_default();
             EnrichedSession {
                 name: s.name.clone(),
                 path: s.path.clone(),
@@ -209,6 +214,7 @@ pub fn enrich_sessions_ex(
                 cdamux_id,
                 unread,
                 pending_ask,
+                links,
             }
         })
         .collect()

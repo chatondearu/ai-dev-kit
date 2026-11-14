@@ -98,7 +98,7 @@ bash ~/.cursor/skills/cda-graph/scripts/graph-plan-validate.sh my-plan.json
 | **API** | `GET /v1/sessions/{tmux-name}/orch-graph` |
 | **API (project)** | `GET /v1/orch-graph?repo=[&run=]` (default: latest run under `$CDAMUX_HOME/runs/`) · `GET /v1/orch-status?repo=` (workers from agents) · `GET /v1/orch-runs?repo=` (live then finished; `live` flag) |
 | **Session hooks** | Opt-in `./install.sh --cdamux-hooks` writes agent status to `$CDAMUX_HOME/agents/<id>.json` via `cdamux state append` (Fleet prefers that) and injects an unread `cdamux msg` digest on turn-end (Claude `Stop` / Cursor `stop.followup_message`). Cursor `beforeSubmitPrompt` cannot inject context. Transitional `@cdamux_state` (set by `ORCH_TMUX=1`) remains a fallback before pane heuristics — see `cdamux/docs/subagents.md` |
-| **GitHub issue** | Fleet `o` opens `gh issue view N --web` when branch is `feat/<n>-*` or worker id is numeric |
+| **PR / issue links** | Fleet rows show the cached links of the agent (`PR#12`, `#7`, PR colour = state) and the Review tab header reads `PR #12 OPEN · issue #7` + the PR title; the labels are OSC 8 hyperlinks when the URL is known (tmux: see `cdamux/docs/dogfood.md`). `o` opens the PR, else the issue (cached link, else branch `feat/<n>-*` or numeric worker id) with `gh pr\|issue view N --web`, falling back to the OS opener on the URL. Read-only: detection stays in `cdamux link` / `orch.sh` |
 
 ## Cursor-only (no harness)
 

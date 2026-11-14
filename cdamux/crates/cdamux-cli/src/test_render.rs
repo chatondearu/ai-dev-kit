@@ -13,7 +13,7 @@ use crate::graph_view::OrchGraphView;
 use crate::settings_form::SettingsForm;
 use crate::spawn_modal::{draw_modal, ModalState};
 use cdamux_core::{
-    session_registry::SessionRecord, ChildKind, ChildRow, Config, EnrichedSession, GroupBy,
+    session_registry::SessionRecord, AgentLinks, ChildKind, LinkRef, ChildRow, Config, EnrichedSession, GroupBy,
     OrchGraphFile, OrchGraphRunSummary, OrchRunStatusFile, OrchWorkerStatus, PaneLayout,
     PreviewSource, Project, ProjectRoot, ProjectSessionTree, ProjectTreeNode, SessionChrome,
     SessionState,
@@ -119,6 +119,38 @@ pub(crate) fn fixture_rows() -> Vec<TreeRow> {
     ]
 }
 
+/// A session with a PR and an issue, one with only a branch issue, and a worker with a PR.
+pub(crate) fn fixture_link_rows() -> Vec<TreeRow> {
+    let link = |number, url: &str, state: Option<&str>, title: Option<&str>| LinkRef {
+        number,
+        url: Some(url.into()),
+        state: state.map(Into::into),
+        title: title.map(Into::into),
+    };
+    let mut with_pr = session("alpha-312", "/src/alpha", SessionState::Working, "claude", Some(312));
+    with_pr.links = AgentLinks {
+        pr: Some(link(318, "https://github.com/o/r/pull/318", Some("OPEN"), Some("feat(cdamux): show links"))),
+        issue: Some(link(312, "https://github.com/o/r/issues/312", None, None)),
+    };
+    let mut worker_row = worker("320", "running", "implementing");
+    if let TreeRow::Child { row, .. } = &mut worker_row {
+        row.links.pr = Some(link(321, "https://github.com/o/r/pull/321", Some("MERGED"), None));
+    }
+    vec![
+        TreeRow::Project {
+            key: "alpha".into(),
+            name: "alpha".into(),
+            path: "/src/alpha".into(),
+            session_count: 2,
+            worker_count: 1,
+            expanded: true,
+        },
+        row(with_pr, 1, None),
+        row(session("alpha-9", "/src/alpha", SessionState::Idle, "cursor", Some(9)), 1, None),
+        worker_row,
+    ]
+}
+
 /// One parent session with a forked child and grandchild, plus a collapsed parent
 /// (its hidden child still counts in the project total).
 pub(crate) fn fixture_nested_rows() -> Vec<TreeRow> {
@@ -151,6 +183,7 @@ pub(crate) fn fixture_children_rows() -> Vec<TreeRow> {
             agent_id: None,
             unread: 0,
             pending_ask: false,
+            links: Default::default(),
         },
         depth: 2,
         project_path: "/src/alpha".into(),
@@ -416,6 +449,11 @@ pub(crate) fn render_app_ex_foam(
     let mut cfg = Config::default();
     cfg.projects.roots.push(ProjectRoot { path: "/src".into(), label: "src".into() });
     let settings = SettingsForm::new(None);
+    // The Review header follows the selected row, as in the live TUI.
+    let review_links = match &rows[1] {
+        TreeRow::Session { session, .. } => session.links.clone(),
+        _ => AgentLinks::default(),
+    };
     let state = DrawState {
         rows: &rows,
         selected_row: 1,
@@ -425,6 +463,7 @@ pub(crate) fn render_app_ex_foam(
         preview_scroll: 0,
         foam_text,
         review_text: "Select a session.",
+        review_links: &review_links,
         orch_graph: &graph,
         graph_view,
         composer_line: "",
@@ -497,6 +536,7 @@ fn form_controls_render_input_bg_select_checkbox_and_active_tab() {
     let settings = SettingsForm::new(None);
     let rows = fixture_rows();
     let graph = fixture_graph();
+    let no_links = AgentLinks::default();
     let state = DrawState {
         rows: &rows,
         selected_row: 1,
@@ -506,6 +546,7 @@ fn form_controls_render_input_bg_select_checkbox_and_active_tab() {
         preview_scroll: 0,
         foam_text: "(no foam)",
         review_text: "Select a session.",
+        review_links: &no_links,
         orch_graph: &graph,
         graph_view: None,
         composer_line: "",
@@ -592,6 +633,14 @@ fn golden_screens() {
             ("settings", render_app(w, h, AppTab::Settings, SideTab::Preview)),
             ("fleet-foam", render_app(w, h, AppTab::Fleet, SideTab::Foam)),
             ("fleet-review", render_app(w, h, AppTab::Fleet, SideTab::Review)),
+            (
+                "fleet-links",
+                render_app_ex(w, h, AppTab::Fleet, SideTab::Preview, fixture_link_rows(), fixture_graph(), None, false),
+            ),
+            (
+                "fleet-links-review",
+                render_app_ex(w, h, AppTab::Fleet, SideTab::Review, fixture_link_rows(), fixture_graph(), None, false),
+            ),
             ("projects", render_app(w, h, AppTab::Projects, SideTab::Preview)),
             ("sessions", render_app(w, h, AppTab::Sessions, SideTab::Preview)),
             ("agents", render_app(w, h, AppTab::Agents, SideTab::Preview)),

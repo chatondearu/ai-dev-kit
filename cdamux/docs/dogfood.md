@@ -85,6 +85,7 @@ PR, else the issue, in the browser.
 - [ ] Spawn a claude session, `tmux kill-session` it, `cdamux restore --all` brings it back on the same conversation (`--resume <id>`)
 - [ ] Spawn `cdamux orch new` + a worker, kill both hosts, `cdamux restore <orch>` brings orch then workers back (resume ids + `@cdamux_parent` kept)
 - [ ] The killed session shows as a dimmed `◌ … dormant` row in the Fleet; `Enter` restores it, `x` `x` forgets it
+- [ ] Kill residual (#335): Fleet `x` on an orch session with a live run → recreate same name → no foreign live graph under it. Same after raw `tmux kill-session` (orphan may sit at project root until sweep). For existing dogfood orphans: `cdamux state gc --sweep-orphans --dry-run` then without `--dry-run` (rebuild/`PATH` if still on a pre-#307 binary)
 - [ ] `cdamux restart --all` from a shell pane of an agent session: other idle agents restart first, a `running` one is skipped, the current one restarts last (see `restart.log`)
 
 ## After a kit update
@@ -225,7 +226,7 @@ printf 'Create bye.txt containing "bye", commit it, then report done.' > /tmp/sp
 | 5 | Answer (2) | Orchestrator answers (`cdamux msg send --to a --kind answer "use greeting.txt"`, or `answer` in the Fleet composer) | `blocked` and `?` clear; text lands in a's pane (`pasted`) or at its next prompt (`queued`); `✉` on the worker is 0 once seen |
 | 6 | Done (2) | Worker `b` finishes (`--kind done`), then `a` | Rows turn `done`; orchestrator `✉` counts up, digest lists `[done] from …` lines; `cdamux msg read --ack` (as orchestrator) zeroes `✉` |
 | 7 | Review (3) | In the orchestrator: ask it to review each worker with `gh pr diff <n>` (or `git -C <worktree> diff main`) before accepting | Orchestrator reads the diff itself and answers `accept` / `fix` to the worker; it never merges |
-| 8 | Cleanup (1) | `tmux kill-session` both workers and the orchestrator, `rm -rf /tmp/dogfood /tmp/specs` | No stray `c-*` sessions; `cdamux state gc` if the Fleet still lists dormant rows |
+| 8 | Cleanup (1) | `tmux kill-session` both workers and the orchestrator, `rm -rf /tmp/dogfood /tmp/specs` | No stray `c-*` sessions; if Fleet still shows stuck live graphs/workers under a recreated name or at project root, run `cdamux state gc --sweep-orphans --dry-run` then `cdamux state gc --sweep-orphans` (raw kill does not finalize; Fleet `x` does) |
 
 Pass = every "Expect" holds. Any miss: file an issue (`area:cdamux`, parent #315) with the
 step number and a `cdamux worker peek` / `cdamux state get agents <id>` excerpt.

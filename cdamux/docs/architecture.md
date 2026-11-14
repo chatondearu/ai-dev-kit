@@ -67,10 +67,22 @@ registry, ADR-009) are never GC'd. Manual only (no timer in v0).
 
 Fleet permanent kill (`x`) finalizes agents with that host and live runs with that
 `session` (`status=error`, `ended_at`, clear host) so recreating the same tmux name
-cannot re-attach stuck graphs (#307). `cdamux restart` does **not** finalize (restore
-needs the agent). One-shot cleanup for already-orphaned dogfood state:
+cannot re-attach stuck graphs (#307). Graph / Fleet bind for a session uses only
+`@cdamux_run` — never a live run whose JSON `session` field merely matches the
+tmux name (#335 / ADR-007). `cdamux restart` does **not** finalize (restore needs
+the agent).
+
+| Kill path | Finalize? | After recreate same name |
+| --- | --- | --- |
+| Fleet `x` | yes (`finalize_session_host`) | no live graph/workers under the new session |
+| `tmux kill-session` (raw) | no (restart must keep state) | no name-only re-attach; orphan stays at project root until sweep |
+| `cdamux restart` | no | same host continues; agent state kept |
+
+One-shot cleanup for already-orphaned dogfood state (raw kill leftovers, pre-#307
+binaries still on `PATH`):
 
 ```bash
+# Rebuild / put the current binary first on PATH, then:
 cdamux state gc --sweep-orphans --dry-run   # preview
 cdamux state gc --sweep-orphans            # finalize dead-host working/running, then retention
 ```
@@ -288,10 +300,11 @@ Operator curl examples: [tailnet-api.md](tailnet-api.md).
 - Fleet **reads** `$CDAMUX_HOME/runs/` and `$CDAMUX_HOME/agents/` (hard cut #252): one
   graph file per run, workers as Agents with matching `run`. Project rows and
   `GET /v1/orch-graph?repo=` take the newest live run (`&run=` picks one);
-  `GET /v1/sessions/:id/orch-graph` prefers that session's own run, else its
-  `@cdamux_run`. A run row (`ChildKind::Run`) sits under the session in its
-  `session` field, headless runs under the project; the session sidecar and Graph
-  view show the session's own newest run, else its `@cdamux_run`.
+  `GET /v1/sessions/:id/orch-graph` binds only via that session's `@cdamux_run`
+  (#335). A run row (`ChildKind::Run`) nests under a live session only when that
+  session's `@cdamux_run` claims it; unclaimed live runs (headless, dead host, or
+  name-only orphan after recreate) sit under the project. The session sidecar and
+  Graph view show `@cdamux_run` only — never a name-matched live fallback.
   The Orch graph tab and the full-screen Graph view (`g`) draw a layered DAG
   (`cdamux-core::orch_graph_layout`, longest-path layers over `edges` + `parent`)
   and fall back to the indented text tree when the layers do not fit the width.

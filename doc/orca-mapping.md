@@ -48,7 +48,7 @@ vs kit graph orchestration ([graph-orchestration.md](graph-orchestration.md), AD
 | Preview / status | Pane capture, idle / needs_input | — |
 | Diff review → agent | `cdamux review` (hunks) | `cda-review` on PR |
 | Inline diff line comments | Rich diff UI | Hunk-based review only |
-| Orch graph view | Sidecar + `GET …/orch-graph` | Reads `$CDAMUX_HOME/runs/` (+ Agents); session endpoint filters by `session` / `@cdamux_run` |
+| Orch graph view | Sidecar + `GET …/orch-graph` | Reads `$CDAMUX_HOME/runs/` (+ Agents); session endpoint binds only via `@cdamux_run` (#335) |
 | SSH remote worktrees | Tailnet API (read/send); Mosh doc | No remote file/git IDE |
 | Mobile app | Web UI on tailnet (partial) | — |
 | GitHub / Linear in-app | — | `cda-kanban`, `gh-board.sh` |

@@ -153,25 +153,20 @@ pub fn load_orch_graph_at(path: &Path) -> Result<(OrchGraphFile, Option<u64>), O
     Ok((graph, age))
 }
 
-/// Graph for a tmux session: prefer `@cdamux_run` / agent run, else newest live run
-/// with `session == name`. Does **not** fall back to the repo's latest run (#236.4).
-/// Preferring the explicit run avoids re-attaching an orphaned live graph after the
-/// same session name is recreated (#307).
+/// Graph for a tmux session: only via explicit `@cdamux_run` / agent run id.
+/// Does **not** bind by `session == name` alone (#335) and does **not** fall back to
+/// the repo's latest run (#236.4). A recreated session without `@cdamux_run` therefore
+/// cannot pick up an orphaned live graph left by raw `tmux kill-session`.
 pub fn find_orch_graph_for_session(
     repo: &Path,
     session: &str,
     cdamux_run: Option<&str>,
 ) -> Result<(OrchGraphFile, Option<u64>), OrchGraphError> {
+    let _ = session; // callers pass the tmux name for API symmetry / future checks
     if let Some(run_id) = cdamux_run.filter(|s| !s.is_empty()) {
         if let Some(path) = find_orch_run(repo, run_id) {
             return load_orch_graph_at(&path);
         }
-    }
-    if let Some(summary) = list_live_orch_runs(repo)
-        .into_iter()
-        .find(|r| r.session.as_deref() == Some(session))
-    {
-        return load_orch_graph_at(&summary.path);
     }
     Err(OrchGraphError::NotFound(
         cdamux_home()
@@ -762,16 +757,53 @@ mod tests {
             Some(runs.join("new.json"))
         );
         assert_eq!(find_orch_run(&repo, "../live/new"), None);
-        // Session API: prefer @cdamux_run over a stale live session match (#307),
-        // else that session's live run — never the newest unrelated repo run (#236.4).
-        let (g, _) = find_orch_graph_for_session(&repo, "a", None).unwrap();
-        assert_eq!(g.run_id, "old");
+        // Session API: require @cdamux_run (#335); never name-only live bind or
+        // newest unrelated repo run (#236.4).
+        assert!(find_orch_graph_for_session(&repo, "a", None).is_err());
+        let (g_named, _) = find_orch_graph_for_session(&repo, "a", Some("old")).unwrap();
+        assert_eq!(g_named.run_id, "old");
         let (g_pref, _) = find_orch_graph_for_session(&repo, "a", Some("done")).unwrap();
         assert_eq!(g_pref.run_id, "done");
         let (g2, _) = find_orch_graph_for_session(&repo, "other", Some("done")).unwrap();
         assert_eq!(g2.run_id, "done");
         assert!(find_orch_graph_for_session(&repo, "missing", None).is_err());
         assert!(find_orch_graph_for_session(&repo, "missing", Some("new")).is_ok());
+        std::env::remove_var("CDAMUX_HOME");
+    }
+
+    #[test]
+    fn recreate_same_name_without_cdamux_run_does_not_bind_orphan_live() {
+        // Repro (#335): raw kill leaves a live run with session==name; a fresh
+        // session of that name has no @cdamux_run and must not re-attach it.
+        let _g = crate::paths::env_lock();
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("cdamux");
+        let repo = dir.path().join("repo");
+        fs::create_dir_all(&repo).unwrap();
+        std::env::set_var("CDAMUX_HOME", &home);
+        let runs = home.join("runs");
+        let repo_s = repo.display().to_string();
+        write(
+            &runs.join("orphan.json"),
+            &format!(
+                r#"{{"run_id":"orphan","repo":"{repo_s}","session":"c-proj","status":"running"}}"#
+            ),
+            1,
+        );
+        assert_eq!(
+            list_live_orch_runs(&repo)
+                .iter()
+                .filter(|r| r.session.as_deref() == Some("c-proj"))
+                .count(),
+            1,
+            "orphan still live on disk (raw kill path)"
+        );
+        assert!(
+            find_orch_graph_for_session(&repo, "c-proj", None).is_err(),
+            "fresh session without @cdamux_run must not bind"
+        );
+        let (g, _) = find_orch_graph_for_session(&repo, "c-proj", Some("orphan")).unwrap();
+        assert_eq!(g.run_id, "orphan");
         std::env::remove_var("CDAMUX_HOME");
     }
 

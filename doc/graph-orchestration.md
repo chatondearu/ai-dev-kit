@@ -92,7 +92,7 @@ bash ~/.cursor/skills/cda-graph/scripts/graph-plan-validate.sh my-plan.json
 
 | Surface | How |
 | ------- | --- |
-| **cdamux TUI** | Fleet → select **project** or session → sidecar **Orch graph**; each live run is a `◈ run <id>` row under the session that started it (headless runs under the project), with its `⚙ #id` workers (`$CDAMUX_HOME/agents` with the same `run`) and worker sessions; a session shows its own newest run (else its `@cdamux_run`), a project the latest; `g` opens the full-screen drawn DAG with a steps bar (implement / verify / review / CI / PR) for the selected worker, `Tab` there cycles a session's runs |
+| **cdamux TUI** | Fleet → select **project** or session → sidecar **Orch graph**; a live run nests under a session only when that session's `@cdamux_run` claims it and the run's `session` field matches (unclaimed / headless / post-kill orphans sit under the project — #335); workers (`⚙ #id` from `$CDAMUX_HOME/agents` with the same `run`) and worker sessions nest under the run; a session sidecar/Graph shows `@cdamux_run` only, a project the latest; `g` opens the full-screen drawn DAG with a steps bar (implement / verify / review / CI / PR) for the selected worker, `Tab` there cycles claimed runs |
 | **cdamux sessions** | `ORCH_TMUX=1` harness workers and interactive `cdamux worker spawn` panes are tmux sessions linked by `@cdamux_parent` / `@cdamux_run` / `@cdamux_role`; CLI sub-agents show as child rows (`cdamux/docs/subagents.md`, hooks via `./install.sh --cdamux-hooks`) |
 | **cdamuxd web** | Tailnet dashboard → session → **Orch graph** (canvas, polls API) |
 | **API** | `GET /v1/sessions/{tmux-name}/orch-graph` |

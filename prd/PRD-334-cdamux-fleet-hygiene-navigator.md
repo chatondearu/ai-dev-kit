@@ -1,6 +1,6 @@
 # PRD-334 — cdamux Fleet hygiene and dedicated navigator
 
-- **Status**: approved
+- **Status**: shipped
 - **GitHub**: [#334](https://github.com/chatondearu/ai-dev-kit/issues/334)
 - **Date**: 2026-11-14
 - **Tags**: #product #architecture

@@ -412,7 +412,7 @@ fn registry_record(
     extra: &SpawnExtra<'_>,
 ) -> Option<SessionRecord> {
     let agent = agent_label?;
-    if is_home_session(name) {
+    if is_home_session(name) || crate::session_manage::is_nav_session(name) {
         return None;
     }
     let now = now_secs();

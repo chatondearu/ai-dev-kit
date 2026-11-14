@@ -19,6 +19,7 @@ Status values: `proposed` | `accepted` | `deprecated` | `superseded`.
 | [[ADR-011-cdamux-unified-state-model|ADR-011]] | cdamux unified state model | accepted | #architecture #tooling #autonomy #resilience |
 | [[ADR-012-foam-browser-replaces-notes-sidecar|ADR-012]] | Foam browser replaces Fleet Notes sidecar | accepted | #architecture #cdamux #foam |
 | [[ADR-013-mise-alongside-nix-devshell|ADR-013]] | Mise alongside Nix for daily Node/Rust toolchain | accepted | #architecture #tooling |
+| [[ADR-014-cdamux-dedicated-navigator-session|ADR-014]] | cdamux dedicated navigator session (replaces join-pane sidebar) | accepted | #architecture #tooling #cdamux |
 
 ## Template
 

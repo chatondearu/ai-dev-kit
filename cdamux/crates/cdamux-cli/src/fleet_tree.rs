@@ -1,7 +1,8 @@
 //! Pure fleet tree model: rows, flattening, folding and selection helpers.
 
 use cdamux_core::{
-    is_home_session, project_for_path, project_has_orch_artifacts, project_key, session_forest,
+    is_hidden_fleet_session, project_for_path, project_has_orch_artifacts, project_key,
+    session_forest,
     session_registry::SessionRecord, ChildKind, ChildRow, EnrichedSession, GroupBy,
     OrchGraphRunSummary, Project, ProjectSessionTree, ProjectTreeNode, SessionForest, SessionState,
 };
@@ -207,7 +208,10 @@ pub(crate) fn flatten_tree(
     let mut dormant: Vec<Vec<&SessionRecord>> = vec![Vec::new(); tree.nodes.len() + 1];
     let records = if waiting_only { &[][..] } else { status.records() };
     let candidates: Vec<&SessionRecord> =
-        records.iter().filter(|r| !live.contains(r.name.as_str()) && !is_home_session(&r.name)).collect();
+        records
+            .iter()
+            .filter(|r| !live.contains(r.name.as_str()) && !is_hidden_fleet_session(&r.name))
+            .collect();
     for &r in &candidates {
         let mut top = r;
         let mut node = None;

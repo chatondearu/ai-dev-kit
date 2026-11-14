@@ -133,9 +133,11 @@ pub use sidebar::{
 };
 pub use send::{send_to_session, SendError, tmux_has_session};
 pub use session_manage::{
-    current_tmux_session, ensure_home_session, home_session_new_argv, is_home_session,
-    kill_tmux_session, mark_session_cdamux_return, rename_tmux_session,
-    should_ensure_home_before_kill, switch_client_to_session, unique_session_name,
+    current_tmux_session, ensure_home_session, ensure_nav_session, home_session_new_argv,
+    is_home_session, is_nav_session, kill_tmux_session, leave_nav_to_session,
+    mark_session_cdamux_return, nav_return_or_home, rename_tmux_session,
+    should_ensure_home_before_kill, switch_client_to_session, toggle_nav_client,
+    unique_session_name,
 };
 pub use spawn::{
     configured_agent_ids, default_agent_name, default_shell_command, resolve_agent_command,
@@ -152,9 +154,9 @@ pub use worktree::{
     worktree_add_new_branch, WorktreeEntry, WorktreeError,
 };
 pub use tmux::{
-    capture_pane_text, classify_pane_heuristics, list_panes_all, list_tmux_sessions,
-    parse_list_panes_all, parse_list_sessions, send_line_to_session, SessionPaneInfo,
-    HOME_SESSION_NAME, TmuxError, TmuxSession,
+    capture_pane_text, classify_pane_heuristics, is_hidden_fleet_session, list_panes_all,
+    list_tmux_sessions, parse_list_panes_all, parse_list_sessions, send_line_to_session,
+    SessionPaneInfo, HOME_SESSION_NAME, NAV_SESSION_NAME, TmuxError, TmuxSession,
 };
 
 #[derive(Debug, Error)]

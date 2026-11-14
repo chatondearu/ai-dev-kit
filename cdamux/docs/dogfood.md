@@ -42,16 +42,19 @@ bind-key -n M-p display-popup -E -w 80% -h 75% "cdamux"
 
 Install the `cdamux` binary on `PATH` (e.g. `cargo install --path crates/cdamux-cli`).
 
-## tmux sidebar bind (example, not installed)
+## tmux navigator bind (example, not installed)
+
+Dedicated session `cdamux-nav` (ADR-014). Never injects panes into agent sessions.
 
 ```tmux
-bind-key -n M-s run-shell "cdamux sidebar --client '#{client_name}'"
-# left side, wider:
-# bind-key -n M-s run-shell "cdamux sidebar --left --width 40 --client '#{client_name}'"
+bind-key -n M-n run-shell "cdamux nav --client '#{client_name}'"
 ```
 
 `--client '#{client_name}'` makes the bind target the client that pressed it; without
 it tmux picks its most recent client, wrong with two clients attached.
+
+Navigator keys (footer): `j/k · ⏎ · d · x · ? · q` (`d` dismiss lands in #336).
+`cdamux sidebar` / `M-s` is deprecated — the CLI prints a redirect to `cdamux nav`.
 
 ## Clickable PR / issue links (OSC 8)
 
@@ -75,7 +78,7 @@ PR, else the issue, in the browser.
 - [ ] `cdamux list` shows `name`, `path`, `state` columns
 - [ ] `cdamux --pick` from `tmux display-popup -E` closes popup after selection
 - [ ] `cdamux` (no args) opens ratatui dashboard; `q` quits; Enter attaches; `n` spawn (`-i` skim)
-- [ ] `cdamux sidebar` (bind above): j/k on a session row switches the client and the pane follows; `Enter` focuses the session pane; `q` closes; with a second client attached its view never changes
+- [ ] `cdamux nav` (bind above): opens `cdamux-nav`; agent session pane count unchanged; `j/k` move, `Enter` switch-client to session, `q` returns, `?` help; toggle `M-n` again returns
 - [ ] Alt+p popup runs full dashboard (`cdamux`); `--pick` optional for skim-only
 - [ ] Repo at `org/nested/repo` appears when `discover = "git_only"` (`cdamux projects`)
 - [ ] `list --group-by cwd` prints `##` group headers (text mode)

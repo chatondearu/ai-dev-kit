@@ -10,6 +10,7 @@ mod link_ui;
 mod refresh;
 mod review_tui;
 mod settings_form;
+mod nav;
 mod sidebar;
 mod spawn_modal;
 #[cfg(test)]
@@ -122,7 +123,16 @@ enum Commands {
         #[arg(long, default_value = "Please review these diff hunks and suggest fixes.")]
         instruction: String,
     },
-    /// Fleet in a narrow pane that follows this tmux client across sessions (opens or refocuses it).
+    /// Dedicated Fleet navigator session (`cdamux-nav`); toggles via switch-client (no join-pane).
+    Nav {
+        /// tmux client to switch; binds pass '#{client_name}' (default: tmux's current client).
+        #[arg(long)]
+        client: Option<String>,
+        /// Run the Fleet loop inside the navigator session (set by ensure_nav_session).
+        #[arg(long, hide = true)]
+        in_session: bool,
+    },
+    /// Deprecated: prints redirect to `cdamux nav` (join-pane sidebar retired, #337).
     Sidebar {
         /// Put the pane left of the window (default: right).
         #[arg(long, conflicts_with = "right")]
@@ -384,6 +394,7 @@ fn main() -> ExitCode {
             path,
             instruction,
         }) => cmd_review(&session, path, &instruction),
+        Some(Commands::Nav { client, in_session }) => nav::cmd_nav(client, in_session),
         Some(Commands::Sidebar {
             left,
             right: _,

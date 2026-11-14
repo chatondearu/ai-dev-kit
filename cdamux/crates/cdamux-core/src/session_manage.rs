@@ -1,8 +1,11 @@
 //! Kill, rename, fork naming, attach helpers.
 
 use crate::send::{spawn_err, tmux_has_session, SendError};
-use crate::tmux::{list_tmux_sessions, HOME_SESSION_NAME};
+use crate::tmux::{list_tmux_sessions, HOME_SESSION_NAME, NAV_SESSION_NAME};
 use std::process::{Command, Stdio};
+
+/// Session option on `cdamux-nav` remembering where Alt-N / `q` should return.
+const NAV_RETURN_OPTION: &str = "@cdamux_nav_return";
 
 /// Run `tmux <args>`; `SendFailed` on a non-zero exit.
 fn tmux_ok(args: &[&str]) -> Result<(), SendError> {
@@ -17,6 +20,11 @@ fn tmux_ok(args: &[&str]) -> Result<(), SendError> {
 /// True when `name` is the cdamux home / dashboard session.
 pub fn is_home_session(name: &str) -> bool {
     name == HOME_SESSION_NAME
+}
+
+/// True when `name` is the dedicated Fleet navigator session (#337).
+pub fn is_nav_session(name: &str) -> bool {
+    name == NAV_SESSION_NAME
 }
 
 /// Args for `tmux new-session -A -s cdamux cdamux` (outside-tmux dashboard entry).
@@ -37,6 +45,114 @@ pub fn ensure_home_session() -> Result<(), SendError> {
         let _ = tmux_ok(&["respawn-pane", "-k", "-t", &target, "cdamux"]);
     }
     Ok(())
+}
+
+/// Create the navigator session detached if missing (`cdamux nav --in-session`).
+pub fn ensure_nav_session() -> Result<(), SendError> {
+    if !tmux_has_session(NAV_SESSION_NAME)? {
+        return tmux_ok(&[
+            "new-session",
+            "-d",
+            "-s",
+            NAV_SESSION_NAME,
+            "cdamux",
+            "nav",
+            "--in-session",
+        ]);
+    }
+    let target = format!("={NAV_SESSION_NAME}:");
+    if pane_current_command(&target).is_some_and(|c| is_shell_command(&c)) {
+        let _ = tmux_ok(&[
+            "respawn-pane",
+            "-k",
+            "-t",
+            &target,
+            "cdamux",
+            "nav",
+            "--in-session",
+        ]);
+    }
+    Ok(())
+}
+
+fn set_nav_return(session: &str) -> Result<(), SendError> {
+    // Same target style as mark_session_cdamux_return (plain name, not `=name`).
+    tmux_ok(&[
+        "set-option",
+        "-t",
+        NAV_SESSION_NAME,
+        NAV_RETURN_OPTION,
+        session,
+    ])
+}
+
+fn nav_return_session() -> Option<String> {
+    let out = Command::new("tmux")
+        .args([
+            "display-message",
+            "-p",
+            "-t",
+            NAV_SESSION_NAME,
+            &format!("#{{{NAV_RETURN_OPTION}}}"),
+        ])
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let name = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    (!name.is_empty() && !is_nav_session(&name)).then_some(name)
+}
+
+/// Session to land on when leaving the navigator (`q` / toggle): stored return, else home.
+pub fn nav_return_or_home() -> String {
+    nav_return_session()
+        .filter(|s| tmux_has_session(s).unwrap_or(false))
+        .unwrap_or_else(|| HOME_SESSION_NAME.to_string())
+}
+
+/// Switch `client` to the navigator (create if needed), or back to the stored return
+/// session when already on it. Never join-pane into agent sessions.
+pub fn toggle_nav_client(client: &str) -> Result<(), SendError> {
+    use crate::sidebar::client_session;
+    let current = client_session(client).map_err(|_| SendError::SendFailed)?;
+    if is_nav_session(&current) {
+        let back = nav_return_or_home();
+        if is_home_session(&back) {
+            ensure_home_session()?;
+        }
+        return tmux_ok(&[
+            "switch-client",
+            "-c",
+            client,
+            "-t",
+            &format!("={back}"),
+        ]);
+    }
+    ensure_nav_session()?;
+    set_nav_return(&current)?;
+    tmux_ok(&[
+        "switch-client",
+        "-c",
+        client,
+        "-t",
+        &format!("={NAV_SESSION_NAME}"),
+    ])
+}
+
+/// Leave the navigator for `session` (Enter / `q`); updates the Alt-N return target.
+pub fn leave_nav_to_session(session: &str) -> Result<(), SendError> {
+    if is_nav_session(session) {
+        return Err(SendError::SendFailed);
+    }
+    if is_home_session(session) {
+        ensure_home_session()?;
+    } else if !tmux_has_session(session)? {
+        return Err(SendError::SessionNotFound(session.to_string()));
+    }
+    let _ = set_nav_return(session);
+    switch_client_quiet(session)
 }
 
 fn pane_current_command(target: &str) -> Option<String> {
@@ -196,6 +312,8 @@ mod tests {
         );
         assert!(is_home_session("cdamux"));
         assert!(!is_home_session("c-proj"));
+        assert!(is_nav_session("cdamux-nav"));
+        assert!(!is_nav_session("cdamux"));
     }
 
     #[test]

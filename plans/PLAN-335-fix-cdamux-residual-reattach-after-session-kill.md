@@ -1,6 +1,6 @@
 # PLAN-335 — fix residual graph/worker reattach after session kill
 
-- **Status**: ready
+- **Status**: in-progress
 - **PRD**: [[../prd/PRD-334-cdamux-fleet-hygiene-navigator|PRD-334]]
 - **GitHub**: [#335](https://github.com/chatondearu/ai-dev-kit/issues/335)
 - **Date**: 2026-11-14
@@ -38,10 +38,10 @@ Re-read `state_finalize`, `kill_tmux_session` call sites, and `find_orch_graph_f
 
 ## Tasks
 
-- [ ] **Repro matrix**: Fleet `x` vs `tmux kill-session` → recreate same name → assert no foreign live graph/workers (acceptance: written repro + failing test or confirmed green)
-- [ ] **Close gaps**: any path that leaves `running`/`working` without finalize, or binds live runs by name when `@cdamux_run` is absent on a fresh session (acceptance: unit/integration tests)
-- [ ] **Docs**: dogfood/architecture note for `cdamux state gc --sweep-orphans [--dry-run]` (acceptance: one checklist item)
-- [ ] **Verify**: `cargo test` in cdamux (and kit verify if kit scripts touched)
+- [x] **Repro matrix**: Fleet `x` vs `tmux kill-session` → recreate same name → assert no foreign live graph/workers (acceptance: written repro + failing test or confirmed green)
+- [x] **Close gaps**: any path that leaves `running`/`working` without finalize, or binds live runs by name when `@cdamux_run` is absent on a fresh session (acceptance: unit/integration tests)
+- [x] **Docs**: dogfood/architecture note for `cdamux state gc --sweep-orphans [--dry-run]` (acceptance: one checklist item)
+- [x] **Verify**: `cargo test` in cdamux (and kit verify if kit scripts touched)
 
 ## Risks & mitigations
 
@@ -54,10 +54,10 @@ Re-read `state_finalize`, `kill_tmux_session` call sites, and `find_orch_graph_f
 
 Seams: (1) finalize on kill, (2) graph bind after recreate, (3) orphan sweep dry-run.
 
-- [ ] Temp CDAMUX_HOME + throwaway tmux where needed
-- [ ] Full cdamux test target green
+- [x] Temp CDAMUX_HOME + throwaway tmux where needed
+- [x] Full cdamux test target green (known `home_repair_tmux` fish flake pre-existing)
 
 ## Verification
 
-- [ ] Lint / test / build per project conventions
-- [ ] Update foam / ADR only if a new decision was made
+- [x] Lint / test / build per project conventions
+- [x] Update foam / ADR only if a new decision was made (none — extends ADR-007/011 bind rules)

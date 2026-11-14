@@ -238,8 +238,8 @@ pub(crate) fn fixture_runs() -> (ProjectSessionTree, StatusCache) {
         nodes: vec![ProjectTreeNode {
             project: Project { name: "alpha".into(), path: "/src/alpha".into(), root_label: "src".into() },
             sessions: vec![
-                s("alpha-42", SessionState::NeedsInput, "cursor", None, None),
-                s("alpha-main", SessionState::Working, "claude", None, None),
+                s("alpha-42", SessionState::NeedsInput, "cursor", None, Some(RUN_42)),
+                s("alpha-main", SessionState::Working, "claude", None, Some(RUN_MAIN)),
                 s(&worker_session, SessionState::Working, "claude", Some("alpha-main"), Some(RUN_MAIN)),
             ],
         }],

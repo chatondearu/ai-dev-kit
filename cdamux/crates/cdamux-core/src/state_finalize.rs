@@ -300,13 +300,20 @@ mod tests {
             let done = state_get(StateKind::Runs, "r-ok").unwrap().unwrap();
             assert_eq!(done["status"], "ok");
 
-            // After finalize, session-name live bind finds nothing (#307 acceptance).
+            // After finalize, no live run remains for that session (#307);
+            // bind also requires @cdamux_run (#335).
             assert!(
                 crate::orch_graph::list_live_orch_runs(&repo)
                     .iter()
                     .all(|r| r.session.as_deref() != Some("c-proj"))
             );
             assert!(crate::orch_graph::find_orch_graph_for_session(&repo, "c-proj", None).is_err());
+            assert!(crate::orch_graph::find_orch_graph_for_session(
+                &repo,
+                "c-proj",
+                Some("r-old")
+            )
+            .is_ok());
         });
     }
 

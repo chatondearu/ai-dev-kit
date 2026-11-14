@@ -32,6 +32,13 @@ pub(crate) fn session_fold_key(name: &str) -> String {
     format!("fold:{name}")
 }
 
+/// True when this live session both set `@cdamux_run` to the run and is the
+/// run's recorded `session` host — blocks name-only reattach after recreate (#335).
+fn session_owns_live_run(s: &EnrichedSession, r: &OrchGraphRunSummary) -> bool {
+    s.run.as_deref() == Some(r.run_id.as_str())
+        && r.session.as_deref() == Some(s.name.as_str())
+}
+
 #[derive(Debug, Clone)]
 pub(crate) enum TreeRow {
     Project {
@@ -126,15 +133,21 @@ impl Nest<'_> {
         }
     }
 
-    /// Session `i`, then (unless collapsed) its ledger sub-agents, the runs it started
-    /// and its child sessions.
+    /// Session `i`, then (unless collapsed) its ledger sub-agents, runs claimed via
+    /// `@cdamux_run`, and its child sessions.
     fn walk(&self, rows: &mut Vec<TreeRow>, i: usize, depth: usize) {
         let s = &self.sessions[i];
         let kids = &self.forest.children[i];
         // StatusCache holds the ledger rows (refresh scheduler): no I/O per tick.
         let subagents: &[ChildRow] = if self.waiting_only { &[] } else { self.status.subagents(&s.name) };
-        let own: Vec<&OrchGraphRunSummary> =
-            self.runs.iter().filter(|r| r.session.as_deref() == Some(s.name.as_str())).collect();
+        // Nest only when `@cdamux_run` claims the run *and* the run's `session`
+        // field is this host (#335). Workers tagged with the same `@cdamux_run`
+        // still nest under the run row via `level`, without duplicating it.
+        let own: Vec<&OrchGraphRunSummary> = self
+            .runs
+            .iter()
+            .filter(|r| session_owns_live_run(s, r))
+            .collect();
         let dormant_kids: Vec<&SessionRecord> =
             self.dormant.iter().copied().filter(|r| r.parent.as_deref() == Some(s.name.as_str())).collect();
         let open = !self.expanded.contains(&session_fold_key(&s.name));
@@ -160,13 +173,17 @@ impl Nest<'_> {
         }
     }
 
-    /// Root sessions, after the runs whose session is not here (headless or gone), then
-    /// the dormant records not nested under a live session.
+    /// Root sessions, after runs no live session owns (headless, dead host, or
+    /// name-only orphan after recreate), then dormant records not nested under a
+    /// live session.
     fn push(&self, rows: &mut Vec<TreeRow>) {
         let here = |name: &str| self.sessions.iter().any(|s| s.name == name);
-        let headless: Vec<&OrchGraphRunSummary> =
-            self.runs.iter().filter(|r| !r.session.as_deref().is_some_and(here)).collect();
-        self.level(rows, &self.forest.roots, &headless, 1);
+        let unclaimed: Vec<&OrchGraphRunSummary> = self
+            .runs
+            .iter()
+            .filter(|r| !self.sessions.iter().any(|s| session_owns_live_run(s, r)))
+            .collect();
+        self.level(rows, &self.forest.roots, &unclaimed, 1);
         for r in self.dormant {
             if !dormant_chain_ends(r, self.dormant) {
                 rows.push(TreeRow::Dormant { record: (*r).clone(), depth: 1 });
@@ -333,12 +350,12 @@ pub(crate) enum GraphTarget {
 }
 
 /// Graph of the selected row: a run row (or worker under it) shows its run; a session
-/// its `@cdamux_run` when set, else its own live runs; a project the latest run (#307).
+/// only its `@cdamux_run` when set (#335); a project the latest run (#307).
 pub(crate) fn graph_target_at_row(
     rows: &[TreeRow],
     idx: usize,
     tree: &ProjectSessionTree,
-    status: &StatusCache,
+    _status: &StatusCache,
 ) -> GraphTarget {
     let runs_from = |cwd: &str, runs: Vec<String>| GraphTarget::Runs { cwd: cwd.to_string(), runs };
     match rows.get(idx) {
@@ -347,21 +364,14 @@ pub(crate) fn graph_target_at_row(
             if let Some(run) = &s.run {
                 return runs_from(&s.path, vec![run.clone()]);
             }
-            let repo = tree
+            let in_project = tree
                 .nodes
                 .iter()
-                .find(|n| n.sessions.iter().any(|x| x.name == s.name))
-                .and_then(|n| status.runs(&n.project.path).map(|r| (n.project.path.as_path(), r)));
-            let own: Vec<String> = repo
-                .iter()
-                .flat_map(|(_, r)| &r.live)
-                .filter(|r| r.session.as_deref() == Some(s.name.as_str()))
-                .map(|r| r.run_id.clone())
-                .collect();
-            match (own.is_empty(), repo) {
-                (false, Some((path, _))) => runs_from(&path.to_string_lossy(), own),
-                (true, Some(_)) => GraphTarget::NoRun,
-                _ => GraphTarget::Latest(s.path.clone()),
+                .any(|n| n.sessions.iter().any(|x| x.name == s.name));
+            if in_project {
+                GraphTarget::NoRun
+            } else {
+                GraphTarget::Latest(s.path.clone())
             }
         }
         Some(TreeRow::Project { path, .. }) | Some(TreeRow::Child { project_path: path, .. }) => {
@@ -618,6 +628,7 @@ pub(crate) fn link_at_row(rows: &[TreeRow], idx: usize) -> Option<OpenTarget> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::refresh::RepoRuns;
     use cdamux_core::{Project, SessionState};
     use std::path::PathBuf;
 
@@ -974,7 +985,7 @@ mod tests {
     }
 
     #[test]
-    fn graph_target_follows_run_row_cdamux_run_then_own_live() {
+    fn graph_target_follows_run_row_cdamux_run_only() {
         use crate::test_render::{fixture_runs, fixture_runs_rows, RUN_42, RUN_MAIN};
         let (tree, status) = fixture_runs();
         let rows = fixture_runs_rows();
@@ -985,11 +996,12 @@ mod tests {
         };
         assert_eq!(at(0), GraphTarget::Latest("/src/alpha".into()), "project = latest");
         assert_eq!(at(3), runs("/src/alpha", &[RUN_42]), "run row");
-        assert_eq!(at(2), runs("/src/alpha", &[RUN_42]), "session's own run");
+        assert_eq!(at(2), runs("/src/alpha", &[RUN_42]), "session via @cdamux_run");
         assert_eq!(at(6), runs("/src/alpha", &[RUN_MAIN]), "worker under its run");
         assert_eq!(at(8), runs("/src/alpha", &[RUN_MAIN]), "worker session via @cdamux_run");
 
-        // Several runs from one session: newest first. A plain session: no run of its own.
+        // Extra live run with session==alpha-main but not claimed: stays unattached.
+        // Plain session without @cdamux_run: NoRun (#335).
         let extra = EnrichedSession { name: "solo".into(), ..sess("solo") };
         let mut tree2 = tree.clone();
         tree2.nodes[0].sessions.push(extra);
@@ -997,12 +1009,84 @@ mod tests {
         let mut runs2 = status.runs(Path::new("/src/alpha")).unwrap().clone();
         let mut newer = runs2.live[1].clone();
         newer.run_id = "newer".into();
+        newer.session = Some("alpha-main".into());
         runs2.live.insert(0, newer);
         status2.insert_fixture(Path::new("/src/alpha"), Default::default(), runs2);
         let rows2 = flatten_tree(&tree2, &["/src/alpha".to_string()].into_iter().collect(), GroupBy::Project, false, &status2);
         let main = row_index_for_session(&rows2, "alpha-main").unwrap();
         let solo = row_index_for_session(&rows2, "solo").unwrap();
-        assert_eq!(graph_target_at_row(&rows2, main, &tree2, &status2), runs("/src/alpha", &["newer", RUN_MAIN]));
+        assert_eq!(
+            graph_target_at_row(&rows2, main, &tree2, &status2),
+            runs("/src/alpha", &[RUN_MAIN]),
+            "only @cdamux_run, not every name-matched live run"
+        );
         assert_eq!(graph_target_at_row(&rows2, solo, &tree2, &status2), GraphTarget::NoRun);
+        // Unclaimed "newer" sits at project root, not under alpha-main.
+        assert!(
+            outline(&rows2).iter().any(|(d, l)| *d == 1 && l == "Run newer"),
+            "orphan live run visible at project root for sweep"
+        );
+    }
+
+    #[test]
+    fn recreate_same_name_without_cdamux_run_does_not_nest_orphan_live() {
+        use crate::test_render::RUN_MAIN;
+        let tree = ProjectSessionTree {
+            nodes: vec![ProjectTreeNode {
+                project: Project {
+                    name: "alpha".into(),
+                    path: "/src/alpha".into(),
+                    root_label: "src".into(),
+                },
+                // Fresh session after kill+recreate: same name, no @cdamux_run.
+                sessions: vec![EnrichedSession {
+                    name: "alpha-main".into(),
+                    path: "/src/alpha".into(),
+                    group_key: "alpha".into(),
+                    state: SessionState::Idle,
+                    agent: "claude".into(),
+                    run: None,
+                    ..Default::default()
+                }],
+            }],
+            unassigned: vec![],
+        };
+        let orphan = OrchGraphRunSummary {
+            run_id: RUN_MAIN.into(),
+            path: format!("/tmp/cdamux-home/runs/{RUN_MAIN}.json").into(),
+            status: Some("running".into()),
+            session: Some("alpha-main".into()),
+            live: true,
+        };
+        let mut status = StatusCache::new(std::time::Duration::ZERO);
+        status.insert_fixture(
+            Path::new("/src/alpha"),
+            Default::default(),
+            RepoRuns {
+                live: vec![orphan],
+                recent: vec![],
+            },
+        );
+        let rows = flatten_tree(
+            &tree,
+            &["/src/alpha".to_string()].into_iter().collect(),
+            GroupBy::Project,
+            false,
+            &status,
+        );
+        assert_eq!(
+            outline(&rows),
+            vec![
+                (0, "alpha".into()),
+                (1, format!("Run {RUN_MAIN}")),
+                (1, "alpha-main".into()),
+            ],
+            "orphan run at project root; session has no nested foreign live graph"
+        );
+        let sess_idx = row_index_for_session(&rows, "alpha-main").unwrap();
+        assert_eq!(
+            graph_target_at_row(&rows, sess_idx, &tree, &status),
+            GraphTarget::NoRun
+        );
     }
 }

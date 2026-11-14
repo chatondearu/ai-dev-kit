@@ -9,6 +9,7 @@ mod keymap;
 mod refresh;
 mod review_tui;
 mod settings_form;
+mod sidebar;
 mod spawn_modal;
 #[cfg(test)]
 mod test_render;
@@ -27,7 +28,7 @@ use cdamux_core::{
     state_append, state_get, state_set, run_gc, sweep_orphans, tmux_has_session, unique_session_name,
     valid_kind,
     AttachMode, DEFAULT_NUDGE_QUIET_SECS, DiffError, GroupBy, OrchNewRequest, PaneLayout,
-    SendError, SpawnError, StateKind, WorkerSpawnRequest, ORCHESTRATOR_SKILL,
+    SendError, SidebarSide, SpawnError, StateKind, WorkerSpawnRequest, ORCHESTRATOR_SKILL,
 };
 use clap::{Parser, Subcommand};
 use skim::prelude::*;
@@ -119,6 +120,23 @@ enum Commands {
         /// Lead sentence prepended to the hunk payload.
         #[arg(long, default_value = "Please review these diff hunks and suggest fixes.")]
         instruction: String,
+    },
+    /// Fleet in a narrow pane that follows this tmux client across sessions (opens or refocuses it).
+    Sidebar {
+        /// Put the pane left of the window (default: right).
+        #[arg(long, conflicts_with = "right")]
+        left: bool,
+        #[arg(long)]
+        right: bool,
+        /// Pane width in columns.
+        #[arg(long, default_value_t = cdamux_core::DEFAULT_SIDEBAR_WIDTH)]
+        width: u16,
+        /// tmux client to follow; binds pass '#{client_name}' (default: tmux's current client).
+        #[arg(long)]
+        client: Option<String>,
+        /// Run the sidebar loop in this pane (set by the launcher).
+        #[arg(long, hide = true)]
+        in_pane: bool,
     },
     /// Per-project markdown notes (local files).
     Notes {
@@ -365,6 +383,18 @@ fn main() -> ExitCode {
             path,
             instruction,
         }) => cmd_review(&session, path, &instruction),
+        Some(Commands::Sidebar {
+            left,
+            right: _,
+            width,
+            client,
+            in_pane,
+        }) => sidebar::cmd_sidebar(
+            if left { SidebarSide::Left } else { SidebarSide::Right },
+            width,
+            client,
+            in_pane,
+        ),
         Some(Commands::Notes { command }) => match command {
             NotesCommands::List => cmd_notes_list(),
             NotesCommands::Show {

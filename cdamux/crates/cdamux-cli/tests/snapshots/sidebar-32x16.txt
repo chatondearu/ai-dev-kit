@@ -1,0 +1,16 @@
+ projects → sessions           │
+  ▼ ◇ alpha (2 sess · 2 orch) /│
+    ● alpha-main  claude  /src/│
+▸   ◆ alpha-42  #42  cursor  /s│
+    ⚙ #7 running  implementing │
+    ⊘ #8 blocked  waiting on re│
+  ▶ ◇ beta (0) /src/beta       │
+  — unassigned sessions        │
+    ○ scratch  shell  /tmp/scra│
+                               │
+                               │
+                               │
+                               │
+                               │
+j/k move · ⏎ focus · q close
+switch: demo

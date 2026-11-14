@@ -37,12 +37,30 @@ Do not violate accepted ADRs without superseding them.
 
 `main.rs` subcommand `sidebar`; reuse Fleet tree/draw with a narrow layout; tmux calls through `crates/cdamux-core/src/tmux.rs`; target the invoking client (`#{client_name}`) to avoid moving another client's view.
 
+## Spike decision
+
+**One sidebar pane per tmux client, moved with `join-pane`** (not one per window): a
+per-window sidebar needs a live process and cursor sync per window, while moving the
+single pane keeps one list. tmux facts the spike pinned down (tmux 3.6):
+
+- `display-message -c <client>` names the client but resolves `#{pane_id}` from the most
+  recently used session, wrong with two clients; resolve the client's session from
+  `list-clients` and target `=<session>:` instead.
+- Every view change uses `switch-client -c <client>`, so the other client's session never changes.
+- `join-pane -h -f [-b] -l N` keeps a full-height column; `-d` leaves the main pane active
+  (used when the client moved on its own); `select-pane -l` returns to the pane the sidebar
+  sits next to (Enter).
+- Two clients: the sidebar follows the invoking client only; a second client viewing the window
+  the sidebar leaves loses the pane but keeps its session and panes.
+- The sidebar also follows a client that switches session by other means (prefix-s, M-u),
+  polled every 500 ms, without taking focus.
+
 ## Tasks
 
-- [ ] Spike + decision recorded
-- [ ] Narrow Fleet layout + snapshot
-- [ ] Switch on cursor move + follow + tests on `-L` server
-- [ ] Enter / close + doc
+- [x] Spike + decision recorded
+- [x] Narrow Fleet layout + snapshot
+- [x] Switch on cursor move + follow + tests on `-L` server
+- [x] Enter / close + doc
 
 ## Risks & mitigations
 
@@ -53,7 +71,7 @@ Do not violate accepted ADRs without superseding them.
 
 ## Test plan
 
-- [ ] Throwaway-tmux test: sidebar follows across 3 sessions; second client unaffected
+- [x] Throwaway-tmux test: sidebar follows across 3 sessions; second client unaffected
 
 ## Verification
 

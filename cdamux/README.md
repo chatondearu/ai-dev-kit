@@ -33,6 +33,21 @@ bind-key -n M-p display-popup -E -w 80% -h 75% "cdamux"
 
 Minimal skim picker only: `cdamux --pick` (exits right after attach).
 
+## tmux sidebar
+
+`cdamux sidebar [--left|--right] [--width N]` opens Fleet in a narrow pane of the
+current window (default: right, 32 columns). Moving the cursor onto a session
+switches *your* client to it and moves the pane along, so one live list stays next
+to whatever you look at. `Enter` focuses the session pane, `q` closes the sidebar.
+Running it again refocuses the existing sidebar. The popup above is unchanged.
+
+```tmux
+bind-key -n M-s run-shell "cdamux sidebar --client '#{client_name}'"
+```
+
+One sidebar follows one client; a second attached client is never switched, but it
+loses the pane if it was looking at the window the sidebar leaves.
+
 ## Licence
 
 MIT OR Apache-2.0 (to be added at extract); see ai-dev-kit policy until then.

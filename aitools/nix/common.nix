@@ -175,6 +175,33 @@
     };
   };
 
+  coolify = {
+    enable = lib.mkEnableOption ''
+      Official Coolify CLI (flake package coolify-cli). Off by default; never
+      wired from install.sh (ADR-001 / ADR-003). API token stays on the host
+      (COOLIFY_TOKEN); run coolify-env-sync after export.
+    '';
+
+    installMethod = lib.mkOption {
+      type = lib.types.enum ["auto" "nix" "none"];
+      default = "auto";
+      description = ''
+        How to obtain coolify: nix/auto = in-tree pinned release binary when the
+        package is available; none = configs/env only (manual install).
+      '';
+    };
+
+    baseUrl = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      description = ''
+        Optional public Coolify instance URL exported as COOLIFY_BASE_URL.
+        Do not put the API token in Nix — use host env COOLIFY_TOKEN + coolify-env-sync.
+      '';
+      example = "https://coolify.example.com";
+    };
+  };
+
   systemdUser = {
     enable = lib.mkOption {
       type = lib.types.bool;

@@ -6,6 +6,7 @@
   templates,
   cdamuxPkg,
   graphifyPkg,
+  coolifyPkg,
   moshiHookFor,
   isDarwin,
   ...
@@ -25,6 +26,11 @@ let
       a.graphify.installMethod == "uv"
       || (a.graphify.installMethod == "auto" && graphifyPkg == null)
     );
+  coolifyNix =
+    a.coolify.enable
+    && a.coolify.installMethod != "none"
+    && (a.coolify.installMethod == "nix" || a.coolify.installMethod == "auto")
+    && coolifyPkg != null;
 in {
   options.cda.aitools = optionsSchema;
 
@@ -104,6 +110,14 @@ in {
             || config.cda.aitools.user != null;
           message = "cda.aitools.user must be set when graphify.enable with installMethod != none.";
         }
+        {
+          assertion =
+            !config.cda.aitools.enable
+            || !config.cda.aitools.coolify.enable
+            || config.cda.aitools.coolify.installMethod != "nix"
+            || coolifyPkg != null;
+          message = "cda.aitools.coolify.installMethod = \"nix\" needs the in-tree coolify-cli package.";
+        }
       ];
     }
     (lib.mkIf config.cda.aitools.enable {
@@ -121,7 +135,8 @@ in {
         ++ lib.optionals graphifyNix [graphifyPkg]
         ++ lib.optionals graphifyUv [pkgs.uv]
         # auto with a working nix package still ships uv so activation can fall back.
-        ++ lib.optionals (a.graphify.enable && a.graphify.installMethod == "auto" && graphifyPkg != null) [pkgs.uv];
+        ++ lib.optionals (a.graphify.enable && a.graphify.installMethod == "auto" && graphifyPkg != null) [pkgs.uv]
+        ++ lib.optionals coolifyNix [coolifyPkg];
 
       environment.variables = lib.mkMerge [
         (lib.mkIf (a.configRoot != null) {
@@ -132,6 +147,9 @@ in {
         })
         (lib.mkIf a.graphify.enable {
           CDA_GRAPHIFY = "1";
+        })
+        (lib.mkIf (a.coolify.enable && a.coolify.baseUrl != null) {
+          COOLIFY_BASE_URL = a.coolify.baseUrl;
         })
       ];
 

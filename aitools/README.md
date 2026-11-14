@@ -20,7 +20,8 @@ Session tools and configs are opt-in via **Nix** (`cda.aitools`).
 | `scripts/cdamux-align-mac.sh` | macOS: `cargo install` from in-tree `cdamux/` + config |
 | `nix/` | `nixosModules.cdaAitools` + `darwinModules.cdaAitools` |
 
-Build cdamux / graphify from the kit: `nix build .#cdamux`, `nix build .#graphify`.
+Build cdamux / graphify / Coolify CLI from the kit: `nix build .#cdamux`,
+`nix build .#graphify`, `nix build .#coolify-cli`.
 
 ## Host Nix (thin overlay)
 
@@ -42,6 +43,8 @@ cda.aitools = {
   moshiHook = { enable = true; hookTargets = [ "cursor" ]; };
   # Optional code graph (ADR-008); off by default
   # graphify = { enable = true; installMethod = "auto"; claudeConfigDir = "/cda/.claude"; };
+  # Official Coolify CLI; off by default (token via host env + coolify-env-sync)
+  # coolify = { enable = true; baseUrl = "https://coolify.example.com"; };
   # foamHome = "/cda/foam";
   # Agent hooks (sub-agent ledger + session id), refreshed at each rebuild; off by default
   # cdamux.hooks = { enable = true; claudeConfigDir = "/cda/.claude"; };
@@ -95,11 +98,33 @@ relaxed). `auto`/`uv` can fall back to `uv tool install graphifyy`. Manual:
 Claude PreToolUse hooks (`graphify claude install`) are not wired — cwd-scoped
 writes; see ADR-008.
 
+### Coolify CLI (`cda.aitools.coolify`)
+
+| Option | Meaning |
+| ------ | ------- |
+| `coolify.enable` | default `false`; adds `coolify` + `coolify-env-sync` |
+| `coolify.installMethod` | `auto` \| `nix` = pinned release; `none` = manual install |
+| `coolify.baseUrl` | optional public URL → `COOLIFY_BASE_URL` (never put the token in Nix) |
+
+The CLI stores contexts in `~/.config/coolify/config.json`. Bootstrap from host
+env (token never enters the Nix store):
+
+```bash
+export COOLIFY_BASE_URL="https://coolify.example.com"
+export COOLIFY_TOKEN="***"   # host secret / agenix — not in flake
+coolify-env-sync             # or: coolify context add -d -f default "$COOLIFY_BASE_URL" "$COOLIFY_TOKEN"
+coolify context verify
+```
+
+`coolify update` cannot replace a Nix store binary — bump the pin in
+`coolify-cli-package.nix` (`version` + four asset hashes via
+`nix store prefetch-file`).
+
 ## Parity
 
 | Feature | NixOS | nix-darwin | Manual |
 | ------- | ----- | ---------- | ------ |
-| Packages (tmux, cdamux, moshi-hook, graphify) | yes | yes | `cdamux-align-mac.sh` / `uv tool install graphifyy` |
+| Packages (tmux, cdamux, moshi-hook, graphify, coolify) | yes | yes | `cdamux-align-mac.sh` / `uv tool install graphifyy` / upstream install script |
 | Deploy configs (maid) | `deploy.enable` | `deploy.enable` | copy `templates/cdamux` |
 | cdamuxd | systemd | launchd | `cdamuxd` in background; only useful with `[daemon] listen_tailnet = true`, otherwise the unit exits immediately |
 | mosh server | `mosh.enable` | — | brew / apt |
@@ -139,5 +164,6 @@ aitools/
     ├── linux-services.nix / darwin-services.nix
     ├── maid-deploy.nix
     ├── moshi-hook-package.nix
-    └── graphify-package.nix
+    ├── graphify-package.nix
+    └── coolify-cli-package.nix
 ```

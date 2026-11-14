@@ -263,6 +263,15 @@ session first. The kit template sets
 whole server on any `kill-session`. `kill_tmux_session` also flips those values
 to `on` (and leaves them) when it sees them.
 
+## Navigator session (ADR-014)
+
+`cdamux nav` ensures a dedicated `cdamux-nav` session (hidden from Fleet like home)
+running `cdamux nav --in-session`. Opening it uses `switch-client` only — never
+`join-pane` into agent sessions — so agent pane counts stay unchanged. Example bind
+`M-n` toggles; `@cdamux_nav_return` remembers the previous session for `q` / toggle
+back. `cdamux sidebar` (join-pane, #321) is deprecated and redirects to `nav`.
+Alt-P popup is unchanged.
+
 ## Nested tmux
 
 When `$TMUX` is set (popup or inner session):

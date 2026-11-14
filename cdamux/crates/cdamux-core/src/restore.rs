@@ -5,7 +5,7 @@ use crate::agent_status::load_reported_status;
 use crate::client_name::normalize_client_name;
 use crate::send::tmux_has_session;
 use crate::session::SessionState;
-use crate::session_manage::is_home_session;
+use crate::session_manage::{is_home_session, is_nav_session};
 use crate::session_registry::{self, SessionRecord};
 use crate::spawn::{
     agent_entry, default_shell_command, resolve_agent_command, respawn_recorded,
@@ -267,6 +267,8 @@ pub fn restart_plan(
             let info = &live[&r.name];
             let step = if is_home_session(&r.name) {
                 Err("home session")
+            } else if is_nav_session(&r.name) {
+                Err("navigator session")
             } else if r.role != "agent" || r.agent == "shell" {
                 Err("shell session")
             } else if !force && is_busy_session(info, r.cdamux_id.as_deref()) {

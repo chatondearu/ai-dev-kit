@@ -10,6 +10,15 @@ use thiserror::Error;
 /// Dedicated full-screen dashboard session; hidden from Fleet / Sessions lists.
 pub const HOME_SESSION_NAME: &str = "cdamux";
 
+/// Dedicated Fleet navigator session (#337); hidden from Fleet / Sessions lists.
+/// Never join-pane into agent sessions — operators switch-client here instead.
+pub const NAV_SESSION_NAME: &str = "cdamux-nav";
+
+/// True for sessions that must not appear in Fleet / list (home + navigator).
+pub fn is_hidden_fleet_session(name: &str) -> bool {
+    name == HOME_SESSION_NAME || name == NAV_SESSION_NAME
+}
+
 #[derive(Debug, Error)]
 pub enum TmuxError {
     #[error("tmux not found on PATH")]
@@ -82,7 +91,7 @@ pub fn list_tmux_sessions() -> Result<Vec<TmuxSession>, TmuxError> {
     let text = String::from_utf8(output.stdout).map_err(|e| TmuxError::Output(e.to_string()))?;
     Ok(parse_list_sessions(&text)
         .into_iter()
-        .filter(|s| s.name != HOME_SESSION_NAME)
+        .filter(|s| !is_hidden_fleet_session(&s.name))
         .collect())
 }
 
@@ -367,10 +376,11 @@ mod tests {
     #[test]
     fn home_session_name_is_cdamux() {
         assert_eq!(HOME_SESSION_NAME, "cdamux");
-        let raw = "cdamux\t/\nc-foo\t/home/foo\n";
+        assert_eq!(NAV_SESSION_NAME, "cdamux-nav");
+        let raw = "cdamux\t/\ncdamux-nav\t/\nc-foo\t/home/foo\n";
         let visible: Vec<_> = parse_list_sessions(raw)
             .into_iter()
-            .filter(|s| s.name != HOME_SESSION_NAME)
+            .filter(|s| !is_hidden_fleet_session(&s.name))
             .map(|s| s.name)
             .collect();
         assert_eq!(visible, vec!["c-foo"]);

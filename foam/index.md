@@ -45,6 +45,7 @@ Index: [[decisions/index|All ADRs]]
 - [[decisions/ADR-011-cdamux-unified-state-model|ADR-011 — cdamux unified state model]]
 - [[decisions/ADR-012-foam-browser-replaces-notes-sidecar|ADR-012 — Foam browser replaces Notes sidecar]]
 - [[decisions/ADR-013-mise-alongside-nix-devshell|ADR-013 — Mise alongside Nix for daily Node/Rust]]
+- [[decisions/ADR-014-cdamux-dedicated-navigator-session|ADR-014 — cdamux dedicated navigator session]]
 - [[graph/README|Foam machine graph + orch overlay]]
 
 ## PRDs & plans

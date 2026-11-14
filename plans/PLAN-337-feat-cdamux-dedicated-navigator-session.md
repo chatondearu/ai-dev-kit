@@ -1,6 +1,6 @@
 # PLAN-337 — dedicated navigator session replacing join-pane sidebar
 
-- **Status**: ready
+- **Status**: done
 - **PRD**: [[../prd/PRD-334-cdamux-fleet-hygiene-navigator|PRD-334]]
 - **GitHub**: [#337](https://github.com/chatondearu/ai-dev-kit/issues/337)
 - **Date**: 2026-11-14
@@ -42,13 +42,13 @@ New subcommand or mode (e.g. `cdamux nav`) that ensures session `cdamux-nav` and
 
 ## Tasks
 
-- [ ] **Host**: ensure dedicated navigator session; open Fleet UI there without splitting agent panes (acceptance: agent session pane count unchanged when opening nav)
-- [ ] **Navigation**: j/k, Enter activate, q quit nav; `?` help; footer shows primary binds including future `d` if keymap shared (acceptance: dogfood checklist)
-- [ ] **tmux example**: document `Alt-N` → switch to/from navigator; keep Alt-P (acceptance: dogfood section)
-- [ ] **Deprecate sidebar**: `cdamux sidebar` prints redirect or is removed; docs updated (acceptance: no join-pane dogfood as primary)
-- [ ] **ADR/docs**: record supersession of #321 join-pane UX if removed
-- [ ] **Tests**: throwaway tmux — open nav, switch session, pane count on agent session stable
-- [ ] **Verify**: cdamux tests green
+- [x] **Host**: ensure dedicated navigator session; open Fleet UI there without splitting agent panes (acceptance: agent session pane count unchanged when opening nav)
+- [x] **Navigation**: j/k, Enter activate, q quit nav; `?` help; footer shows primary binds including future `d` if keymap shared (acceptance: dogfood checklist)
+- [x] **tmux example**: document `Alt-N` → switch to/from navigator; keep Alt-P (acceptance: dogfood section)
+- [x] **Deprecate sidebar**: `cdamux sidebar` prints redirect or is removed; docs updated (acceptance: no join-pane dogfood as primary)
+- [x] **ADR/docs**: record supersession of #321 join-pane UX if removed
+- [x] **Tests**: throwaway tmux — open nav, switch session, pane count on agent session stable
+- [x] **Verify**: cdamux tests green
 
 ## Risks & mitigations
 
@@ -61,10 +61,10 @@ New subcommand or mode (e.g. `cdamux nav`) that ensures session `cdamux-nav` and
 
 Seams: (1) ensure nav session, (2) switch-client without join-pane, (3) keymap footer/`?`.
 
-- [ ] Throwaway tmux server (`TMUX_TMPDIR` + `-L`)
-- [ ] Snapshot/footer test if render harness applies
+- [x] Throwaway tmux server (`TMUX_TMPDIR` + `-L`)
+- [x] Snapshot/footer test if render harness applies
 
 ## Verification
 
-- [ ] Lint / test / build per project conventions
-- [ ] Update foam / ADR if join-pane contract is superseded
+- [x] Lint / test / build per project conventions
+- [x] Update foam / ADR if join-pane contract is superseded

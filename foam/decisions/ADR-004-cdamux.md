@@ -88,6 +88,12 @@ Docs: [`cdamux/docs/tailnet-api.md`](../../cdamux/docs/tailnet-api.md).
 snapshot per spawned session under `$XDG_STATE_HOME/cdamux/sessions/`. tmux stays the
 truth for what runs; the registry is never read to decide liveness.
 
+## Amendment 2026-11-14 — dedicated navigator
+
+[[ADR-014-cdamux-dedicated-navigator-session|ADR-014]]: Fleet navigation uses a
+dedicated `cdamux-nav` session (`cdamux nav`); join-pane `cdamux sidebar` (#321) is
+deprecated. Alt-P popup unchanged.
+
 ## References
 
 - PRD: [`prd/PRD-39-cdamux.md`](../../prd/PRD-39-cdamux.md)

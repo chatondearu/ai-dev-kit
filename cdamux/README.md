@@ -33,20 +33,18 @@ bind-key -n M-p display-popup -E -w 80% -h 75% "cdamux"
 
 Minimal skim picker only: `cdamux --pick` (exits right after attach).
 
-## tmux sidebar
+## tmux navigator
 
-`cdamux sidebar [--left|--right] [--width N]` opens Fleet in a narrow pane of the
-current window (default: right, 32 columns). Moving the cursor onto a session
-switches *your* client to it and moves the pane along, so one live list stays next
-to whatever you look at. `Enter` focuses the session pane, `q` closes the sidebar.
-Running it again refocuses the existing sidebar. The popup above is unchanged.
+`cdamux nav` opens (or toggles) a dedicated `cdamux-nav` session with the Fleet
+tree. It never splits or `join-pane`s into agent sessions — only `switch-client`.
+`Enter` focuses the selected live session; `q` returns to the previous session;
+`?` shows help. Alt-P popup above is unchanged.
 
 ```tmux
-bind-key -n M-s run-shell "cdamux sidebar --client '#{client_name}'"
+bind-key -n M-n run-shell "cdamux nav --client '#{client_name}'"
 ```
 
-One sidebar follows one client; a second attached client is never switched, but it
-loses the pane if it was looking at the window the sidebar leaves.
+`cdamux sidebar` is deprecated and prints a redirect to `cdamux nav`.
 
 ## Licence
 

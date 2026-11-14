@@ -12,5 +12,5 @@
                                │
                                │
                                │
-j/k move · ⏎ focus · q close
+j/k · hover · ⏎/click · q
 switch: demo

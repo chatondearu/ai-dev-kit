@@ -21,6 +21,7 @@
 │  Tab            next sidecar tab                                                                                                                                                                     │
 │  PgUp PgDn [ ]  scroll preview                                                                                                                                                                       │
 │  t (Foam tab)   focus Foam tree                                                                                                                                                                      │
+│  m (Foam focus) Foam raw / rendered                                                                                                                                                                  │
 │  w              waiting filter (◆)                                                                                                                                                                   │
 │  g              Graph view (Tab: run)                                                                                                                                                                │
 │  G              cycle group_by                                                                                                                                                                       │
@@ -30,7 +31,6 @@
 │  ?              this help                                                                                                                                                                            │
 │  q              quit                                                                                                                                                                                 │
 │  Ctrl+C         quit                                                                                                                                                                                 │
-│                                                                                                                                                                                                      │
 │                                                                                                                                                                                                      │
 │                                                                                                                                                                                                      │
 │                                                                                                                                                                                                      │

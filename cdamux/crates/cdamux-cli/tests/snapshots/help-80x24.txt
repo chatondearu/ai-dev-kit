@@ -3,16 +3,16 @@
 │  j ↓            next row                Tab            next sidecar tab      │
 │  k ↑            previous row            PgUp PgDn [ ]  scroll preview        │
 │  h ←            collapse row            t (Foam tab)   focus Foam tree       │
-│  l →            expand row              w              waiting filter (◆)    │
-│  F              fold/unfold all groups  g              Graph view (Tab: run) │
-│  click          select row              G              cycle group_by        │
-│                                                                              │
-│Sessions                               App                                    │
-│  Enter          attach / restore        1-5            app tabs              │
-│  n              new session             ?              this help             │
-│  m              rename session          q              quit                  │
-│  f              fork session            Ctrl+C         quit                  │
-│  x              kill / forget (x x)                                          │
+│  l →            expand row              m (Foam focus) Foam raw / rendered   │
+│  F              fold/unfold all groups  w              waiting filter (◆)    │
+│  click          select row              g              Graph view (Tab: run) │
+│                                         G              cycle group_by        │
+│Sessions                                                                      │
+│  Enter          attach / restore      App                                    │
+│  n              new session             1-5            app tabs              │
+│  m              rename session          ?              this help             │
+│  f              fork session            q              quit                  │
+│  x              kill / forget (x x)     Ctrl+C         quit                  │
 │  o              open GitHub issue                                            │
 │  Space          send text                                                    │
 │  Ctrl+R         hunk review TUI                                              │

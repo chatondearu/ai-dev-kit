@@ -284,9 +284,10 @@ fn run_sidebar(client: &str, side: SidebarSide, width: u16) -> ExitCode {
 
         if needs_draw {
             needs_draw = false;
-            terminal
-                .draw(|f| draw_sidebar(f, &rows, selected_row, hovered_row, &status_line))
-                .ok();
+            crate::link_ui::draw(&mut terminal, |f| {
+                draw_sidebar(f, &rows, selected_row, hovered_row, &status_line)
+            })
+            .ok();
         }
 
         if !event::poll(Duration::from_millis(100)).unwrap_or(false) {

@@ -64,7 +64,9 @@ In **every** repository you work on:
    decision: follow the foam protocol (`cda-foam` § Protocol) — read memory,
    search ADRs and GitHub issues/PRs, **confront** the proposal.
 3. **Chat requests** go through `cda-dev` intake, except a trivial fix (typo,
-   one-liner, obvious small fix): branch → commit → PR.
+   one file and about 20 lines, no product decision): branch → commit → PR.
+   Several Ready issues or parallel work → `cda-dev` ready-pickup (`orch.sh`,
+   graph: `cda-graph`). When unsure, use intake.
 4. **During** work: keep PRD/plan/ADR artifacts aligned (`cda-foam`,
    `cda-kanban`).
 5. **After** shipping or deciding: update foam (ADR, PRD status, feature lists)

@@ -53,6 +53,19 @@ bind-key -n M-s run-shell "cdamux sidebar --client '#{client_name}'"
 `--client '#{client_name}'` makes the bind target the client that pressed it; without
 it tmux picks its most recent client, wrong with two clients attached.
 
+## Clickable PR / issue links (OSC 8)
+
+The Fleet badges (`PR#12`, `#7`) and the Review header are OSC 8 hyperlinks. Inside tmux
+they only reach the terminal with the `hyperlinks` feature (tmux ≥ 3.4); add it to your own
+config (cdamux never edits it):
+
+```tmux
+set -as terminal-features ',*:hyperlinks'
+```
+
+Without it (or in a terminal without OSC 8) the labels are plain text; `o` still opens the
+PR, else the issue, in the browser.
+
 ## Scenarios (v0)
 
 - [ ] Configure two `[[projects.roots]]` paths
@@ -141,6 +154,7 @@ parse — periodically prune with `cdamux state gc` (see `docs/architecture.md`)
 - [ ] Preview sidecar updates when selecting a session
 - [ ] Foam tab lists `foam/**/*.md` for the session’s git toplevel / project root (empty/missing foam → clear empty state; CLI `cdamux notes` unchanged)
 - [ ] Foam tab: `[`/`]` select a listed `.md` → sidecar shows rendered preview under the ▸ row (`── preview ──`; long lists stay windowed so preview stays visible; oversize files truncate with a visible cue)
+- [ ] Foam tab: `m` (Foam focus) toggles rendered ↔ raw markdown source (`── preview (raw) ──`); mode stays when moving to another file
 - [ ] Preview text mentioning `foam/...` deep-links into the Foam tab (selects the row; missing path → empty/error; non-foam ignored)
 - [ ] Review tab: `Ctrl+R` or Enter opens hunk review TUI for selected session
 - [ ] Composer (`Space`) sends to session without attach

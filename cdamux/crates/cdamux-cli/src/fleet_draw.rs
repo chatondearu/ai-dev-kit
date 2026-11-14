@@ -7,11 +7,12 @@ use crate::fleet_tree::TreeRow;
 use crate::foam_tab::FOAM_FOOTER;
 use crate::graph_view::{draw_graph_screen, draw_orch_graph_panel, OrchGraphView, GRAPH_FOOTER};
 use crate::keymap::{fit_footer, fleet_help_groups, fleet_help_text, HELP_LEFT, HELP_RIGHT};
+use crate::link_ui::{record, RowLink};
 use crate::settings_form::{draw_settings, SettingsForm};
 use crate::widgets::{draw_scrollbar, draw_text_modal, text_field, text_modal_inner_width};
 use ansi_to_tui::IntoText as _;
 use cdamux_core::{
-    state_icon, ChildKind, Config, EnrichedSession, GroupBy, NodeState, SessionChrome,
+    state_icon, AgentLinks, ChildKind, Config, EnrichedSession, GroupBy, NodeState, SessionChrome,
     SessionState, ORCH_GLYPH,
 };
 use ratatui::{
@@ -176,6 +177,77 @@ pub(crate) fn review_sidecar_hint(session: Option<&EnrichedSession>) -> String {
     }
 }
 
+fn pr_state_color(state: Option<&str>) -> Color {
+    match state {
+        Some("MERGED") => node_state_color(NodeState::Done),
+        Some("CLOSED") => CLR_MUTED,
+        _ => CLR_OK,
+    }
+}
+
+/// Fleet row badges (`PR#12`, `#7`), each clickable when its URL is known. The issue falls
+/// back to the one parsed from the branch name.
+fn link_badges(links: &AgentLinks, branch_issue: Option<u32>) -> Vec<(String, Option<String>, Color)> {
+    let mut out = Vec::new();
+    if let Some(pr) = &links.pr {
+        let color = pr_state_color(pr.state.as_deref());
+        out.push((format!("PR#{}", pr.number), pr.url.clone(), color));
+    }
+    let issue = links.issue.as_ref();
+    if let Some(n) = issue.map(|i| i.number).or(branch_issue) {
+        out.push((format!("#{n}"), issue.and_then(|i| i.url.clone()), CLR_ACCENT));
+    }
+    out
+}
+
+/// Push each badge as a span (two trailing spaces) and note where it starts.
+fn push_badges(
+    spans: &mut Vec<Span<'static>>,
+    row_links: &mut Vec<RowLink>,
+    badges: Vec<(String, Option<String>, Color)>,
+) {
+    for (label, url, color) in badges {
+        let col = spans.iter().map(Span::width).sum::<usize>() as u16;
+        if let Some(url) = url {
+            row_links.push(RowLink { col, len: label.chars().count() as u16, url });
+        }
+        spans.push(Span::styled(format!("{label}  "), Style::default().fg(color)));
+    }
+}
+
+/// Review tab header: `PR #12 OPEN · issue #7` (+ the PR title); `None` without links.
+pub(crate) fn review_header(links: &AgentLinks) -> Option<(Vec<Line<'static>>, Vec<RowLink>)> {
+    if links.is_empty() {
+        return None;
+    }
+    let mut spans = Vec::new();
+    let mut row_links = Vec::new();
+    let mut piece = |spans: &mut Vec<Span<'static>>, text: String, url: Option<&String>, color: Color| {
+        if !spans.is_empty() {
+            spans.push(Span::styled(" · ", Style::default().fg(CLR_MUTED)));
+        }
+        let col = spans.iter().map(Span::width).sum::<usize>() as u16;
+        if let Some(url) = url {
+            // The clickable part is the label, not the state word after it.
+            let len = text.split(' ').take(2).collect::<Vec<_>>().join(" ").chars().count() as u16;
+            row_links.push(RowLink { col, len, url: url.clone() });
+        }
+        spans.push(Span::styled(text, Style::default().fg(color).add_modifier(Modifier::BOLD)));
+    };
+    if let Some(pr) = &links.pr {
+        let state = pr.state.as_deref().map(|s| format!(" {s}")).unwrap_or_default();
+        piece(&mut spans, format!("PR #{}{state}", pr.number), pr.url.as_ref(), pr_state_color(pr.state.as_deref()));
+    }
+    if let Some(issue) = &links.issue {
+        piece(&mut spans, format!("issue #{}", issue.number), issue.url.as_ref(), CLR_ACCENT);
+    }
+    let mut lines = vec![Line::from(spans)];
+    if let Some(title) = links.pr.as_ref().and_then(|p| p.title.as_deref()).filter(|t| !t.is_empty()) {
+        lines.push(Line::from(Span::styled(title.to_string(), Style::default().fg(CLR_MUTED))));
+    }
+    Some((lines, row_links))
+}
+
 pub(crate) struct DrawState<'a> {
     pub(crate) rows: &'a [TreeRow],
     pub(crate) selected_row: usize,
@@ -185,6 +257,8 @@ pub(crate) struct DrawState<'a> {
     pub(crate) preview_scroll: usize,
     pub(crate) foam_text: &'a str,
     pub(crate) review_text: &'a str,
+    /// PR / issue of the selected session, shown above the Review hint.
+    pub(crate) review_links: &'a AgentLinks,
     pub(crate) orch_graph: &'a OrchGraphView,
     /// Full-screen Graph view open, with the selected node (navigation order).
     pub(crate) graph_view: Option<usize>,
@@ -471,6 +545,14 @@ pub(crate) fn draw_tree_column(
     let mut list_state = ListState::default();
     list_state.select(Some(selected_row.min(rows.len().saturating_sub(1))));
     f.render_stateful_widget(list, area, &mut list_state);
+    // Rows are one line each, shifted right by the 2-column highlight symbol.
+    let inner = tree_list_block(stacked).inner(area);
+    let offset = list_state.offset();
+    for (i, row) in rows.iter().enumerate().skip(offset).take(inner.height as usize) {
+        for l in tree_row_parts(row).1.into_iter().filter(|l| 2 + l.col + l.len <= inner.width) {
+            record(f.buffer_mut(), inner.x + 2 + l.col, inner.y + (i - offset) as u16, l.len, &l.url);
+        }
+    }
     // RIGHT border column is reserved for the track (also when stacked + BOTTOM).
     draw_scrollbar(f, area, len, list_state.offset());
 }
@@ -485,7 +567,13 @@ fn tree_indent(depth: usize) -> String {
 }
 
 pub(crate) fn tree_row_item(row: &TreeRow) -> ListItem<'_> {
-    match row {
+    tree_row_parts(row).0
+}
+
+/// The row's list item and the clickable links inside it.
+fn tree_row_parts(row: &TreeRow) -> (ListItem<'_>, Vec<RowLink>) {
+    let mut row_links = Vec::new();
+    let item = match row {
         TreeRow::Project {
             name,
             path,
@@ -539,6 +627,8 @@ pub(crate) fn tree_row_item(row: &TreeRow) -> ListItem<'_> {
                 Span::styled(format!("{icon} "), Style::default().fg(color)),
                 Span::styled(head, Style::default().fg(CLR_TEXT).add_modifier(Modifier::BOLD)),
             ];
+            let pr = AgentLinks { pr: row.links.pr.clone(), issue: None };
+            push_badges(&mut spans, &mut row_links, link_badges(&pr, None));
             spans.extend(inbox_badge_spans(row.unread, row.pending_ask));
             spans.push(Span::styled(tail, Style::default().fg(CLR_MUTED)));
             ListItem::new(Line::from(spans))
@@ -568,12 +658,7 @@ pub(crate) fn tree_row_item(row: &TreeRow) -> ListItem<'_> {
             if s.working_stale {
                 spans.push(Span::styled("⚠  ", Style::default().fg(CLR_WARN)));
             }
-            if let Some(n) = s.issue {
-                spans.push(Span::styled(
-                    format!("#{n}  "),
-                    Style::default().fg(CLR_ACCENT),
-                ));
-            }
+            push_badges(&mut spans, &mut row_links, link_badges(&s.links, s.issue));
             spans.push(Span::styled(
                 format!("{}  ", s.agent),
                 Style::default().fg(CLR_MUTED),
@@ -598,7 +683,8 @@ pub(crate) fn tree_row_item(row: &TreeRow) -> ListItem<'_> {
                 .fg(CLR_WARN)
                 .add_modifier(Modifier::ITALIC),
         ))),
-    }
+    };
+    (item, row_links)
 }
 
 pub(crate) fn draw_sidecar(
@@ -709,7 +795,20 @@ pub(crate) fn draw_sidecar(
             .style(Style::default().fg(CLR_TEXT))
             .wrap(Wrap { trim: false })
     };
-    f.render_widget(body, vertical[preview_idx]);
+    let mut body_rect = vertical[preview_idx];
+    if state.side_tab == SideTab::Review {
+        if let Some((lines, links)) = review_header(state.review_links) {
+            // Header rows + one spacer before the hint.
+            let head_h = (lines.len() as u16 + 1).min(body_rect.height);
+            let [head, rest] = Layout::vertical([Constraint::Length(head_h), Constraint::Min(0)]).areas(body_rect);
+            f.render_widget(Paragraph::new(lines), head);
+            for l in links.into_iter().filter(|l| l.col + l.len <= head.width) {
+                record(f.buffer_mut(), head.x + l.col, head.y, l.len, &l.url);
+            }
+            body_rect = rest;
+        }
+    }
+    f.render_widget(body, body_rect);
 
     if show_composer {
         let composer_idx = preview_idx + 1;

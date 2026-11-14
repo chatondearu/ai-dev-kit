@@ -6,6 +6,7 @@ use crate::issue_ref::parse_issue_number;
 use crate::session_registry::{self, now_secs};
 use crate::state::{state_append, state_get, StateKind};
 use crate::worktree::current_branch;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::io;
 use std::path::{Path, PathBuf};
@@ -13,6 +14,41 @@ use std::process::Command;
 
 /// How long a detection (hit, miss or `gh` failure) is trusted.
 pub const LINK_TTL_SECS: u64 = 600;
+
+/// A PR or issue as cached in `agents/<id>.json` (`url` is `None` for a pinned bare number).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LinkRef {
+    pub number: u32,
+    #[serde(default)]
+    pub url: Option<String>,
+    #[serde(default)]
+    pub state: Option<String>,
+    #[serde(default)]
+    pub title: Option<String>,
+}
+
+/// The cached PR and source issue of one agent; read-only, no network (Fleet / Review).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentLinks {
+    #[serde(default)]
+    pub pr: Option<LinkRef>,
+    #[serde(default)]
+    pub issue: Option<LinkRef>,
+}
+
+impl AgentLinks {
+    pub fn load(id: &str) -> Self {
+        let agent = state_get(StateKind::Agents, id).ok().flatten();
+        agent.map_or_else(Self::default, |a| {
+            let field = |k: &str| a.get(k).and_then(|v| serde_json::from_value(v.clone()).ok());
+            Self { pr: field("pr"), issue: field("issue") }
+        })
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.pr.is_none() && self.issue.is_none()
+    }
+}
 
 /// The fields of `gh pr list --json number,url,state,title,body` we use.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -232,6 +268,23 @@ mod tests {
         );
         assert_eq!(parse_link_ref("#4"), Some((4, None)));
         assert_eq!(parse_link_ref("abc"), None);
+    }
+
+    #[test]
+    fn agent_links_load_reads_cache() {
+        let _g = env_lock();
+        let dir = tempfile::tempdir().unwrap();
+        std::env::set_var("CDAMUX_HOME", dir.path());
+        assert!(AgentLinks::load("a-none").is_empty());
+        let pr = json!({"number": 12, "url": "https://github.com/o/r/pull/12", "state": "OPEN", "title": "t"});
+        state_append(StateKind::Agents, "a-ld1", &json!({"pr": pr, "issue": {"number": 7, "url": null}})).unwrap();
+        let l = AgentLinks::load("a-ld1");
+        assert_eq!(l.pr.as_ref().map(|p| (p.number, p.state.as_deref())), Some((12, Some("OPEN"))));
+        assert_eq!(l.issue, Some(LinkRef { number: 7, url: None, state: None, title: None }));
+        // A cleared (null) field reads as absent.
+        state_append(StateKind::Agents, "a-ld1", &json!({"pr": null, "issue": null})).unwrap();
+        assert!(AgentLinks::load("a-ld1").is_empty());
+        std::env::remove_var("CDAMUX_HOME");
     }
 
     #[test]

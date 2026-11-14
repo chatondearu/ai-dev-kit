@@ -129,6 +129,22 @@ function buildSessionMap(cwd = process.cwd()) {
   return buildGraphPointer(cwd) || buildMap(cwd);
 }
 
+// Lane routing, injected at session start on every host: rules/ never reach
+// Cursor (no global rules file), and a passive rule line alone is skipped.
+// Mirrors rules/01-project-workflow.md step 3. Silent inside orch.sh runs.
+const ROUTING = [
+  'CDA ROUTING — pick the lane before you edit any file:',
+  '- Feature, fix or change request in chat → load skill `cda-dev` (intake: one question round, breakdown, GO) first.',
+  '- Several Ready issues, or work that splits into parallel tasks → `cda-dev` ready-pickup via `orch.sh` (graph: `cda-graph`).',
+  '- Truly trivial (typo, one file and about 20 lines, no product decision) → do it directly: branch → commit → PR.',
+  '- Questions, explanations, reviews, research → answer directly.',
+  '- When unsure, use `cda-dev` intake. Skip this block if you are a cda-dev worker, reviewer or a spawned worker with a spec.',
+].join('\n');
+
+function buildRouting(env = process.env) {
+  return env.ORCH_RUN_ID || env.CDA_ROUTING === '0' ? '' : ROUTING;
+}
+
 // Synchronous: hooks call process.exit right after (a pending async pipe write
 // can die with the process).
 function writeHookOutput(event, context) {
@@ -160,6 +176,6 @@ function parseCommand(prompt) {
 module.exports = {
   DEFAULT_MODE, isCursor, normalizeMode,
   readMode, setMode,
-  getInstructions, buildMap, buildGraphPointer, buildSessionMap,
+  getInstructions, buildMap, buildGraphPointer, buildSessionMap, buildRouting,
   writeHookOutput, parseCommand,
 };

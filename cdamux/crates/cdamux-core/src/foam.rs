@@ -527,36 +527,52 @@ pub fn foam_file_wikilinks(project: &Path, foam_rel: &str) -> Vec<WikiLink> {
     extract_wikilinks(&String::from_utf8_lossy(&bytes))
 }
 
+/// Bounded read of a listed foam file as text; `Err` is a one-line message to show.
+///
+/// Returns the text and whether the byte cap cut the file.
+fn read_foam_text(project: &Path, foam_rel: &str) -> Result<(String, bool), String> {
+    let Some(path) = resolve_listed_foam_file(project, foam_rel) else {
+        return Err(format!("(cannot read {foam_rel})"));
+    };
+    let (bytes, truncated) =
+        read_capped(&path, FOAM_PREVIEW_MAX_BYTES).map_err(|e| format!("(read error: {e})"))?;
+    match std::str::from_utf8(&bytes) {
+        Ok(s) => Ok((s.to_string(), truncated)),
+        Err(err) if err.valid_up_to() == 0 => Err("(not valid UTF-8 — skipped)".to_string()),
+        // Byte cap may cut mid-codepoint; keep the valid prefix.
+        Err(err) => Ok((String::from_utf8_lossy(&bytes[..err.valid_up_to()]).into_owned(), truncated)),
+    }
+}
+
+/// Apply the byte-truncation cue, then the line cap.
+fn cap_preview(mut body: String, truncated_bytes: bool) -> String {
+    if truncated_bytes {
+        if !body.ends_with('\n') {
+            body.push('\n');
+        }
+        body.push_str("… (file truncated for preview)");
+    }
+    truncate_lines(&body, FOAM_PREVIEW_MAX_LINES)
+}
+
 /// Render a selected foam markdown path for the sidecar (bounded, read-only).
 ///
 /// `foam_rel` is a listing path such as `foam/index.md`. Non-UTF-8 yields an
 /// error line; oversize input/output is truncated with a visible cue.
 pub fn preview_foam_markdown(project: &Path, foam_rel: &str) -> String {
-    let Some(path) = resolve_listed_foam_file(project, foam_rel) else {
-        return format!("(cannot read {foam_rel})");
-    };
-    let (bytes, truncated_bytes) = match read_capped(&path, FOAM_PREVIEW_MAX_BYTES) {
-        Ok(v) => v,
-        Err(e) => return format!("(read error: {e})"),
-    };
-    let text = match std::str::from_utf8(&bytes) {
-        Ok(s) => s.to_string(),
-        Err(err) => {
-            if err.valid_up_to() == 0 {
-                return "(not valid UTF-8 — skipped)".to_string();
-            }
-            // Byte cap may cut mid-codepoint; keep the valid prefix.
-            String::from_utf8_lossy(&bytes[..err.valid_up_to()]).into_owned()
-        }
-    };
-    let mut rendered = render_markdown_terminal(&text);
-    if truncated_bytes {
-        if !rendered.ends_with('\n') {
-            rendered.push('\n');
-        }
-        rendered.push_str("… (file truncated for preview)");
+    match read_foam_text(project, foam_rel) {
+        Ok((text, truncated)) => cap_preview(render_markdown_terminal(&text), truncated),
+        Err(msg) => msg,
     }
-    truncate_lines(&rendered, FOAM_PREVIEW_MAX_LINES)
+}
+
+/// Raw markdown source of a selected foam path: same caps and cues as
+/// [`preview_foam_markdown`], without rendering.
+pub fn preview_foam_raw(project: &Path, foam_rel: &str) -> String {
+    match read_foam_text(project, foam_rel) {
+        Ok((text, truncated)) => cap_preview(text, truncated),
+        Err(msg) => msg,
+    }
 }
 
 #[cfg(test)]
@@ -706,6 +722,26 @@ mod tests {
         let out = preview_foam_markdown(&project, "foam/huge.md");
         assert!(out.contains("… (file truncated for preview)"), "{out}");
         assert!(out.contains("# Cap"), "{out}");
+    }
+
+    #[test]
+    fn raw_preview_keeps_source_and_shares_caps() {
+        let tmp = tempdir().unwrap();
+        let project = tmp.path().join("repo");
+        fs::create_dir_all(project.join("foam")).unwrap();
+        fs::write(project.join("foam/a.md"), "# T\n\n**bold** [[x]]\n").unwrap();
+        let raw = preview_foam_raw(&project, "foam/a.md");
+        assert!(raw.contains("**bold** [[x]]"), "{raw}");
+        assert_ne!(raw, preview_foam_markdown(&project, "foam/a.md"));
+        let huge: String = (0..FOAM_PREVIEW_MAX_LINES + 40).map(|i| format!("l{i}\n")).collect();
+        fs::write(project.join("foam/big.md"), &huge).unwrap();
+        let out = preview_foam_raw(&project, "foam/big.md");
+        assert!(out.contains("… (truncated)"), "{out}");
+        assert!(out.lines().count() <= FOAM_PREVIEW_MAX_LINES + 1);
+        let body = "y".repeat(FOAM_PREVIEW_MAX_BYTES + 2048);
+        fs::write(project.join("foam/huge.md"), &body).unwrap();
+        assert!(preview_foam_raw(&project, "foam/huge.md").contains("… (file truncated for preview)"));
+        assert!(preview_foam_raw(&project, "foam/../x.md").contains("cannot read"));
     }
 
     #[test]

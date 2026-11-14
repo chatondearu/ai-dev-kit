@@ -1,0 +1,24 @@
+[ 1 Fleet ] [ 2 Projects ] [ 3 Sessions ] [ 4 Agents ] [ 5 Settings ]
+cdamux — fleet  ○ idle ● working ◆ needs ⊘ blocked ✓ done
+────────────────────────────────────────────────────────────────────────────────
+ projects → sessions                                                           │
+  ▼ ◇ alpha (2 sess · 1 orch) /src/alpha                                       │
+▸   ● alpha-312  PR#318  #312  claude  /src/alpha                              │
+    ○ alpha-9  #9  cursor  /src/alpha                                          │
+    ⚙ #320 PR#321  running  implementing                                       │
+───────────────────────────────────────────────────────────────────────────────┘
+ Preview  Foam  Review  Orch graph
+PR #318 OPEN · issue #312
+feat(cdamux): show links
+
+Select a session.
+
+
+
+
+
+
+
+
+j/k nav · Enter attach · n new · m rename · f fork · x kill · ? help · q quit
+

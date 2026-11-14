@@ -24,8 +24,8 @@ pub enum DashboardAction {
     KillSession,
     ForkSession,
     RenameSession,
-    /// Open GitHub issue for `feat/<n>-*` / worktree (via `gh issue view --web`).
-    OpenIssue,
+    /// Open the row's PR, else its issue (`feat/<n>-*` / worktree), via `gh … --web`.
+    OpenLink,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -88,12 +88,13 @@ pub const FLEET_KEYMAP: &[Binding] = &[
     b(&[K::Char('m')], "m", A::RenameSession, "rename session", Some("m rename"), G::Session),
     b(&[K::Char('f')], "f", A::ForkSession, "fork session", Some("f fork"), G::Session),
     b(&[K::Char('x')], "x", A::KillSession, "kill / forget (x x)", Some("x kill"), G::Session),
-    b(&[K::Char('o')], "o", A::OpenIssue, "open GitHub issue", Some("o issue"), G::Session),
+    b(&[K::Char('o')], "o", A::OpenLink, "open PR / issue", Some("o open"), G::Session),
     b(&[K::Char(' ')], "Space", A::FocusComposer, "send text", Some("Space send"), G::Session),
     Binding { codes: &[K::Char('r')], ctrl: true, label: "Ctrl+R", action: A::StartReview, help: "hunk review TUI", footer: None, group: G::Session },
     b(&[K::Tab], "Tab", A::CycleSideTab, "next sidecar tab", None, G::View),
     b(&[], "PgUp PgDn [ ]", A::None, "scroll preview", None, G::View),
     b(&[], "t (Foam tab)", A::None, "focus Foam tree", None, G::View),
+    b(&[], "m (Foam focus)", A::None, "Foam raw / rendered", None, G::View),
     b(&[K::Char('w')], "w", A::ToggleWaitingFilter, "waiting filter (◆)", None, G::View),
     b(&[K::Char('g')], "g", A::GraphView, "Graph view (Tab: run)", Some("g graph"), G::View),
     b(&[K::Char('G')], "G", A::CycleGroupBy, "cycle group_by", None, G::View),
@@ -178,7 +179,7 @@ mod tests {
     #[test]
     fn footer_lists_session_keys() {
         let footer = fleet_footer();
-        for part in ["g graph", "m rename", "f fork", "x kill", "o issue", "Enter attach", "? help"] {
+        for part in ["g graph", "m rename", "f fork", "x kill", "o open", "Enter attach", "? help"] {
             assert!(footer.contains(part), "{footer}");
         }
     }

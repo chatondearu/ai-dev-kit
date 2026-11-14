@@ -1,0 +1,24 @@
+{
+  "issue": 331,
+  "tasks": [
+    {
+      "id": "hover",
+      "paths": [
+        "cdamux/crates/cdamux-cli/src/sidebar.rs",
+        "cdamux/crates/cdamux-cli/src/fleet_draw.rs",
+        "cdamux/crates/cdamux-cli/tests/snapshots/"
+      ],
+      "tier": "medium",
+      "prompt": "From PLAN-331 and PRD-329: enable mouse capture in cdamux sidebar --in-pane (replace DisableMouseCapture). Track hover row on Mouse Moved over the tree; clear when leaving. Draw a hover style distinct from selection (reuse Fleet draw helpers if needed). Do NOT switch sessions on hover. Update footer hint. Add/adjust snapshot or unit coverage for hover. Leave click-to-activate for the next graph task if clearly separable; otherwise implement both if one diff is smaller. Run cargo test in cdamux/."
+    },
+    {
+      "id": "click-activate",
+      "paths": [
+        "cdamux/crates/cdamux-cli/src/sidebar.rs",
+        "cdamux/crates/cdamux-cli/tests/"
+      ],
+      "tier": "medium",
+      "prompt": "From PLAN-331: left-click on a live session row in cdamux sidebar runs the same Attach path as Enter (follow_session + focus_main_pane). Project rows: fold/select only. Dormant: keep current Enter message. Hover remains paint-only. Reuse dashboard hit-test patterns if present. Extend tests (unit and/or sidebar_tmux on throwaway -L). cargo test in cdamux/ green. Popup Fleet mouse unchanged."
+    }
+  ]
+}

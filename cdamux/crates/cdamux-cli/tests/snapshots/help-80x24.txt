@@ -2,16 +2,16 @@
 │Navigate                               View                                   │
 │  j ↓            next row                Tab            next sidecar tab      │
 │  k ↑            previous row            PgUp PgDn [ ]  scroll preview        │
-│  h ←            collapse row            w              waiting filter (◆)    │
-│  l →            expand row              g              Graph view (Tab: run) │
-│  F              fold/unfold all groups  G              cycle group_by        │
-│  click          select row                                                   │
-│                                       App                                    │
-│Sessions                                 1-5            app tabs              │
-│  Enter          attach / restore        ?              this help             │
-│  n              new session             q              quit                  │
-│  m              rename session          Ctrl+C         quit                  │
-│  f              fork session                                                 │
+│  h ←            collapse row            t (Foam tab)   focus Foam tree       │
+│  l →            expand row              w              waiting filter (◆)    │
+│  F              fold/unfold all groups  g              Graph view (Tab: run) │
+│  click          select row              G              cycle group_by        │
+│                                                                              │
+│Sessions                               App                                    │
+│  Enter          attach / restore        1-5            app tabs              │
+│  n              new session             ?              this help             │
+│  m              rename session          q              quit                  │
+│  f              fork session            Ctrl+C         quit                  │
 │  x              kill / forget (x x)                                          │
 │  o              open GitHub issue                                            │
 │  Space          send text                                                    │

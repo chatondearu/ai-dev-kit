@@ -38,10 +38,10 @@ Do not violate accepted ADRs without superseding them.
 
 ## Tasks
 
-- [ ] Tree model + tests (ordering, collapse state, caps)
-- [ ] Draw + keys + mouse (snapshot)
-- [ ] Wikilink resolution + history + tests
-- [ ] ADR-012 amendment
+- [x] Tree model + tests (ordering, collapse state, caps)
+- [x] Draw + keys + mouse (snapshot)
+- [x] Wikilink resolution + history + tests
+- [x] ADR-012 amendment
 
 ## Risks & mitigations
 
@@ -52,8 +52,8 @@ Do not violate accepted ADRs without superseding them.
 
 ## Test plan
 
-- [ ] Unit: tree build, toggle, wikilink resolve
-- [ ] Snapshot: tree with expanded/collapsed dirs
+- [x] Unit: tree build, toggle, wikilink resolve
+- [x] Snapshot: tree with expanded/collapsed dirs
 
 ## Verification
 

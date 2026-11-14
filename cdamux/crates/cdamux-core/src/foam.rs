@@ -6,6 +6,7 @@
 
 use crate::git_toplevel;
 use crate::markdown::{render_markdown_terminal, truncate_lines};
+use std::collections::HashSet;
 use std::fs::File;
 use std::io::Read;
 use std::path::{Component, Path, PathBuf};
@@ -276,6 +277,256 @@ fn read_capped(path: &Path, max_bytes: usize) -> std::io::Result<(Vec<u8>, bool)
     Ok((buf, truncated))
 }
 
+/// Max files remembered for the Foam "back" key.
+const FOAM_HISTORY_MAX: usize = 50;
+
+/// One visible row of the Foam tree (directory or markdown file).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FoamRow {
+    /// `foam/...` path (directory rows have no `.md` suffix).
+    pub path: String,
+    pub depth: usize,
+    pub is_dir: bool,
+    pub expanded: bool,
+}
+
+impl FoamRow {
+    /// Last path segment (`ADR-001.md`, `decisions`).
+    pub fn name(&self) -> &str {
+        self.path.rsplit('/').next().unwrap_or(&self.path)
+    }
+}
+
+/// Collapsible tree over a [`list_foam`] listing: expand state, cursor, back history.
+///
+/// Pure in-memory model (no I/O); the Fleet Foam tab drives it from keys and clicks.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FoamTree {
+    paths: Vec<String>,
+    collapsed: HashSet<String>,
+    cursor: String,
+    history: Vec<String>,
+}
+
+impl FoamTree {
+    /// All directories start expanded; the cursor starts on the first row.
+    pub fn new(paths: Vec<String>) -> Self {
+        let mut tree = Self {
+            paths,
+            collapsed: HashSet::new(),
+            cursor: String::new(),
+            history: Vec::new(),
+        };
+        tree.cursor = tree.rows().first().map(|r| r.path.clone()).unwrap_or_default();
+        tree
+    }
+
+    pub fn paths(&self) -> &[String] {
+        &self.paths
+    }
+
+    /// Visible rows in listing order; children of collapsed directories are skipped.
+    pub fn rows(&self) -> Vec<FoamRow> {
+        let mut rows = Vec::new();
+        let mut seen = HashSet::new();
+        for p in &self.paths {
+            let rel = p.strip_prefix("foam/").unwrap_or(p);
+            let segs: Vec<&str> = rel.split('/').collect();
+            let mut dir = String::from(FOAM_DIR);
+            let mut visible = true;
+            for (depth, seg) in segs[..segs.len() - 1].iter().enumerate() {
+                dir.push('/');
+                dir.push_str(seg);
+                let expanded = !self.collapsed.contains(&dir);
+                if seen.insert(dir.clone()) {
+                    rows.push(FoamRow {
+                        path: dir.clone(),
+                        depth,
+                        is_dir: true,
+                        expanded,
+                    });
+                }
+                if !expanded {
+                    visible = false;
+                    break;
+                }
+            }
+            if visible {
+                rows.push(FoamRow {
+                    path: p.clone(),
+                    depth: segs.len() - 1,
+                    is_dir: false,
+                    expanded: false,
+                });
+            }
+        }
+        rows
+    }
+
+    /// Index of the cursor in `rows` (first row when the cursor row is hidden).
+    pub fn cursor_index(&self, rows: &[FoamRow]) -> usize {
+        rows.iter().position(|r| r.path == self.cursor).unwrap_or(0)
+    }
+
+    /// File under the cursor, if the cursor is on a file row.
+    pub fn selected_file(&self) -> Option<&str> {
+        self.paths.iter().find(|p| **p == self.cursor).map(String::as_str)
+    }
+
+    pub fn move_cursor(&mut self, delta: isize) {
+        let rows = self.rows();
+        let idx = self.cursor_index(&rows).saturating_add_signed(delta);
+        if let Some(r) = rows.get(idx.min(rows.len().saturating_sub(1))) {
+            self.cursor = r.path.clone();
+        }
+    }
+
+    /// Put the cursor on visible row `idx`; a directory row also toggles (click).
+    pub fn click(&mut self, idx: usize) {
+        let rows = self.rows();
+        let Some(row) = rows.get(idx) else { return };
+        self.cursor = row.path.clone();
+        if row.is_dir {
+            self.toggle_cursor();
+        }
+    }
+
+    /// Flip the directory under the cursor; no-op on files.
+    pub fn toggle_cursor(&mut self) {
+        if self.paths.contains(&self.cursor) {
+            return;
+        }
+        if !self.collapsed.remove(&self.cursor) {
+            self.collapsed.insert(self.cursor.clone());
+        }
+    }
+
+    /// Right: expand the directory under the cursor.
+    pub fn expand_cursor(&mut self) {
+        self.collapsed.remove(&self.cursor);
+    }
+
+    /// Left: collapse an expanded directory, otherwise jump to the parent row.
+    pub fn collapse_or_parent(&mut self) {
+        let rows = self.rows();
+        let Some(row) = rows.get(self.cursor_index(&rows)) else {
+            return;
+        };
+        if row.is_dir && row.expanded {
+            self.collapsed.insert(row.path.clone());
+        } else if let Some((parent, _)) = row.path.rsplit_once('/') {
+            if parent != FOAM_DIR {
+                self.cursor = parent.to_string();
+            }
+        }
+    }
+
+    /// Expand every ancestor of `path` and put the cursor on it.
+    pub fn select_path(&mut self, path: &str) {
+        let mut dir = String::from(FOAM_DIR);
+        let rel = path.strip_prefix("foam/").unwrap_or(path);
+        let segs: Vec<&str> = rel.split('/').collect();
+        for seg in &segs[..segs.len() - 1] {
+            dir.push('/');
+            dir.push_str(seg);
+            self.collapsed.remove(&dir);
+        }
+        self.cursor = path.to_string();
+    }
+
+    /// Jump to a wikilink target, remembering the current file for [`Self::back`].
+    pub fn follow(&mut self, target: &str) {
+        if self.cursor == target {
+            return;
+        }
+        if let Some(cur) = self.selected_file().map(str::to_string) {
+            if self.history.last() != Some(&cur) {
+                self.history.push(cur);
+                if self.history.len() > FOAM_HISTORY_MAX {
+                    self.history.remove(0);
+                }
+            }
+        }
+        self.select_path(target);
+    }
+
+    /// Return to the file before the last followed link.
+    pub fn back(&mut self) -> bool {
+        let Some(prev) = self.history.pop() else {
+            return false;
+        };
+        self.select_path(&prev);
+        true
+    }
+}
+
+/// A `[[target]]` / `[[target|label]]` reference found in markdown.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WikiLink {
+    pub target: String,
+    pub label: String,
+}
+
+/// Wikilinks in `text`, in order, deduplicated by target. `[[t#heading|l]]` keeps `t`.
+pub fn extract_wikilinks(text: &str) -> Vec<WikiLink> {
+    let mut out: Vec<WikiLink> = Vec::new();
+    for line in text.lines() {
+        let mut rest = line;
+        while let Some(open) = rest.find("[[") {
+            let after = &rest[open + 2..];
+            let Some(close) = after.find("]]") else { break };
+            let inner = &after[..close];
+            rest = &after[close + 2..];
+            let (raw, label) = inner.split_once('|').unwrap_or((inner, inner));
+            let target = raw.split('#').next().unwrap_or("").trim();
+            if target.is_empty() || out.iter().any(|l| l.target == target) {
+                continue;
+            }
+            out.push(WikiLink {
+                target: target.to_string(),
+                label: label.trim().to_string(),
+            });
+        }
+    }
+    out
+}
+
+/// Resolve a wikilink target against a listing: exact `foam/<target>.md` path,
+/// then the first file whose stem matches the last segment (case-insensitive).
+pub fn resolve_wikilink(paths: &[String], target: &str) -> Option<String> {
+    let t = target.trim().trim_start_matches("./");
+    let t = t.strip_suffix(".md").unwrap_or(t);
+    let t = t.strip_prefix("foam/").unwrap_or(t);
+    if t.is_empty() {
+        return None;
+    }
+    let exact = format!("{FOAM_DIR}/{t}.md");
+    if let Some(p) = paths.iter().find(|p| **p == exact) {
+        return Some(p.clone());
+    }
+    let stem = t.rsplit('/').next().unwrap_or(t);
+    paths
+        .iter()
+        .find(|p| {
+            p.rsplit('/')
+                .next()
+                .and_then(|f| f.strip_suffix(".md"))
+                .is_some_and(|s| s.eq_ignore_ascii_case(stem))
+        })
+        .cloned()
+}
+
+/// Wikilinks of a listed foam file (bounded read, same caps as the preview).
+pub fn foam_file_wikilinks(project: &Path, foam_rel: &str) -> Vec<WikiLink> {
+    let Some(path) = resolve_listed_foam_file(project, foam_rel) else {
+        return Vec::new();
+    };
+    let Ok((bytes, _)) = read_capped(&path, FOAM_PREVIEW_MAX_BYTES) else {
+        return Vec::new();
+    };
+    extract_wikilinks(&String::from_utf8_lossy(&bytes))
+}
+
 /// Render a selected foam markdown path for the sidecar (bounded, read-only).
 ///
 /// `foam_rel` is a listing path such as `foam/index.md`. Non-UTF-8 yields an
@@ -544,4 +795,103 @@ mod tests {
         assert_eq!(find_foam_entry(&paths, "foam/missing.md"), None);
     }
 
+    fn tree(paths: &[&str]) -> FoamTree {
+        FoamTree::new(paths.iter().map(|p| p.to_string()).collect())
+    }
+
+    fn row_names(t: &FoamTree) -> Vec<String> {
+        t.rows()
+            .iter()
+            .map(|r| format!("{}{}{}", " ".repeat(r.depth), r.name(), if r.is_dir { "/" } else { "" }))
+            .collect()
+    }
+
+    #[test]
+    fn tree_rows_nest_dirs_and_collapse() {
+        let mut t = tree(&[
+            "foam/decisions/ADR-001.md",
+            "foam/decisions/ADR-002.md",
+            "foam/index.md",
+        ]);
+        assert_eq!(
+            row_names(&t),
+            ["decisions/", " ADR-001.md", " ADR-002.md", "index.md"]
+        );
+        t.click(0);
+        assert_eq!(row_names(&t), ["decisions/", "index.md"]);
+        t.click(0);
+        assert_eq!(row_names(&t).len(), 4);
+    }
+
+    #[test]
+    fn tree_cursor_moves_clamps_and_jumps_to_parent() {
+        let mut t = tree(&["foam/a/b/x.md", "foam/y.md"]);
+        t.move_cursor(-5);
+        assert_eq!(t.cursor_index(&t.rows()), 0);
+        t.move_cursor(2);
+        assert_eq!(t.selected_file(), Some("foam/a/b/x.md"));
+        t.collapse_or_parent();
+        assert_eq!(t.cursor, "foam/a/b");
+        // Expanded dir collapses in place.
+        t.collapse_or_parent();
+        assert_eq!(row_names(&t), ["a/", " b/", "y.md"]);
+    }
+
+    #[test]
+    fn select_path_expands_ancestors() {
+        let mut t = tree(&["foam/a/b/x.md", "foam/y.md"]);
+        t.click(0);
+        assert_eq!(row_names(&t), ["a/", "y.md"]);
+        t.select_path("foam/a/b/x.md");
+        assert_eq!(t.selected_file(), Some("foam/a/b/x.md"));
+        assert_eq!(row_names(&t).len(), 4);
+    }
+
+    #[test]
+    fn follow_and_back_use_history() {
+        let mut t = tree(&["foam/a.md", "foam/b.md", "foam/c.md"]);
+        t.select_path("foam/a.md");
+        t.follow("foam/b.md");
+        t.follow("foam/c.md");
+        assert_eq!(t.selected_file(), Some("foam/c.md"));
+        assert!(t.back());
+        assert_eq!(t.selected_file(), Some("foam/b.md"));
+        assert!(t.back());
+        assert_eq!(t.selected_file(), Some("foam/a.md"));
+        assert!(!t.back());
+    }
+
+    #[test]
+    fn wikilinks_parse_label_anchor_and_dedupe() {
+        let links = extract_wikilinks(
+            "see [[ADR-001]] and [[foam/decisions/ADR-002|two]], [[ADR-001#why]] [[ ]] [[open",
+        );
+        let got: Vec<(&str, &str)> = links.iter().map(|l| (l.target.as_str(), l.label.as_str())).collect();
+        assert_eq!(got, [("ADR-001", "ADR-001"), ("foam/decisions/ADR-002", "two")]);
+    }
+
+    #[test]
+    fn wikilink_resolves_path_then_stem() {
+        let paths: Vec<String> = ["foam/decisions/ADR-001.md", "foam/notes/adr-001.md", "foam/index.md"]
+            .map(String::from)
+            .to_vec();
+        let r = |t| resolve_wikilink(&paths, t);
+        assert_eq!(r("notes/adr-001").as_deref(), Some("foam/notes/adr-001.md"));
+        assert_eq!(r("foam/index.md").as_deref(), Some("foam/index.md"));
+        // Ambiguous stem: first in listing order wins.
+        assert_eq!(r("ADR-001").as_deref(), Some("foam/decisions/ADR-001.md"));
+        assert_eq!(r("../foam/decisions/ADR-001").as_deref(), Some("foam/decisions/ADR-001.md"));
+        assert_eq!(r("missing"), None);
+    }
+
+    #[test]
+    fn file_wikilinks_read_from_disk_and_stay_confined() {
+        let tmp = tempdir().unwrap();
+        let project = tmp.path().join("repo");
+        fs::create_dir_all(project.join("foam")).unwrap();
+        fs::write(project.join("foam/a.md"), "[[b]]").unwrap();
+        fs::write(project.join("secret.md"), "[[leak]]").unwrap();
+        assert_eq!(foam_file_wikilinks(&project, "foam/a.md").len(), 1);
+        assert!(foam_file_wikilinks(&project, "foam/../secret.md").is_empty());
+    }
 }

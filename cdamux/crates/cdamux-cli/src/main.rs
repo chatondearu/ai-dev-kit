@@ -6,6 +6,7 @@ mod foam_tab;
 mod fleet_tree;
 mod graph_view;
 mod keymap;
+mod link_ui;
 mod refresh;
 mod review_tui;
 mod settings_form;

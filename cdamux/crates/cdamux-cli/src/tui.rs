@@ -10,11 +10,12 @@ use crate::graph_view::{load_orch_graph_view, node_session, worker_steps_text};
 use crate::fleet_tree::{
     clamp_selection, default_expanded, dormant_at_row, fleet_attention_hint, flatten_tree,
     focus_session_in_tree,
-    graph_target_at_row, issue_at_row, move_selection, orch_repo_at_row, project_runs_text,
+    graph_target_at_row, link_at_row, move_selection, orch_repo_at_row, project_runs_text,
     reanchor_selection, session_at_row, toggle_fold_all, set_row_fold, toggle_row_fold, GraphTarget,
     TreeRow,
 };
 use crate::keymap::{map_key_event, DashboardAction};
+use crate::link_ui::{self, open_target, run_command};
 use crate::refresh::{sidecar_step, Interval, Sidecar, StatusCache};
 use crate::settings_form::SettingsForm;
 use crate::widgets::{edit_text, wheel_step};
@@ -23,7 +24,7 @@ use crate::spawn_modal::{
     SpawnModalAction,
 };
 use cdamux_core::{
-    build_project_session_tree_ex, capture_pane_text, config_path, current_tmux_session,
+    build_project_session_tree_ex, AgentLinks, capture_pane_text, config_path, current_tmux_session,
     discover_projects, finalize_session_host, kill_tmux_session, load_config, preferred_spawn_agent,
     rename_tmux_session,
     configured_agent_ids, resolve_agent_command, reply_to_ask, restore_one, restore_targets,
@@ -40,7 +41,7 @@ use ratatui::{backend::CrosstermBackend, Terminal};
 use std::collections::HashSet;
 use std::io::{self, stdout, Stdout};
 use std::path::PathBuf;
-use std::process::{Command, ExitCode};
+use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
 enum RenameAction {
@@ -505,6 +506,8 @@ pub fn run_dashboard() -> ExitCode {
             orch_graph_for_session = Some(graph_key);
         }
         let review_text = review_sidecar_hint(session);
+        let no_links = AgentLinks::default();
+        let review_links = session.map_or(&no_links, |s| &s.links);
 
         // Session rows always get a composer; worker ChildRows only when a pending ask
         // needs an `answer` (plan-257).
@@ -532,8 +535,7 @@ pub fn run_dashboard() -> ExitCode {
         let modal_open = spawn_overlay.is_some() || rename_overlay.is_some();
         if needs_draw {
             needs_draw = false;
-            terminal
-                .draw(|f| {
+            link_ui::draw(&mut terminal, |f| {
                     if modal_open {
                         draw_overlay_scrim(f);
                         if let Some(overlay) = &mut spawn_overlay {
@@ -555,6 +557,7 @@ pub fn run_dashboard() -> ExitCode {
                                 preview_scroll,
                                 foam_text: &foam.text,
                                 review_text: &review_text,
+                                review_links,
                                 orch_graph: &orch_graph,
                                 graph_view,
                                 composer_line: &composer_line,
@@ -994,18 +997,12 @@ pub fn run_dashboard() -> ExitCode {
                         let hint = spawn_hint(app_tab, tree, &rows, selected_row);
                         spawn_overlay = Some(ModalState::new(&cfg, &hint));
                     }
-                    DashboardAction::OpenIssue => {
-                        match issue_at_row(&rows, selected_row) {
-                            Some((cwd, n)) => match open_github_issue(&cwd, n) {
-                                Ok(msg) => status_line = msg,
-                                Err(e) => status_line = e,
-                            },
-                            None => {
-                                status_line =
-                                    "no issue on row (need feat/<n>-* branch or orch worker id)"
-                                        .into();
-                            }
-                        }
+                    DashboardAction::OpenLink => {
+                        status_line = match link_at_row(&rows, selected_row) {
+                            Some(t) => open_target(&t, &run_command).unwrap_or_else(|e| e),
+                            None => "no PR or issue on row (need a link, feat/<n>-* branch or orch worker id)"
+                                .into(),
+                        };
                     }
                     DashboardAction::KillSession => {
                         if let Some(r) = dormant_at_row(&rows, selected_row) {
@@ -1136,20 +1133,6 @@ fn composer_target(
             (Some(row.id.as_str()), true, row.agent_id.as_deref())
         }
         _ => (None, false, None),
-    }
-}
-
-fn open_github_issue(cwd: &str, issue: u32) -> Result<String, String> {
-    let out = Command::new("gh")
-        .args(["issue", "view", &issue.to_string(), "--web"])
-        .current_dir(cwd)
-        .output()
-        .map_err(|e| format!("gh: {e}"))?;
-    if out.status.success() {
-        Ok(format!("opened issue #{issue}"))
-    } else {
-        let err = String::from_utf8_lossy(&out.stderr);
-        Err(format!("gh issue view failed: {}", err.trim()))
     }
 }
 

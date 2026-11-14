@@ -89,7 +89,8 @@ pub use orch_graph::{
 };
 pub use issue_ref::{issue_from_branch_or_path, parse_issue_number};
 pub use links::{
-    agent_cwd, clear_links, parse_link_ref, refresh_links, set_link_override, LINK_TTL_SECS,
+    agent_cwd, clear_links, parse_link_ref, refresh_links, set_link_override, AgentLinks, LinkRef,
+    LINK_TTL_SECS,
 };
 pub use orch_status::{
     find_orch_run_status_from_cwd, load_orch_run_status, orch_agents_dir, project_has_orch_artifacts,

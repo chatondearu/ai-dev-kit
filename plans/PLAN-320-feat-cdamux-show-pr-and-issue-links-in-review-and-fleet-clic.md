@@ -37,10 +37,10 @@ Do not violate accepted ADRs without superseding them.
 
 ## Tasks
 
-- [ ] Header + badge + snapshots
-- [ ] OSC 8 helper + test of escape output
-- [ ] `o` action + test with stub opener
-- [ ] Doc tmux hyperlinks
+- [x] Header + badge + snapshots
+- [x] OSC 8 helper + test of escape output
+- [x] `o` action + test with stub opener
+- [x] Doc tmux hyperlinks
 
 ## Risks & mitigations
 
@@ -50,7 +50,7 @@ Do not violate accepted ADRs without superseding them.
 
 ## Test plan
 
-- [ ] Snapshots with/without link; escape-sequence unit test
+- [x] Snapshots with/without link; escape-sequence unit test
 
 ## Verification
 

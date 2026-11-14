@@ -2,6 +2,7 @@
 //! generic [`ChildRow`] that non-session children (orch workers, CLI sub-agents)
 //! render through in the Fleet tree.
 
+use crate::links::AgentLinks;
 use crate::msg::inbox_badges;
 use crate::orch_graph::OrchGraphRunSummary;
 use crate::orch_status::OrchWorkerStatus;
@@ -45,6 +46,8 @@ pub struct ChildRow {
     pub unread: usize,
     /// Unanswered `ask` still in the parent's inbox (any cursor position).
     pub pending_ask: bool,
+    /// Cached PR / source issue of [`Self::agent_id`].
+    pub links: AgentLinks,
 }
 
 impl ChildRow {
@@ -70,6 +73,7 @@ impl ChildRow {
             .as_deref()
             .map(inbox_badges)
             .unwrap_or((0, false));
+        let links = agent_id.as_deref().map(AgentLinks::load).unwrap_or_default();
         Self {
             id: w.id.clone(),
             label,
@@ -83,6 +87,7 @@ impl ChildRow {
             agent_id,
             unread,
             pending_ask,
+            links,
         }
     }
 }
@@ -105,6 +110,7 @@ impl ChildRow {
             agent_id: None,
             unread: 0,
             pending_ask: false,
+            links: AgentLinks::default(),
         }
     }
 }

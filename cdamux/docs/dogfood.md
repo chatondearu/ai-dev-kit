@@ -53,6 +53,19 @@ bind-key -n M-s run-shell "cdamux sidebar --client '#{client_name}'"
 `--client '#{client_name}'` makes the bind target the client that pressed it; without
 it tmux picks its most recent client, wrong with two clients attached.
 
+## Clickable PR / issue links (OSC 8)
+
+The Fleet badges (`PR#12`, `#7`) and the Review header are OSC 8 hyperlinks. Inside tmux
+they only reach the terminal with the `hyperlinks` feature (tmux ≥ 3.4); add it to your own
+config (cdamux never edits it):
+
+```tmux
+set -as terminal-features ',*:hyperlinks'
+```
+
+Without it (or in a terminal without OSC 8) the labels are plain text; `o` still opens the
+PR, else the issue, in the browser.
+
 ## Scenarios (v0)
 
 - [ ] Configure two `[[projects.roots]]` paths

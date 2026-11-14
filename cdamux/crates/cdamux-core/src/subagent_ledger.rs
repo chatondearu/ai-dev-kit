@@ -103,6 +103,7 @@ fn agent_rows(agents: &[LedgerAgent], now: u64) -> Vec<ChildRow> {
             agent_id: None,
             unread: 0,
             pending_ask: false,
+            links: Default::default(),
         })
         .collect()
 }

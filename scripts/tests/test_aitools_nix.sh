@@ -26,6 +26,10 @@ nix eval --impure --expr "
     assert schema.graphify ? claudeConfigDir;
     assert !(schema.graphify ? hooks);
     assert schema ? foamHome;
+    assert schema ? coolify;
+    assert schema.coolify ? enable;
+    assert schema.coolify ? installMethod;
+    assert schema.coolify ? baseUrl;
     \"ok\"
 "
 
@@ -176,6 +180,7 @@ nix eval --impure --expr "
     \"ok\"
 "
 
+<<<<<<< HEAD
 echo "== cdamux navBind schema + maid template =="
 nix eval --impure --expr "
   let
@@ -201,12 +206,61 @@ nix eval --impure --expr "
     assert schema.cdamux.navBind ? enable;
     assert !(lib.hasInfix \"M-n\" offText);
     assert lib.hasInfix bind onText;
+=======
+echo "== coolify module on/off =="
+nix eval --impure --expr "
+  let
+    flake = builtins.getFlake \"path:$ROOT\";
+    lib = flake.inputs.nixpkgs.lib;
+    pkgs = import flake.inputs.nixpkgs { system = builtins.currentSystem; };
+    any = lib.mkOption { type = lib.types.attrsOf lib.types.unspecified; default = {}; };
+    stub = {
+      options = {
+        assertions = lib.mkOption { type = lib.types.listOf lib.types.unspecified; default = []; };
+        environment.systemPackages = lib.mkOption { type = lib.types.listOf lib.types.package; default = []; };
+        environment.variables = any;
+        environment.etc = any;
+        users.users = any;
+        systemd.user.services = any;
+        systemd.tmpfiles.rules = lib.mkOption { type = lib.types.listOf lib.types.str; default = []; };
+        programs.mosh.enable = lib.mkOption { type = lib.types.bool; default = false; };
+        launchd.user.agents = any;
+      };
+      config._module.args.pkgs = pkgs;
+    };
+    evalCoolify = enable:
+      let
+        cfg = (lib.evalModules {
+          modules = [ stub flake.nixosModules.cdaAitools {
+            cda.aitools = {
+              enable = true;
+              user = \"tester\";
+              installMethod = \"none\";
+              coolify.enable = enable;
+              coolify.installMethod = \"nix\";
+              coolify.baseUrl = if enable then \"https://coolify.example.com\" else null;
+            };
+          } ];
+        }).config;
+        names = map (p: p.pname or p.name or \"?\") cfg.environment.systemPackages;
+        hasCli = builtins.any (n: lib.hasInfix \"coolify\" n) names;
+        hasUrl = (cfg.environment.variables.COOLIFY_BASE_URL or null) == \"https://coolify.example.com\";
+      in
+        assert builtins.filter (a: !(a.assertion)) cfg.assertions == [];
+        assert hasCli == enable;
+        assert hasUrl == enable;
+        \"ok\";
+  in
+    assert evalCoolify false == \"ok\";
+    assert evalCoolify true == \"ok\";
+>>>>>>> 9cd8898 (feat(aitools): package Coolify CLI with opt-in cda.aitools.coolify)
     \"ok\"
 "
 
 echo "== graphify package parses =="
 nix-instantiate --parse "$ROOT/aitools/nix/graphify-package.nix" >/dev/null
 nix-instantiate --parse "$ROOT/aitools/nix/graphify-activation.nix" >/dev/null
+nix-instantiate --parse "$ROOT/aitools/nix/coolify-cli-package.nix" >/dev/null
 
 echo "== graphify-activate isolated (symlink CLAUDE.md + throwaway cwd) =="
 # Never touch live maintainer config (AGENTS.md gotcha).

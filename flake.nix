@@ -29,6 +29,7 @@
         moshi-hook = pkgs.callPackage ./aitools/nix/moshi-hook-package.nix {};
         cdamux = pkgs.callPackage ./cdamux/nix/package.nix {};
         graphify = pkgs.callPackage ./aitools/nix/graphify-package.nix {};
+        coolify-cli = pkgs.callPackage ./aitools/nix/coolify-cli-package.nix {};
       });
 
       devShells = forAllSystems (pkgs: {

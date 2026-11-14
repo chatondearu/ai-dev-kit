@@ -10,11 +10,12 @@ let
   isDarwin = pkgs.stdenv.isDarwin;
   cdamuxPkg = pkgs.callPackage ../../cdamux/nix/package.nix {};
   graphifyPkg = pkgs.callPackage ./graphify-package.nix {};
+  coolifyPkg = pkgs.callPackage ./coolify-cli-package.nix {};
   moshiHookFor = version:
     pkgs.callPackage ./moshi-hook-package.nix {inherit version;};
 in {
   _module.args = {
-    inherit templates cdamuxPkg graphifyPkg moshiHookFor isDarwin;
+    inherit templates cdamuxPkg graphifyPkg coolifyPkg moshiHookFor isDarwin;
   };
 
   imports = [

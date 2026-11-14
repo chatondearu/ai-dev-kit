@@ -73,6 +73,8 @@ pub(crate) const CLR_OK: Color = Color::Rgb(107, 207, 142);
 pub(crate) const CLR_WARN: Color = Color::Rgb(232, 184, 74);
 pub(crate) const CLR_IDLE: Color = Color::Rgb(92, 101, 120);
 pub(crate) const CLR_SEL_BG: Color = Color::Rgb(42, 49, 64);
+/// Sidebar / tree hover — distinct from selection (`CLR_SEL_BG`).
+pub(crate) const CLR_HOVER_BG: Color = Color::Rgb(55, 62, 78);
 pub(crate) const CLR_ERR: Color = Color::Rgb(240, 113, 120);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -313,6 +315,11 @@ fn tree_list_block(stacked: bool) -> Block<'static> {
         ))
 }
 
+/// Inner list rect for mouse hit-testing (same as what [`draw_tree_column`] paints into).
+pub(crate) fn tree_list_inner(area: ratatui::layout::Rect, stacked: bool) -> ratatui::layout::Rect {
+    tree_list_block(stacked).inner(area)
+}
+
 /// `inner`: the tree list rows (inside its block), as stored by [`draw_fleet_body`].
 pub(crate) fn row_index_from_mouse(
     inner: ratatui::layout::Rect,
@@ -493,8 +500,8 @@ pub(crate) fn draw_fleet_body(
             .split(inner[1])
     };
 
-    *tree_rect = Some(tree_list_block(stacked).inner(columns[0]));
-    draw_tree_column(f, columns[0], state.rows, state.selected_row, stacked);
+    *tree_rect = Some(tree_list_inner(columns[0], stacked));
+    draw_tree_column(f, columns[0], state.rows, state.selected_row, None, stacked);
     draw_sidecar(f, columns[1], state, preview_rect);
 }
 
@@ -503,6 +510,7 @@ pub(crate) fn draw_tree_column(
     area: ratatui::layout::Rect,
     rows: &[TreeRow],
     selected_row: usize,
+    hovered_row: Option<usize>,
     stacked: bool,
 ) {
     let items: Vec<ListItem> = if rows.is_empty() {
@@ -511,7 +519,18 @@ pub(crate) fn draw_tree_column(
             Style::default().fg(CLR_MUTED),
         ))]
     } else {
-        rows.iter().map(tree_row_item).collect()
+        rows.iter()
+            .enumerate()
+            .map(|(i, row)| {
+                let item = tree_row_item(row);
+                // Hover is paint-only and must not look like selection.
+                if hovered_row == Some(i) && i != selected_row {
+                    item.style(Style::default().bg(CLR_HOVER_BG))
+                } else {
+                    item
+                }
+            })
+            .collect()
     };
     let len = items.len();
     let list = List::new(items)
@@ -874,7 +893,7 @@ mod tests {
         for stacked in [false, true] {
             let mut term =
                 ratatui::Terminal::new(ratatui::backend::TestBackend::new(40, 12)).unwrap();
-            term.draw(|f| draw_tree_column(f, f.area(), &session_rows(5), 0, stacked))
+            term.draw(|f| draw_tree_column(f, f.area(), &session_rows(5), 0, None, stacked))
                 .unwrap();
             let col = tree_right_column(&term);
             assert!(
@@ -890,7 +909,7 @@ mod tests {
                 "stacked={stacked}: thumb must not overwrite text: {content_col}"
             );
 
-            term.draw(|f| draw_tree_column(f, f.area(), &session_rows(30), 29, stacked))
+            term.draw(|f| draw_tree_column(f, f.area(), &session_rows(30), 29, None, stacked))
                 .unwrap();
             let col = tree_right_column(&term);
             assert!(

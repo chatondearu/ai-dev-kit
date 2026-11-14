@@ -37,7 +37,7 @@ stub_path() {
   local IFS=:
   for d in /usr/bin /bin $_ORIG_PATH; do
     [ -z "$d" ] && continue
-    if [ -x "$d/agent" ] || [ -x "$d/cursor-agent" ] || [ -x "$d/claude" ] || [ -x "$d/opencode" ]; then
+    if [ -x "$d/agent" ] || [ -x "$d/cursor-agent" ] || [ -x "$d/claude" ] || [ -x "$d/opencode" ] || [ -x "$d/codex" ]; then
       continue
     fi
     clean="${clean}:$d"

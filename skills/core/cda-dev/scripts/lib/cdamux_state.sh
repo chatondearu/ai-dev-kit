@@ -131,7 +131,7 @@ orch_cdamux_publish_run_json() {
 # Args: worker_id phase [message] [optional agent jq object / phases from progress]
 orch_cdamux_publish_worker() {
   local wid="$1" phase="$2" msg="${3:-}" agent_extra="${4:-}"
-  local aid host client status parent run json tmux_session log
+  local aid host client status parent run json tmux_session log prev
   [ -n "$agent_extra" ] || agent_extra='{}'
   orch_cdamux_available || return 0
   command -v jq >/dev/null 2>&1 || return 0
@@ -174,8 +174,32 @@ orch_cdamux_publish_worker() {
      + (if $message=="" then {} else {message:$message} end)
      + (if $tmux_session=="" then {} else {tmux_session:$tmux_session, log:$log} end)
      + ($extra | with_entries(select(.value != null)))')" || return 0
+  # `state set` replaces the file: carry over the PR/issue links (orch, detection, override).
+  prev="$(orch_cdamux_state_get agents "$aid" || true)"
+  if [ -n "$prev" ]; then
+    prev="$(jq -c --argjson json "$json" \
+      '$json + ({pr, issue, link_override, links_checked_at} | with_entries(select(.value != null)))' \
+      <<<"$prev" 2>/dev/null)" && json="$prev"
+  fi
   orch_cdamux_state_set agents "$aid" "$json"
   orch_cdamux_parent_msg_worker "$wid" "$phase" "$msg"
+}
+
+# Record the PR + source issue on worker $1's Agent (`pr`/`issue`, same shape as
+# cdamux-core links). Args: worker_id issue_number pr_json (`gh pr list --json
+# number,url,state,title`). Fail-open; the issue URL is derived from the PR URL.
+orch_cdamux_publish_links() {
+  local wid="$1" issue="$2" pr_json="$3" json
+  orch_cdamux_available || return 0
+  command -v jq >/dev/null 2>&1 || return 0
+  case "$issue" in ''|*[!0-9]*) return 0;; esac
+  json="$(jq -c --argjson issue "$issue" --argjson now "$(date +%s)" '
+    (.[0] // empty) as $p
+    | {pr: {number: $p.number, url: $p.url, state: $p.state, title: $p.title, checked_at: $now},
+       issue: {number: $issue, url: ($p.url | sub("/pull/[0-9]+$"; "/issues/\($issue)"))},
+       links_checked_at: $now}' <<<"$pr_json" 2>/dev/null)" || return 0
+  [ -n "$json" ] || return 0
+  cdamux state append agents "$(orch_cdamux_worker_agent_id "$wid")" "$json" >/dev/null 2>&1 || true
 }
 
 # Fail-open `cdamux msg send`. Args: to kind text [from] [ref]

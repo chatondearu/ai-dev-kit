@@ -333,7 +333,7 @@ orch_ready_pickup_one() {
 
   orch_progress_set "$id" ci "looking up PR for ${branch}"
   if command -v gh >/dev/null 2>&1; then
-    pr_json="$(gh pr list --head "$branch" --json number 2>/dev/null || true)"
+    pr_json="$(gh pr list --head "$branch" --json number,url,state,title 2>/dev/null || true)"
     if command -v jq >/dev/null 2>&1; then
       pr_num="$(jq -r '.[0].number // empty' <<<"$pr_json" 2>/dev/null || true)"
     else
@@ -350,6 +350,8 @@ orch_ready_pickup_one() {
     echo 1 >"$rc_file"
     return 1
   fi
+
+  orch_cdamux_publish_links "$id" "$id" "$pr_json"
 
   # Independent review gate (ADR-006): reviewer.md in a fresh agent context.
   # changes_requested → exactly one fix iteration, one re-review, then blocked.

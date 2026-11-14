@@ -13,6 +13,7 @@
 │  m              rename session                                                                                       │
 │  f              fork session                                                                                         │
 │  x              kill / forget (x x)                                                                                  │
+│  d              dismiss finished/orphan                                                                              │
 │  o              open PR / issue                                                                                      │
 │  Space          send text                                                                                            │
 │  Ctrl+R         hunk review TUI                                                                                      │
@@ -31,7 +32,6 @@
 │  ?              this help                                                                                            │
 │  q              quit                                                                                                 │
 │  Ctrl+C         quit                                                                                                 │
-│                                                                                                                      │
 │                                                                                                                      │
 │                                                                                                                      │
 │                                                                                                                      │

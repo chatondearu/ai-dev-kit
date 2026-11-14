@@ -3,10 +3,11 @@
 //! Opening the navigator never splits or join-panes into agent sessions; Enter and
 //! `q` use `switch-client` only. Alt-N (example bind) toggles via `toggle_nav_client`.
 
+use crate::dismiss::{dismiss_child, DismissOutcome};
 use crate::fleet_draw::{draw_help_overlay, draw_tree_column, row_index_from_mouse, tree_list_inner};
 use crate::fleet_tree::{
-    default_expanded, flatten_tree, focus_session_in_tree, move_selection, reanchor_selection,
-    session_at_row, set_row_fold, toggle_row_fold, dormant_at_row, TreeRow,
+    child_at_row, default_expanded, flatten_tree, focus_session_in_tree, move_selection,
+    reanchor_selection, session_at_row, set_row_fold, toggle_row_fold, dormant_at_row, TreeRow,
 };
 use crate::keymap::{fit_footer, map_key_event, DashboardAction};
 use crate::refresh::{Interval, StatusCache};
@@ -26,7 +27,7 @@ use std::collections::HashSet;
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
-/// Primary binds per PRD-334 (`d` reserved for dismiss in #336).
+/// Primary binds per PRD-334.
 const FOOTER: &str = "j/k · ⏎ · d · x · ? · q";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -175,6 +176,7 @@ fn run_nav() -> ExitCode {
     let mut status_line = format!("navigator · {NAV_SESSION_NAME}");
     let mut hovered_row: Option<usize> = None;
     let mut show_help = false;
+    let mut pending_dismiss: Option<String> = None;
     let mut tree_iv = Interval::new(Duration::from_millis(2000));
     let mut tree_dirty = true;
     let mut needs_draw = true;
@@ -259,6 +261,7 @@ fn run_nav() -> ExitCode {
                     }
                     continue;
                 }
+                let dismiss_armed = pending_dismiss.take();
                 match map_key_event(key) {
                     DashboardAction::Quit => {
                         // Hide: switch-client away; keep this process so Alt-N finds a live nav.
@@ -287,8 +290,26 @@ fn run_nav() -> ExitCode {
                             }
                         }
                     }
-                    _ if key.code == KeyCode::Char('d') => {
-                        status_line = "dismiss: use Fleet after #336".into();
+                    DashboardAction::Dismiss => {
+                        if dormant_at_row(&rows, selected_row).is_some() {
+                            status_line = "dismiss: resumable dormant kept (ADR-009)".into();
+                        } else if let Some(row) = child_at_row(&rows, selected_row) {
+                            match dismiss_child(row, dismiss_armed.as_deref()) {
+                                DismissOutcome::Confirm(token, msg) => {
+                                    pending_dismiss = Some(token);
+                                    status_line = msg;
+                                }
+                                DismissOutcome::Done(msg) => {
+                                    tree_dirty = true;
+                                    status_line = msg;
+                                    selected_row = selected_row.saturating_sub(1);
+                                }
+                                DismissOutcome::Rejected(msg) => status_line = msg.into(),
+                            }
+                        } else {
+                            status_line =
+                                "dismiss: select a finished or orphan run/worker".into();
+                        }
                     }
                     _ => {}
                 }

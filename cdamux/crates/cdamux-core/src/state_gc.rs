@@ -166,6 +166,55 @@ pub fn run_eligible(
     older_than_retention(path, now, retention_days)
 }
 
+/// Move one agent file (and its inbox) to `archive/`. Caller must have already
+/// checked ADR-009 dormant / eligibility — this only performs the rename.
+pub fn archive_agent(id: &str) -> io::Result<()> {
+    let path = cdamux_state_dir("agents")
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                "CDAMUX_HOME / XDG_STATE_HOME / HOME unset",
+            )
+        })?
+        .join(format!("{id}.json"));
+    if !path.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("agent '{id}' not found"),
+        ));
+    }
+    archive_then_remove(&path, "agents")?;
+    if let Some(dir) = cdamux_state_dir("inbox").filter(|_| valid_state_id(id)) {
+        for ext in ["jsonl", "cursor"] {
+            let file = dir.join(format!("{id}.{ext}"));
+            if file.is_file() {
+                archive_then_remove(&file, "inbox")?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Move one run file to `archive/`. Caller checks eligibility.
+pub fn archive_run(id: &str) -> io::Result<()> {
+    let path = cdamux_state_dir("runs")
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                "CDAMUX_HOME / XDG_STATE_HOME / HOME unset",
+            )
+        })?
+        .join(format!("{id}.json"));
+    if !path.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("run '{id}' not found"),
+        ));
+    }
+    archive_then_remove(&path, "runs")?;
+    Ok(())
+}
+
 /// Scan `$CDAMUX_HOME` agents/runs, archive then remove eligible entities.
 ///
 /// `retention_days` must be ≥ 1 (`0` is rejected).
@@ -184,7 +233,6 @@ pub fn run_gc(
     let registry = session_registry::load_all();
     let mut report = GcReport::default();
 
-    let inbox_dir = cdamux_state_dir("inbox");
     for (id, path, value) in state_list(StateKind::Agents) {
         if is_resumable_dormant(&id, host_field(&value), &registry)
             && is_gc_agent_status(status_str(&value))
@@ -195,15 +243,7 @@ pub fn run_gc(
         if !agent_eligible(&id, &value, &path, now, days, host_alive, &registry) {
             continue;
         }
-        archive_then_remove(&path, "agents")?;
-        if let Some(dir) = inbox_dir.as_deref().filter(|_| valid_state_id(&id)) {
-            for ext in ["jsonl", "cursor"] {
-                let file = dir.join(format!("{id}.{ext}"));
-                if file.is_file() {
-                    archive_then_remove(&file, "inbox")?;
-                }
-            }
-        }
+        archive_agent(&id)?;
         report.archived_agents.push(id);
     }
 
@@ -211,7 +251,7 @@ pub fn run_gc(
         if !run_eligible(&value, &path, now, days, host_alive) {
             continue;
         }
-        archive_then_remove(&path, "runs")?;
+        archive_run(&id)?;
         report.archived_runs.push(id);
     }
 

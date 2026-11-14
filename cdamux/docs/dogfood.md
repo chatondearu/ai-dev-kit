@@ -53,7 +53,10 @@ bind-key -n M-n run-shell "cdamux nav --client '#{client_name}'"
 `--client '#{client_name}'` makes the bind target the client that pressed it; without
 it tmux picks its most recent client, wrong with two clients attached.
 
-Navigator keys (footer): `j/k · ⏎ · d · x · ? · q` (`d` dismiss lands in #336).
+Navigator keys (footer): `j/k · ⏎ · d · x · ? · q`.
+Fleet / nav `d` dismisses a selected finished or orphan run/worker (shared finalize +
+archive; ADR-009 dormant kept; multi-entity asks `d` again). Live working rows are
+no-op — use `x` to kill the host.
 `cdamux sidebar` / `M-s` is deprecated — the CLI prints a redirect to `cdamux nav`.
 
 ## Clickable PR / issue links (OSC 8)

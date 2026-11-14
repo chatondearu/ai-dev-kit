@@ -7,12 +7,12 @@ use crate::fleet_draw::{
 };
 use crate::foam_tab::{foam_click_line, FoamState};
 use crate::graph_view::{load_orch_graph_view, node_session, worker_steps_text};
+use crate::dismiss::{dismiss_child, DismissOutcome};
 use crate::fleet_tree::{
-    clamp_selection, default_expanded, dormant_at_row, fleet_attention_hint, flatten_tree,
-    focus_session_in_tree,
-    graph_target_at_row, link_at_row, move_selection, orch_repo_at_row, project_runs_text,
-    reanchor_selection, session_at_row, toggle_fold_all, set_row_fold, toggle_row_fold, GraphTarget,
-    TreeRow,
+    child_at_row, clamp_selection, default_expanded, dormant_at_row, fleet_attention_hint,
+    flatten_tree, focus_session_in_tree, graph_target_at_row, link_at_row, move_selection,
+    orch_repo_at_row, project_runs_text, reanchor_selection, session_at_row, toggle_fold_all,
+    set_row_fold, toggle_row_fold, GraphTarget, TreeRow,
 };
 use crate::keymap::{map_key_event, DashboardAction};
 use crate::link_ui::{self, open_target, run_command};
@@ -264,6 +264,8 @@ pub fn run_dashboard() -> ExitCode {
     let mut status_line = String::new();
     // Dormant row `x` was pressed on once: a second `x` on it forgets the record.
     let mut pending_forget: Option<String> = None;
+    // Multi-entity dismiss: second `d` on the same token applies (#336).
+    let mut pending_dismiss: Option<String> = None;
 
     let (mut terminal, _guard) = match TerminalGuard::enter() {
         Ok(t) => t,
@@ -915,14 +917,16 @@ pub fn run_dashboard() -> ExitCode {
                         false
                     };
                     if consumed {
-                        // A consumed key still cancels a pending forget.
+                        // A consumed key still cancels a pending forget / dismiss.
                         pending_forget = None;
+                        pending_dismiss = None;
                         continue;
                     }
                 }
 
-                // Any other key cancels a pending forget.
+                // Any other key cancels a pending forget / dismiss.
                 let forget_armed = pending_forget.take();
+                let dismiss_armed = pending_dismiss.take();
                 match map_key_event(key) {
                     DashboardAction::Quit => should_quit = true,
                     DashboardAction::CycleSideTab => {
@@ -1040,6 +1044,27 @@ pub fn run_dashboard() -> ExitCode {
                             }
                         } else {
                             status_line = "select a session to kill (x)".into();
+                        }
+                    }
+                    DashboardAction::Dismiss => {
+                        if dormant_at_row(&rows, selected_row).is_some() {
+                            status_line = "dismiss: resumable dormant kept (ADR-009)".into();
+                        } else if let Some(row) = child_at_row(&rows, selected_row) {
+                            match dismiss_child(row, dismiss_armed.as_deref()) {
+                                DismissOutcome::Confirm(token, msg) => {
+                                    pending_dismiss = Some(token);
+                                    status_line = msg;
+                                }
+                                DismissOutcome::Done(msg) => {
+                                    tree_dirty = true;
+                                    status_line = msg;
+                                    selected_row = selected_row.saturating_sub(1);
+                                }
+                                DismissOutcome::Rejected(msg) => status_line = msg.into(),
+                            }
+                        } else {
+                            status_line =
+                                "dismiss: select a finished or orphan run/worker".into();
                         }
                     }
                     DashboardAction::ForkSession => {

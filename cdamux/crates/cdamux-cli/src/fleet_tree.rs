@@ -462,6 +462,13 @@ pub(crate) fn session_at_row(rows: &[TreeRow], idx: usize) -> Option<&EnrichedSe
     }
 }
 
+pub(crate) fn child_at_row(rows: &[TreeRow], idx: usize) -> Option<&ChildRow> {
+    match rows.get(idx)? {
+        TreeRow::Child { row, .. } => Some(row),
+        _ => None,
+    }
+}
+
 pub(crate) fn dormant_at_row(rows: &[TreeRow], idx: usize) -> Option<&SessionRecord> {
     match rows.get(idx)? {
         TreeRow::Dormant { record, .. } => Some(record),

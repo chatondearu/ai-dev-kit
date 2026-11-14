@@ -26,10 +26,6 @@ nix eval --impure --expr "
     assert schema.graphify ? claudeConfigDir;
     assert !(schema.graphify ? hooks);
     assert schema ? foamHome;
-    assert schema ? coolify;
-    assert schema.coolify ? enable;
-    assert schema.coolify ? installMethod;
-    assert schema.coolify ? baseUrl;
     \"ok\"
 "
 
@@ -180,7 +176,6 @@ nix eval --impure --expr "
     \"ok\"
 "
 
-<<<<<<< HEAD
 echo "== cdamux navBind schema + maid template =="
 nix eval --impure --expr "
   let
@@ -206,7 +201,9 @@ nix eval --impure --expr "
     assert schema.cdamux.navBind ? enable;
     assert !(lib.hasInfix \"M-n\" offText);
     assert lib.hasInfix bind onText;
-=======
+    \"ok\"
+"
+
 echo "== coolify module on/off =="
 nix eval --impure --expr "
   let
@@ -253,7 +250,6 @@ nix eval --impure --expr "
   in
     assert evalCoolify false == \"ok\";
     assert evalCoolify true == \"ok\";
->>>>>>> 9cd8898 (feat(aitools): package Coolify CLI with opt-in cda.aitools.coolify)
     \"ok\"
 "
 

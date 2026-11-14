@@ -39,11 +39,11 @@ Mirror `cdamux.hooks`: option in options schema; maid/tmux template gets an opti
 
 ## Tasks
 
-- [ ] **ADR-014**: amend alternatives/consequences — opt-in managed fragment allowed (acceptance: ADR text updated, status still accepted or amended section dated)
-- [ ] **Nix**: `cda.aitools.cdamux.navBind.enable` default false wires `M-n` → `cdamux nav --client '#{client_name}'` (acceptance: option eval / template contains bind only when true)
-- [ ] **install.sh**: `--cdamux-nav-bind` install + uninstall removes managed snippet (acceptance: dry-run + install/uninstall test or scripted check)
-- [ ] **aitools/README**: document the option (acceptance: table row)
-- [ ] **Verify**: kit/aitools checks that apply; no forced bind in default template
+- [x] **ADR-014**: amend alternatives/consequences — opt-in managed fragment allowed (acceptance: ADR text updated, status still accepted or amended section dated)
+- [x] **Nix**: `cda.aitools.cdamux.navBind.enable` default false wires `M-n` → `cdamux nav --client '#{client_name}'` (acceptance: option eval / template contains bind only when true)
+- [x] **install.sh**: `--cdamux-nav-bind` install + uninstall removes managed snippet (acceptance: dry-run + install/uninstall test or scripted check)
+- [x] **aitools/README**: document the option (acceptance: table row)
+- [x] **Verify**: kit/aitools checks that apply; no forced bind in default template
 
 ## Risks & mitigations
 
@@ -56,10 +56,10 @@ Mirror `cdamux.hooks`: option in options schema; maid/tmux template gets an opti
 
 Seams: (1) option off → no bind, (2) option on → bind present, (3) install/uninstall portable.
 
-- [ ] Nix eval or template unit where practical
-- [ ] install.sh dry-run / temp HOME if pattern exists for hooks
+- [x] Nix eval or template unit where practical
+- [x] install.sh dry-run / temp HOME if pattern exists for hooks
 
 ## Verification
 
-- [ ] Lint / test / build per project conventions
-- [ ] Update foam index if ADR amendment needs a link
+- [x] Lint / test / build per project conventions
+- [x] Update foam index if ADR amendment needs a link

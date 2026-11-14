@@ -84,6 +84,13 @@ in {
         {
           assertion =
             !config.cda.aitools.enable
+            || !config.cda.aitools.cdamux.navBind.enable
+            || config.cda.aitools.deploy.enable;
+          message = "cda.aitools.cdamux.navBind.enable requires deploy.enable.";
+        }
+        {
+          assertion =
+            !config.cda.aitools.enable
             || !config.cda.aitools.graphify.enable
             || config.cda.aitools.graphify.installMethod != "nix"
             || graphifyPkg != null;
@@ -151,6 +158,7 @@ in {
           projectsRoot = config.cda.aitools.cdamux.projectsRoot;
           tmuxClipboard = config.cda.aitools.tmux.clipboard;
           tmuxPersist = config.cda.aitools.tmux.persist;
+          navBind = config.cda.aitools.cdamux.navBind;
         };
     })
   ];

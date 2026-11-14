@@ -6,6 +6,7 @@
   projectsRoot,
   tmuxClipboard,
   tmuxPersist,
+  navBind ? {enable = false;},
 }:
 let
   configToml =
@@ -38,13 +39,19 @@ let
     + "run-shell '${resurrectPlugin}/resurrect.tmux'\n"
     + "run-shell '${continuumPlugin}/continuum.tmux'\n";
 
+  navBindBody =
+    if navBind.enable then
+      "\n\n" + builtins.readFile "${templates}/tmux-nav-bind.conf"
+    else
+      "";
+
+  baseBody = builtins.readFile "${templates}/tmux.conf" + navBindBody;
+
   tmuxConfSource =
     if tmuxPersist.enable then
-      pkgs.writeText "tmux.conf" (
-        builtins.readFile "${templates}/tmux.conf"
-        + "\n\n"
-        + persistBody
-      )
+      pkgs.writeText "tmux.conf" (baseBody + "\n\n" + persistBody)
+    else if navBind.enable then
+      pkgs.writeText "tmux.conf" baseBody
     else
       "${templates}/tmux.conf";
 in {

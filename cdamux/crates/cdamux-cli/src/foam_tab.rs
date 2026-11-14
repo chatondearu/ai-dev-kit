@@ -4,7 +4,7 @@
 //! rows are painted on contiguous lines so a click maps back to a row.
 
 use cdamux_core::{
-    foam_file_wikilinks, list_foam, normalize_foam_path, preview_foam_markdown,
+    foam_file_wikilinks, list_foam, normalize_foam_path, preview_foam_markdown, preview_foam_raw,
     resolve_project_root, resolve_wikilink, FoamListing, FoamTree, WikiLink, FOAM_LIST_CAP,
 };
 use crossterm::event::KeyCode;
@@ -19,7 +19,7 @@ fn foam_list_rows(height: u16) -> usize {
 
 /// Footer while the Foam tree has focus.
 pub(crate) const FOAM_FOOTER: &str =
-    "foam: j/k ↑↓ move · h/l ←→ fold · Enter open/follow · [ ] link · b back · click row · Esc leave";
+    "foam: j/k ↑↓ move · h/l ←→ fold · Enter open/follow · [ ] link · b back · m raw/rendered · click row · Esc leave";
 
 /// Max wikilinks kept per file, and painted at once (window around the selection).
 const FOAM_LINKS_MAX: usize = 20;
@@ -64,6 +64,8 @@ pub(crate) struct FoamState {
     links: Vec<(WikiLink, Option<String>)>,
     links_for: Option<String>,
     link_sel: usize,
+    /// Preview shows the markdown source instead of the rendered view; kept across files.
+    raw: bool,
     notice: Option<String>,
     /// Size of the sidecar body, set by the draw loop (lines are clipped to `width`
     /// so one text line is one screen row and clicks map back to rows).
@@ -86,6 +88,7 @@ impl FoamState {
             links: Vec::new(),
             links_for: None,
             link_sel: 0,
+            raw: false,
             notice: None,
             width: usize::MAX,
             height: 24,
@@ -233,8 +236,12 @@ impl FoamState {
             }
         }
         if let Some(f) = &file {
-            lines.push("── preview ──".to_string());
-            lines.push(preview_foam_markdown(&self.project, f));
+            lines.push(format!("── preview{} ──", if self.raw { " (raw)" } else { "" }));
+            lines.push(if self.raw {
+                preview_foam_raw(&self.project, f)
+            } else {
+                preview_foam_markdown(&self.project, f)
+            });
         }
         self.text = lines.join("\n");
     }
@@ -268,6 +275,7 @@ impl FoamState {
                     }
                 }
             }
+            KeyCode::Char('m') => self.raw = !self.raw,
             KeyCode::Backspace | KeyCode::Char('b') => {
                 if !tree.back() {
                     self.notice = Some("no previous file".to_string());
@@ -477,6 +485,26 @@ mod tests {
         assert!(at("── links ──") < at("── preview ──"), "{}", st.text);
         // Header / rows never exceed the width, so no wrap shifts click rows.
         assert!(st.text.lines().take(4).all(|l| l.chars().count() <= 30), "{}", st.text);
+    }
+
+    #[test]
+    fn m_toggles_raw_and_mode_persists_across_files() {
+        let (_t, cwd) = fixture(&[("a.md", "# A\n\n**bold**\n"), ("b.md", "# B\n\n**bee**\n")]);
+        let mut st = FoamState::load(&cwd);
+        assert_eq!(st.selected_file(), Some("foam/a.md"));
+        assert!(st.text.contains("── preview ──"), "{}", st.text);
+        assert!(st.on_key(KeyCode::Char('m')));
+        assert!(st.text.contains("── preview (raw) ──"), "{}", st.text);
+        assert!(st.text.contains("**bold**"), "{}", st.text);
+        // Mode survives a file change.
+        st.on_key(KeyCode::Char('j'));
+        assert_eq!(st.selected_file(), Some("foam/b.md"));
+        assert!(st.text.contains("── preview (raw) ──") && st.text.contains("**bee**"), "{}", st.text);
+        st.on_key(KeyCode::Char('m'));
+        assert!(st.text.contains("── preview ──"), "{}", st.text);
+        crate::test_render::assert_snapshot("foam-preview-rendered-80x24", &render_fleet_foam(80, 24, &st.text.replacen(&format!("{}", st.project.display()), "<project>", 1)));
+        st.on_key(KeyCode::Char('m'));
+        crate::test_render::assert_snapshot("foam-preview-raw-80x24", &render_fleet_foam(80, 24, &st.text.replacen(&format!("{}", st.project.display()), "<project>", 1)));
     }
 
     #[test]

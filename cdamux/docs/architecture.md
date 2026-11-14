@@ -223,7 +223,9 @@ See `config/cdamux.example.toml`. Highlights:
     input and 120 output lines with a `… (truncated)` cue; no HTML or images).
     **Wikilinks**: `[[name]]`, `[[path|label]]` and `[[name#heading]]` of the
     selected file are listed above the preview (4 at a time); `[` `]` pick one, `Enter` opens it,
-    `b` / `Backspace` goes back (50-entry history). A target resolves only against
+    `b` / `Backspace` goes back (50-entry history). `m` toggles the preview between the rendered view and the raw markdown
+    source (`── preview (raw) ──`; same 64 KiB / 120-line caps and scroll); the mode is kept
+    while browsing files. A target resolves only against
     the listing — exact `foam/<target>.md`, then first file with the same stem —
     otherwise it shows `(unresolved)`. CLI notes are unchanged. Deep-link (#269):
     when pane **preview** text contains a `foam/...` path (last match wins), Fleet

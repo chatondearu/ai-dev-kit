@@ -35,9 +35,9 @@ Do not violate accepted ADRs without superseding them.
 
 ## Tasks
 
-- [ ] Raw preview API + test (caps)
-- [ ] Toggle key + state + hint
-- [ ] Snapshots for both modes
+- [x] Raw preview API + test (caps)
+- [x] Toggle key + state + hint
+- [x] Snapshots for both modes
 
 ## Risks & mitigations
 
@@ -47,7 +47,7 @@ Do not violate accepted ADRs without superseding them.
 
 ## Test plan
 
-- [ ] Snapshot raw vs rendered; toggle keeps mode on file change
+- [x] Snapshot raw vs rendered; toggle keeps mode on file change
 
 ## Verification
 

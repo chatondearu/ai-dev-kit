@@ -1,20 +1,26 @@
 ---
 name: Coolify Deploy And Watch
-description: Trigger a deployment, poll status, and return recent logs.
+description: Deploy by UUID, poll status, and show recent logs via the Coolify CLI.
 ---
 
 Deploy and watch:
 
-1. Trigger deployment for `<app-uuid>`.
-2. Poll deployment status until complete.
-3. Print a short summary:
-   - deployment UUID
-   - terminal status
-   - duration
-4. Fetch and show only the latest log tail.
+```bash
+coolify deploy uuid <app-uuid>
+# poll:
+coolify deploy get <deployment-uuid>
+coolify app deployments list <app-uuid>
+coolify app deployments logs <app-uuid>
+```
 
-Recommended constraints:
+Print a short summary:
 
-- Poll interval: 2 seconds
-- Timeout: 10 minutes
-- Retry on transient errors (`429`, `5xx`) with exponential backoff
+- deployment UUID
+- terminal status
+- duration (if available)
+
+Constraints:
+
+- Poll interval: ~2 seconds
+- Timeout: ~10 minutes
+- Prefer CLI retries; do not fall back to inventing an MCP workflow

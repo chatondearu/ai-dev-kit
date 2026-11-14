@@ -4,6 +4,13 @@ These are useful alongside ai-dev-kit but are **not** copied into this repo.
 Install them separately when you need them. The kit does **not** package or
 update host apps — run `./scripts/doctor.sh` to see what is on your `PATH`.
 
+## Ops CLIs over MCP
+
+For deployment / infra ops (Coolify, etc.), prefer a **CLI on `PATH`** over an MCP
+server. Coolify: kit package `nix build .#coolify-cli` or
+`cda.aitools.coolify.enable` — see `aitools/README.md` and
+`cursor/plugins/local/coolify-ops/`.
+
 ## Host agent CLIs (for orch / headless)
 
 Install via each product’s official channel (or your NixOS / home-manager).

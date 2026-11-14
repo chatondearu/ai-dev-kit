@@ -1,13 +1,13 @@
 ---
 name: Coolify List Apps
-description: List applications from Coolify API.
+description: List applications via the Coolify CLI.
 ---
 
 List applications:
 
 ```bash
-curl -sS -H "Authorization: Bearer $COOLIFY_TOKEN" \
-  "$COOLIFY_BASE_URL/api/v1/applications" | jq
+coolify app list
+coolify app list --format json
 ```
 
-Filter by project or environment in your integration layer if needed.
+Filter further with `coolify project list` / `coolify app get <uuid>` as needed.

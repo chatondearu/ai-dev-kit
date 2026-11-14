@@ -1,22 +1,19 @@
 ---
 name: Coolify Deploy App
-description: Trigger deployment for a specific Coolify application.
+description: Trigger deployment for a Coolify application by UUID.
 ---
 
 Trigger a deployment (replace `<app-uuid>`):
 
 ```bash
-curl -sS -X POST \
-  -H "Authorization: Bearer $COOLIFY_TOKEN" \
-  -H "Content-Type: application/json" \
-  "$COOLIFY_BASE_URL/api/v1/deploy?uuid=<app-uuid>" | jq
+coolify deploy uuid <app-uuid>
+# optional: coolify deploy uuid <app-uuid> --force
 ```
 
-Then poll deployment state with your preferred endpoint/workflow.
+Then follow status:
 
-Suggested flow:
-
-1. Trigger deployment and capture `deployment_uuid` from response.
-2. Poll deployment status every 2-3 seconds.
-3. Stop polling on terminal status (`finished`, `failed`, `canceled`).
-4. Fetch deployment logs and return a concise summary.
+1. Capture the deployment UUID from the response.
+2. Poll: `coolify deploy get <deployment-uuid>` (every 2–3 seconds).
+3. Stop on a terminal status (`finished`, `failed`, `canceled`, etc.).
+4. Fetch logs: `coolify app deployments logs <app-uuid>` (see `--help` for flags).
+5. Return a concise summary.

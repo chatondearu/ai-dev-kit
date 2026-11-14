@@ -1,30 +1,32 @@
 ---
 name: coolify-api-basics
-description: Operate Coolify through API-first workflows with safe token handling.
+description: Operate Coolify with the official coolify CLI and safe token handling.
 ---
 
-# Coolify API basics
+# Coolify CLI basics
 
 ## Use when
 
 - You need to query apps, deployments, or server state in Coolify.
-- You need to trigger a deployment from automation.
+- You need to trigger a deployment from automation or an agent session.
 
-## Required environment
+## Prerequisites
 
-- `COOLIFY_BASE_URL`
-- `COOLIFY_TOKEN`
+- `coolify` on `PATH` (`nix build .#coolify-cli` or `cda.aitools.coolify.enable`)
+- Host env for bootstrap: `COOLIFY_BASE_URL`, `COOLIFY_TOKEN` (optional
+  `COOLIFY_CONTEXT`) — then `coolify-env-sync` once
 
 ## Workflow
 
-1. Validate access using `/api/v1/version`.
-2. Resolve target app UUID from application list.
-3. Trigger deployment.
-4. Poll deployment status and logs.
-5. Return concise summary and next action.
+1. `coolify context verify` (or `coolify context version`)
+2. `coolify app list` — resolve target UUID
+3. `coolify deploy uuid <app-uuid>`
+4. Poll with `coolify deploy get <deployment-uuid>` / `coolify app deployments list <app-uuid>`
+5. Logs: `coolify app deployments logs <app-uuid> …`
+6. Return a concise summary and next action
 
 ## Guardrails
 
 - Never print raw token values.
-- Prefer read-only endpoints before mutating actions.
-- Include retry/backoff for transient `429/5xx`.
+- Prefer read-only commands (`list`, `get`, `verify`) before mutating (`deploy`, `delete`).
+- Prefer the CLI over MCP for Coolify ops in this kit.

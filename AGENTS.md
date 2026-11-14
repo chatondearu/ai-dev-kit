@@ -98,6 +98,10 @@ see `cdamux/AGENTS.md` and `cdamux/docs/research.md`. Nix package: `nix build .#
 Experimental opt-in companion: `aitools/` (`cda.aitools` Nix modules, ADR-003).
 Never enabled by `install.sh`. Relocatable root: `CDA_AITOOLS_HOME`.
 
+**Ops tooling: CLI first.** Prefer official CLIs (e.g. `coolify` via
+`nix build .#coolify-cli` / `cda.aitools.coolify`) over inventing or wiring MCP
+servers for the same job. Plugin: `cursor/plugins/local/coolify-ops/`.
+
 **Verify (run before every PR):** host / activated Mise PATH first (`mise.toml` +
 `.envrc` `use mise`). Prefer `mise activate` or direnv so tools are real
 binaries — **not** Mise shims. One outer `mise run verify` / `mise exec` when

@@ -20,21 +20,8 @@ echo "custom-stub-marker \$*"; exit 0
 EOF
 chmod +x "$FAKE/custom-stub"
 
-# PATH with stub claude first; drop dirs that expose real agent/cursor-agent CLIs
-orch_test_stub_path() {
-  local fake="$1" clean d
-  clean="$fake"
-  local IFS=:
-  for d in $PATH; do
-    [ -z "$d" ] && continue
-    if [ -x "$d/agent" ] || [ -x "$d/cursor-agent" ]; then
-      continue
-    fi
-    clean="${clean}:$d"
-  done
-  printf '%s\n' "$clean"
-}
-STUB_PATH="$(orch_test_stub_path "$FAKE")"
+# PATH with stub claude first; real agent/cursor-agent CLIs hidden
+STUB_PATH="$FAKE:$(orch_test_path_without "$FAKE" agent cursor-agent)"
 PATH="$STUB_PATH" ORCH_AGENT= ORCH_AGENT_BIN=
 kind="$(orch_detect_agent)"
 assert_eq "$kind" "claude" "detect claude"

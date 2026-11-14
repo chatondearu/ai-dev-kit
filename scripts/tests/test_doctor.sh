@@ -31,15 +31,24 @@ echo "git version stub"
 EOF
 chmod +x "$FAKE/git"
 
-# Keep coreutils; exclude real agent CLIs by putting FAKE first and omitting their dirs
+# Keep coreutils; hide real agent CLIs behind FAKE. A dir holding one is mirrored
+# without them, not dropped: NixOS sw/bin mixes them with coreutils.
+AGENT_CLIS=(agent cursor-agent claude opencode codex)
 stub_path() {
-  local clean="$FAKE" d
+  local clean="$FAKE" d n m i=0
   local IFS=:
   for d in /usr/bin /bin $_ORIG_PATH; do
     [ -z "$d" ] && continue
-    if [ -x "$d/agent" ] || [ -x "$d/cursor-agent" ] || [ -x "$d/claude" ] || [ -x "$d/opencode" ] || [ -x "$d/codex" ]; then
-      continue
-    fi
+    for n in "${AGENT_CLIS[@]}"; do
+      [ -x "$d/$n" ] || continue
+      i=$((i + 1))
+      m="$FAKE/.path$i"
+      rm -rf "$m" && mkdir -p "$m"
+      ln -s "$d"/* "$m/" 2>/dev/null || true
+      for n in "${AGENT_CLIS[@]}"; do rm -f "$m/$n"; done
+      d="$m"
+      break
+    done
     clean="${clean}:$d"
   done
   printf '%s\n' "$clean"

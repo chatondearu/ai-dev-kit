@@ -5,6 +5,9 @@ cd "$(dirname "$0")/../../../.."   # repo root
 
 tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
 export HOME="$tmp/home" CLAUDE_CONFIG_DIR="$tmp/claude" CURSOR_HOME="$tmp/cursor" XDG_CONFIG_HOME="$tmp/xdg"
+# Isolate from host companion root (direnv often sets CDA_AITOOLS_HOME).
+unset CDA_AITOOLS_HOME
+export CDA_AITOOLS_HOME="$tmp/xdg/cda-aitools"
 mkdir -p "$HOME" "$CLAUDE_CONFIG_DIR" "$CURSOR_HOME"
 S="$CLAUDE_CONFIG_DIR/settings.json" C="$CURSOR_HOME/hooks.json" K="$PWD/skills/quality/cda-kiss/hooks"
 
@@ -89,5 +92,23 @@ cmp -s "$S" "$tmp/orig" || fail "invalid settings.json modified"
 inst --uninstall
 grep -q "warn: $S" "$tmp/out" || fail "no warning on uninstall"
 cmp -s "$S" "$tmp/orig" || fail "invalid settings.json modified by uninstall"
+
+# cdamux nav-bind: opt-in only, idempotent, removed by --uninstall; never clobber foreign tmux lines
+FRAG="$CDA_AITOOLS_HOME/tmux-nav-bind.conf"
+TMUX="$HOME/.tmux.conf"
+printf '# keep-me\n' >"$TMUX"
+inst; [ ! -e "$FRAG" ] || fail "nav-bind fragment without --cdamux-nav-bind"
+inst --cdamux-nav-bind; inst --cdamux-nav-bind
+[ "$(readlink -f "$FRAG")" = "$(readlink -f "$PWD/aitools/templates/tmux-nav-bind.conf")" ] || fail "nav-bind fragment not linked"
+grep -q "bind-key -n M-n" "$FRAG" || fail "nav-bind fragment missing M-n"
+grep -q '# keep-me' "$TMUX" || fail "foreign tmux.conf line lost"
+grep -c 'BEGIN cda-aitools nav-bind' "$TMUX" | grep -qx 1 || fail "nav-bind markers not exactly once"
+grep -q "source-file $FRAG" "$TMUX" || fail "tmux.conf missing source-file"
+"$SH" ./install.sh --dry-run --no-claude --no-cursor --cdamux-nav-bind >"$tmp/out" 2>&1 || fail "dry-run --cdamux-nav-bind"
+grep -q 'DRY  ' "$tmp/out" || fail "dry-run produced no DRY lines"
+inst --uninstall
+[ ! -e "$FRAG" ] && [ ! -L "$FRAG" ] || fail "nav-bind fragment left after uninstall"
+grep -q '# keep-me' "$TMUX" || fail "foreign tmux.conf line removed by uninstall"
+! grep -q 'cda-aitools nav-bind' "$TMUX" || fail "nav-bind markers left after uninstall"
 
 echo "ok: install.sh hook wiring"

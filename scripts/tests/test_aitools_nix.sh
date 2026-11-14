@@ -176,6 +176,34 @@ nix eval --impure --expr "
     \"ok\"
 "
 
+echo "== cdamux navBind schema + maid template =="
+nix eval --impure --expr "
+  let
+    flake = builtins.getFlake \"path:$ROOT\";
+    pkgs = import flake.inputs.nixpkgs { system = builtins.currentSystem; };
+    lib = pkgs.lib;
+    schema = import $ROOT/aitools/nix/common.nix { inherit lib; };
+    templates = $ROOT/aitools/templates;
+    mkDeploy = nav: import $ROOT/aitools/nix/maid-deploy.nix {
+      inherit lib pkgs templates;
+      projectsRoot = \"/dev\";
+      tmuxClipboard = \"none\";
+      tmuxPersist = { enable = false; saveInterval = 15; };
+      navBind = { enable = nav; };
+    };
+    offSrc = (mkDeploy false).file.xdg_config.\"cda-aitools/tmux.conf\".source;
+    onSrc = (mkDeploy true).file.xdg_config.\"cda-aitools/tmux.conf\".source;
+    offText = builtins.readFile offSrc;
+    onText = builtins.readFile onSrc;
+    bind = \"bind-key -n M-n run-shell \\\"cdamux nav --client '#{client_name}'\\\"\";
+  in
+    assert schema.cdamux ? navBind;
+    assert schema.cdamux.navBind ? enable;
+    assert !(lib.hasInfix \"M-n\" offText);
+    assert lib.hasInfix bind onText;
+    \"ok\"
+"
+
 echo "== graphify package parses =="
 nix-instantiate --parse "$ROOT/aitools/nix/graphify-package.nix" >/dev/null
 nix-instantiate --parse "$ROOT/aitools/nix/graphify-activation.nix" >/dev/null

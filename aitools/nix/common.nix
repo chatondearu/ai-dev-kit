@@ -83,6 +83,12 @@
         example = "/cda/.claude";
       };
     };
+
+    navBind = {
+      enable = lib.mkEnableOption ''
+        Opt-in Alt-N (M-n) → `cdamux nav` in the managed tmux.conf (ADR-014).
+        Default off; requires deploy.enable. Portable: install.sh --cdamux-nav-bind'';
+    };
   };
 
   tmux = {

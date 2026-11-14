@@ -12,6 +12,7 @@ Session tools and configs are opt-in via **Nix** (`cda.aitools`).
 | Path | Purpose |
 | ---- | ------- |
 | `templates/tmux.conf` | Shared tmux + cdamux popup; `detach-on-destroy on` (avoid `next` on tmux 3.7) |
+| `templates/tmux-nav-bind.conf` | Opt-in Alt-N → `cdamux nav` (`cdamux.navBind.enable` / `install.sh --cdamux-nav-bind`) |
 | `templates/tmux-persist.conf` | Optional resurrect/continuum fragment (`tmux.persist.enable`) |
 | `templates/cdamux/config.toml` | cdamux config (`@PROJECTS_ROOT@` substituted by Nix) |
 | `scripts/moshi-hook-bootstrap.sh` | Pair Moshi + install hooks (e.g. `--target cursor`) |
@@ -44,6 +45,8 @@ cda.aitools = {
   # foamHome = "/cda/foam";
   # Agent hooks (sub-agent ledger + session id), refreshed at each rebuild; off by default
   # cdamux.hooks = { enable = true; claudeConfigDir = "/cda/.claude"; };
+  # Opt-in Alt-N → cdamux nav in managed tmux.conf (ADR-014); needs deploy.enable
+  # cdamux.navBind.enable = true;
 };
 ```
 
@@ -65,6 +68,17 @@ current package on each run) with the packaged `node`, and any older
 re-runs it when cdamux changes; NixOS at login (or `systemctl --user restart
 cda-cdamux-hooks`). Agents are never restarted: run `cdamux restart --all`.
 Details: `cdamux/docs/subagents.md`.
+
+### cdamux nav bind (`cda.aitools.cdamux.navBind`)
+
+| Option | Meaning |
+| ------ | ------- |
+| `cdamux.navBind.enable` | default `false`; appends Alt-N (`M-n`) → `cdamux nav --client '#{client_name}'` to the managed tmux.conf. Needs `deploy.enable` |
+
+Portable: `./install.sh --cdamux-nav-bind` links `templates/tmux-nav-bind.conf` under
+`$CDA_AITOOLS_HOME` (default `~/.config/cda-aitools`) and adds a marked
+`source-file` block in `~/.tmux.conf`. `--uninstall` removes both. Dogfood keys:
+`cdamux/docs/dogfood.md`.
 
 ### Graphify (`cda.aitools.graphify`)
 
@@ -92,6 +106,7 @@ writes; see ADR-008.
 | moshi-hook | systemd + hook oneshots | launchd | `moshi-hook service install` |
 | graphify skill register | systemd oneshot | launchd oneshot | `graphify-activate.sh` |
 | cdamux agent hooks | systemd oneshot | launchd oneshot | `install.sh --cdamux-hooks` |
+| cdamux nav bind (Alt-N) | `cdamux.navBind` + deploy | same | `install.sh --cdamux-nav-bind` |
 
 Secrets (Moshi token, SSH keys) stay **per host** — not in the kit.
 

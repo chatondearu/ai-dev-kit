@@ -22,7 +22,7 @@
 #   ./install.sh [--dry-run] [--force] [--uninstall] [--no-hooks]
 #                [--cursor|--no-cursor] [--claude|--no-claude]
 #                [--opencode|--no-opencode] [--agents|--no-agents]
-#                [--cursor-home DIR] [--cdamux-hooks]
+#                [--cursor-home DIR] [--cdamux-hooks] [--cdamux-nav-bind]
 #
 # Hooks: unless --no-hooks, the kiss code-attitude ruleset is wired into each
 # enabled tool's lifecycle hooks (needs jq; merge is idempotent). Cursor:
@@ -31,6 +31,9 @@
 # --cdamux-hooks (opt-in) also wires the cdamux adapters (sub-agent ledger +
 # session id capture + agent status, cdamux/docs/subagents.md) into each enabled
 # tool: Claude, Cursor, opencode, Codex. --uninstall removes them.
+# --cdamux-nav-bind (opt-in) installs a managed tmux fragment
+# ($CDA_AITOOLS_HOME/tmux-nav-bind.conf) and a marked source-file line in
+# ~/.tmux.conf for Alt-N → cdamux nav. --uninstall removes both.
 #
 # Tool selection: a tool defaults to ON when its config dir exists (Cursor is
 # always considered). --<tool> forces ON, --no-<tool> forces OFF. The universal
@@ -38,7 +41,7 @@
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DRY=0; FORCE=0; UNINSTALL=0; HOOKS=1; CDAMUX_HOOKS=0
+DRY=0; FORCE=0; UNINSTALL=0; HOOKS=1; CDAMUX_HOOKS=0; CDAMUX_NAV_BIND=0
 # Per-tool install roots: honor each tool's own env var first, fall back to the
 # conventional default. XDG is only used where the tool natively reads it
 # (opencode); Claude/Cursor don't follow XDG, so we don't force it on them.
@@ -46,6 +49,12 @@ CURSOR_HOME="${CURSOR_HOME:-$HOME/.cursor}"
 XDG="${XDG_CONFIG_HOME:-$HOME/.config}"
 CLAUDE_HOME="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 AGENTS_HOME="${AGENTS_HOME:-$HOME/.agents}"
+AITOOLS_HOME="${CDA_AITOOLS_HOME:-$XDG/cda-aitools}"
+NAV_BIND_SRC="$REPO_DIR/aitools/templates/tmux-nav-bind.conf"
+NAV_BIND_FRAG="$AITOOLS_HOME/tmux-nav-bind.conf"
+NAV_BIND_BEGIN="# BEGIN cda-aitools nav-bind"
+NAV_BIND_END="# END cda-aitools nav-bind"
+TMUX_CONF="${TMUX_CONF:-$HOME/.tmux.conf}"
 
 # tri-state per tool in WANT_<tool>: "" = auto, 1 = on, 0 = off (no `declare -A`: bash 3.2)
 WANT_cursor=""; WANT_claude=""; WANT_opencode=""; WANT_agents=""
@@ -184,6 +193,69 @@ cdamux_hooks() { # $1=wire|unwire  $2=claude|cursor|opencode
     bash "$REPO_DIR/cdamux/hooks/cdamux-hooks" "$1" "$2"
 }
 
+# Opt-in Alt-N → cdamux nav: managed fragment + marked source-file in ~/.tmux.conf (ADR-014).
+# Never rewrites the whole conf; uninstall strips only the marked block + fragment.
+strip_nav_bind_block() {
+  local f="$1"
+  [ -f "$f" ] || return 0
+  if [ "$DRY" = 1 ]; then log "DRY  strip nav-bind markers ← $f"; return 0; fi
+  # Drop lines between BEGIN/END markers (inclusive).
+  local tmp
+  tmp="$(mktemp)"
+  awk -v b="$NAV_BIND_BEGIN" -v e="$NAV_BIND_END" '
+    $0 == b { skip=1; next }
+    skip && $0 == e { skip=0; next }
+    skip { next }
+    { print }
+  ' "$f" >"$tmp"
+  mv "$tmp" "$f"
+}
+
+ensure_nav_bind_source() {
+  local f="$1" frag="$2" block
+  block=$(printf '%s\nsource-file %s\n%s\n' "$NAV_BIND_BEGIN" "$frag" "$NAV_BIND_END")
+  if [ -f "$f" ] && grep -qxF "$NAV_BIND_BEGIN" "$f" 2>/dev/null; then
+    # Refresh path inside existing markers (idempotent).
+    if [ "$DRY" = 1 ]; then log "DRY  refresh nav-bind source ← $f"; return 0; fi
+    strip_nav_bind_block "$f"
+  fi
+  if [ "$DRY" = 1 ]; then log "DRY  append nav-bind source → $f"; return 0; fi
+  if [ -f "$f" ] && [ -s "$f" ]; then
+    printf '\n%s' "$block" >>"$f"
+  else
+    run "mkdir -p \"$(dirname "$f")\""
+    printf '%s' "$block" >"$f"
+  fi
+  log "tmux $f ← source-file $frag"
+}
+
+cdamux_nav_bind() { # wire|unwire
+  local action="$1"
+  if [ "$action" = unwire ] || [ "$UNINSTALL" = 1 ]; then
+    if [ "$DRY" = 1 ]; then
+      log "DRY  rm nav-bind fragment $NAV_BIND_FRAG"
+      log "DRY  strip nav-bind markers ← $TMUX_CONF"
+      return 0
+    fi
+    unlink_one "$NAV_BIND_SRC" "$NAV_BIND_FRAG"
+    # Also remove a copied (non-symlink) fragment left by older runs / force.
+    if [ -e "$NAV_BIND_FRAG" ] || [ -L "$NAV_BIND_FRAG" ]; then
+      run "rm -f \"$NAV_BIND_FRAG\""; log "rm   $NAV_BIND_FRAG"
+    fi
+    strip_nav_bind_block "$TMUX_CONF"
+    log "unhook cdamux nav-bind"
+    return 0
+  fi
+  if [ "$DRY" = 1 ]; then
+    log "DRY  link $NAV_BIND_FRAG -> $NAV_BIND_SRC"
+    log "DRY  ensure nav-bind source → $TMUX_CONF"
+    return 0
+  fi
+  run "mkdir -p \"$AITOOLS_HOME\""
+  link_one "$NAV_BIND_SRC" "$NAV_BIND_FRAG"
+  ensure_nav_bind_source "$TMUX_CONF" "$NAV_BIND_FRAG"
+}
+
 unwire_hooks() { # strip one hook dir's entries (default: kiss) from a tool's hook file, drop now-empty events
   local f="$1" dir="${2:-$KISS_HOOKS_DIR}"
   command -v jq >/dev/null 2>&1 || return 0
@@ -222,6 +294,7 @@ main() {
       --no-cursor|--no-claude|--no-opencode|--no-agents) want_set "${1#--no-}" 0;;
       --hooks) HOOKS=1;; --no-hooks) HOOKS=0;;
       --cdamux-hooks) CDAMUX_HOOKS=1;;
+      --cdamux-nav-bind) CDAMUX_NAV_BIND=1;;
       --cursor-home) [ $# -ge 2 ] || { log "--cursor-home needs a DIR"; exit 2; }
         CURSOR_HOME="$2"; shift;;
       -h|--help) sed -n '2,/^[^#]/{/^#/p;}' "$0"; exit 0;;  # leading comment block
@@ -229,6 +302,10 @@ main() {
     esac
     shift
   done
+  # Re-resolve after XDG/CURSOR overrides from the CLI (AITOOLS_HOME may follow XDG).
+  AITOOLS_HOME="${CDA_AITOOLS_HOME:-$XDG/cda-aitools}"
+  NAV_BIND_FRAG="$AITOOLS_HOME/tmux-nav-bind.conf"
+  TMUX_CONF="${TMUX_CONF:-$HOME/.tmux.conf}"
 
   log "kit : $REPO_DIR"
   local tool enabled=()
@@ -287,6 +364,15 @@ main() {
       if [ "$UNINSTALL" = 1 ]; then cdamux_hooks unwire "$tool"
       elif [ "$CDAMUX_HOOKS" = 1 ]; then log "# cdamux hooks → $tool"; cdamux_hooks wire "$tool"; fi
     done
+  fi
+
+  # Opt-in Alt-N nav bind (ADR-014); always removed by --uninstall
+  if [ "$UNINSTALL" = 1 ]; then
+    log "# cdamux nav-bind"
+    cdamux_nav_bind unwire
+  elif [ "$CDAMUX_NAV_BIND" = 1 ]; then
+    log "# cdamux nav-bind"
+    cdamux_nav_bind wire
   fi
 
   log ""

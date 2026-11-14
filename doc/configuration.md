@@ -144,6 +144,16 @@ Ensure agent CLIs and `gh` are on `PATH` for the user systemd session.
 tool's config dir. Override roots with `CURSOR_HOME`, `CLAUDE_CONFIG_DIR`, and
 `XDG_CONFIG_HOME` (opencode).
 
+Opt-in companion flags (never on by plain install):
+
+| Flag | Effect |
+| ---- | ------ |
+| `--cdamux-hooks` | Wire cdamux agent status / sub-agent ledger hooks |
+| `--cdamux-nav-bind` | Managed Alt-N → `cdamux nav` fragment under `$CDA_AITOOLS_HOME` + marked `source-file` in `~/.tmux.conf` ([ADR-014](../foam/decisions/ADR-014-cdamux-dedicated-navigator-session.md)) |
+
+`--uninstall` removes both. Nix equivalent for the nav bind:
+`cda.aitools.cdamux.navBind.enable` (needs `deploy.enable`; see `aitools/README.md`).
+
 ### Cursor rules (manual)
 
 Cursor does **not** auto-load kit rules from disk. Copy or paste the contents

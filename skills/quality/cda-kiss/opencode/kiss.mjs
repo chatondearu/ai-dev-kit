@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url';
 // dir, and `..` must resolve against the repo, not the symlink location.
 const realPath = fs.realpathSync(fileURLToPath(import.meta.url));
 const require = createRequire(realPath);
-const { getInstructions, normalizeMode, DEFAULT_MODE } =
+const { getInstructions, buildRouting, normalizeMode, DEFAULT_MODE } =
   require(path.join(path.dirname(realPath), '..', 'hooks', 'lib.js'));
 
 // OpenCode keeps its own mode flag beside its config (the node hooks' flag lives
@@ -42,10 +42,15 @@ function persistMode(args) {
   if (mode) writeMode(mode);
 }
 
-function addRuleset(event) {
+// Routing stays on when the KISS level is off.
+function systemText() {
   const mode = readMode();
-  if (mode === 'off') return;
-  event.system.push({ type: 'text', text: getInstructions(mode) });
+  return [buildRouting(), mode === 'off' ? '' : getInstructions(mode)].filter(Boolean).join('\n\n');
+}
+
+function addRuleset(event) {
+  const text = systemText();
+  if (text) event.system.push({ type: 'text', text });
 }
 
 export default {
@@ -70,9 +75,8 @@ export default {
   async server() {
     return {
       'experimental.chat.system.transform': async (_input, output) => {
-        const mode = readMode();
-        if (mode === 'off') return;
-        const instructions = getInstructions(mode);
+        const instructions = systemText();
+        if (!instructions) return;
         if (output.system.length > 0) output.system[output.system.length - 1] += '\n\n' + instructions;
         else output.system.push(instructions);
       },

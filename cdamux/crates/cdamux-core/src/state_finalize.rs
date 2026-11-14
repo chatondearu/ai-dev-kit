@@ -1,11 +1,15 @@
 //! Finalize stuck agents/runs when a tmux host dies (PRD-307 / #307).
 //! Permanent kill and `state gc --sweep-orphans` share this path.
 //! Does **not** run inside raw `kill_tmux_session` (restart must keep agent state).
+//! Fleet / navigator `d` dismiss (#336) reuses the same finalize + archive helpers.
 
 use crate::orch_graph::is_live_run_status;
 use crate::session_registry::{self, SessionRecord};
-use crate::state::{state_list, state_set, StateKind};
-use crate::state_gc::{is_gc_agent_status, is_resumable_dormant};
+use crate::state::{state_get, state_list, state_set, StateKind};
+use crate::state_gc::{
+    agent_has_no_host, archive_agent, archive_run, is_gc_agent_status, is_gc_run_status,
+    is_resumable_dormant,
+};
 use serde_json::Value;
 use std::io;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -223,6 +227,228 @@ pub fn sweep_orphans(
     Ok(report)
 }
 
+/// Fleet dismiss plan: finalize orphans (same writes as sweep), then archive so
+/// the row leaves live `$CDAMUX_HOME` (and the Fleet tree on refresh).
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct DismissPlan {
+    pub finalize: FinalizeReport,
+    pub archive_agents: Vec<String>,
+    pub archive_runs: Vec<String>,
+}
+
+impl DismissPlan {
+    /// Distinct agent/run ids touched (finalize and archive of the same id count once).
+    pub fn entity_count(&self) -> usize {
+        let mut agents: Vec<&str> = self
+            .finalize
+            .agents
+            .iter()
+            .chain(self.archive_agents.iter())
+            .map(String::as_str)
+            .collect();
+        agents.sort_unstable();
+        agents.dedup();
+        let mut runs: Vec<&str> = self
+            .finalize
+            .runs
+            .iter()
+            .chain(self.archive_runs.iter())
+            .map(String::as_str)
+            .collect();
+        runs.sort_unstable();
+        runs.dedup();
+        agents.len() + runs.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.entity_count() == 0
+    }
+
+    /// True when the operator must confirm (more than one entity).
+    pub fn needs_confirm(&self) -> bool {
+        self.entity_count() > 1
+    }
+}
+
+/// Why a selected row cannot be dismissed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DismissReject {
+    NotFound,
+    Dormant,
+    LiveWorking,
+    NotEligible,
+}
+
+impl DismissReject {
+    pub fn message(self) -> &'static str {
+        match self {
+            Self::NotFound => "dismiss: not found",
+            Self::Dormant => "dismiss: resumable dormant kept (ADR-009)",
+            Self::LiveWorking => "dismiss: live working row (use x to kill host)",
+            Self::NotEligible => "dismiss: select a finished or orphan run/worker",
+        }
+    }
+}
+
+fn run_field(value: &Value) -> Option<&str> {
+    value
+        .get("run")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+}
+
+fn plan_one_agent(
+    id: &str,
+    value: &Value,
+    host_alive: &dyn Fn(&str) -> bool,
+    registry: &[SessionRecord],
+    plan: &mut DismissPlan,
+) -> Result<(), DismissReject> {
+    if is_resumable_dormant(id, host_field(value), registry) {
+        return Err(DismissReject::Dormant);
+    }
+    if orphan_agent_eligible(id, value, host_alive, registry) {
+        plan.finalize.agents.push(id.to_string());
+        plan.archive_agents.push(id.to_string());
+        return Ok(());
+    }
+    if is_gc_agent_status(status_str(value)) {
+        // Finished: archive so Fleet drops the row (retention age not required).
+        plan.archive_agents.push(id.to_string());
+        return Ok(());
+    }
+    if host_field(value).is_some_and(host_alive) {
+        return Err(DismissReject::LiveWorking);
+    }
+    // No host / dead host but not orphan-eligible (e.g. already odd state).
+    if agent_has_no_host(value, host_alive) {
+        plan.finalize.agents.push(id.to_string());
+        plan.archive_agents.push(id.to_string());
+        return Ok(());
+    }
+    Err(DismissReject::NotEligible)
+}
+
+fn plan_one_run(
+    id: &str,
+    value: &Value,
+    host_alive: &dyn Fn(&str) -> bool,
+    plan: &mut DismissPlan,
+) -> Result<(), DismissReject> {
+    if orphan_run_eligible(value, host_alive) {
+        plan.finalize.runs.push(id.to_string());
+        plan.archive_runs.push(id.to_string());
+        return Ok(());
+    }
+    if is_gc_run_status(status_str(value)) {
+        plan.archive_runs.push(id.to_string());
+        return Ok(());
+    }
+    if !run_is_live_doc(value) {
+        plan.archive_runs.push(id.to_string());
+        return Ok(());
+    }
+    match session_field(value) {
+        Some(session) if host_alive(session) => Err(DismissReject::LiveWorking),
+        _ => {
+            plan.finalize.runs.push(id.to_string());
+            plan.archive_runs.push(id.to_string());
+            Ok(())
+        }
+    }
+}
+
+/// Plan dismiss for one agent id (worker row). Does not write.
+pub fn plan_dismiss_agent(
+    id: &str,
+    host_alive: &dyn Fn(&str) -> bool,
+) -> Result<DismissPlan, DismissReject> {
+    let id = id.trim();
+    if id.is_empty() {
+        return Err(DismissReject::NotFound);
+    }
+    let value = state_get(StateKind::Agents, id)
+        .ok()
+        .flatten()
+        .ok_or(DismissReject::NotFound)?;
+    let registry = session_registry::load_all();
+    let mut plan = DismissPlan::default();
+    plan_one_agent(id, &value, host_alive, &registry, &mut plan)?;
+    plan.finalize.agents.sort();
+    plan.archive_agents.sort();
+    plan.archive_agents.dedup();
+    Ok(plan)
+}
+
+/// Plan dismiss for one run id, cascading to agents with matching `run`.
+pub fn plan_dismiss_run(
+    id: &str,
+    host_alive: &dyn Fn(&str) -> bool,
+) -> Result<DismissPlan, DismissReject> {
+    let id = id.trim();
+    if id.is_empty() {
+        return Err(DismissReject::NotFound);
+    }
+    let value = state_get(StateKind::Runs, id)
+        .ok()
+        .flatten()
+        .ok_or(DismissReject::NotFound)?;
+    let registry = session_registry::load_all();
+    let mut plan = DismissPlan::default();
+    plan_one_run(id, &value, host_alive, &mut plan)?;
+    for (aid, _path, aval) in state_list(StateKind::Agents) {
+        if run_field(&aval) != Some(id) {
+            continue;
+        }
+        // Cascade: skip dormant and still-live workers; finalize+archive the rest.
+        if is_resumable_dormant(&aid, host_field(&aval), &registry) {
+            continue;
+        }
+        let orphan = orphan_agent_eligible(&aid, &aval, host_alive, &registry);
+        let finished = is_gc_agent_status(status_str(&aval));
+        let no_host = agent_has_no_host(&aval, host_alive);
+        if !(orphan || finished || no_host) {
+            continue;
+        }
+        if orphan || (!finished && no_host) {
+            plan.finalize.agents.push(aid.clone());
+        }
+        plan.archive_agents.push(aid);
+    }
+    plan.finalize.agents.sort();
+    plan.finalize.agents.dedup();
+    plan.finalize.runs.sort();
+    plan.finalize.runs.dedup();
+    plan.archive_agents.sort();
+    plan.archive_agents.dedup();
+    plan.archive_runs.sort();
+    plan.archive_runs.dedup();
+    Ok(plan)
+}
+
+/// Apply a dismiss plan: finalize first (shared value writers), then archive.
+pub fn apply_dismiss(plan: &DismissPlan) -> io::Result<DismissPlan> {
+    let ended = utc_now_iso();
+    for id in &plan.finalize.agents {
+        if let Some(value) = state_get(StateKind::Agents, id)? {
+            state_set(StateKind::Agents, id, &finalize_agent_value(value))?;
+        }
+    }
+    for id in &plan.finalize.runs {
+        if let Some(value) = state_get(StateKind::Runs, id)? {
+            state_set(StateKind::Runs, id, &finalize_run_value(value, &ended))?;
+        }
+    }
+    for id in &plan.archive_agents {
+        archive_agent(id)?;
+    }
+    for id in &plan.archive_runs {
+        archive_run(id)?;
+    }
+    Ok(plan.clone())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -384,6 +610,102 @@ mod tests {
                 state_get(StateKind::Runs, "r-live").unwrap().unwrap()["status"],
                 "running"
             );
+        });
+    }
+
+    #[test]
+    fn dismiss_orphan_agent_finalizes_then_archives() {
+        with_temp_home(|home| {
+            state_set(
+                StateKind::Agents,
+                "a-stuck",
+                &json!({"id":"a-stuck","host":"dead","status":"working","run":"r1"}),
+            )
+            .unwrap();
+            let alive = |_: &str| false;
+            let plan = plan_dismiss_agent("a-stuck", &alive).unwrap();
+            assert_eq!(plan.finalize.agents, vec!["a-stuck"]);
+            assert_eq!(plan.archive_agents, vec!["a-stuck"]);
+            assert!(!plan.needs_confirm());
+            apply_dismiss(&plan).unwrap();
+            assert!(state_get(StateKind::Agents, "a-stuck").unwrap().is_none());
+            assert!(home.join("archive/agents/a-stuck.json").is_file());
+        });
+    }
+
+    #[test]
+    fn dismiss_keeps_dormant_and_rejects_live() {
+        with_temp_home(|_| {
+            state_set(
+                StateKind::Agents,
+                "a-keep",
+                &json!({"id":"a-keep","host":"c-dorm","status":"idle"}),
+            )
+            .unwrap();
+            session_registry::record(&session_registry::SessionRecord {
+                name: "c-dorm".into(),
+                cwd: "/tmp".into(),
+                agent: "claude".into(),
+                agent_session_id: None,
+                parent: None,
+                role: "agent".into(),
+                layout: PaneLayout::Single,
+                created_ts: 1,
+                updated_ts: 1,
+                cdamux_id: Some("a-keep".into()),
+            })
+            .unwrap();
+            let alive = |h: &str| h == "c-dorm" || h == "live";
+            assert_eq!(
+                plan_dismiss_agent("a-keep", &alive),
+                Err(DismissReject::Dormant)
+            );
+            state_set(
+                StateKind::Agents,
+                "a-live",
+                &json!({"id":"a-live","host":"live","status":"working"}),
+            )
+            .unwrap();
+            assert_eq!(
+                plan_dismiss_agent("a-live", &alive),
+                Err(DismissReject::LiveWorking)
+            );
+        });
+    }
+
+    #[test]
+    fn dismiss_run_cascades_workers_and_needs_confirm() {
+        with_temp_home(|home| {
+            let repo = home.join("repo");
+            std::fs::create_dir_all(&repo).unwrap();
+            state_set(
+                StateKind::Runs,
+                "r-dead",
+                &live_run("r-dead", "gone", &repo.to_string_lossy()),
+            )
+            .unwrap();
+            state_set(
+                StateKind::Agents,
+                "a1",
+                &json!({"id":"a1","host":"gone","status":"working","run":"r-dead"}),
+            )
+            .unwrap();
+            state_set(
+                StateKind::Agents,
+                "a2",
+                &json!({"id":"a2","status":"done","run":"r-dead"}),
+            )
+            .unwrap();
+            let alive = |_: &str| false;
+            let plan = plan_dismiss_run("r-dead", &alive).unwrap();
+            assert!(plan.needs_confirm(), "{plan:?}");
+            assert_eq!(plan.finalize.runs, vec!["r-dead"]);
+            assert!(plan.archive_agents.contains(&"a1".into()));
+            assert!(plan.archive_agents.contains(&"a2".into()));
+            apply_dismiss(&plan).unwrap();
+            assert!(state_get(StateKind::Runs, "r-dead").unwrap().is_none());
+            assert!(state_get(StateKind::Agents, "a1").unwrap().is_none());
+            assert!(home.join("archive/runs/r-dead.json").is_file());
         });
     }
 }

@@ -36,5 +36,5 @@ cdamux — fleet  ○ idle ● working ◆ needs ⊘ blocked ✓ done
                                              │
                                              │
                                              │
-j/k nav · Enter attach · n new · m rename · f fork · x kill · o open · Space send · g graph · 1-5 tabs · ? help · q quit
+j/k nav · Enter attach · n new · m rename · f fork · x kill · d dismiss · o open · Space send · ? help · q quit
 

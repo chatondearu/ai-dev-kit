@@ -111,11 +111,12 @@ pub use state::{
     state_get, state_set, valid_state_id, StateKind,
 };
 pub use state_finalize::{
-    finalize_session_host, orphan_agent_eligible, orphan_run_eligible, sweep_orphans, FinalizeReport,
+    apply_dismiss, finalize_session_host, orphan_agent_eligible, orphan_run_eligible,
+    plan_dismiss_agent, plan_dismiss_run, sweep_orphans, DismissPlan, DismissReject, FinalizeReport,
 };
 pub use state_gc::{
-    agent_eligible, agent_has_no_host, is_gc_agent_status, is_gc_run_status, is_resumable_dormant,
-    run_eligible, run_gc, GcReport, DEFAULT_RETENTION_DAYS,
+    agent_eligible, agent_has_no_host, archive_agent, archive_run, is_gc_agent_status,
+    is_gc_run_status, is_resumable_dormant, run_eligible, run_gc, GcReport, DEFAULT_RETENTION_DAYS,
 };
 pub use restore::{
     dormant, is_busy_state, parents_first, restart_plan, restore_one, restore_subtree,

@@ -22,6 +22,8 @@ pub enum DashboardAction {
     GraphView,
     ToggleHelp,
     KillSession,
+    /// Dismiss finished/orphan under-session run or worker (#336).
+    Dismiss,
     ForkSession,
     RenameSession,
     /// Open the row's PR, else its issue (`feat/<n>-*` / worktree), via `gh … --web`.
@@ -88,6 +90,7 @@ pub const FLEET_KEYMAP: &[Binding] = &[
     b(&[K::Char('m')], "m", A::RenameSession, "rename session", Some("m rename"), G::Session),
     b(&[K::Char('f')], "f", A::ForkSession, "fork session", Some("f fork"), G::Session),
     b(&[K::Char('x')], "x", A::KillSession, "kill / forget (x x)", Some("x kill"), G::Session),
+    b(&[K::Char('d')], "d", A::Dismiss, "dismiss finished/orphan", Some("d dismiss"), G::Session),
     b(&[K::Char('o')], "o", A::OpenLink, "open PR / issue", Some("o open"), G::Session),
     b(&[K::Char(' ')], "Space", A::FocusComposer, "send text", Some("Space send"), G::Session),
     Binding { codes: &[K::Char('r')], ctrl: true, label: "Ctrl+R", action: A::StartReview, help: "hunk review TUI", footer: None, group: G::Session },
@@ -167,6 +170,7 @@ mod tests {
         assert_eq!(map_key_event(key(K::Char('m'))), A::RenameSession);
         assert_eq!(map_key_event(key(K::Char('f'))), A::ForkSession);
         assert_eq!(map_key_event(key(K::Char('x'))), A::KillSession);
+        assert_eq!(map_key_event(key(K::Char('d'))), A::Dismiss);
         assert_eq!(map_key_event(key(K::Char('k'))), A::SelectPrev);
         assert_eq!(map_key_event(key(K::Down)), A::SelectNext);
         assert_eq!(map_key_event(key(K::Esc)), A::None);
@@ -179,7 +183,7 @@ mod tests {
     #[test]
     fn footer_lists_session_keys() {
         let footer = fleet_footer();
-        for part in ["g graph", "m rename", "f fork", "x kill", "o open", "Enter attach", "? help"] {
+        for part in ["g graph", "m rename", "f fork", "x kill", "d dismiss", "o open", "Enter attach", "? help"] {
             assert!(footer.contains(part), "{footer}");
         }
     }
@@ -206,7 +210,13 @@ mod tests {
     fn help_is_grouped_and_complete() {
         let help = fleet_help_text();
         assert!(help.contains("Sessions\n"));
-        for line in ["rename session", "fork session", "kill / forget (x x)", "attach / restore"] {
+        for line in [
+            "rename session",
+            "fork session",
+            "kill / forget (x x)",
+            "dismiss finished/orphan",
+            "attach / restore",
+        ] {
             assert!(help.contains(line), "{help}");
         }
     }

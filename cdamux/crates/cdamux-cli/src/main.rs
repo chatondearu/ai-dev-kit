@@ -1,6 +1,7 @@
 //! cdamux — CLI for agent session orchestration on tmux.
 
 mod app_tabs;
+mod dismiss;
 mod fleet_draw;
 mod foam_tab;
 mod fleet_tree;

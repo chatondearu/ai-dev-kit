@@ -72,9 +72,10 @@ cannot re-attach stuck graphs (#307). Graph / Fleet bind for a session uses only
 tmux name (#335 / ADR-007). `cdamux restart` does **not** finalize (restore needs
 the agent).
 
-| Kill path | Finalize? | After recreate same name |
+| Kill / dismiss path | Finalize / archive? | After recreate same name |
 | --- | --- | --- |
 | Fleet `x` | yes (`finalize_session_host`) | no live graph/workers under the new session |
+| Fleet / nav `d` | yes (shared finalize + archive of finished/orphan run/worker; dormant kept) | row gone from live `$CDAMUX_HOME`; multi-entity asks `d` again |
 | `tmux kill-session` (raw) | no (restart must keep state) | no name-only re-attach; orphan stays at project root until sweep |
 | `cdamux restart` | no | same host continues; agent state kept |
 

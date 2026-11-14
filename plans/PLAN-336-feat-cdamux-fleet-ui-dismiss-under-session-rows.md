@@ -1,6 +1,6 @@
 # PLAN-336 — Fleet UI dismiss finished or orphan under-session rows
 
-- **Status**: ready
+- **Status**: done
 - **PRD**: [[../prd/PRD-334-cdamux-fleet-hygiene-navigator|PRD-334]]
 - **GitHub**: [#336](https://github.com/chatondearu/ai-dev-kit/issues/336)
 - **Blocked by**: #335
@@ -39,10 +39,10 @@ Extend Fleet keymap (`DashboardAction`) with Dismiss; call existing finalize/orp
 
 ## Tasks
 
-- [ ] **Keymap**: register `d` → dismiss; footer + `?` list it (acceptance: help shows `d`)
-- [ ] **Action**: selected finished/orphan row → shared finalize/sweep; protect dormant; confirm if multi-entity (acceptance: state files terminal / archived; UI row gone on refresh)
-- [ ] **Tests**: state path + keymap mapping
-- [ ] **Verify**: cdamux tests green
+- [x] **Keymap**: register `d` → dismiss; footer + `?` list it (acceptance: help shows `d`)
+- [x] **Action**: selected finished/orphan row → shared finalize/sweep; protect dormant; confirm if multi-entity (acceptance: state files terminal / archived; UI row gone on refresh)
+- [x] **Tests**: state path + keymap mapping
+- [x] **Verify**: cdamux tests green
 
 ## Risks & mitigations
 
@@ -55,10 +55,10 @@ Extend Fleet keymap (`DashboardAction`) with Dismiss; call existing finalize/orp
 
 Seams: (1) eligibility, (2) keymap, (3) dormant keep.
 
-- [ ] Unit tests with temp CDAMUX_HOME
+- [x] Unit tests with temp CDAMUX_HOME
 - [ ] Optional throwaway tmux if UI path needs it
 
 ## Verification
 
-- [ ] Lint / test / build per project conventions
+- [x] Lint / test / build per project conventions
 - [ ] Update foam / ADR only if a new decision was made

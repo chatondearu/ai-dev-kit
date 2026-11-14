@@ -68,6 +68,8 @@ fn home_shell_pane_is_respawned_other_commands_kept() {
     let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default());
     std::env::set_var("PATH", &path);
     std::env::set_var("TMUX_TMPDIR", tmp.path());
+    // tmux runs commands via `$SHELL -c`; fish forks instead of exec, so the pane would read `fish`.
+    std::env::set_var("SHELL", "/bin/sh");
     std::env::remove_var("TMUX");
 
     // Keeps the server up while the home session is recreated between cases.

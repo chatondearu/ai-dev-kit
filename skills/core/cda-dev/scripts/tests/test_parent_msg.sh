@@ -94,17 +94,9 @@ assert_eq "$(ls "$HOME_DIR/inbox" 2>/dev/null | wc -l | tr -d ' ')" "0" "inbox e
 
 # --- (4) no-op without cdamux on PATH ---
 export CDAMUX_AGENT_ID="a-parent253"
-_clean=""
-_old_ifs="$IFS"
-IFS=:
-for _d in $PATH; do
-  [ -n "$_d" ] || continue
-  [ -x "$_d/cdamux" ] && continue
-  _clean="${_clean:+$_clean:}$_d"
-done
-IFS="$_old_ifs"
-export PATH="$_clean"
-unset _clean _old_ifs _d
+mkdir -p "$TMP/nocdamux"
+PATH="$(orch_test_path_without "$TMP/nocdamux" cdamux)"
+export PATH
 ! command -v cdamux >/dev/null 2>&1
 rm -rf "$HOME_DIR/inbox"
 mkdir -p "$HOME_DIR"

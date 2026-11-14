@@ -124,17 +124,9 @@ else
 fi
 
 # --- (5) no-op without cdamux on PATH: pipeline continues, no CDAMUX_HOME writes ---
-_clean=""
-_old_ifs="$IFS"
-IFS=:
-for _d in $PATH; do
-  [ -n "$_d" ] || continue
-  [ -x "$_d/cdamux" ] && continue
-  _clean="${_clean:+$_clean:}$_d"
-done
-IFS="$_old_ifs"
-export PATH="$_clean"
-unset _clean _old_ifs _d
+mkdir -p "$TMP/nocdamux"
+PATH="$(orch_test_path_without "$TMP/nocdamux" cdamux)"
+export PATH
 ! command -v cdamux >/dev/null 2>&1
 orch_cdamux_available && assert_eq yes no "cdamux must be absent" || assert_eq ok ok "cdamux absent"
 rm -rf "$HOME_DIR/runs" "$HOME_DIR/agents"

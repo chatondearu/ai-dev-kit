@@ -52,6 +52,28 @@ summary() {
   [ "$FAILS" -eq 0 ]
 }
 
+# Print $PATH with commands $2.. hidden; $1 is a scratch dir. A dir holding one of
+# them is mirrored without them, not dropped: NixOS sw/bin mixes them with coreutils.
+orch_test_path_without() {
+  local scratch="$1" out="" d n i=0
+  shift
+  local IFS=:
+  for d in $PATH; do
+    [ -n "$d" ] || continue
+    for n in "$@"; do
+      [ -x "$d/$n" ] || continue
+      i=$((i + 1))
+      mkdir -p "$scratch/.path$i"
+      ln -s "$d"/* "$scratch/.path$i/" 2>/dev/null || true
+      for n in "$@"; do rm -f "$scratch/.path$i/$n"; done
+      d="$scratch/.path$i"
+      break
+    done
+    out="${out:+$out:}$d"
+  done
+  printf '%s\n' "$out"
+}
+
 # Install a stub `cdamux` under $1/bin that writes $CDAMUX_HOME like the real CLI.
 # Prepends that bin to PATH. Used by graph/progress hard-cut tests (#252).
 orch_test_stub_cdamux() {

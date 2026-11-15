@@ -143,6 +143,7 @@ fn orchestrator_loop_spawn_ask_answer_done() {
         worktree_root: Some(&tmp.path().join("wts")),
         agents: &agents,
         cwd: &repo,
+        max_workers: 0,
     })
     .expect("hop 2 (worker spawn) failed");
     let wid = w.agent_id.as_str();

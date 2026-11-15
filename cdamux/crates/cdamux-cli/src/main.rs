@@ -618,6 +618,7 @@ fn cmd_worker_spawn(
         worktree_root: cfg.worktrees.root.as_deref(),
         agents: &cfg.agents,
         cwd: &cwd,
+        max_workers: cfg.orchestrator.max_workers,
     };
     match spawn_worker(req) {
         Ok(r) => {

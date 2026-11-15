@@ -46,6 +46,10 @@ pub enum WorkerError {
     Io(String),
     #[error("worker not found: {0}")]
     NotFound(String),
+    #[error(
+        "worker cap reached: {live}/{cap} live workers ([orchestrator].max_workers)"
+    )]
+    Cap { live: u32, cap: u32 },
     #[error("{0}")]
     Other(String),
 }
@@ -71,6 +75,8 @@ pub struct WorkerSpawnRequest<'a> {
     pub agents: &'a AgentsConfig,
     /// Fallback cwd when the caller's host path cannot be resolved.
     pub cwd: &'a Path,
+    /// From `[orchestrator].max_workers` (`0` = no cap).
+    pub max_workers: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -313,6 +319,52 @@ fn worker_name_taken(name: &str, caller_id: &str) -> bool {
         .is_some_and(|rows| rows.iter().any(|r| r.name == name || r.host == slug_session(name)))
 }
 
+/// Count workers that count toward `[orchestrator].max_workers`.
+/// Live = `role=worker`, status `working`/`blocked`, and a host that passes `host_alive`.
+pub fn count_live_workers<'a, I>(agents: I, host_alive: &dyn Fn(&str) -> bool) -> u32
+where
+    I: IntoIterator<Item = &'a Value>,
+{
+    agents
+        .into_iter()
+        .filter(|v| {
+            v.get("role").and_then(|r| r.as_str()) == Some("worker")
+                && matches!(
+                    v.get("status").and_then(|s| s.as_str()),
+                    Some("working") | Some("blocked")
+                )
+                && v
+                    .get("host")
+                    .and_then(|h| h.as_str())
+                    .filter(|h| !h.is_empty())
+                    .is_some_and(host_alive)
+        })
+        .count() as u32
+}
+
+fn refuse_if_at_cap(max_workers: u32) -> Result<(), WorkerError> {
+    if max_workers == 0 {
+        return Ok(());
+    }
+    let live_hosts: Vec<String> = crate::tmux::list_tmux_sessions()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|s| s.name)
+        .collect();
+    let agents: Vec<Value> = state_list(StateKind::Agents)
+        .into_iter()
+        .map(|(_, _, v)| v)
+        .collect();
+    let live = count_live_workers(agents.iter(), &|h| live_hosts.iter().any(|x| x == h));
+    if live >= max_workers {
+        return Err(WorkerError::Cap {
+            live,
+            cap: max_workers,
+        });
+    }
+    Ok(())
+}
+
 /// Spawn an interactive worker under the caller's orchestrator.
 pub fn spawn_worker(req: WorkerSpawnRequest<'_>) -> Result<WorkerSpawnResult, WorkerError> {
     let name = sanitize_worker_name(req.name)?;
@@ -340,6 +392,9 @@ pub fn spawn_worker(req: WorkerSpawnRequest<'_>) -> Result<WorkerSpawnResult, Wo
                 .map(|c| normalize_client_name(c).to_string())
         })
         .unwrap_or_else(|| normalize_client_name(&req.agents.default).to_string());
+
+    // Cap before any side effect (worktree / run mint / tmux).
+    refuse_if_at_cap(req.max_workers)?;
 
     // Read before creating the worktree so a bad path leaves no orphan worktree/branch.
     let user_prompt = match req.prompt_file {
@@ -432,6 +487,54 @@ pub fn spawn_worker(req: WorkerSpawnRequest<'_>) -> Result<WorkerSpawnResult, Wo
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn count_live_workers_filters_status_and_dead_hosts() {
+        let agents = vec![
+            json!({"role": "worker", "status": "working", "host": "live-a"}),
+            json!({"role": "worker", "status": "blocked", "host": "live-b"}),
+            json!({"role": "worker", "status": "done", "host": "live-c"}),
+            json!({"role": "worker", "status": "dormant", "host": "live-d"}),
+            json!({"role": "worker", "status": "working", "host": "dead"}),
+            json!({"role": "orchestrator", "status": "working", "host": "live-e"}),
+            json!({"role": "worker", "status": "working"}),
+        ];
+        let alive = |h: &str| matches!(h, "live-a" | "live-b" | "live-c" | "live-d" | "live-e");
+        assert_eq!(count_live_workers(agents.iter(), &alive), 2);
+    }
+
+    #[test]
+    fn refuse_if_at_cap_zero_is_unlimited() {
+        assert!(refuse_if_at_cap(0).is_ok());
+    }
+
+    #[test]
+    fn cap_error_message_matches_contract() {
+        let e = WorkerError::Cap { live: 6, cap: 6 };
+        assert_eq!(
+            e.to_string(),
+            "worker cap reached: 6/6 live workers ([orchestrator].max_workers)"
+        );
+    }
+
+    #[test]
+    fn refuse_if_at_cap_ignores_dead_hosts() {
+        let _g = crate::paths::env_lock();
+        let tmux_dir = tempfile::tempdir().unwrap();
+        let home = tempfile::tempdir().unwrap();
+        std::env::set_var("TMUX_TMPDIR", tmux_dir.path());
+        std::env::set_var("CDAMUX_HOME", home.path());
+        state_set(
+            StateKind::Agents,
+            "a-w-cap",
+            &json!({"id": "a-w-cap", "role": "worker", "host": "gone", "status": "working"}),
+        )
+        .unwrap();
+        let ok = refuse_if_at_cap(1);
+        std::env::remove_var("TMUX_TMPDIR");
+        std::env::remove_var("CDAMUX_HOME");
+        assert!(ok.is_ok(), "dead host must not count toward the cap");
+    }
 
     #[test]
     fn worker_ls_shows_dormant_when_host_is_not_live() {

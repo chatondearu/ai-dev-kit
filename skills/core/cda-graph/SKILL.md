@@ -104,7 +104,13 @@ bash "$SKILL/scripts/orch.sh" --no-graph --mode ready-pickup --issue 12
 
 ## Cursor session fallback
 
-Without `orch.sh`, **do not hand-write** graph files. Use `graph-node.sh` (same
+Without `orch.sh` (or when no agent CLI is available), run the **same pipeline**
+as `cda-dev` via host Task/subagents or manual steps: provision worktrees,
+dispatch workers, verify, systematic review, open/update PRs, and CI watch.
+Use `cda-dev` prompts, ledger template, and hard rules — master never edits
+product source; do not merge or invent product decisions.
+
+**Do not hand-write** graph files. Use `graph-node.sh` (same
 `init`/`node`/`edge`/`finish`; publishes via `cdamux state` under `$CDAMUX_HOME`). `init` starts
 a new run and prints its file; `node` / `edge` / `finish` target `--run-id`, else
 `$ORCH_RUN_ID`, else the newest live run of the current tmux session (outside tmux,
@@ -123,9 +129,16 @@ bash "$G" finish --outcome ok
 
 Steps:
 
-1. `graph-node.sh init` then dispatch parallel Task subagents (one disjoint scope each).
-2. Each Task writes `.orch/worker-result.json` / task result JSON per [worker-result.schema.json](../cda-dev/templates/worker-result.schema.json) and updates its graph node via `graph-node.sh node`.
-3. One integrator subagent + `cda-review` on the combined diff; then `graph-node.sh finish`.
+1. `graph-node.sh init`, provision worktrees, then dispatch parallel Task
+   subagents (one disjoint scope / worktree each).
+2. Each Task implements in its worktree, runs verify, writes
+   `.orch/worker-result.json` / task result JSON per
+   [worker-result.schema.json](../cda-dev/templates/worker-result.schema.json),
+   and updates its graph node via `graph-node.sh node`.
+3. One integrator subagent + `cda-review` on the combined diff; then
+   `graph-node.sh finish`.
+4. Open/update PRs and watch CI (`gh pr checks --watch`) until green; do not
+   merge.
 
 ## References
 

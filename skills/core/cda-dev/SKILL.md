@@ -151,10 +151,11 @@ exit non-zero — do not continue unsandboxed.
 
 ## Skill-only fallback
 
-If the harness is missing, unusable, or no agent CLI is available, run the
-**same pipeline** from this skill: host Task/subagents (or manual steps) for
-worktrees, workers, verify, and CI watch. Use the same prompts, ledger template,
-and hard rules. Master still does not edit product source.
+If the harness is missing, unusable, or no agent CLI is available, follow
+`cda-graph` § Cursor session fallback for the full procedure (worktrees,
+workers, verify, CI watch, graph nodes). Hard rules still apply: same prompts
+and ledger template; master never edits product source; no merge / no invented
+product decisions.
 
 ## Worker contract (master injects)
 

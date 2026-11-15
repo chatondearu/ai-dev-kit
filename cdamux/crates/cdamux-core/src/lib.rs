@@ -533,6 +533,45 @@ pub fn discover_projects(cfg: &ProjectsConfig) -> Vec<Project> {
     out
 }
 
+/// Resolve `worker spawn --repo <path|project>` to a git toplevel.
+///
+/// Existing directory → `git_toplevel` (or [`ResolveSpawnRepoError::NotGit`]).
+/// Otherwise match `Project.name` from [`discover_projects`]: one hit → its path;
+/// zero → unknown; several → ambiguous with `root_label/name` candidates.
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum ResolveSpawnRepoError {
+    #[error("path is not inside a git repository")]
+    NotGit,
+    #[error("unknown project '{0}'")]
+    Unknown(String),
+    #[error("ambiguous project '{name}': {candidates}")]
+    Ambiguous { name: String, candidates: String },
+}
+
+pub fn resolve_spawn_repo(
+    cfg: &ProjectsConfig,
+    value: &str,
+) -> Result<PathBuf, ResolveSpawnRepoError> {
+    let path = Path::new(value);
+    if path.is_dir() {
+        return git_toplevel(path).ok_or(ResolveSpawnRepoError::NotGit);
+    }
+    let found = discover_projects(cfg);
+    let matches: Vec<&Project> = found.iter().filter(|p| p.name == value).collect();
+    match matches.as_slice() {
+        [] => Err(ResolveSpawnRepoError::Unknown(value.to_string())),
+        [one] => Ok(one.path.clone()),
+        many => Err(ResolveSpawnRepoError::Ambiguous {
+            name: value.to_string(),
+            candidates: many
+                .iter()
+                .map(|p| format!("{}/{}", p.root_label, p.name))
+                .collect::<Vec<_>>()
+                .join(", "),
+        }),
+    }
+}
+
 fn discover_flat(root: &Path, label: &str, out: &mut Vec<Project>) {
     let entries = match std::fs::read_dir(root) {
         Ok(e) => e,
@@ -648,5 +687,69 @@ retention_days = 7
         let found = discover_projects(&cfg);
         assert_eq!(found.len(), 1);
         assert!(found[0].path.ends_with("my-app"));
+    }
+
+    fn init_git_repo(dir: &Path) {
+        fs::create_dir_all(dir).unwrap();
+        assert!(std::process::Command::new("git")
+            .args(["-C", dir.to_str().unwrap(), "init", "-b", "main"])
+            .status()
+            .unwrap()
+            .success());
+    }
+
+    #[test]
+    fn resolve_spawn_repo_path_and_name() {
+        let tmp = tempdir().unwrap();
+        let root_a = tmp.path().join("a");
+        let root_b = tmp.path().join("b");
+        let repo_a = root_a.join("app");
+        let repo_b = root_b.join("app");
+        let alone = root_a.join("solo");
+        init_git_repo(&repo_a);
+        init_git_repo(&repo_b);
+        init_git_repo(&alone);
+        let not_git = tmp.path().join("plain");
+        fs::create_dir_all(&not_git).unwrap();
+
+        let cfg = ProjectsConfig {
+            discover: DiscoverMode::GitOnly,
+            max_depth: 4,
+            roots: vec![
+                ProjectRoot {
+                    path: root_a.clone(),
+                    label: "alpha".into(),
+                },
+                ProjectRoot {
+                    path: root_b.clone(),
+                    label: "beta".into(),
+                },
+            ],
+        };
+
+        assert_eq!(
+            resolve_spawn_repo(&cfg, alone.to_str().unwrap()).unwrap(),
+            git_toplevel(&alone).unwrap()
+        );
+        assert_eq!(
+            resolve_spawn_repo(&cfg, "solo").unwrap(),
+            alone
+        );
+        assert_eq!(
+            resolve_spawn_repo(&cfg, not_git.to_str().unwrap()),
+            Err(ResolveSpawnRepoError::NotGit)
+        );
+        assert_eq!(
+            resolve_spawn_repo(&cfg, "missing"),
+            Err(ResolveSpawnRepoError::Unknown("missing".into()))
+        );
+        match resolve_spawn_repo(&cfg, "app") {
+            Err(ResolveSpawnRepoError::Ambiguous { name, candidates }) => {
+                assert_eq!(name, "app");
+                assert!(candidates.contains("alpha/app"));
+                assert!(candidates.contains("beta/app"));
+            }
+            other => panic!("expected Ambiguous, got {other:?}"),
+        }
     }
 }

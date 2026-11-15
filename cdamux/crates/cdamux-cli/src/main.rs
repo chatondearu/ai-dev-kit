@@ -21,8 +21,9 @@ mod widgets;
 
 use cdamux_core::{
     cdamux_home, command_on_path, config_path, configured_agent_ids, default_agent_name,
-    discover_projects, ensure_home_session, ensure_note_file, format_unread_digest, git_diff_unified, git_toplevel,
-    home_session_new_argv, list_tmux_sessions, list_worktrees, list_workers, load_config,
+    discover_projects, ensure_home_session, ensure_note_file, format_unread_digest, git_diff_unified,
+    git_toplevel, home_session_new_argv, list_tmux_sessions, list_worktrees, list_workers, load_config,
+    resolve_spawn_repo,
     note_refs_for_projects, current_tmux_session, kill_tmux_session, list_panes_all, msg_send,
     parents_first, peek_worker, read_messages, parse_unified_diff, resolve_agent_command,
     restore_one, restore_targets, restart_plan, session_registry, resolve_note_path, send_to_session,
@@ -225,9 +226,12 @@ enum WorkerCommands {
         /// First message (opencode: `--prompt`; others: paste after launch).
         #[arg(long)]
         prompt_file: Option<PathBuf>,
-        /// Use the caller's cwd (skip worktree + branch).
+        /// Use the target repo root (skip worktree + branch); with `--repo`, that repo's root.
         #[arg(long)]
         here: bool,
+        /// Target repo: existing directory (git toplevel) or discovered project name.
+        #[arg(long)]
+        repo: Option<String>,
     },
     /// List workers whose `parent` is `$CDAMUX_AGENT_ID`.
     Ls,
@@ -452,7 +456,14 @@ fn main() -> ExitCode {
                 agent,
                 prompt_file,
                 here,
-            } => cmd_worker_spawn(&name, agent.as_deref(), prompt_file.as_deref(), here),
+                repo,
+            } => cmd_worker_spawn(
+                &name,
+                agent.as_deref(),
+                prompt_file.as_deref(),
+                here,
+                repo.as_deref(),
+            ),
             WorkerCommands::Ls => cmd_worker_ls(),
             WorkerCommands::Peek { name, lines } => cmd_worker_peek(&name, lines),
         },
@@ -528,6 +539,7 @@ fn cmd_worker_spawn(
     agent: Option<&str>,
     prompt_file: Option<&std::path::Path>,
     here: bool,
+    repo: Option<&str>,
 ) -> ExitCode {
     let caller_id = match resolve_caller_agent_id() {
         Ok(id) => id,
@@ -540,6 +552,16 @@ fn cmd_worker_spawn(
             return ExitCode::from(1);
         }
     };
+    let resolved_repo = match repo {
+        Some(v) => match resolve_spawn_repo(&cfg.projects, v) {
+            Ok(p) => Some(p),
+            Err(e) => {
+                eprintln!("worker spawn: {e}");
+                return ExitCode::from(1);
+            }
+        },
+        None => None,
+    };
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let req = WorkerSpawnRequest {
         name,
@@ -547,6 +569,7 @@ fn cmd_worker_spawn(
         agent,
         prompt_file,
         here,
+        repo: resolved_repo.as_deref(),
         worktree_root: cfg.worktrees.root.as_deref(),
         agents: &cfg.agents,
         cwd: &cwd,

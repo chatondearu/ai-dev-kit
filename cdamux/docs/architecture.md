@@ -156,12 +156,15 @@ is kept); `kind=answer` clears the recipient to `idle`.
 
 Requires `$CDAMUX_AGENT_ID` (caller must be an orchestrator session).
 
-- `cdamux worker spawn <name> [--agent X] [--prompt-file f] [--here]` — tmux host with
-  `role=worker`, `parent` = caller id, `run` = caller's long-lived run (minted if
-  missing). Default: new git worktree `<root>/<run>/<name>` + branch
+- `cdamux worker spawn <name> [--agent X] [--prompt-file f] [--here] [--repo <path|project>]`
+  — tmux host with `role=worker`, `parent` = caller id, `run` = caller's long-lived run
+  (minted if missing). Default: new git worktree `<root>/<run>/<name>` + branch
   `worker/<run>/<name>`, with `<root>` = `[worktrees].root` or `$CDAMUX_HOME/worktrees`
   (per-run, so two orchestrators can each spawn `api`). `--prompt-file` is read before
-  the worktree is created. `--here` reuses the caller's cwd.
+  the worktree is created. `--here` reuses the target repo root (no worktree). `--repo`
+  selects that repo: an existing directory (git toplevel) or a unique discovered
+  project name (`cdamux projects`); without it, the caller's cwd repo is used. Worker
+  state stores `repo` = target toplevel; the run's `repo` stays the orchestrator's.
   Client defaults to the caller's product name unless `--agent` is set. Every spawn
   prefixes the first message with `cdamux/prompts/worker-preamble.md` (report via
   `cdamux msg`); `--prompt-file` content is appended. opencode's first message uses

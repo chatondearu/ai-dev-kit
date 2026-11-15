@@ -101,7 +101,8 @@ workers with a pending `ask`; answering from the composer / send form uses
 *orchestrator*) — skill `cda-orchestrator`. Cross-project: `cdamux orch new --global`
 (`scope=global`, cwd `$CDAMUX_HOME/global`; Fleet **o** then **g**). Interactive workers:
 `cdamux worker spawn|ls|peek` (needs `$CDAMUX_AGENT_ID`; worktrees under
-`[worktrees].root` or `$CDAMUX_HOME/worktrees`; default first message includes the
+`[worktrees].root` or `$CDAMUX_HOME/worktrees`; `spawn --repo <path|project>` targets
+any discovered project from outside a git cwd; default first message includes the
 worker preamble for `cdamux msg`). `cdamux restore <orch>` rebuilds the
 orchestrator host and its workers (resume by id when recorded). Retention:
 `cdamux state gc` (optional `--retention-days N`, N ≥ 1) archives then removes

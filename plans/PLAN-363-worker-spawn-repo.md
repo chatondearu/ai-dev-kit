@@ -47,13 +47,13 @@ outside any repo (global, #364) dispatch into every discovered project.
 
 ## Tasks
 
-- [ ] CLI flag + request field
-- [ ] Project name resolution (unique / unknown / ambiguous)
-- [ ] `spawn_worker` uses the target repo; works when caller cwd is not a git repo
-- [ ] Tests: unit for resolution; throwaway-tmux integration spawning into a second temp repo
+- [x] CLI flag + request field
+- [x] Project name resolution (unique / unknown / ambiguous)
+- [x] `spawn_worker` uses the target repo; works when caller cwd is not a git repo
+- [x] Tests: unit for resolution; throwaway-tmux integration spawning into a second temp repo
       from a caller whose cwd is a non-git temp dir
-- [ ] Docs + skill line
-- [ ] `cargo test` in `cdamux/`; `bash scripts/verify.sh`; PR `Closes #363`
+- [x] Docs + skill line
+- [x] `cargo test` in `cdamux/`; `bash scripts/verify.sh`; PR `Closes #363`
 
 ## Risks & mitigations
 
@@ -64,5 +64,5 @@ outside any repo (global, #364) dispatch into every discovered project.
 
 ## Test plan
 
-- [ ] `cargo test` (unit + `tests/worker_tmux.rs`-style throwaway server)
-- [ ] `bash scripts/verify.sh`
+- [x] `cargo test` (unit + `tests/worker_tmux.rs`-style throwaway server)
+- [x] `bash scripts/verify.sh`

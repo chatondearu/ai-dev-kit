@@ -150,6 +150,15 @@ systemctl --user stop cda-orch-auto.timer            # free this machine
 Prefer a **dedicated host** (clone + `gh auth` + agent CLI) when the laptop
 should stay free for interactive work.
 
+## Worker function export
+
+Sandbox and `bash -c` workers need harness functions (`orch_*` / `_orch_*`) via
+`export -f`. `orch_export_functions` discovers them with `declare -F` only (not
+`compgen`, which some agent shells lack) and asserts that a child bash can
+`type orch_loop_worker` before invoke. If that assert still fails, use the
+skill-only path or `cda-graph` [`graph-node.sh`](graph-orchestration.md) with a
+Cursor Task instead of relying on the harness `bash -c` worker.
+
 ## Headless (no Kanban)
 
 ```bash

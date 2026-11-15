@@ -1,6 +1,6 @@
 # PLAN-354 — fix(cda-dev): harden orch_export_functions for shells without compgen
 
-- **Status**: in-progress
+- **Status**: done
 - **PRD**: [[../prd/PRD-353-harden-orch-export-without-compgen|PRD-353]]
 - **GitHub**: [#354](https://github.com/chatondearu/ai-dev-kit/issues/354)
 - **Date**: 2026-11-15
@@ -57,16 +57,16 @@ replaced by declare-F-only (intake Q2=A).
 
 ## Tasks
 
-- [ ] **Export discovery**: `orch_export_functions` uses only `declare -F`; no
+- [x] **Export discovery**: `orch_export_functions` uses only `declare -F`; no
       `compgen` (acceptance: grepping the function body finds no `compgen`)
-- [ ] **Assert**: after export, child `bash -c 'type orch_loop_worker'` must
+- [x] **Assert**: after export, child `bash -c 'type orch_loop_worker'` must
       succeed or harness exits with a clear error naming export failure
-- [ ] **Call sites**: ready-pickup / graph-plan / headless / pr-fix paths that
+- [x] **Call sites**: ready-pickup / graph-plan / headless / pr-fix paths that
       rely on exported functions get the assert (or share one post-export assert)
-- [ ] **Test**: suite case covers export → `bash -c 'type orch_loop_worker'`
-- [ ] **Docs**: short note in `doc/orchestration.md` (export/assert + Task /
+- [x] **Test**: suite case covers export → `bash -c 'type orch_loop_worker'`
+- [x] **Docs**: short note in `doc/orchestration.md` (export/assert + Task /
       `graph-node.sh` fallback)
-- [ ] **Verify**: `bash scripts/verify.sh` green; PR `Closes #354`
+- [x] **Verify**: `bash scripts/verify.sh` green; PR `Closes #354`
 
 ## Risks & mitigations
 
@@ -81,11 +81,11 @@ replaced by declare-F-only (intake Q2=A).
 Seams: `orch_export_functions` public behavior; child bash visibility of
 `orch_loop_worker` after export.
 
-- [ ] Unit/self-check: source libs → export → `bash -c 'type orch_loop_worker'` → 0
+- [x] Unit/self-check: source libs → export → `bash -c 'type orch_loop_worker'` → 0
 - [ ] Optional negative: simulate empty export path only if cheap (skip if awkward)
-- [ ] `bash scripts/verify.sh` (host / Mise; no routine `nix develop -c`)
+- [x] `bash scripts/verify.sh` (host / Mise; no routine `nix develop -c`)
 
 ## Verification
 
-- [ ] Lint / test / build per project conventions
-- [ ] No new ADR unless we later kill `export -f` (out of scope here)
+- [x] Lint / test / build per project conventions
+- [x] No new ADR unless we later kill `export -f` (out of scope here)

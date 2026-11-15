@@ -1,6 +1,6 @@
 # PLAN-359 — fix(cda-kiss,cda-agents): role-aware routing from one source
 
-- **Status**: ready
+- **Status**: done
 - **PRD**: [[../prd/PRD-356-orchestrator-actually-orchestrates|PRD-356]]
 - **GitHub**: [#359](https://github.com/chatondearu/ai-dev-kit/issues/359)
 - **Date**: 2026-11-15

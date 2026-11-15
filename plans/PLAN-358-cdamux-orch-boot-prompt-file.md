@@ -1,6 +1,6 @@
 # PLAN-358 — fix(cdamux): deliver orchestrator boot prompt via prompt file and export CDA_ROLE
 
-- **Status**: ready
+- **Status**: done
 - **PRD**: [[../prd/PRD-356-orchestrator-actually-orchestrates|PRD-356]]
 - **GitHub**: [#358](https://github.com/chatondearu/ai-dev-kit/issues/358)
 - **Date**: 2026-11-15

@@ -53,8 +53,8 @@ Index: [[decisions/index|All ADRs]]
 
 | PRD | Status |
 | --- | ------ |
-| [[../prd/PRD-357-global-orchestrator|PRD-357]] global orchestrator across cdamux projects (children #363–#367, plans when unblocked) | approved |
-| [[../prd/PRD-356-orchestrator-actually-orchestrates|PRD-356]] orchestrator sessions actually orchestrate (plans: [[../plans/PLAN-358-cdamux-orch-boot-prompt-file|PLAN-358]], [[../plans/PLAN-359-role-aware-routing|PLAN-359]], [[../plans/PLAN-360-orchestrator-hard-rules|PLAN-360]], [[../plans/PLAN-361-isolate-tests-cdamux-home|PLAN-361]], [[../plans/PLAN-362-merge-no-harness-fallbacks|PLAN-362]]) | approved |
+| [[../prd/PRD-357-global-orchestrator|PRD-357]] global orchestrator across cdamux projects (plans: [[../plans/PLAN-363-worker-spawn-repo|PLAN-363]], [[../plans/PLAN-364-orch-new-global|PLAN-364]]) | approved |
+| [[../prd/PRD-356-orchestrator-actually-orchestrates|PRD-356]] orchestrator sessions actually orchestrate (plans: [[../plans/PLAN-358-cdamux-orch-boot-prompt-file|PLAN-358]], [[../plans/PLAN-359-role-aware-routing|PLAN-359]], [[../plans/PLAN-360-orchestrator-hard-rules|PLAN-360]], [[../plans/PLAN-361-isolate-tests-cdamux-home|PLAN-361]], [[../plans/PLAN-362-merge-no-harness-fallbacks|PLAN-362]]) | shipped |
 | [[../prd/PRD-353-harden-orch-export-without-compgen|PRD-353]] harden orch export without compgen (plan: [[../plans/PLAN-354-fix-cda-dev-harden-orch-export-functions-for-shells-without-|PLAN-354]]) | approved |
 | [[../prd/PRD-348-cdamux-opt-in-nav-bind-and-docs|PRD-348]] opt-in nav bind + docs (plans: [[../plans/PLAN-349-feat-aitools-install-opt-in-cdamux-nav-bind|PLAN-349]], [[../plans/PLAN-350-docs-cdamux-kit-nav-dismiss-hygiene|PLAN-350]]) | approved |
 | [[../prd/PRD-343-coolify-cli-in-kit|PRD-343]] Coolify CLI in kit (plans: [[../plans/PLAN-344-feat-aitools-package-coolify-cli-opt-in-cda-aitools-coolify|PLAN-344]], [[../plans/PLAN-345-docs-coolify-point-coolify-ops-at-cli-note-cli-first-prefere|PLAN-345]]) | approved |

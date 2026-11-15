@@ -1,6 +1,6 @@
 # PLAN-362 — docs(cda-dev,cda-graph): merge the two no-harness fallbacks
 
-- **Status**: ready
+- **Status**: done
 - **PRD**: [[../prd/PRD-356-orchestrator-actually-orchestrates|PRD-356]]
 - **GitHub**: [#362](https://github.com/chatondearu/ai-dev-kit/issues/362)
 - **Date**: 2026-11-15

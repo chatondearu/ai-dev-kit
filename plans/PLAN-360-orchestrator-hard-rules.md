@@ -1,6 +1,6 @@
 # PLAN-360 — fix(cda-orchestrator): hard rules, planner worker, exit-75 fallback, end turn after dispatch
 
-- **Status**: ready
+- **Status**: done
 - **PRD**: [[../prd/PRD-356-orchestrator-actually-orchestrates|PRD-356]]
 - **GitHub**: [#360](https://github.com/chatondearu/ai-dev-kit/issues/360)
 - **Date**: 2026-11-15

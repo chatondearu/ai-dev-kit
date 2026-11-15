@@ -1,6 +1,6 @@
 # PRD-356 — Orchestrator sessions actually orchestrate
 
-- **Status**: approved
+- **Status**: shipped
 - **GitHub**: [#356](https://github.com/chatondearu/ai-dev-kit/issues/356)
 - **Date**: 2026-11-15
 - **Tags**: #product #orchestration #cdamux
@@ -23,14 +23,14 @@ maintainer's requests themselves instead of dispatching workers. Kiss-audit 2026
 
 ## Goals
 
-- [ ] Every orchestrator session knows its role from turn one (boot prompt delivered, role
+- [x] Every orchestrator session knows its role from turn one (boot prompt delivered, role
       re-injected by hooks on start / restore / compact)
-- [ ] The orchestrator never edits, commits or runs verify in a repo; every change goes to a worker
-- [ ] A chat request costs the orchestrator one question round + GO, then it dispatches and
+- [x] The orchestrator never edits, commits or runs verify in a repo; every change goes to a worker
+- [x] A chat request costs the orchestrator one question round + GO, then it dispatches and
       returns within the same turn
-- [ ] A second request on a repo with a running `orch.sh` batch is still dispatched
-- [ ] Tests never write into the live `CDAMUX_HOME`
-- [ ] One source for the routing rule
+- [x] A second request on a repo with a running `orch.sh` batch is still dispatched
+- [x] Tests never write into the live `CDAMUX_HOME`
+- [x] One source for the routing rule
 
 ## Non-goals
 
@@ -52,18 +52,18 @@ maintainer's requests themselves instead of dispatching workers. Kiss-audit 2026
 
 ### Functional
 
-- [ ] Orchestrator boot prompt passed on the client command line (prompt file), like workers ([#358](https://github.com/chatondearu/ai-dev-kit/issues/358))
-- [ ] `CDA_ROLE=orchestrator` in the orchestrator pane command on spawn and respawn (#358)
-- [ ] Hook routing returns an orchestrator block when `CDA_ROLE=orchestrator`; routing text has one source ([#359](https://github.com/chatondearu/ai-dev-kit/issues/359))
-- [ ] `cda-orchestrator` hard rules, planner-worker intake, exit-75 fallback, end-turn discipline ([#360](https://github.com/chatondearu/ai-dev-kit/issues/360))
-- [ ] Harness tests use a temp `CDAMUX_HOME` and no inherited agent id ([#361](https://github.com/chatondearu/ai-dev-kit/issues/361))
-- [ ] One no-harness fallback procedure ([#362](https://github.com/chatondearu/ai-dev-kit/issues/362))
+- [x] Orchestrator boot prompt passed on the client command line (prompt file), like workers ([#358](https://github.com/chatondearu/ai-dev-kit/issues/358))
+- [x] `CDA_ROLE=orchestrator` in the orchestrator pane command on spawn and respawn (#358)
+- [x] Hook routing returns an orchestrator block when `CDA_ROLE=orchestrator`; routing text has one source ([#359](https://github.com/chatondearu/ai-dev-kit/issues/359))
+- [x] `cda-orchestrator` hard rules, planner-worker intake, exit-75 fallback, end-turn discipline ([#360](https://github.com/chatondearu/ai-dev-kit/issues/360))
+- [x] Harness tests use a temp `CDAMUX_HOME` and no inherited agent id ([#361](https://github.com/chatondearu/ai-dev-kit/issues/361))
+- [x] One no-harness fallback procedure ([#362](https://github.com/chatondearu/ai-dev-kit/issues/362))
 
 ### Non-functional
 
-- [ ] Kiss hooks stay local-only, fail-open, no added process spawn
-- [ ] No new default wiring in `install.sh` (ADR-001 / ADR-007)
-- [ ] `bash scripts/verify.sh` and `cargo test` (cdamux) green
+- [x] Kiss hooks stay local-only, fail-open, no added process spawn
+- [x] No new default wiring in `install.sh` (ADR-001 / ADR-007)
+- [x] `bash scripts/verify.sh` and `cargo test` (cdamux) green
 
 ## Related project memory
 

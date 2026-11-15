@@ -62,4 +62,4 @@ workers across projects, and `cda-orchestrator` has no global routing.
 - ADRs: [[../foam/decisions/ADR-011-cdamux-unified-state-model|ADR-011]],
   [[../foam/decisions/ADR-015-global-and-nested-orchestrators|ADR-015]] (proposed),
   [[../foam/decisions/ADR-009-cdamux-session-restore-registry|ADR-009]]
-- Plans: created per child when unblocked
+- Plans: [[../plans/PLAN-363-worker-spawn-repo|PLAN-363]], [[../plans/PLAN-364-orch-new-global|PLAN-364]] (others when unblocked)

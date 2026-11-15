@@ -156,6 +156,7 @@ fn spawn_ls_peek_and_msg_by_name() {
         agent: None,
         prompt_file: Some(&prompt),
         here: false,
+        repo: None,
         worktree_root: Some(&wt_root),
         agents: &agents,
         cwd: &repo,
@@ -183,6 +184,10 @@ fn spawn_ls_peek_and_msg_by_name() {
     assert_eq!(worker["name"], "api");
     assert_eq!(worker["run"], out.run);
     assert_eq!(worker["host"], out.host);
+    assert_eq!(
+        worker["repo"].as_str().map(std::path::Path::new),
+        Some(repo.as_path())
+    );
 
     let rows = list_workers("a-orch1").unwrap();
     assert_eq!(rows.len(), 1);
@@ -222,6 +227,157 @@ fn spawn_ls_peek_and_msg_by_name() {
     assert!(
         pane.contains("hello-by-name"),
         "worker pane missing paste: {pane}"
+    );
+
+    let sock = tmux(&["display-message", "-p", "#{socket_path}"]);
+    assert!(
+        sock.contains(tmp.path().to_str().unwrap_or("___")),
+        "refusing kill-server: socket {sock} not under temp"
+    );
+    let _ = Command::new("tmux").args(["kill-server"]).status();
+}
+
+#[test]
+fn spawn_repo_from_non_git_caller_cwd() {
+    let Some(real_tmux) = which("tmux") else {
+        eprintln!("tmux not on PATH: skipped");
+        return;
+    };
+    let Some(_) = which("git") else {
+        eprintln!("git not on PATH: skipped");
+        return;
+    };
+
+    let tmp = tempfile::tempdir().unwrap();
+    let bin = tmp.path().join("bin");
+    std::fs::create_dir(&bin).unwrap();
+    let wrapper = bin.join("tmux");
+    std::fs::write(
+        &wrapper,
+        format!("#!/bin/sh\nexec {real_tmux} -L {SOCKET}-repo -f /dev/null \"$@\"\n"),
+    )
+    .unwrap();
+    let stub = bin.join("claude");
+    std::fs::write(&stub, "#!/bin/sh\nprintf '%s\\n' \"$@\"\nexec sleep 30\n").unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o755)).unwrap();
+    std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    let outside = tmp.path().join("outside");
+    std::fs::create_dir(&outside).unwrap();
+    let target = tmp.path().join("target-repo");
+    std::fs::create_dir(&target).unwrap();
+    assert!(Command::new("git")
+        .args(["-C", target.to_str().unwrap(), "init", "-b", "main"])
+        .status()
+        .unwrap()
+        .success());
+    std::fs::write(target.join("README"), "x").unwrap();
+    assert!(Command::new("git")
+        .args(["-C", target.to_str().unwrap(), "add", "README"])
+        .status()
+        .unwrap()
+        .success());
+    assert!(Command::new("git")
+        .args([
+            "-C",
+            target.to_str().unwrap(),
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "user.name=t",
+            "commit",
+            "-m",
+            "init",
+        ])
+        .status()
+        .unwrap()
+        .success());
+
+    let _env = env_lock();
+    let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default());
+    std::env::set_var("PATH", &path);
+    std::env::set_var("TMUX_TMPDIR", tmp.path());
+    std::env::set_var("CDAMUX_HOME", tmp.path().join("cdamux"));
+    std::env::remove_var("TMUX");
+
+    assert!(Command::new("tmux")
+        .args([
+            "new-session",
+            "-d",
+            "-s",
+            "c-orch",
+            "-c",
+            outside.to_str().unwrap(),
+            "sh",
+            "-c",
+            "sleep 60",
+        ])
+        .status()
+        .unwrap()
+        .success());
+
+    state_set(
+        StateKind::Agents,
+        "a-orch-global",
+        &serde_json::json!({
+            "id": "a-orch-global",
+            "client": "claude",
+            "host": "c-orch",
+            "role": "orchestrator",
+            "parent": null,
+            "run": null,
+            "status": "idle"
+        }),
+    )
+    .unwrap();
+
+    let agents = AgentsConfig {
+        default: "claude".into(),
+        claude: Some(AgentEntry {
+            command: "claude".into(),
+            resume: None,
+        }),
+        cursor: None,
+        opencode: None,
+        pi: None,
+    };
+    let wt_root = tmp.path().join("wts");
+    let out = spawn_worker(WorkerSpawnRequest {
+        name: "cross",
+        caller_id: "a-orch-global",
+        agent: None,
+        prompt_file: None,
+        here: false,
+        repo: Some(&target),
+        worktree_root: Some(&wt_root),
+        agents: &agents,
+        cwd: &outside,
+    })
+    .expect("spawn into --repo from non-git cwd");
+
+    assert!(out.path.starts_with(&wt_root));
+    let branch = Command::new("git")
+        .args(["-C", out.path.to_str().unwrap(), "branch", "--show-current"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        String::from_utf8_lossy(&branch.stdout).trim(),
+        format!("worker/{}/cross", out.run)
+    );
+
+    let worker = state_get(StateKind::Agents, &out.agent_id).unwrap().unwrap();
+    assert_eq!(worker["parent"], "a-orch-global");
+    assert_eq!(
+        worker["repo"].as_str().map(std::path::Path::new),
+        Some(target.as_path())
+    );
+
+    let run = state_get(StateKind::Runs, &out.run).unwrap().unwrap();
+    // Run repo stays the orchestrator's cwd (outside), not the target.
+    assert_eq!(
+        run["repo"].as_str().map(std::path::Path::new),
+        Some(outside.as_path())
     );
 
     let sock = tmux(&["display-message", "-p", "#{socket_path}"]);

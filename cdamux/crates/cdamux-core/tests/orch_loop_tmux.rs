@@ -137,6 +137,7 @@ fn orchestrator_loop_spawn_ask_answer_done() {
         agent: None,
         prompt_file: Some(&prompt),
         here: false,
+        repo: None,
         worktree_root: Some(&tmp.path().join("wts")),
         agents: &agents,
         cwd: &repo,

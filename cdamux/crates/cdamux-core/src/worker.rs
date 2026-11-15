@@ -63,8 +63,10 @@ pub struct WorkerSpawnRequest<'a> {
     /// Product client override; inherit caller's client when `None`.
     pub agent: Option<&'a str>,
     pub prompt_file: Option<&'a Path>,
-    /// Spawn in the caller's cwd (no new worktree/branch).
+    /// Spawn in the target repo root (no new worktree/branch); with `repo`, that root.
     pub here: bool,
+    /// Target repo toplevel (from `--repo`); when set, worktree/here use this instead of caller cwd.
+    pub repo: Option<&'a Path>,
     pub worktree_root: Option<&'a Path>,
     pub agents: &'a AgentsConfig,
     /// Fallback cwd when the caller's host path cannot be resolved.
@@ -346,9 +348,15 @@ pub fn spawn_worker(req: WorkerSpawnRequest<'_>) -> Result<WorkerSpawnResult, Wo
     };
     let prompt = compose_worker_first_prompt(user_prompt.as_deref());
 
-    let base_cwd = resolve_caller_cwd(&caller, req.cwd);
-    let run = ensure_orch_run(req.caller_id, &caller, &base_cwd)?;
+    // Run stays on the caller's orchestrator cwd even when `--repo` retargets the worktree.
+    let caller_cwd = resolve_caller_cwd(&caller, req.cwd);
+    let base_cwd = req
+        .repo
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| caller_cwd.clone());
+    let run = ensure_orch_run(req.caller_id, &caller, &caller_cwd)?;
 
+    let target_repo = git_toplevel(&base_cwd);
     let spawn_path = if req.here {
         base_cwd.clone()
     } else {
@@ -357,7 +365,7 @@ pub fn spawn_worker(req: WorkerSpawnRequest<'_>) -> Result<WorkerSpawnResult, Wo
             .map(Path::to_path_buf)
             .or_else(|| cdamux_state_dir("worktrees"))
             .ok_or(WorkerError::NoWorktreeRoot)?;
-        let repo = git_toplevel(&base_cwd).ok_or(WorkerError::NotGit)?;
+        let repo = target_repo.clone().ok_or(WorkerError::NotGit)?;
         let base_branch = current_branch(&repo).unwrap_or_else(|| "HEAD".into());
         let branch = format!("worker/{run}/{name}");
         let dest = resolve_worktree_dest(&root.join(&run), &name);
@@ -398,6 +406,14 @@ pub fn spawn_worker(req: WorkerSpawnRequest<'_>) -> Result<WorkerSpawnResult, Wo
     )?;
 
     let agent_id = resolve_spawned_agent_id(&host);
+
+    if let Some(repo) = target_repo {
+        let _ = state_append(
+            StateKind::Agents,
+            &agent_id,
+            &json!({ "repo": repo.display().to_string() }),
+        );
+    }
 
     if paste_after && !prompt.trim().is_empty() {
         send_to_session(&host, prompt.trim(), true)?;

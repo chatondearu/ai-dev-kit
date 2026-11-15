@@ -87,7 +87,7 @@ Report: <what the `done` message carries: PR url, numbers, report path>
 Research only: say "change nothing in the repo" and give a report path.
 
 ```bash
-cdamux worker spawn <name> --prompt-file spec.md [--agent X] [--here]
+cdamux worker spawn <name> --prompt-file spec.md [--agent X] [--here] [--repo <path|project>]
 cdamux worker ls
 cdamux worker peek <name> [--lines N]
 ```

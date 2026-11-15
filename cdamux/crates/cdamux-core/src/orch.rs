@@ -7,7 +7,7 @@ use crate::spawn::{
     SpawnExtra, SpawnOutcome,
 };
 use crate::state::{generate_run_id, state_set, StateKind};
-use crate::worker::with_first_prompt;
+use crate::worker::{with_first_prompt, write_first_prompt};
 use crate::AgentsConfig;
 use serde_json::json;
 use std::path::{Path, PathBuf};
@@ -64,10 +64,14 @@ pub fn spawn_orchestrator(req: OrchNewRequest<'_>) -> Result<OrchNewResult, Orch
 
     let run = generate_run_id().ok_or(OrchError::NoRunId)?;
     let base_cmd = resolve_agent_command(req.agents, &client)?;
-    let (launch_cmd, paste_after) =
-        with_first_prompt(&base_cmd, &client, Some(orch_boot_prompt()), None);
-
     let host = unique_session_name(&session_name_for_path(req.path));
+    let prompt_file = write_first_prompt(&host, orch_boot_prompt());
+    let (launch_cmd, paste_after) = with_first_prompt(
+        &base_cmd,
+        &client,
+        Some(orch_boot_prompt()),
+        prompt_file.as_deref(),
+    );
     let extra = SpawnExtra {
         role: Some("orchestrator"),
         run: Some(run.as_str()),

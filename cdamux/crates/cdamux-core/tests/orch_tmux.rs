@@ -2,7 +2,7 @@
 
 use cdamux_core::{
     env_lock, orch_boot_prompt, spawn_orchestrator, state_get, AgentsConfig, AgentEntry,
-    OrchNewRequest, StateKind, ORCHESTRATOR_SKILL,
+    OrchNewRequest, StateKind,
 };
 use std::process::Command;
 use std::time::{Duration, Instant};
@@ -23,18 +23,16 @@ fn tmux(args: &[&str]) -> String {
     String::from_utf8_lossy(&out.stdout).into_owned()
 }
 
-fn wait_for_pane(session: &str, needle: &str) -> String {
+fn wait_for_file(path: &std::path::Path) -> String {
     let start = Instant::now();
     loop {
-        let text = tmux(&[
-            "capture-pane",
-            "-p",
-            "-J",
-            "-t",
-            &format!("={session}:"),
-        ]);
-        if text.contains(needle) || start.elapsed() > Duration::from_secs(5) {
-            return text;
+        if let Ok(text) = std::fs::read_to_string(path) {
+            if !text.is_empty() || start.elapsed() > Duration::from_secs(5) {
+                return text;
+            }
+        }
+        if start.elapsed() > Duration::from_secs(5) {
+            return String::new();
         }
         std::thread::sleep(Duration::from_millis(50));
     }
@@ -56,8 +54,17 @@ fn orch_new_sets_role_run_and_boot_prompt() {
         format!("#!/bin/sh\nexec {real_tmux} -L {SOCKET} -f /dev/null \"$@\"\n"),
     )
     .unwrap();
+    let stub_out = tmp.path().join("claude.out");
     let stub = bin.join("claude");
-    std::fs::write(&stub, "#!/bin/sh\nexec sleep 30\n").unwrap();
+    // Record argv (prompt file expanded by the shell) and CDA_ROLE from the pane env prefix.
+    std::fs::write(
+        &stub,
+        format!(
+            "#!/bin/sh\nprintf 'ARGV:%s\\nCDA_ROLE=%s\\n' \"$*\" \"${{CDA_ROLE-}}\" > {}\nexec sleep 30\n",
+            stub_out.display()
+        ),
+    )
+    .unwrap();
     use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o755)).unwrap();
     std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
@@ -69,7 +76,8 @@ fn orch_new_sets_role_run_and_boot_prompt() {
     let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default());
     std::env::set_var("PATH", &path);
     std::env::set_var("TMUX_TMPDIR", tmp.path());
-    std::env::set_var("CDAMUX_HOME", tmp.path().join("cdamux"));
+    let home = tmp.path().join("cdamux");
+    std::env::set_var("CDAMUX_HOME", &home);
     std::env::remove_var("TMUX");
 
     let agents = AgentsConfig {
@@ -103,12 +111,24 @@ fn orch_new_sets_role_run_and_boot_prompt() {
     let run = state_get(StateKind::Runs, &out.run).unwrap().unwrap();
     assert_eq!(run["parent"], out.agent_id);
 
-    let needle = ORCHESTRATOR_SKILL;
-    let pane = wait_for_pane(&out.host, needle);
+    let prompt_path = home.join("prompts").join(format!("{}.md", out.host));
     assert!(
-        pane.contains(needle),
-        "boot prompt missing skill name; pane={pane}; boot={}",
-        orch_boot_prompt()
+        prompt_path.is_file(),
+        "missing prompt file {}",
+        prompt_path.display()
+    );
+    let prompt_body = std::fs::read_to_string(&prompt_path).unwrap();
+    assert_eq!(prompt_body.trim(), orch_boot_prompt());
+
+    let stub_log = wait_for_file(&stub_out);
+    assert!(
+        stub_log.contains("CDA_ROLE=orchestrator"),
+        "orchestrator pane missing CDA_ROLE; stub_log={stub_log}"
+    );
+    assert!(
+        stub_log.contains("cda-orchestrator"),
+        "boot prompt not on CLI argv; stub_log={stub_log}; file={}",
+        prompt_path.display()
     );
 
     let sock = tmux(&["display-message", "-p", "#{socket_path}"]);

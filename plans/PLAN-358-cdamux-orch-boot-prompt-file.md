@@ -45,10 +45,10 @@ spawn. Orchestrator panes export `CDA_ROLE=orchestrator` on spawn and respawn.
 
 ## Tasks
 
-- [ ] Boot prompt via prompt file on the command line
-- [ ] `CDA_ROLE=orchestrator` prefix on spawn and respawn, not for workers
-- [ ] Tests: launch command has the file; env prefix present/absent by role
-- [ ] `cargo test` in `cdamux/`; `bash scripts/verify.sh`; PR `Closes #358`
+- [x] Boot prompt via prompt file on the command line
+- [x] `CDA_ROLE=orchestrator` prefix on spawn and respawn, not for workers
+- [x] Tests: launch command has the file; env prefix present/absent by role
+- [x] `cargo test` in `cdamux/`; `bash scripts/verify.sh`; PR `Closes #358`
 
 ## Risks & mitigations
 
@@ -59,6 +59,6 @@ spawn. Orchestrator panes export `CDA_ROLE=orchestrator` on spawn and respawn.
 
 ## Test plan
 
-- [ ] Unit: `with_agent_id_env`-style helper adds `CDA_ROLE` only for orchestrator
-- [ ] Integration (throwaway tmux): orchestrator launch command contains the prompt file path
-- [ ] `cargo test`, `bash scripts/verify.sh`
+- [x] Unit: `with_agent_id_env`-style helper adds `CDA_ROLE` only for orchestrator
+- [x] Integration (throwaway tmux): orchestrator launch command contains the prompt file path
+- [x] `cargo test`, `bash scripts/verify.sh`

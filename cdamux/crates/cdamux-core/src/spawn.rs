@@ -151,7 +151,8 @@ pub fn spawn_tmux_session_ex(
     let cdamux_id = agent_label.and_then(|_| generate_agent_id());
     let (primary_command, agent_session_id) =
         with_claude_session_id(primary_command, agent_label);
-    let primary_command = with_agent_id_env(&primary_command, cdamux_id.as_deref());
+    let primary_command =
+        with_agent_id_env(&primary_command, cdamux_id.as_deref(), extra.role);
     create_tmux_session(
         session_name,
         path,
@@ -181,7 +182,8 @@ pub fn spawn_tmux_session_ex(
 /// `primary_command`; the record keeps its `created_ts`, `updated_ts` is bumped.
 /// No `--session-id` is added here: the caller built the exact command (restore).
 pub(crate) fn respawn_recorded(rec: &SessionRecord, primary_command: &str) -> Result<SpawnOutcome, SpawnError> {
-    let primary_command = with_agent_id_env(primary_command, rec.cdamux_id.as_deref());
+    let primary_command =
+        with_agent_id_env(primary_command, rec.cdamux_id.as_deref(), Some(rec.role.as_str()));
     // The registry record has no run: it lives in the agent state, restore `@cdamux_run` from there.
     let run = rec
         .cdamux_id
@@ -294,12 +296,22 @@ fn create_tmux_session(
     Ok(())
 }
 
-/// Prefix the pane command so the agent process sees `CDAMUX_AGENT_ID` even when the
-/// shell was started before `set-environment`.
-fn with_agent_id_env(command: &str, cdamux_id: Option<&str>) -> String {
-    match cdamux_id {
-        Some(id) if !id.is_empty() => format!("CDAMUX_AGENT_ID={id} {command}"),
-        _ => command.to_string(),
+/// Prefix the pane command so the agent process sees `CDAMUX_AGENT_ID` (and for
+/// orchestrators `CDA_ROLE`) even when the shell started before `set-environment`.
+fn with_agent_id_env(command: &str, cdamux_id: Option<&str>, role: Option<&str>) -> String {
+    let mut prefix = String::new();
+    if role == Some("orchestrator") {
+        prefix.push_str("CDA_ROLE=orchestrator ");
+    }
+    if let Some(id) = cdamux_id.filter(|s| !s.is_empty()) {
+        prefix.push_str("CDAMUX_AGENT_ID=");
+        prefix.push_str(id);
+        prefix.push(' ');
+    }
+    if prefix.is_empty() {
+        command.to_string()
+    } else {
+        format!("{prefix}{command}")
     }
 }
 
@@ -514,6 +526,28 @@ mod tests {
     fn session_name_replaces_tmux_separators() {
         assert_eq!(session_name_for_path(Path::new("/x/web.app")), "c-web_app");
         assert_eq!(session_name_for_path(Path::new("/x/a:b")), "c-a_b");
+    }
+
+    #[test]
+    fn agent_id_env_adds_cda_role_only_for_orchestrator() {
+        assert_eq!(
+            with_agent_id_env("claude", Some("a-orch1"), Some("orchestrator")),
+            "CDA_ROLE=orchestrator CDAMUX_AGENT_ID=a-orch1 claude"
+        );
+        assert_eq!(
+            with_agent_id_env("claude", Some("a-work1"), Some("worker")),
+            "CDAMUX_AGENT_ID=a-work1 claude"
+        );
+        assert_eq!(
+            with_agent_id_env("claude", Some("a-agent"), Some("agent")),
+            "CDAMUX_AGENT_ID=a-agent claude"
+        );
+        assert_eq!(with_agent_id_env("claude", Some("a-x"), None), "CDAMUX_AGENT_ID=a-x claude");
+        assert_eq!(
+            with_agent_id_env("claude", None, Some("orchestrator")),
+            "CDA_ROLE=orchestrator claude"
+        );
+        assert_eq!(with_agent_id_env("claude", None, Some("worker")), "claude");
     }
 
     #[test]

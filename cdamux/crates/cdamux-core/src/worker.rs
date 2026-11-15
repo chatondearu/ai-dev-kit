@@ -125,7 +125,7 @@ pub fn with_first_prompt(
 }
 
 /// Write the first prompt under `$CDAMUX_HOME/prompts/<host>.md`; `None` when no home.
-fn write_first_prompt(host: &str, prompt: &str) -> Option<PathBuf> {
+pub(crate) fn write_first_prompt(host: &str, prompt: &str) -> Option<PathBuf> {
     let dir = cdamux_state_dir("prompts")?;
     std::fs::create_dir_all(&dir).ok()?;
     let file = dir.join(format!("{host}.md"));

@@ -1,6 +1,6 @@
 # PLAN-367 — docs(cda-orchestrator): global section + accept ADR-015
 
-- **Status**: ready
+- **Status**: done
 - **PRD**: [[../prd/PRD-357-global-orchestrator|PRD-357]]
 - **GitHub**: [#367](https://github.com/chatondearu/ai-dev-kit/issues/367)
 - **Date**: 2026-11-16
@@ -48,10 +48,10 @@ Verify command names against the merged code (`cdamux worker spawn --help`,
 
 ## Tasks
 
-- [ ] § Global in the skill, consistent with hard rules (≤ 30 lines)
-- [ ] ADR-015 accepted + indexes
-- [ ] `bash scripts/verify.sh` (skill lint / length checks); PR `Closes #367`
+- [x] § Global in the skill, consistent with hard rules (≤ 30 lines)
+- [x] ADR-015 accepted + indexes
+- [x] `bash scripts/verify.sh` (skill lint / length checks); PR `Closes #367`
 
 ## Test plan
 
-- [ ] `bash scripts/verify.sh`
+- [x] `bash scripts/verify.sh`

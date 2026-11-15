@@ -1,6 +1,6 @@
 # ADR-015 — Global and nested cdamux orchestrators
 
-- **Status**: proposed
+- **Status**: accepted
 - **Date**: 2026-11-15
 - **Tags**: #architecture #tooling #cdamux #autonomy
 

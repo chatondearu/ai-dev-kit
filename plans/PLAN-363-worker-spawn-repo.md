@@ -1,6 +1,6 @@
 # PLAN-363 — feat(cdamux): worker spawn --repo for any discovered project
 
-- **Status**: ready
+- **Status**: done
 - **PRD**: [[../prd/PRD-357-global-orchestrator|PRD-357]]
 - **GitHub**: [#363](https://github.com/chatondearu/ai-dev-kit/issues/363)
 - **Date**: 2026-11-16

@@ -42,10 +42,10 @@ becomes the single source of the routing rule; other copies point to it.
 
 ## Tasks
 
-- [ ] Orchestrator block + `buildRouting` branch
-- [ ] `test.sh`: default, orchestrator, silenced cases
-- [ ] Copies aligned (template, rules file, repo `AGENTS.md`, `.mdc`)
-- [ ] `bash scripts/verify.sh`; PR `Closes #359`
+- [x] Orchestrator block + `buildRouting` branch
+- [x] `test.sh`: default, orchestrator, silenced cases
+- [x] Copies aligned (template, rules file, repo `AGENTS.md`, `.mdc`)
+- [x] `bash scripts/verify.sh`; PR `Closes #359`
 
 ## Risks & mitigations
 
@@ -56,5 +56,5 @@ becomes the single source of the routing rule; other copies point to it.
 
 ## Test plan
 
-- [ ] `bash skills/quality/cda-kiss/hooks/test.sh`
-- [ ] `bash scripts/verify.sh`
+- [x] `bash skills/quality/cda-kiss/hooks/test.sh`
+- [x] `bash scripts/verify.sh`

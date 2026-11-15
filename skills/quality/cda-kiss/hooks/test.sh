@@ -5,7 +5,7 @@ cd "$(dirname "$0")"
 
 tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
 export CLAUDE_CONFIG_DIR="$tmp"          # keep state writes out of the real config
-unset CLAUDE_PROJECT_DIR CURSOR_VERSION ORCH_RUN_ID CDA_ROUTING 2>/dev/null || true
+unset CLAUDE_PROJECT_DIR CURSOR_VERSION ORCH_RUN_ID CDA_ROUTING CDA_ROLE 2>/dev/null || true
 
 node -e '
 const assert = require("assert");
@@ -86,18 +86,28 @@ echo '{"source":"startup"}' | KISS_MAP=0 node activate.js | grep -q "KISS MODE A
 echo "kiss hooks: sticky off round trip passed"
 
 # Routing: on by default, silent inside orch.sh runs and with CDA_ROUTING=0,
-# carried in Cursor's additional_context
+# orchestrator block when CDA_ROLE=orchestrator, carried in Cursor's additional_context
 out="$(echo '{"source":"startup"}' | KISS_MAP=0 node activate.js)"
 echo "$out" | grep -q "CDA ROUTING" || { echo "FAIL: routing missing at session start"; exit 1; }
 echo "$out" | grep -q '`cda-dev`' || { echo "FAIL: routing does not name cda-dev"; exit 1; }
+echo "$out" | grep -q "cdamux orchestrator" && { echo "FAIL: default routing is orchestrator block"; exit 1; }
+out="$(echo '{"source":"startup"}' | CDA_ROLE=orchestrator KISS_MAP=0 node activate.js)"
+echo "$out" | grep -q "cdamux orchestrator" || { echo "FAIL: CDA_ROLE=orchestrator missing orch routing"; exit 1; }
+echo "$out" | grep -q '`cda-orchestrator`' || { echo "FAIL: orch routing does not name cda-orchestrator"; exit 1; }
+echo "$out" | grep -q '`cda-dev`' && { echo "FAIL: orch routing still has default lane text"; exit 1; }
 for v in ORCH_RUN_ID=run1 CDA_ROUTING=0; do
   out="$(echo '{"source":"startup"}' | env "$v" KISS_MAP=0 node activate.js)"
   echo "$out" | grep -q "CDA ROUTING" && { echo "FAIL: routing injected with $v"; exit 1; }
   echo "$out" | grep -q "KISS MODE ACTIVE" || { echo "FAIL: ruleset lost with $v"; exit 1; }
+  out="$(echo '{"source":"startup"}' | env "$v" CDA_ROLE=orchestrator KISS_MAP=0 node activate.js)"
+  echo "$out" | grep -q "CDA ROUTING" && { echo "FAIL: orch routing injected with $v"; exit 1; }
 done
 echo '{"source":"startup"}' | HOME="$tmp" CURSOR_VERSION=1 KISS_MAP=0 node activate.js \
   | node -e 'let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{if(!JSON.parse(s).additional_context.includes("CDA ROUTING"))process.exit(1)})' \
   || { echo "FAIL: cursor additional_context lacks routing"; exit 1; }
+echo '{"source":"startup"}' | HOME="$tmp" CURSOR_VERSION=1 CDA_ROLE=orchestrator KISS_MAP=0 node activate.js \
+  | node -e 'let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{const c=JSON.parse(s).additional_context;if(!c.includes("cdamux orchestrator"))process.exit(1)})' \
+  || { echo "FAIL: cursor additional_context lacks orch routing"; exit 1; }
 echo "kiss hooks: routing cases passed"
 
 # Graphify activate.js: on + graph injects pointer (cwd = fixture with graph.json)

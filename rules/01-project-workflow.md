@@ -11,7 +11,8 @@ In **every** repository you work on:
 3. **Chat requests** go through `cda-dev` intake, except a trivial fix (typo,
    one file and about 20 lines, no product decision): branch → commit → PR.
    Several Ready issues or parallel work → `cda-dev` ready-pickup (`orch.sh`,
-   graph: `cda-graph`). When unsure, use intake.
+   graph: `cda-graph`). When unsure, use intake. Lane routing source:
+   `skills/quality/cda-kiss/hooks/lib.js` (`ROUTING` / `ORCH_ROUTING`).
 4. **During** work: keep PRD/plan/ADR artifacts aligned (`cda-foam`,
    `cda-kanban`).
 5. **After** shipping or deciding: update foam (ADR, PRD status, feature lists)

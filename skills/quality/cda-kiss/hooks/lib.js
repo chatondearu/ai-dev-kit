@@ -132,6 +132,7 @@ function buildSessionMap(cwd = process.cwd()) {
 // Lane routing, injected at session start on every host: rules/ never reach
 // Cursor (no global rules file), and a passive rule line alone is skipped.
 // Mirrors rules/01-project-workflow.md step 3. Silent inside orch.sh runs.
+// Source of the routing rule — AGENTS / rules / product-memory link here.
 const ROUTING = [
   'CDA ROUTING — pick the lane before you edit any file:',
   '- Feature, fix or change request in chat → load skill `cda-dev` (intake: one question round, breakdown, GO) first.',
@@ -141,8 +142,16 @@ const ROUTING = [
   '- When unsure, use `cda-dev` intake. Skip this block if you are a cda-dev worker, reviewer or a spawned worker with a spec.',
 ].join('\n');
 
+const ORCH_ROUTING = [
+  'CDA ROUTING — you are a cdamux orchestrator: never edit, commit or run verify/tests in a repo;',
+  'every change goes to a worker (skill `cda-orchestrator`);',
+  'one question round + GO, then dispatch and end the turn.',
+].join('\n');
+
 function buildRouting(env = process.env) {
-  return env.ORCH_RUN_ID || env.CDA_ROUTING === '0' ? '' : ROUTING;
+  if (env.ORCH_RUN_ID || env.CDA_ROUTING === '0') return '';
+  if (env.CDA_ROLE === 'orchestrator') return ORCH_ROUTING;
+  return ROUTING;
 }
 
 // Synchronous: hooks call process.exit right after (a pending async pipe write

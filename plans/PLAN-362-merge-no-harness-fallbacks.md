@@ -29,10 +29,10 @@
 
 ## Tasks
 
-- [ ] Move missing steps (worktrees, verify, CI watch) into `cda-graph` section
-- [ ] Shrink `cda-dev` section to rules + link
-- [ ] `bash scripts/verify.sh`; PR `Closes #362`
+- [x] Move missing steps (worktrees, verify, CI watch) into `cda-graph` section
+- [x] Shrink `cda-dev` section to rules + link
+- [x] `bash scripts/verify.sh`; PR `Closes #362`
 
 ## Test plan
 
-- [ ] `bash scripts/verify.sh` (link checks)
+- [x] `bash scripts/verify.sh` (link checks)

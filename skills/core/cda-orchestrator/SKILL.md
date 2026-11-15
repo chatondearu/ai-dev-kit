@@ -3,8 +3,8 @@ name: cda-orchestrator
 description: >-
   Drive interactive cdamux workers from one long-lived orchestrator session:
   spawn/track, relay messages, answer or escalate asks, read reports by ref.
-  Use when you are a cdamux orchestrator (`cdamux orch new` or Fleet role
-  orchestrator), or when the user asks you to orchestrate workers via cdamux.
+  Use when you are a cdamux orchestrator (`cdamux orch new`, `--global`, or
+  Fleet role orchestrator), or when the user asks you to orchestrate via cdamux.
 ---
 
 # cdamux orchestrator
@@ -18,6 +18,28 @@ through the `cdamux` CLI (ADR-011).
 - Never edit, commit, or run verify/tests in a repo. Never `gh pr checkout`.
 - Every change goes to a worker. Quick lookups and answers only — no coding.
 - You are a dispatcher: question round + GO, then spawn / `orch.sh`, then stop.
+
+## Global
+
+When started with `cdamux orch new --global` (`scope=global`): you run outside
+any repo at `$CDAMUX_HOME/global`. List targets with `cdamux projects`.
+
+Pick the repo per request; if the project is ambiguous, ask the human — never
+guess. Nested project orchestrators as children are not yet available; for heavy
+per-project work use `orch.sh --repo <path>` or a planner/`worker spawn` with
+`--repo`.
+
+Dispatch:
+
+```bash
+cdamux worker spawn <name> --repo <path|project> --prompt-file <spec.md>
+bash "$CDA_DEV/scripts/orch.sh" --mode ready-pickup --repo <path> --issue 12 --issue 15
+```
+
+Several issues of one repo → one `orch.sh --repo` call (background). Exit 75 →
+spawn fallback as in hard rules, still with `--repo`. Respect
+`[orchestrator].max_workers`: on the cap error, wait or report — no retry loop.
+Report per project (repo → workers → PRs); refs, not pasted transcripts.
 
 ## Route the work
 

@@ -47,7 +47,7 @@ workers across projects, and `cda-orchestrator` has no global routing.
 - [ ] `worker spawn --repo <path|project>` ([#363](https://github.com/chatondearu/ai-dev-kit/issues/363))
 - [ ] `orch new --global`, `scope=global`, one live global orchestrator, Fleet top level ([#364](https://github.com/chatondearu/ai-dev-kit/issues/364))
 - [ ] `[orchestrator].max_workers` cap, default 6 ([#366](https://github.com/chatondearu/ai-dev-kit/issues/366))
-- [ ] `cda-orchestrator` § Global; ADR-015 accepted ([#367](https://github.com/chatondearu/ai-dev-kit/issues/367))
+- [x] `cda-orchestrator` § Global; ADR-015 accepted ([#367](https://github.com/chatondearu/ai-dev-kit/issues/367))
 - [ ] Slice 2: nested project orchestrator with restore parents-first ([#365](https://github.com/chatondearu/ai-dev-kit/issues/365))
 
 ### Non-functional
@@ -60,6 +60,6 @@ workers across projects, and `cda-orchestrator` has no global routing.
 ## Related project memory
 
 - ADRs: [[../foam/decisions/ADR-011-cdamux-unified-state-model|ADR-011]],
-  [[../foam/decisions/ADR-015-global-and-nested-orchestrators|ADR-015]] (proposed),
+  [[../foam/decisions/ADR-015-global-and-nested-orchestrators|ADR-015]],
   [[../foam/decisions/ADR-009-cdamux-session-restore-registry|ADR-009]]
 - Plans: [[../plans/PLAN-363-worker-spawn-repo|PLAN-363]], [[../plans/PLAN-364-orch-new-global|PLAN-364]], [[../plans/PLAN-366-global-worker-cap|PLAN-366]], [[../plans/PLAN-367-orchestrator-global-section|PLAN-367]], [[../plans/PLAN-365-nested-project-orchestrator|PLAN-365]]

@@ -235,6 +235,7 @@ pub(crate) fn fixture_runs() -> (ProjectSessionTree, StatusCache) {
     };
     let worker_session = format!("orch-{RUN_MAIN}-7");
     let tree = ProjectSessionTree {
+            global: vec![],
         nodes: vec![ProjectTreeNode {
             project: Project { name: "alpha".into(), path: "/src/alpha".into(), root_label: "src".into() },
             sessions: vec![
@@ -304,6 +305,7 @@ pub(crate) fn record(name: &str, cwd: &str, agent: &str) -> SessionRecord {
 /// with no project (unassigned) and a home-session record (never shown).
 pub(crate) fn fixture_dormant() -> (ProjectSessionTree, StatusCache) {
     let tree = ProjectSessionTree {
+            global: vec![],
         nodes: vec![ProjectTreeNode {
             project: Project { name: "alpha".into(), path: "/src/alpha".into(), root_label: "src".into() },
             sessions: vec![session("alpha-main", "/src/alpha", SessionState::Working, "claude", None)],

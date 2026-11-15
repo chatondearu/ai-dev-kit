@@ -1,6 +1,6 @@
 # PLAN-364 — feat(cdamux): orch new --global outside any repo
 
-- **Status**: ready
+- **Status**: in-progress
 - **PRD**: [[../prd/PRD-357-global-orchestrator|PRD-357]]
 - **GitHub**: [#364](https://github.com/chatondearu/ai-dev-kit/issues/364)
 - **Date**: 2026-11-16
@@ -54,14 +54,14 @@ Fleet's spawn modal offers the same and shows the global orchestrator at top lev
 
 ## Tasks
 
-- [ ] CLI flag + request field + `$CDAMUX_HOME/global` cwd
-- [ ] Single-live check (switch instead of spawn)
-- [ ] `scope=global` in agent state; global boot prompt file
-- [ ] Fleet top-level row + spawn modal option; golden snapshots updated
-- [ ] Tests: throwaway tmux — spawn global, second call returns the same host; unit for
+- [x] CLI flag + request field + `$CDAMUX_HOME/global` cwd
+- [x] Single-live check (switch instead of spawn)
+- [x] `scope=global` in agent state; global boot prompt file
+- [x] Fleet top-level row + spawn modal option; golden snapshots updated
+- [x] Tests: throwaway tmux — spawn global, second call returns the same host; unit for
       prompt selection; snapshot for the Fleet row
-- [ ] Docs
-- [ ] `cargo test` in `cdamux/`; `bash scripts/verify.sh`; PR `Closes #364`
+- [x] Docs
+- [x] `cargo test` in `cdamux/`; `bash scripts/verify.sh`; PR `Closes #364`
 
 ## Risks & mitigations
 
@@ -72,5 +72,5 @@ Fleet's spawn modal offers the same and shows the global orchestrator at top lev
 
 ## Test plan
 
-- [ ] `cargo test` (incl. `CDAMUX_UPDATE_SNAPSHOTS=1` only for intended render changes)
-- [ ] `bash scripts/verify.sh`
+- [x] `cargo test` (incl. `CDAMUX_UPDATE_SNAPSHOTS=1` only for intended render changes)
+- [x] `bash scripts/verify.sh`

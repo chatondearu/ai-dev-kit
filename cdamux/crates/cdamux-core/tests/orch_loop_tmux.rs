@@ -119,6 +119,7 @@ fn orchestrator_loop_spawn_ask_answer_done() {
         agent: Some("claude"),
         agents: &agents,
         switch_to_session: false,
+        global: false,
     })
     .expect("hop 1 (orch new) failed");
     let oid = orch.agent_id.as_str();

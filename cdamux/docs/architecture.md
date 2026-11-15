@@ -137,14 +137,17 @@ is kept); `kind=answer` clears the recipient to `idle`.
 
 ### Orchestrator session (`cdamux orch`)
 
-- `cdamux orch new [--agent X] [--path DIR]` — tmux host with `role=orchestrator`, a
-  fresh long-lived run under `$CDAMUX_HOME/runs/`, `$CDAMUX_AGENT_ID` and
-  `CDA_ROLE=orchestrator` on the pane command (spawn and restore/respawn), and a
-  first-turn boot prompt written to `$CDAMUX_HOME/prompts/<host>.md` and passed on
-  the client command line like workers (paste-after only when the client has no CLI
-  prompt flag). Points at skill `cda-orchestrator` (kit
-  `skills/core/cda-orchestrator/`, linked by `install.sh`). Fleet spawn modal role
-  *orchestrator* (`o`) calls the same helper.
+- `cdamux orch new [--agent X] [--path DIR] [--global]` — tmux host with
+  `role=orchestrator`, a fresh long-lived run under `$CDAMUX_HOME/runs/`,
+  `$CDAMUX_AGENT_ID` and `CDA_ROLE=orchestrator` on the pane command (spawn and
+  restore/respawn), and a first-turn boot prompt written to
+  `$CDAMUX_HOME/prompts/<host>.md` and passed on the client command line like
+  workers (paste-after only when the client has no CLI prompt flag). Points at
+  skill `cda-orchestrator` (kit `skills/core/cda-orchestrator/`, linked by
+  `install.sh`). `--global`: cwd `$CDAMUX_HOME/global`, `scope=global` in agent
+  state, global boot prompt; at most one live global (a second call switches to
+  it). `--path` is incompatible with `--global`. Fleet spawn modal role
+  *orchestrator* (`o`, then `g` for global) calls the same helper.
 - Skill behaviours: spawn/track workers, relay (`@worker` forces; otherwise the
   orchestrator decides; one-line confirm), answer or escalate asks, never paste raw
   worker output, read reports by `ref`. See the skill file.

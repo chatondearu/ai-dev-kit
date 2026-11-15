@@ -69,6 +69,8 @@ pub(crate) enum TreeRow {
     /// Restore record with no live tmux session (ADR-009), after the live rows of its
     /// project (or the unassigned list). Enter restores it, `x` twice forgets it.
     Dormant { record: SessionRecord, depth: usize },
+    /// Cross-project orchestrator block (ADR-015); sessions nest under it at depth 1.
+    GlobalHeader,
     UnassignedHeader,
 }
 
@@ -204,10 +206,14 @@ pub(crate) fn flatten_tree(
 ) -> Vec<TreeRow> {
     let mut rows = Vec::new();
     // Live tmux sessions, so worker rows preview the pane only while it exists.
+    // Index layout for dormant buckets: [project…][global][unassigned].
+    let global_idx = tree.nodes.len();
+    let unassigned_idx = tree.nodes.len() + 1;
     let live: HashSet<&str> = tree
         .nodes
         .iter()
         .flat_map(|n| &n.sessions)
+        .chain(&tree.global)
         .chain(&tree.unassigned)
         .map(|s| s.name.as_str())
         .collect();
@@ -220,9 +226,10 @@ pub(crate) fn flatten_tree(
         .iter()
         .enumerate()
         .flat_map(|(i, n)| n.sessions.iter().map(move |s| (s.name.as_str(), i)))
-        .chain(tree.unassigned.iter().map(|s| (s.name.as_str(), tree.nodes.len())))
+        .chain(tree.global.iter().map(|s| (s.name.as_str(), global_idx)))
+        .chain(tree.unassigned.iter().map(|s| (s.name.as_str(), unassigned_idx)))
         .collect();
-    let mut dormant: Vec<Vec<&SessionRecord>> = vec![Vec::new(); tree.nodes.len() + 1];
+    let mut dormant: Vec<Vec<&SessionRecord>> = vec![Vec::new(); tree.nodes.len() + 2];
     let records = if waiting_only { &[][..] } else { status.records() };
     let candidates: Vec<&SessionRecord> =
         records
@@ -244,9 +251,34 @@ pub(crate) fn flatten_tree(
             project_for_path(&top.cwd.to_string_lossy(), &node_projects)
                 .filter(|_| group_by == GroupBy::Project)
                 .and_then(|p| node_projects.iter().position(|n| n.path == p.path))
-                .unwrap_or(tree.nodes.len())
+                .unwrap_or(unassigned_idx)
         });
         dormant[node].push(r);
+    }
+    // Global orchestrator (+ workers) sits above every project (ADR-015 / #364).
+    {
+        let visible: Vec<EnrichedSession> = tree
+            .global
+            .iter()
+            .filter(|s| session_passes_waiting_filter(s, waiting_only))
+            .cloned()
+            .collect();
+        let global_dormant = &dormant[global_idx];
+        if !visible.is_empty() || !global_dormant.is_empty() {
+            rows.push(TreeRow::GlobalHeader);
+            Nest {
+                forest: session_forest(&visible),
+                sessions: &visible,
+                expanded,
+                waiting_only,
+                status,
+                runs: &[],
+                run_workers: None,
+                project_path: "",
+                dormant: global_dormant,
+            }
+            .push(&mut rows);
+        }
     }
     for (node_idx, node) in tree.nodes.iter().enumerate() {
         let visible: Vec<EnrichedSession> = node
@@ -322,7 +354,7 @@ pub(crate) fn flatten_tree(
         .filter(|s| session_passes_waiting_filter(s, waiting_only))
         .cloned()
         .collect();
-    let unassigned_dormant = dormant.last().expect("unassigned slot");
+    let unassigned_dormant = &dormant[unassigned_idx];
     if !unassigned.is_empty() || !unassigned_dormant.is_empty() {
         rows.push(TreeRow::UnassignedHeader);
         Nest {
@@ -479,7 +511,7 @@ pub(crate) fn dormant_at_row(rows: &[TreeRow], idx: usize) -> Option<&SessionRec
 pub(crate) fn selectable_indices(rows: &[TreeRow]) -> Vec<usize> {
     rows.iter()
         .enumerate()
-        .filter(|(_, r)| !matches!(r, TreeRow::UnassignedHeader))
+        .filter(|(_, r)| !matches!(r, TreeRow::UnassignedHeader | TreeRow::GlobalHeader))
         .map(|(i, _)| i)
         .collect()
 }
@@ -490,7 +522,7 @@ pub(crate) fn orch_repo_at_row(rows: &[TreeRow], idx: usize) -> Option<String> {
         TreeRow::Child { project_path, .. } => Some(project_path.clone()),
         TreeRow::Session { session, .. } => Some(session.path.clone()),
         TreeRow::Dormant { record, .. } => Some(record.cwd.to_string_lossy().into_owned()),
-        TreeRow::UnassignedHeader => None,
+        TreeRow::GlobalHeader | TreeRow::UnassignedHeader => None,
     }
 }
 
@@ -607,6 +639,11 @@ pub(crate) fn focus_session_in_tree(
             }
         }
     }
+    if tree.global.iter().any(|s| s.name == name) {
+        unfold_ancestors(&tree.global, name, expanded);
+        let rows = flatten_tree(tree, expanded, group_by, waiting_only, status);
+        return row_index_for_session(&rows, name).unwrap_or(0);
+    }
     if tree.unassigned.iter().any(|s| s.name == name) {
         unfold_ancestors(&tree.unassigned, name, expanded);
         let rows = flatten_tree(tree, expanded, group_by, waiting_only, status);
@@ -721,6 +758,7 @@ mod tests {
     #[test]
     fn flatten_respects_expand() {
         let tree = ProjectSessionTree {
+            global: vec![],
             nodes: vec![cdamux_core::ProjectTreeNode {
                 project: Project {
                     name: "p".into(),
@@ -753,6 +791,7 @@ mod tests {
     fn focus_current_session_unfolds_its_project() {
         // Startup preselect (popup over `s2`): project collapsed, `s2` second in it.
         let tree = ProjectSessionTree {
+            global: vec![],
             nodes: vec![cdamux_core::ProjectTreeNode {
                 project: Project {
                     name: "p".into(),
@@ -801,6 +840,7 @@ mod tests {
     #[test]
     fn waiting_filter_hides_idle_sessions() {
         let tree = ProjectSessionTree {
+            global: vec![],
             nodes: vec![cdamux_core::ProjectTreeNode {
                 project: Project {
                     name: "p".into(),
@@ -855,6 +895,7 @@ mod tests {
 
     fn unassigned_tree(sessions: Vec<EnrichedSession>) -> ProjectSessionTree {
         ProjectSessionTree {
+            global: vec![],
             nodes: vec![],
             unassigned: sessions,
         }
@@ -949,6 +990,39 @@ mod tests {
         );
     }
 
+    #[test]
+    fn global_orchestrator_sits_above_projects_with_workers() {
+        let mut orch = sess("c-global");
+        orch.role = Some("orchestrator".into());
+        orch.path = "/tmp/cdamux/global".into();
+        let mut worker = child("w-neomind", Some("c-global"));
+        worker.path = "/src/neomind".into();
+        let tree = ProjectSessionTree {
+            global: vec![orch, worker],
+            nodes: vec![ProjectTreeNode {
+                project: Project {
+                    name: "alpha".into(),
+                    path: "/src/alpha".into(),
+                    root_label: "src".into(),
+                },
+                sessions: vec![sess("alpha-main")],
+            }],
+            unassigned: vec![],
+        };
+        let open = ["/src/alpha".to_string()].into_iter().collect();
+        let rows = flatten_tree(&tree, &open, GroupBy::Project, false, &no_status());
+        assert_eq!(
+            outline(&rows),
+            vec![
+                (0, "global".into()),
+                (1, "c-global".into()),
+                (2, "w-neomind".into()),
+                (0, "alpha".into()),
+                (1, "alpha-main".into()),
+            ]
+        );
+    }
+
     /// `(depth, label)` per row: sessions by name, children as `kind id`.
     fn outline(rows: &[TreeRow]) -> Vec<(usize, String)> {
         rows.iter()
@@ -957,6 +1031,7 @@ mod tests {
                 TreeRow::Session { session, depth, .. } => (*depth, session.name.clone()),
                 TreeRow::Child { row, depth, .. } => (*depth, format!("{:?} {}", row.kind, row.id)),
                 TreeRow::Dormant { record, depth } => (*depth, format!("dormant {}", record.name)),
+                TreeRow::GlobalHeader => (0, "global".into()),
                 TreeRow::UnassignedHeader => (0, "unassigned".into()),
             })
             .collect()
@@ -1043,6 +1118,7 @@ mod tests {
     fn recreate_same_name_without_cdamux_run_does_not_nest_orphan_live() {
         use crate::test_render::RUN_MAIN;
         let tree = ProjectSessionTree {
+            global: vec![],
             nodes: vec![ProjectTreeNode {
                 project: Project {
                     name: "alpha".into(),

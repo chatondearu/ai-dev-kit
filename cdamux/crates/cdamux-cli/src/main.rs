@@ -204,9 +204,12 @@ enum OrchCommands {
         /// Product client (`claude`|`cursor`|`opencode`|`codex`); default: config `agents.default`.
         #[arg(long)]
         agent: Option<String>,
-        /// Working directory (default: cwd).
+        /// Working directory (default: cwd). Incompatible with `--global`.
         #[arg(long)]
         path: Option<PathBuf>,
+        /// Cross-project orchestrator (`scope=global`, cwd `$CDAMUX_HOME/global`).
+        #[arg(long)]
+        global: bool,
     },
 }
 
@@ -454,14 +457,20 @@ fn main() -> ExitCode {
             WorkerCommands::Peek { name, lines } => cmd_worker_peek(&name, lines),
         },
         Some(Commands::Orch { command }) => match command {
-            OrchCommands::New { agent, path } => {
-                cmd_orch_new(agent.as_deref(), path.as_deref())
-            }
+            OrchCommands::New {
+                agent,
+                path,
+                global,
+            } => cmd_orch_new(agent.as_deref(), path.as_deref(), global),
         },
     }
 }
 
-fn cmd_orch_new(agent: Option<&str>, path: Option<&std::path::Path>) -> ExitCode {
+fn cmd_orch_new(agent: Option<&str>, path: Option<&std::path::Path>, global: bool) -> ExitCode {
+    if global && path.is_some() {
+        eprintln!("orch new: --path is incompatible with --global");
+        return ExitCode::from(1);
+    }
     let cfg = match load_config() {
         Ok(c) => c,
         Err(e) => {
@@ -476,18 +485,24 @@ fn cmd_orch_new(agent: Option<&str>, path: Option<&std::path::Path>) -> ExitCode
         agent,
         agents: &cfg.agents,
         switch_to_session: std::env::var_os("TMUX").is_some(),
+        global,
     };
     match spawn_orchestrator(req) {
         Ok(r) => {
+            let verb = if r.reused { "reusing" } else { "spawned" };
             println!(
-                "spawned orchestrator id={} host={} run={} client={} skill={} path={}{}",
+                "{verb} orchestrator id={} host={} run={} client={} skill={} path={}{}",
                 r.agent_id,
                 r.host,
                 r.run,
                 r.client,
                 ORCHESTRATOR_SKILL,
                 r.path.display(),
-                r.outcome.note()
+                if r.reused {
+                    String::new()
+                } else {
+                    r.outcome.note()
+                }
             );
             ExitCode::SUCCESS
         }

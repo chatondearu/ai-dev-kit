@@ -25,6 +25,13 @@ and waits for a nudge. The boot prompt is delivered via
 workers); the pane exports `CDA_ROLE=orchestrator` next to `CDAMUX_AGENT_ID`.
 Requires a `cdamux` with `orch`, `worker`, `msg` (Nix: `cda.aitools.cdamux`).
 
+`cdamux orch new --global` starts (or switches to) the single live
+cross-project orchestrator: cwd `$CDAMUX_HOME/global`, agent `scope=global`,
+global boot prompt (list projects, pick a repo, dispatch with
+`worker spawn --repo` / `orch.sh --repo`). Fleet shows it under
+“— global orchestrator”; the spawn modal offers the same via **o** then **g**.
+`--path` is incompatible with `--global`.
+
 ## Graph orchestration (`cda-graph`)
 
 See **[graph-orchestration.md](graph-orchestration.md)** (cookbook, env vars, graph-plan, cdamux).

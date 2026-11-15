@@ -309,6 +309,7 @@ pub fn run_dashboard() -> ExitCode {
             .nodes
             .iter()
             .flat_map(|n| &n.sessions)
+            .chain(&cached_tree.global)
             .chain(&cached_tree.unassigned)
             .map(|s| s.name.as_str());
         needs_draw |= status.refresh_subagents(names, now);

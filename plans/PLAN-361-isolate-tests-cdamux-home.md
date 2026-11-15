@@ -1,6 +1,6 @@
 # PLAN-361 — fix(cda-dev): isolate harness tests from live CDAMUX_HOME and agent id
 
-- **Status**: ready
+- **Status**: done
 - **PRD**: [[../prd/PRD-356-orchestrator-actually-orchestrates|PRD-356]]
 - **GitHub**: [#361](https://github.com/chatondearu/ai-dev-kit/issues/361) · Refs [#273](https://github.com/chatondearu/ai-dev-kit/issues/273)
 - **Date**: 2026-11-15
@@ -36,10 +36,10 @@ writes into the live cdamux state or the live orchestrator inbox.
 
 ## Tasks
 
-- [ ] Export temp home + unset agent id
-- [ ] Sentinel self-check
-- [ ] `bash scripts/verify.sh`; PR `Closes #361`
+- [x] Export temp home + unset agent id
+- [x] Sentinel self-check
+- [x] `bash scripts/verify.sh`; PR `Closes #361`
 
 ## Test plan
 
-- [ ] Self-check passes; full suite green
+- [x] Self-check passes; full suite green

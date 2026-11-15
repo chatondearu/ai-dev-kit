@@ -54,13 +54,26 @@ orch_resolve_context() {
   [ -n "$ORCH_CONSTRAINTS" ] || ORCH_CONSTRAINTS="none"
 }
 
+# Fail loud if export -f did not expose the worker entry to a child bash.
+orch_assert_exported() {
+  if ! bash -c 'type orch_loop_worker' >/dev/null 2>&1; then
+    printf 'orch: export failed — orch_loop_worker not visible to child bash (declare -F / export -f). Use skill-only fallback or cda-graph graph-node.sh + Cursor Task.\n' >&2
+    return 1
+  fi
+}
+
 # Workers run under `bash -c`: export every harness function (orch_* / _orch_*) so
 # no helper goes missing in the child (e.g. _orch_verify_is_allowed for pr-fix).
+# Always use declare -F — some agent wrappers ship bash without compgen.
 orch_export_functions() {
-  local fn
-  for fn in $(compgen -A function); do
-    case "$fn" in orch_*|_orch_*) export -f "$fn" ;; esac
-  done
+  local line name
+  while IFS= read -r line; do
+    name="${line##* }"
+    case "$name" in
+      orch_*|_orch_*) export -f "$name" ;;
+    esac
+  done < <(declare -F)
+  orch_assert_exported
 }
 
 # One worker loop for both modes (lib/graph.sh): --no-graph only stops current.json

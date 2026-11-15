@@ -235,6 +235,11 @@ echo "verify: true" >"$TMP_AGENTS/AGENTS.md"
 source "$TROOT/../lib/loop.sh"
 orch_export_functions
 set +e
+bash -c 'type orch_loop_worker' >/dev/null 2>&1
+type_rc=$?
+set -e
+assert_eq "$type_rc" "0" "export exposes orch_loop_worker to child bash"
+set +e
 ORCH_VERIFY_TRUST=untrusted bash -c 'orch_run_verify "$1"' _ "$TMP_AGENTS" >/dev/null 2>&1
 sub_rc=$?
 set -e

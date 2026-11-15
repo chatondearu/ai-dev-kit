@@ -15,7 +15,7 @@ fi
 echo "== graphify option schema =="
 nix eval --impure --expr "
   let
-    flake = builtins.getFlake \"path:$ROOT\";
+    flake = builtins.getFlake \"git+file://$ROOT\";
     pkgs = import flake.inputs.nixpkgs { system = builtins.currentSystem; };
     lib = pkgs.lib;
     schema = import $ROOT/aitools/nix/common.nix { inherit lib; };
@@ -34,7 +34,7 @@ echo "== graphify module on/off (nixos + darwin) =="
 # NixOS or nix-darwin system (flake has no nix-darwin input).
 nix eval --impure --expr "
   let
-    flake = builtins.getFlake \"path:$ROOT\";
+    flake = builtins.getFlake \"git+file://$ROOT\";
     lib = flake.inputs.nixpkgs.lib;
     system = builtins.currentSystem;
     pkgs = import flake.inputs.nixpkgs {
@@ -126,7 +126,7 @@ echo "== cdamux hooks module on/off (nixos + darwin) =="
 # Same host-option stub idea as above; off by default, unit only when enabled.
 nix eval --impure --expr "
   let
-    flake = builtins.getFlake \"path:$ROOT\";
+    flake = builtins.getFlake \"git+file://$ROOT\";
     lib = flake.inputs.nixpkgs.lib;
     pkgs = import flake.inputs.nixpkgs { system = builtins.currentSystem; };
     any = lib.mkOption { type = lib.types.attrsOf lib.types.unspecified; default = {}; };
@@ -179,7 +179,7 @@ nix eval --impure --expr "
 echo "== cdamux navBind schema + maid template =="
 nix eval --impure --expr "
   let
-    flake = builtins.getFlake \"path:$ROOT\";
+    flake = builtins.getFlake \"git+file://$ROOT\";
     pkgs = import flake.inputs.nixpkgs { system = builtins.currentSystem; };
     lib = pkgs.lib;
     schema = import $ROOT/aitools/nix/common.nix { inherit lib; };
@@ -207,7 +207,7 @@ nix eval --impure --expr "
 echo "== coolify module on/off =="
 nix eval --impure --expr "
   let
-    flake = builtins.getFlake \"path:$ROOT\";
+    flake = builtins.getFlake \"git+file://$ROOT\";
     lib = flake.inputs.nixpkgs.lib;
     pkgs = import flake.inputs.nixpkgs { system = builtins.currentSystem; };
     any = lib.mkOption { type = lib.types.attrsOf lib.types.unspecified; default = {}; };

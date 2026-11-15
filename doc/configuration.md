@@ -75,6 +75,7 @@ binaries (`all_compile = false` in `mise.toml`).
 | `CDAMUX_HOME` | `${XDG_STATE_HOME:-~/.local/state}/cdamux` | cdamux state root (`agents/`, `runs/`, restore registry, …). [ADR-011](../foam/decisions/ADR-011-cdamux-unified-state-model.md) |
 | `CDAMUX_CONFIG` | `${XDG_CONFIG_HOME:-~/.config}/cdamux/config.toml` | Override path to the cdamux TOML config file |
 | `CDAMUX_AGENT_ID` | unset (set by cdamux at spawn) | Stable agent id (`a-xxxxx`) exported into the agent process / pane env |
+| `CDA_ROLE` | unset (set by cdamux for orchestrator panes) | `orchestrator` on orchestrator spawn/respawn pane commands only; workers and plain agents leave it unset (hook signal; role of record stays in agent state — [ADR-011](../foam/decisions/ADR-011-cdamux-unified-state-model.md)) |
 
 Harness unit tests (`skills/core/cda-dev/scripts/tests/helpers.sh`) export a temp
 `CDAMUX_HOME` and unset `CDAMUX_AGENT_ID` so `verify` never writes live state or the

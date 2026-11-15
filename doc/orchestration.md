@@ -20,8 +20,10 @@ requests get one question round + GO, then a planner worker (or fast-lane brief)
 before dispatch. Kanban issues go to an `orch.sh` sub-run (exit 75 →
 `cdamux worker spawn` with the plan as spec); research and small fixes to
 interactive workers; results via `cdamux msg`. After dispatch it ends the turn
-and waits for a nudge. Requires a `cdamux` with `orch`, `worker`, `msg`
-(Nix: `cda.aitools.cdamux`).
+and waits for a nudge. The boot prompt is delivered via
+`$CDAMUX_HOME/prompts/<host>.md` on the client command line (same path as
+workers); the pane exports `CDA_ROLE=orchestrator` next to `CDAMUX_AGENT_ID`.
+Requires a `cdamux` with `orch`, `worker`, `msg` (Nix: `cda.aitools.cdamux`).
 
 ## Graph orchestration (`cda-graph`)
 

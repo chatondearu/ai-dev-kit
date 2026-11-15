@@ -147,9 +147,9 @@ pub use spawn::{
     SpawnError, SpawnExtra, SpawnOutcome,
 };
 pub use worker::{
-    compose_worker_first_prompt, ensure_orch_run, list_workers, peek_worker, shell_single_quote,
-    spawn_worker, with_first_prompt, worker_preamble, WorkerError, WorkerRow, WorkerSpawnRequest,
-    WorkerSpawnResult,
+    compose_worker_first_prompt, count_live_workers, ensure_orch_run, list_workers, peek_worker,
+    shell_single_quote, spawn_worker, with_first_prompt, worker_preamble, WorkerError, WorkerRow,
+    WorkerSpawnRequest, WorkerSpawnResult,
 };
 pub use worktree::{
     current_branch, git_toplevel, list_local_branches, list_worktrees, resolve_worktree_dest,
@@ -191,6 +191,9 @@ pub struct Config {
     /// Retention for `cdamux state gc` (ADR-011 / PRD-239).
     #[serde(default)]
     pub state: StateConfig,
+    /// Machine-wide orchestrator policy (ADR-015 / PRD-357).
+    #[serde(default)]
+    pub orchestrator: OrchestratorConfig,
 }
 
 impl Default for Config {
@@ -205,6 +208,27 @@ impl Default for Config {
             notes: NotesConfig::default(),
             worktrees: WorktreesConfig::default(),
             state: StateConfig::default(),
+            orchestrator: OrchestratorConfig::default(),
+        }
+    }
+}
+
+/// `[orchestrator]` — machine-wide caps for `cdamux worker spawn` (ADR-015).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OrchestratorConfig {
+    /// Cap on live workers across all projects (`0` = no cap). Default 6.
+    #[serde(default = "default_max_workers")]
+    pub max_workers: u32,
+}
+
+fn default_max_workers() -> u32 {
+    6
+}
+
+impl Default for OrchestratorConfig {
+    fn default() -> Self {
+        Self {
+            max_workers: default_max_workers(),
         }
     }
 }
@@ -668,6 +692,20 @@ retention_days = 7
 "#;
         let cfg: Config = toml::from_str(raw).unwrap();
         assert_eq!(cfg.state.retention_days, 7);
+    }
+
+    #[test]
+    fn config_parses_orchestrator_max_workers_default_six() {
+        let cfg: Config = toml::from_str("schema_version = 1\n").unwrap();
+        assert_eq!(cfg.orchestrator.max_workers, 6);
+
+        let raw = r#"
+schema_version = 1
+[orchestrator]
+max_workers = 0
+"#;
+        let cfg: Config = toml::from_str(raw).unwrap();
+        assert_eq!(cfg.orchestrator.max_workers, 0);
     }
 
     #[test]

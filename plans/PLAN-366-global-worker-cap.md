@@ -1,6 +1,6 @@
 # PLAN-366 — feat(cdamux): global cap on live workers
 
-- **Status**: ready
+- **Status**: done
 - **PRD**: [[../prd/PRD-357-global-orchestrator|PRD-357]]
 - **GitHub**: [#366](https://github.com/chatondearu/ai-dev-kit/issues/366)
 - **Date**: 2026-11-16
@@ -43,10 +43,10 @@ with a clear error when that many workers are already live across all projects.
 
 ## Tasks
 
-- [ ] Config struct + default + example toml + doc row
-- [ ] Count fn (dormant/done/dead-host excluded) + unit tests
-- [ ] Refuse in `spawn_worker` before worktree creation; CLI exits non-zero
-- [ ] `cargo test` in `cdamux/`; `bash scripts/verify.sh`; PR `Closes #366`
+- [x] Config struct + default + example toml + doc row
+- [x] Count fn (dormant/done/dead-host excluded) + unit tests
+- [x] Refuse in `spawn_worker` before worktree creation; CLI exits non-zero
+- [x] `cargo test` in `cdamux/`; `bash scripts/verify.sh`; PR `Closes #366`
 
 ## Risks & mitigations
 
@@ -57,5 +57,5 @@ with a clear error when that many workers are already live across all projects.
 
 ## Test plan
 
-- [ ] Unit: count with working/blocked/done/dormant/dead-host mixes; cap 0 = unlimited
-- [ ] `bash scripts/verify.sh`
+- [x] Unit: count with working/blocked/done/dormant/dead-host mixes; cap 0 = unlimited
+- [x] `bash scripts/verify.sh`

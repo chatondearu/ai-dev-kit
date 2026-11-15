@@ -44,11 +44,11 @@ creation, a worker fallback when `orch.sh` exits 75, and turn discipline.
 
 ## Tasks
 
-- [ ] Hard rules section
-- [ ] Planner worker lane + spec template
-- [ ] Exit-75 fallback line
-- [ ] Turn discipline section
-- [ ] `intake.md` orchestrator variant
+- [x] Hard rules section
+- [x] Planner worker lane + spec template
+- [x] Exit-75 fallback line
+- [x] Turn discipline section
+- [x] `intake.md` orchestrator variant
 - [ ] `bash scripts/verify.sh`; PR `Closes #360`
 
 ## Risks & mitigations

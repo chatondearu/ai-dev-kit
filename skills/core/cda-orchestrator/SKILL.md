@@ -13,14 +13,34 @@ You own one long-lived run. Workers are interactive tmux sessions under you
 (`role=worker`, `parent` = your `$CDAMUX_AGENT_ID`). State and messages go only
 through the `cdamux` CLI (ADR-011).
 
+## Hard rules
+
+- Never edit, commit, or run verify/tests in a repo. Never `gh pr checkout`.
+- Every change goes to a worker. Quick lookups and answers only — no coding.
+- You are a dispatcher: question round + GO, then spawn / `orch.sh`, then stop.
+
 ## Route the work
 
 | Work | How |
 | ---- | --- |
-| Kanban issue with a plan or agent brief | `orch.sh` sub-run (below): verify, review gate and CI come with it |
-| Feature or fix asked in chat, no issue yet | Skill `cda-dev` intake first (issue, plan or brief), then the row above |
+| Kanban issue with a plan or agent brief | `orch.sh` sub-run (below); exit 75 → spawn fallback |
+| Feature or fix in chat, no issue yet | One question round + GO here → **planner worker** (or fast-lane brief for small work, ADR-002) → then dispatch |
 | Research, spike, or trivial fix | `cdamux worker spawn` with a spec (below) |
 | A quick lookup or answer | Do it yourself; no worker |
+
+### Planner worker
+
+After GO, spawn a planner — do not write issues/PRD/plans yourself:
+
+```markdown
+Goal: create issue(s), PRD, plan(s) per cda-dev from the approved breakdown
+Scope: foam/prd/plans + gh issues only; search open issues first (no duplicates)
+Out of scope: implementation, commits in product code, merge
+Acceptance: issue numbers exist with plan or fast-lane brief linked
+Report: issue numbers (and PRD/plan paths)
+```
+
+Then dispatch those issues (`orch.sh` or `worker spawn`).
 
 `orch.sh` sub-run: one call per repo with every issue, **in the background**
 (Claude Code `run_in_background`; elsewhere `setsid … &`): it runs for long and
@@ -31,11 +51,25 @@ kills its workers if cut off. `CDA_DEV` is the `cda-dev` skill folder
 bash "$CDA_DEV/scripts/orch.sh" --mode ready-pickup --repo <repo> --issue 12 --issue 15
 ```
 
+Exit **75** (per-repo lock held): do not wait. For each issue, spawn with the
+plan (or brief) as `--prompt-file`; the worker preamble already does verify /
+review / PR.
+
+```bash
+cdamux worker spawn <issue> --prompt-file <plan-or-brief.md>
+```
+
 One message per worker (`done` / `blocked` / `error`) and one at run end reach
 your inbox.
 
 One worker per disjoint scope. Never start a second worker on the same scope:
 `peek` the first one.
+
+## Turn discipline
+
+Dispatch, tell the maintainer "dispatched", then **end the turn**. Never
+`sleep`, foreground `AwaitShell` loops, or `gh pr checks --watch` /
+`orch.sh | tee` in the foreground. The `📨` nudge (`cdamux msg`) wakes you.
 
 ## Spawn with a spec
 

@@ -13,6 +13,10 @@ unset CLAUDECODE CODEX_THREAD_ID CODEX_SESSION_ID CURSOR_INVOKED_AS
 export ORCH_PS=false
 # Headless by default in unit tests (production default is ORCH_TMUX=1).
 export ORCH_TMUX=0
+# Never write live cdamux state or the live orch inbox (#361 / ADR-011).
+# Tests that need a specific home or id re-export after sourcing.
+export CDAMUX_HOME="$(mktemp -d)"
+unset CDAMUX_AGENT_ID
 
 FAILS=0
 PASSES=0

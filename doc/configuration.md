@@ -76,6 +76,10 @@ binaries (`all_compile = false` in `mise.toml`).
 | `CDAMUX_CONFIG` | `${XDG_CONFIG_HOME:-~/.config}/cdamux/config.toml` | Override path to the cdamux TOML config file |
 | `CDAMUX_AGENT_ID` | unset (set by cdamux at spawn) | Stable agent id (`a-xxxxx`) exported into the agent process / pane env |
 
+Harness unit tests (`skills/core/cda-dev/scripts/tests/helpers.sh`) export a temp
+`CDAMUX_HOME` and unset `CDAMUX_AGENT_ID` so `verify` never writes live state or the
+live orchestrator inbox (#361).
+
 ### cdamux state and inbox
 
 Hooks, orch and workers write agent/run JSON only through `cdamux state set|get|append`

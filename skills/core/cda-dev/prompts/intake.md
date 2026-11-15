@@ -52,6 +52,10 @@ Master must:
 
    (Skill-only fallback: use [worker.md](worker.md) with context filled manually.)
 
+Inside a **cdamux orchestrator**, a planner worker does step 1 (spawn with a
+create-issue/PRD/plan spec); the orchestrator only runs the question round + GO
+then dispatches — see skill `cda-orchestrator`.
+
 ## Forbidden until GO
 
 - `gh issue create`, PRD/plan files, branches, commits, subagent implementers

@@ -15,10 +15,13 @@ Host readiness (checks only, never installs):
 ## Interactive orchestrator (`cdamux orch new`)
 
 `cdamux orch new [--agent X]` starts one long-lived session you chat with; it
-follows skill `cda-orchestrator`: Kanban issues go to an `orch.sh` sub-run,
-research and small fixes to interactive workers (`cdamux worker spawn`), and
-results come back through `cdamux msg`. Requires a `cdamux` with `orch`,
-`worker`, `msg` (Nix: `cda.aitools.cdamux`).
+follows skill `cda-orchestrator`: it never edits or verifies itself. Chat
+requests get one question round + GO, then a planner worker (or fast-lane brief)
+before dispatch. Kanban issues go to an `orch.sh` sub-run (exit 75 →
+`cdamux worker spawn` with the plan as spec); research and small fixes to
+interactive workers; results via `cdamux msg`. After dispatch it ends the turn
+and waits for a nudge. Requires a `cdamux` with `orch`, `worker`, `msg`
+(Nix: `cda.aitools.cdamux`).
 
 ## Graph orchestration (`cda-graph`)
 

@@ -20,6 +20,7 @@ Status values: `proposed` | `accepted` | `deprecated` | `superseded`.
 | [[ADR-012-foam-browser-replaces-notes-sidecar|ADR-012]] | Foam browser replaces Fleet Notes sidecar | accepted | #architecture #cdamux #foam |
 | [[ADR-013-mise-alongside-nix-devshell|ADR-013]] | Mise alongside Nix for daily Node/Rust toolchain | accepted | #architecture #tooling |
 | [[ADR-014-cdamux-dedicated-navigator-session|ADR-014]] | cdamux dedicated navigator session (replaces join-pane sidebar) | accepted | #architecture #tooling #cdamux |
+| [[ADR-015-global-and-nested-orchestrators|ADR-015]] | Global and nested cdamux orchestrators | proposed | #architecture #tooling #cdamux #autonomy |
 
 ## Template
 

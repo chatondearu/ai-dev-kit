@@ -54,6 +54,8 @@ pub(crate) struct ModalState {
     shell_only: bool,
     /// Fleet *orchestrator* role — same path as `cdamux orch new`.
     orchestrator: bool,
+    /// Cross-project orchestrator (`cdamux orch new --global`).
+    global: bool,
     agent_index: usize,
     agents: Vec<String>,
     layout: PaneLayout,
@@ -128,6 +130,7 @@ impl ModalState {
             custom_path: String::new(),
             shell_only: false,
             orchestrator: false,
+            global: false,
             agent_index,
             agents,
             layout: PaneLayout::Single,
@@ -287,7 +290,9 @@ pub(crate) fn on_key(cfg: &Config, state: &mut ModalState, key: KeyEvent) -> Spa
             state.worktree_mode = !state.worktree_mode;
             SpawnModalAction::Continue
         }
-        KeyCode::Char('g') if key.modifiers.is_empty() && state.worktree_mode => {
+        KeyCode::Char('g')
+            if key.modifiers.is_empty() && state.worktree_mode && !state.orchestrator =>
+        {
             state.editing_new_branch = true;
             SpawnModalAction::Continue
         }
@@ -295,6 +300,7 @@ pub(crate) fn on_key(cfg: &Config, state: &mut ModalState, key: KeyEvent) -> Spa
             state.shell_only = !state.shell_only;
             if state.shell_only {
                 state.orchestrator = false;
+                state.global = false;
             }
             SpawnModalAction::Continue
         }
@@ -303,7 +309,13 @@ pub(crate) fn on_key(cfg: &Config, state: &mut ModalState, key: KeyEvent) -> Spa
             if state.orchestrator {
                 state.shell_only = false;
                 state.layout = PaneLayout::Single;
+            } else {
+                state.global = false;
             }
+            SpawnModalAction::Continue
+        }
+        KeyCode::Char('g') if key.modifiers.is_empty() && state.orchestrator => {
+            state.global = !state.global;
             SpawnModalAction::Continue
         }
         KeyCode::Char('a') if key.modifiers.is_empty() && !state.shell_only => {
@@ -335,7 +347,15 @@ pub(crate) fn on_key(cfg: &Config, state: &mut ModalState, key: KeyEvent) -> Spa
             SpawnModalAction::Continue
         }
         KeyCode::Enter => {
-            if let Some(path) = state.resolved_path() {
+            if state.orchestrator && state.global {
+                match execute_spawn(cfg, state, PathBuf::from("."), false) {
+                    Ok((status, session)) => SpawnModalAction::DismissDone { status, session },
+                    Err(e) => {
+                        state.message = e;
+                        SpawnModalAction::Continue
+                    }
+                }
+            } else if let Some(path) = state.resolved_path() {
                 match execute_spawn(cfg, state, path, false) {
                     Ok((status, session)) => SpawnModalAction::DismissDone { status, session },
                     Err(e) => {
@@ -390,16 +410,22 @@ fn execute_spawn(
             agent,
             agents: &cfg.agents,
             switch_to_session,
+            global: state.global,
         })
         .map_err(|e| e.to_string())?;
+        let verb = if r.reused { "reusing" } else { "spawned" };
         return Ok((
             format!(
-                "spawned orchestrator '{}' id={} run={} skill={}{}",
+                "{verb} orchestrator '{}' id={} run={} skill={}{}",
                 r.host,
                 r.agent_id,
                 r.run,
                 ORCHESTRATOR_SKILL,
-                r.outcome.note()
+                if r.reused {
+                    String::new()
+                } else {
+                    r.outcome.note()
+                }
             ),
             r.host,
         ));
@@ -605,6 +631,7 @@ pub(crate) fn draw_modal(f: &mut Frame, state: &mut ModalState) {
                 .get(state.agent_index)
                 .map(|s| s.as_str())
                 .unwrap_or("?");
+            let global = checkbox(state.global);
             let layout_line = if state.orchestrator {
                 format!("layout: single (ignored for orch)")
             } else {
@@ -617,8 +644,14 @@ pub(crate) fn draw_modal(f: &mut Frame, state: &mut ModalState) {
                     shell,
                     orch
                 )),
-                Line::from(layout_line),
                 Line::from(if state.orchestrator {
+                    format!("global: {global}  (g)  |  {layout_line}")
+                } else {
+                    layout_line
+                }),
+                Line::from(if state.orchestrator && state.global {
+                    "role=orchestrator scope=global → `cdamux orch new --global`"
+                } else if state.orchestrator {
                     "role=orchestrator → same as `cdamux orch new` + skill cda-orchestrator"
                 } else {
                     "secondary pane: shell when split"
@@ -635,7 +668,7 @@ pub(crate) fn draw_modal(f: &mut Frame, state: &mut ModalState) {
 
     let help = if state.message.is_empty() {
         if state.orchestrator {
-            "Enter create · Esc cancel · j/k pick · Tab mode · b branch · w worktree · s shell · o orch · a agent"
+            "Enter create · Esc cancel · j/k pick · Tab mode · b branch · w worktree · s shell · o orch · g global · a agent"
         } else {
             "Enter create · Esc cancel · j/k pick · Tab mode · b branch · w worktree · s shell · o orch · a agent · p layout"
         }
@@ -683,6 +716,7 @@ impl ModalState {
             custom_path: String::new(),
             shell_only: false,
             orchestrator: false,
+            global: false,
             agent_index: 0,
             agents,
             layout: PaneLayout::Single,

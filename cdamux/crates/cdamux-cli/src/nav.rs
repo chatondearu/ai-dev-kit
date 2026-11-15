@@ -191,6 +191,7 @@ fn run_nav() -> ExitCode {
             .nodes
             .iter()
             .flat_map(|n| &n.sessions)
+            .chain(&tree.global)
             .chain(&tree.unassigned)
             .map(|s| s.name.as_str());
         needs_draw |= status.refresh_subagents(names, now);

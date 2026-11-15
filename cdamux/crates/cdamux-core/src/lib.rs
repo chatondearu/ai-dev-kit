@@ -103,8 +103,9 @@ pub use agents_util::{
 pub use client_name::{is_product_client, normalize_client_name};
 pub use paths::{cdamux_home, cdamux_state_dir, env_lock};
 pub use orch::{
-    orch_boot_prompt, spawn_orchestrator, OrchError, OrchNewRequest, OrchNewResult,
-    ORCHESTRATOR_SKILL,
+    agent_scope_is_global, find_live_global_orchestrator, global_orch_cwd, orch_boot_prompt,
+    orch_boot_prompt_for, orch_boot_prompt_global, spawn_orchestrator, OrchError, OrchNewRequest,
+    OrchNewResult, ORCHESTRATOR_SKILL, ORCH_SCOPE_GLOBAL,
 };
 pub use state::{
     agent_state_path, generate_agent_id, generate_run_id, initial_agent_value, state_append,

@@ -98,7 +98,8 @@ Orchestrator ↔ worker messages use `cdamux msg send|read` (`inbox/<agent-id>.j
 `.cursor`, ≤ 2 KB/line). Fleet and the tailnet web show `✉N` unread badges and `?` on
 workers with a pending `ask`; answering from the composer / send form uses
 `kind=answer`. Start an orchestrator with `cdamux orch new` (or Fleet spawn role
-*orchestrator*) — skill `cda-orchestrator`. Interactive workers:
+*orchestrator*) — skill `cda-orchestrator`. Cross-project: `cdamux orch new --global`
+(`scope=global`, cwd `$CDAMUX_HOME/global`; Fleet **o** then **g**). Interactive workers:
 `cdamux worker spawn|ls|peek` (needs `$CDAMUX_AGENT_ID`; worktrees under
 `[worktrees].root` or `$CDAMUX_HOME/worktrees`; default first message includes the
 worker preamble for `cdamux msg`). `cdamux restore <orch>` rebuilds the

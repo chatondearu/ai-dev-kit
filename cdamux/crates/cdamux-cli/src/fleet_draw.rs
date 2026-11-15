@@ -677,6 +677,12 @@ fn tree_row_parts(row: &TreeRow) -> (ListItem<'_>, Vec<RowLink>) {
                 Span::styled(record.cwd.to_string_lossy().into_owned(), dim),
             ]))
         }
+        TreeRow::GlobalHeader => ListItem::new(Line::from(Span::styled(
+            "— global orchestrator",
+            Style::default()
+                .fg(CLR_ACCENT)
+                .add_modifier(Modifier::ITALIC),
+        ))),
         TreeRow::UnassignedHeader => ListItem::new(Line::from(Span::styled(
             "— unassigned sessions",
             Style::default()

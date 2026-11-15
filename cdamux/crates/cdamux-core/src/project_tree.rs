@@ -1,17 +1,21 @@
 //! Join discovered projects with tmux sessions for the Fleet tree UI.
 
+use crate::orch::agent_scope_is_global;
 use crate::orch_status::project_has_orch_artifacts;
+use crate::paths::cdamux_home;
 use crate::session::{EnrichedSession, SessionState};
 use crate::session_links::tree_roots;
 use crate::{
     discover_projects, group_sessions, list_tmux_sessions, GroupBy, GroupedSessions, Project,
     ProjectsConfig,
 };
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::path::Path;
 
 #[derive(Debug, Clone)]
 pub struct ProjectSessionTree {
+    /// Live global orchestrator (+ its workers), shown above projects (ADR-015).
+    pub global: Vec<EnrichedSession>,
     pub nodes: Vec<ProjectTreeNode>,
     pub unassigned: Vec<EnrichedSession>,
 }
@@ -86,7 +90,8 @@ pub fn build_project_session_tree_ex(
         .filter_map(|cwd| project_for_path(&cwd.to_string_lossy(), &projects))
         .map(|p| project_key(&p.path))
         .collect();
-    let (mut by_project, mut unassigned) = assign_to_projects(enriched, &projects);
+    let (mut by_project, rest) = assign_to_projects(enriched, &projects);
+    let (mut global, mut unassigned) = split_global_sessions(rest);
 
     let nodes = projects
         .into_iter()
@@ -101,9 +106,55 @@ pub fn build_project_session_tree_ex(
         })
         .collect();
 
+    global.sort_by(|a, b| a.name.cmp(&b.name));
     unassigned.sort_by(|a, b| a.name.cmp(&b.name));
 
-    ProjectSessionTree { nodes, unassigned }
+    ProjectSessionTree {
+        global,
+        nodes,
+        unassigned,
+    }
+}
+
+/// Peel sessions whose tree root is the global orchestrator out of the unassigned list.
+fn split_global_sessions(
+    sessions: Vec<EnrichedSession>,
+) -> (Vec<EnrichedSession>, Vec<EnrichedSession>) {
+    if sessions.is_empty() {
+        return (Vec::new(), Vec::new());
+    }
+    let global_cwd = cdamux_home().map(|h| h.join("global"));
+    let root_idxs = tree_roots(&sessions);
+    let mut global_roots: HashSet<usize> = HashSet::new();
+    for &ri in &root_idxs {
+        let root = &sessions[ri];
+        let by_scope = root
+            .cdamux_id
+            .as_deref()
+            .is_some_and(agent_scope_is_global);
+        let by_path = global_cwd
+            .as_ref()
+            .is_some_and(|g| Path::new(&root.path) == g.as_path())
+            && root.role.as_deref() == Some("orchestrator");
+        let by_name = root.name.starts_with("c-global")
+            && root.role.as_deref() == Some("orchestrator");
+        if by_scope || by_path || by_name {
+            global_roots.insert(ri);
+        }
+    }
+    if global_roots.is_empty() {
+        return (Vec::new(), sessions);
+    }
+    let mut global = Vec::new();
+    let mut unassigned = Vec::new();
+    for (i, s) in sessions.into_iter().enumerate() {
+        if global_roots.contains(&root_idxs[i]) {
+            global.push(s);
+        } else {
+            unassigned.push(s);
+        }
+    }
+    (global, unassigned)
 }
 
 /// Sessions per project key (every project present) and the unassigned rest. A session
@@ -151,6 +202,7 @@ fn tree_from_grouped(grouped: GroupedSessions) -> ProjectSessionTree {
         })
         .collect();
     ProjectSessionTree {
+        global: Vec::new(),
         nodes,
         unassigned: Vec::new(),
     }

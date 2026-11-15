@@ -68,6 +68,7 @@ binaries (`all_compile = false` in `mise.toml`).
 | `CDA_GRAPHIFY` | unset | `1` when `cda.aitools.graphify.enable` → kit skills and the kiss SessionStart hook prefer `graphify-out/` before grep/file reads ([ADR-008](../foam/decisions/ADR-008-graphify-code-graph.md); never set by `install.sh`) |
 | `KISS_MAP` | on | `0` → skip SessionStart orientation (repo map / graphify pointer) |
 | `CDA_ROUTING` | on | `0` → skip the SessionStart lane-routing block (feature/fix → `cda-dev`); also silent when `ORCH_RUN_ID` is set |
+| `CDA_ROLE` | unset | `orchestrator` → SessionStart injects the orchestrator routing block (`ORCH_ROUTING` in `cda-kiss` hooks) instead of the default lane text; set by cdamux on orchestrator panes ([PRD-356](../prd/PRD-356-orchestrator-actually-orchestrates.md)) |
 | `CDA_FOAM_HOME` | unset | Shared foam home (`cda.aitools.foamHome`); `cda-floorplan` writes `$CDA_FOAM_HOME/projects/<repo>/floorplan/` when the project has no `foam/` |
 | `FLOORPLAN_ENGINE` / `FLOORPLAN_AGENT` | auto | Override Ask / build agent for `cda-floorplan` (`agent`, `cursor-agent`, `claude`, `opencode`, `codex`) |
 | `CDA_AITOOLS_HOME` | `~/.config/cda-aitools` | Companion config root (`cda.aitools.configRoot` or env) |

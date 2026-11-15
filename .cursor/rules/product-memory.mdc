@@ -18,7 +18,9 @@ Before implementing features or making technical/product/design decisions:
 4. Any feature or fix requested in chat — one subject or several — goes through
    `cda-dev` intake (`cda-dev/prompts/intake.md`): one round of questions, a
    breakdown, GO. A single child issue is fine. Do not start coding from chat,
-   except a trivial fix (typo, one-liner, obvious small fix): branch → commit → PR.
+   except a trivial fix (typo, one file and about 20 lines, no product decision):
+   branch → commit → PR. Lane routing source:
+   `skills/quality/cda-kiss/hooks/lib.js` (`ROUTING` / `ORCH_ROUTING`).
 
 ## Challenge the user when
 

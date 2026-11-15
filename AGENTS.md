@@ -13,7 +13,9 @@ must follow this sequence:
 2. Any feature or fix requested in chat — one subject or several — goes through
    `cda-dev` intake (`cda-dev/prompts/intake.md`): one round of questions, a
    breakdown, GO. A single child issue is fine. Do not start coding from chat,
-   except a trivial fix (typo, one-liner, obvious small fix): branch → commit → PR.
+   except a trivial fix (typo, one file and about 20 lines, no product decision):
+   branch → commit → PR. Lane routing source:
+   `skills/quality/cda-kiss/hooks/lib.js` (`ROUTING` / `ORCH_ROUTING`).
 3. For non-trivial scope, before coding a Kanban issue, `prd/PRD-<n>-*.md` and
    `plans/PLAN-<n>-*.md` exist (create the missing ones). A fast-lane Ready
    issue may use its triage agent brief instead (`cda-dev`, `cda-triage`).

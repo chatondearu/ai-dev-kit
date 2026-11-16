@@ -70,7 +70,7 @@ preview_max_lines = 80
 # [worktrees]
 # root = "/home/you/.local/share/cdamux/worktrees"
 
-# Machine-wide cap on live workers (role=worker, status working/blocked, live tmux host).
+# Machine-wide cap on live workers (role=worker, live tmux host; excludes done/error only).
 # Checked at `cdamux worker spawn` across all projects. 0 = no cap. Default 6.
 # [orchestrator]
 # max_workers = 6

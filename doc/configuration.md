@@ -105,7 +105,8 @@ workers with a pending `ask`; answering from the composer / send form uses
 any discovered project from outside a git cwd; default first message includes the
 worker preamble for `cdamux msg`). Spawn refuses when live workers already meet
 `[orchestrator].max_workers` (default 6, `0` = no cap; count = `role=worker` +
-status `working`/`blocked` + live tmux host, all projects). `cdamux restore <orch>` rebuilds the
+live tmux host, excluding only status `done`/`error` — missing status and `idle`
+count; dormant hosts are dead so never count; all projects). `cdamux restore <orch>` rebuilds the
 orchestrator host and its workers (resume by id when recorded). Retention:
 `cdamux state gc` (optional `--retention-days N`, N ≥ 1) archives then removes
 done/error agents and finished runs with no live host older than

@@ -15,4 +15,6 @@ fn orch_new_help_lists_skill() {
         text.contains("cda-orchestrator") || text.contains("orchestrator"),
         "{text}"
     );
+    assert!(text.contains("--child"), "{text}");
+    assert!(text.contains("--global"), "{text}");
 }

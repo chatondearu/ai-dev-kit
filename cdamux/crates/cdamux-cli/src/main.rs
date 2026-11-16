@@ -38,7 +38,7 @@ use clap::{Parser, Subcommand};
 use skim::prelude::*;
 use std::io::{self, BufRead, Cursor, Write};
 use std::os::unix::process::CommandExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
 
 const CUSTOM_PATH_ITEM: &str = "[custom path…]";
@@ -205,12 +205,15 @@ enum OrchCommands {
         /// Product client (`claude`|`cursor`|`opencode`|`codex`); default: config `agents.default`.
         #[arg(long)]
         agent: Option<String>,
-        /// Working directory (default: cwd). Incompatible with `--global`.
+        /// Working directory or discovered project name (default: cwd). Incompatible with `--global`.
         #[arg(long)]
-        path: Option<PathBuf>,
+        path: Option<String>,
         /// Cross-project orchestrator (`scope=global`, cwd `$CDAMUX_HOME/global`).
         #[arg(long)]
         global: bool,
+        /// Nest under the caller's global orchestrator (`$CDAMUX_AGENT_ID`, ADR-015).
+        #[arg(long)]
+        child: bool,
     },
 }
 
@@ -472,14 +475,28 @@ fn main() -> ExitCode {
                 agent,
                 path,
                 global,
-            } => cmd_orch_new(agent.as_deref(), path.as_deref(), global),
+                child,
+            } => cmd_orch_new(agent.as_deref(), path.as_deref(), global, child),
         },
     }
 }
 
-fn cmd_orch_new(agent: Option<&str>, path: Option<&std::path::Path>, global: bool) -> ExitCode {
+fn cmd_orch_new(
+    agent: Option<&str>,
+    path: Option<&str>,
+    global: bool,
+    child: bool,
+) -> ExitCode {
     if global && path.is_some() {
         eprintln!("orch new: --path is incompatible with --global");
+        return ExitCode::from(1);
+    }
+    if global && child {
+        eprintln!("orch new: --child is incompatible with --global");
+        return ExitCode::from(1);
+    }
+    if child && path.is_none() {
+        eprintln!("orch new: --child requires --path <path|project>");
         return ExitCode::from(1);
     }
     let cfg = match load_config() {
@@ -490,13 +507,41 @@ fn cmd_orch_new(agent: Option<&str>, path: Option<&std::path::Path>, global: boo
         }
     };
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let path = path.unwrap_or(&cwd);
+    let path_buf: PathBuf = if child {
+        let raw = path.expect("checked above");
+        match cdamux_core::resolve_spawn_repo(&cfg.projects, raw) {
+            Ok(p) => p,
+            Err(e) => {
+                eprintln!("orch new: {e}");
+                return ExitCode::from(1);
+            }
+        }
+    } else if let Some(raw) = path {
+        let candidate = Path::new(raw);
+        if candidate.is_dir() {
+            candidate.to_path_buf()
+        } else {
+            cdamux_core::resolve_spawn_repo(&cfg.projects, raw)
+                .unwrap_or_else(|_| candidate.to_path_buf())
+        }
+    } else {
+        cwd
+    };
+    let parent_id = if child {
+        match resolve_caller_agent_id() {
+            Ok(id) => Some(id),
+            Err(c) => return c,
+        }
+    } else {
+        None
+    };
     let req = OrchNewRequest {
-        path,
+        path: &path_buf,
         agent,
         agents: &cfg.agents,
         switch_to_session: std::env::var_os("TMUX").is_some(),
         global,
+        parent_agent_id: parent_id.as_deref(),
     };
     match spawn_orchestrator(req) {
         Ok(r) => {

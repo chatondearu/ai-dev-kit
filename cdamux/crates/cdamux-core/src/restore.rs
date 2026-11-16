@@ -147,11 +147,14 @@ pub fn parents_first(mut records: Vec<SessionRecord>) -> Vec<SessionRecord> {
     records
 }
 
-/// True when `agents/<id>.json` says `role=worker` and `parent` is in `parent_ids`.
-fn agent_is_worker_of(cdamux_id: &str, parent_ids: &HashSet<String>) -> bool {
+/// True when `agents/<id>.json` has `parent` in `parent_ids` and role is worker or
+/// nested orchestrator (ADR-015: global → project orch → workers).
+fn agent_is_child_of(cdamux_id: &str, parent_ids: &HashSet<String>) -> bool {
     match state_get(StateKind::Agents, cdamux_id) {
         Ok(Some(v)) => {
-            v.get("role").and_then(|r| r.as_str()) == Some("worker")
+            let role = v.get("role").and_then(|r| r.as_str());
+            let nested = role == Some("worker") || role == Some("orchestrator");
+            nested
                 && v
                     .get("parent")
                     .and_then(|p| p.as_str())
@@ -204,7 +207,7 @@ pub fn restore_subtree(root: SessionRecord, all: Vec<SessionRecord>) -> Vec<Sess
             let by_agent = r
                 .cdamux_id
                 .as_deref()
-                .is_some_and(|id| agent_is_worker_of(id, &agent_ids));
+                .is_some_and(|id| agent_is_child_of(id, &agent_ids));
             if by_host || by_agent {
                 wanted.insert(r.name.clone());
                 if let Some(id) = &r.cdamux_id {
@@ -537,6 +540,55 @@ mod tests {
             .map(|r| r.name)
             .collect();
         assert_eq!(names, vec!["c-orch".to_string(), "c-w".to_string()]);
+        std::env::remove_var("CDAMUX_HOME");
+    }
+
+    #[test]
+    fn restore_subtree_two_levels_global_project_orch_worker() {
+        let _g = env_lock();
+        let dir = tempfile::tempdir().unwrap();
+        std::env::set_var("CDAMUX_HOME", dir.path());
+        let global = SessionRecord {
+            role: "orchestrator".into(),
+            cdamux_id: Some("a-global".into()),
+            ..rec("c-global", "claude", None, None)
+        };
+        // Registry parent missing; agent parent links project orch → global, worker → project.
+        let project = SessionRecord {
+            role: "orchestrator".into(),
+            cdamux_id: Some("a-proj".into()),
+            ..rec("c-proj", "claude", None, None)
+        };
+        let worker = SessionRecord {
+            role: "worker".into(),
+            cdamux_id: Some("a-w".into()),
+            ..rec("c-w", "claude", None, None)
+        };
+        state_set(
+            StateKind::Agents,
+            "a-proj",
+            &initial_agent_value("a-proj", "claude", "c-proj", "orchestrator", Some("a-global")),
+        )
+        .unwrap();
+        state_set(
+            StateKind::Agents,
+            "a-w",
+            &initial_agent_value("a-w", "claude", "c-w", "worker", Some("a-proj")),
+        )
+        .unwrap();
+        let names: Vec<String> =
+            restore_subtree(global.clone(), vec![worker, project, global])
+                .into_iter()
+                .map(|r| r.name)
+                .collect();
+        assert_eq!(
+            names,
+            vec![
+                "c-global".to_string(),
+                "c-proj".to_string(),
+                "c-w".to_string()
+            ]
+        );
         std::env::remove_var("CDAMUX_HOME");
     }
 

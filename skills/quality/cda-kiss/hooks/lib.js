@@ -148,8 +148,24 @@ const ORCH_ROUTING = [
   'one question round + GO, then dispatch and end the turn.',
 ].join('\n');
 
+// Directories where another workflow owns routing: `<configDir>/cda-routing-off`, one path
+// prefix per line (`#` comments). Matches the project dir or anything below it.
+function routingOffHere(env = process.env) {
+  // Compare real paths: symlinked dirs (macOS /var → /private/var, ~/dev/x → /cda/x) must match.
+  const real = p => { try { return fs.realpathSync(p); } catch (e) { return path.resolve(p); } };
+  let prefixes;
+  try {
+    prefixes = fs.readFileSync(path.join(configDir(), 'cda-routing-off'), 'utf8').split('\n')
+      .map(l => l.replace(/#.*/, '').trim()).filter(Boolean).map(real);
+  } catch (e) {
+    return false;
+  }
+  const dir = real((env.CLAUDE_PROJECT_DIR || '').trim() || process.cwd());
+  return prefixes.some(p => dir === p || dir.startsWith(p + path.sep));
+}
+
 function buildRouting(env = process.env) {
-  if (env.ORCH_RUN_ID || env.CDA_ROUTING === '0') return '';
+  if (env.ORCH_RUN_ID || env.CDA_ROUTING === '0' || routingOffHere(env)) return '';
   if (env.CDA_ROLE === 'orchestrator') return ORCH_ROUTING;
   return ROUTING;
 }

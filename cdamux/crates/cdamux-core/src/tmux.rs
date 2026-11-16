@@ -289,10 +289,22 @@ pub fn capture_pane_text(session_name: &str, max_lines: i32, escapes: bool) -> R
 /// `-l` disables key-name lookup for every arg, so `Enter` must be a separate call.
 /// Multi-line text goes through a bracketed paste (`load-buffer -` reads stdin) so the
 /// receiving shell or agent does not execute each line as it arrives.
-fn send_line_argvs(session_name: &str, line: &str, enter: bool) -> Vec<Vec<String>> {
+///
+/// When `clear_line` is true, send `C-u` first so a leftover composer draft is not
+/// concatenated. Needed for Cursor orch idle nudges: keyboard submit omits prompt clear
+/// (`us("")`); real fix is upstream Cursor. Heuristic may differ under vim-mode.
+fn send_line_argvs(
+    session_name: &str,
+    line: &str,
+    enter: bool,
+    clear_line: bool,
+) -> Vec<Vec<String>> {
     let target = pane_target(session_name);
     let argv = |args: &[&str]| -> Vec<String> { args.iter().map(|s| s.to_string()).collect() };
     let mut out = Vec::new();
+    if clear_line {
+        out.push(argv(&["send-keys", "-t", &target, "C-u"]));
+    }
     if line.contains('\n') {
         out.push(argv(&["load-buffer", "-b", PASTE_BUFFER, "-"]));
         out.push(argv(&["paste-buffer", "-p", "-d", "-b", PASTE_BUFFER, "-t", &target]));
@@ -309,6 +321,24 @@ const PASTE_BUFFER: &str = "cdamux-send";
 
 /// Send a literal line to the session's active pane; optional Enter keypress.
 pub fn send_line_to_session(session_name: &str, line: &str, enter: bool) -> Result<(), TmuxError> {
+    send_line_to_session_ex(session_name, line, enter, false)
+}
+
+/// Like [`send_line_to_session`], but kill the current input line (`C-u`) first.
+pub(crate) fn send_line_to_session_preclear(
+    session_name: &str,
+    line: &str,
+    enter: bool,
+) -> Result<(), TmuxError> {
+    send_line_to_session_ex(session_name, line, enter, true)
+}
+
+fn send_line_to_session_ex(
+    session_name: &str,
+    line: &str,
+    enter: bool,
+    clear_line: bool,
+) -> Result<(), TmuxError> {
     let map_err = |e: std::io::Error| {
         if e.kind() == std::io::ErrorKind::NotFound {
             TmuxError::NotFound
@@ -316,7 +346,7 @@ pub fn send_line_to_session(session_name: &str, line: &str, enter: bool) -> Resu
             TmuxError::ListFailed
         }
     };
-    for argv in send_line_argvs(session_name, line, enter) {
+    for argv in send_line_argvs(session_name, line, enter, clear_line) {
         let mut cmd = Command::new("tmux");
         cmd.args(&argv);
         let ok = if argv[0] == "load-buffer" {
@@ -341,27 +371,58 @@ mod tests {
     #[test]
     fn send_line_enter_is_separate_key_invocation() {
         assert_eq!(
-            send_line_argvs("c-bar", "echo hi", true),
+            send_line_argvs("c-bar", "echo hi", true, false),
             vec![
                 vec!["send-keys", "-t", "=c-bar:", "-l", "--", "echo hi"],
                 vec!["send-keys", "-t", "=c-bar:", "Enter"],
             ]
         );
-        assert_eq!(send_line_argvs("c-bar", "y", false).len(), 1);
-        assert_eq!(send_line_argvs("c-bar", "", true).len(), 1); // Enter only
+        assert_eq!(send_line_argvs("c-bar", "y", false, false).len(), 1);
+        assert_eq!(send_line_argvs("c-bar", "", true, false).len(), 1); // Enter only
+    }
+
+    #[test]
+    fn send_line_preclear_sends_c_u_before_text() {
+        assert_eq!(
+            send_line_argvs("c-bar", "📨 1 messages — cdamux msg read --ack", true, true),
+            vec![
+                vec!["send-keys", "-t", "=c-bar:", "C-u"],
+                vec![
+                    "send-keys",
+                    "-t",
+                    "=c-bar:",
+                    "-l",
+                    "--",
+                    "📨 1 messages — cdamux msg read --ack",
+                ],
+                vec!["send-keys", "-t", "=c-bar:", "Enter"],
+            ]
+        );
+        // Default path (worker paste / CLI send) must not clear.
+        assert_eq!(
+            send_line_argvs("c-bar", "hello", true, false),
+            vec![
+                vec!["send-keys", "-t", "=c-bar:", "-l", "--", "hello"],
+                vec!["send-keys", "-t", "=c-bar:", "Enter"],
+            ]
+        );
     }
 
     #[test]
     fn multiline_send_uses_bracketed_paste() {
         assert_eq!(
-            send_line_argvs("c-bar", "a\nb", true),
+            send_line_argvs("c-bar", "a\nb", true, false),
             vec![
                 vec!["load-buffer", "-b", "cdamux-send", "-"],
                 vec!["paste-buffer", "-p", "-d", "-b", "cdamux-send", "-t", "=c-bar:"],
                 vec!["send-keys", "-t", "=c-bar:", "Enter"],
             ]
         );
-        assert_eq!(send_line_argvs("c-bar", "a\nb", false).len(), 2);
+        assert_eq!(send_line_argvs("c-bar", "a\nb", false, false).len(), 2);
+        assert_eq!(
+            send_line_argvs("c-bar", "a\nb", true, true)[0],
+            vec!["send-keys", "-t", "=c-bar:", "C-u"]
+        );
     }
 
     #[test]

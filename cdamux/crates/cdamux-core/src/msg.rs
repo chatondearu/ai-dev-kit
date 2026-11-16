@@ -3,7 +3,7 @@
 
 use crate::agent_status::{load_reported_status, may_overwrite, parse_reported_status};
 use crate::paths::cdamux_state_dir;
-use crate::send::send_to_session;
+use crate::send::{send_to_session, send_to_session_preclear};
 use crate::session::SessionState;
 use crate::session_registry;
 use crate::state::{
@@ -529,7 +529,8 @@ pub fn msg_send(
             if should_nudge(status, idle, quiet_secs) {
                 if let Some(session) = host.as_deref() {
                     let n = unread_count(&to).unwrap_or(1).max(1);
-                    if send_to_session(session, &nudge_text(n), true).is_ok() {
+                    // Pre-clear: Cursor Enter submit does not empty the composer.
+                    if send_to_session_preclear(session, &nudge_text(n), true).is_ok() {
                         nudged = true;
                     }
                 }

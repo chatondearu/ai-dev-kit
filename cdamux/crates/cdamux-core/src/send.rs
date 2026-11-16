@@ -1,6 +1,6 @@
 //! Push keys/text to a tmux session pane without attaching (shared by CLI and future daemon HTTP).
 
-use crate::tmux::{send_line_to_session, TmuxError};
+use crate::tmux::{send_line_to_session, send_line_to_session_preclear, TmuxError};
 use std::process::{Command, Stdio};
 use thiserror::Error;
 
@@ -40,13 +40,37 @@ pub fn tmux_has_session(session: &str) -> Result<bool, SendError> {
 
 /// Send literal text (and optional Enter) to a session's active pane without attaching.
 pub fn send_to_session(session: &str, text: &str, enter: bool) -> Result<(), SendError> {
+    send_to_session_ex(session, text, enter, false)
+}
+
+/// Like [`send_to_session`], but `C-u` first so leftovers do not accumulate in the TUI
+/// composer (Cursor orch idle nudge path).
+pub(crate) fn send_to_session_preclear(
+    session: &str,
+    text: &str,
+    enter: bool,
+) -> Result<(), SendError> {
+    send_to_session_ex(session, text, enter, true)
+}
+
+fn send_to_session_ex(
+    session: &str,
+    text: &str,
+    enter: bool,
+    clear_line: bool,
+) -> Result<(), SendError> {
     if text.is_empty() && !enter {
         return Ok(());
     }
     if !tmux_has_session(session)? {
         return Err(SendError::SessionNotFound(session.to_string()));
     }
-    send_line_to_session(session, text, enter).map_err(|e| match e {
+    let send = if clear_line {
+        send_line_to_session_preclear(session, text, enter)
+    } else {
+        send_line_to_session(session, text, enter)
+    };
+    send.map_err(|e| match e {
         TmuxError::NotFound => SendError::NotFound,
         _ => SendError::SendFailed,
     })

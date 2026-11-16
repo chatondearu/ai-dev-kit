@@ -135,3 +135,38 @@ orch_pr_mergeable() {
     *) return 1 ;;
   esac
 }
+
+# First PR state for branch head: OPEN|MERGED|CLOSED| (empty if none). Fail-open on gh error.
+orch_pr_state() {
+  local branch="$1" json
+  [ -n "$branch" ] || { printf '\n'; return 0; }
+  command -v gh >/dev/null 2>&1 || { printf '\n'; return 0; }
+  json="$(gh pr list --head "$branch" --state all --json number,state 2>/dev/null)" || {
+    printf '\n'
+    return 0
+  }
+  if command -v jq >/dev/null 2>&1; then
+    jq -r '.[0].state // empty' <<<"$json" 2>/dev/null || true
+    return 0
+  fi
+  printf '%s\n' "$(echo "$json" | sed -n 's/.*"state"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)"
+}
+
+# JSON array of OPEN|MERGED PRs for branch (empty array / "" on failure). Missing state → OPEN.
+orch_pr_list_open_or_merged() {
+  local branch="$1" json
+  [ -n "$branch" ] || { printf '[]\n'; return 0; }
+  command -v gh >/dev/null 2>&1 || { printf '[]\n'; return 0; }
+  json="$(gh pr list --head "$branch" --state all --json number,url,state,title 2>/dev/null)" || {
+    printf '[]\n'
+    return 0
+  }
+  [ -n "$json" ] || { printf '[]\n'; return 0; }
+  if command -v jq >/dev/null 2>&1; then
+    jq -c '[.[] | select((.state // "OPEN") == "OPEN" or .state == "MERGED")]' <<<"$json" 2>/dev/null \
+      || printf '[]\n'
+    return 0
+  fi
+  # No jq: if any MERGED/OPEN token exists, return raw list (caller takes .[0]).
+  printf '%s\n' "$json"
+}

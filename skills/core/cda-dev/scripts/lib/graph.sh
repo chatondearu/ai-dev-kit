@@ -243,6 +243,21 @@ orch_graph_worker() {
   orch_graph_add_edge "integrator" "$node_prefix" aggregates
 
   while [ "$i" -le "$max" ]; do
+    # Maintainer merged mid-run: stop before another implement/fix push (#374).
+    if [ -n "${ORCH_WORKER_BRANCH:-}" ] && type orch_pr_state >/dev/null 2>&1; then
+      case "$(orch_pr_state "$ORCH_WORKER_BRANCH")" in
+        MERGED)
+          orch_graph_upsert_node "$node_prefix" worker done done "merged by maintainer" ""
+          if type orch_progress_set >/dev/null 2>&1 && [ -n "${ORCH_WORKER_ID:-}" ]; then
+            orch_progress_set "$ORCH_WORKER_ID" done "merged by maintainer"
+          else
+            printf 'done: merged by maintainer\n' >&2
+          fi
+          return 0
+          ;;
+      esac
+    fi
+
     local phase="implement"
     [ "$i" -gt 1 ] && phase="fix"
     local agent_node="${node_prefix}-${phase}-${i}"

@@ -99,6 +99,11 @@ Per issue the harness runs: worker loop (agent → verify, retry prompt carries
 the failed verify output or verifier findings) → PR exists → **independent review** (fresh
 `reviewer.md` agent; `REVIEW: changes_requested` gives the worker one fix
 iteration, then re-review once, then `blocked`) → CI green + mergeable → `done`.
+Before each graph iteration, before PR lookup, and before each review round it
+checks the branch PR state (`gh pr list --state all`): **MERGED** → `done`
+(`merged by maintainer`), no further pushes. Lookup accepts OPEN or MERGED.
+If the loop is green but no PR exists, one bounded agent step asks to commit,
+push, and open a PR with `Closes #N`, then re-looks up; still none → `blocked`.
 At run end `orch-cleanup.sh` removes the worktrees of `done` issues; `blocked` ones stay.
 See [ADR-006](../foam/decisions/ADR-006-review-gate-fail-closed-verify.md).
 

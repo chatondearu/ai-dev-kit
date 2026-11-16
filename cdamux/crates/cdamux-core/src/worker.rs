@@ -537,6 +537,57 @@ mod tests {
     }
 
     #[test]
+    fn refuse_if_at_cap_errors_when_live_at_cap() {
+        if std::process::Command::new("tmux")
+            .arg("-V")
+            .output()
+            .map(|o| !o.status.success())
+            .unwrap_or(true)
+        {
+            eprintln!("tmux not on PATH: skipped");
+            return;
+        }
+        let _g = crate::paths::env_lock();
+        let tmux_dir = tempfile::tempdir().unwrap();
+        let home = tempfile::tempdir().unwrap();
+        std::env::set_var("TMUX_TMPDIR", tmux_dir.path());
+        std::env::set_var("CDAMUX_HOME", home.path());
+        std::env::remove_var("TMUX");
+        assert!(
+            std::process::Command::new("tmux")
+                .args(["new-session", "-d", "-s", "live-w", "sleep", "60"])
+                .status()
+                .unwrap()
+                .success(),
+            "throwaway tmux session"
+        );
+        state_set(
+            StateKind::Agents,
+            "a-w-live",
+            &json!({"id": "a-w-live", "role": "worker", "host": "live-w", "status": "working"}),
+        )
+        .unwrap();
+        let err = refuse_if_at_cap(1);
+        let sock = std::process::Command::new("tmux")
+            .args(["display-message", "-p", "#{socket_path}"])
+            .output()
+            .ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .unwrap_or_default();
+        if sock.contains(tmux_dir.path().to_str().unwrap_or("___")) {
+            let _ = std::process::Command::new("tmux")
+                .args(["kill-server"])
+                .status();
+        }
+        std::env::remove_var("TMUX_TMPDIR");
+        std::env::remove_var("CDAMUX_HOME");
+        match err {
+            Err(WorkerError::Cap { live: 1, cap: 1 }) => {}
+            other => panic!("expected Cap {{ live: 1, cap: 1 }}, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn worker_ls_shows_dormant_when_host_is_not_live() {
         let _g = crate::paths::env_lock();
         // Throwaway tmux dir: no server there, so no host is live and the real server is untouched.

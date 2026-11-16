@@ -1023,6 +1023,33 @@ mod tests {
         );
     }
 
+    #[test]
+    fn nested_project_orchestrator_under_global() {
+        let mut global = sess("c-global");
+        global.role = Some("orchestrator".into());
+        global.path = "/tmp/cdamux/global".into();
+        let mut proj = child("c-neomind", Some("c-global"));
+        proj.role = Some("orchestrator".into());
+        proj.path = "/src/neomind".into();
+        let mut worker = child("w-api", Some("c-neomind"));
+        worker.path = "/src/neomind".into();
+        let tree = ProjectSessionTree {
+            global: vec![global, proj, worker],
+            nodes: vec![],
+            unassigned: vec![],
+        };
+        let rows = flatten_tree(&tree, &HashSet::new(), GroupBy::Project, false, &no_status());
+        assert_eq!(
+            outline(&rows),
+            vec![
+                (0, "global".into()),
+                (1, "c-global".into()),
+                (2, "c-neomind".into()),
+                (3, "w-api".into()),
+            ]
+        );
+    }
+
     /// `(depth, label)` per row: sessions by name, children as `kind id`.
     fn outline(rows: &[TreeRow]) -> Vec<(usize, String)> {
         rows.iter()

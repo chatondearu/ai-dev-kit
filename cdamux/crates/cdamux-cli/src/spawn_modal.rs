@@ -411,6 +411,7 @@ fn execute_spawn(
             agents: &cfg.agents,
             switch_to_session,
             global: state.global,
+            parent_agent_id: None,
         })
         .map_err(|e| e.to_string())?;
         let verb = if r.reused { "reusing" } else { "spawned" };

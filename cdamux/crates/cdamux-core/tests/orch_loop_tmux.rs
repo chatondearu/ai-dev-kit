@@ -120,6 +120,7 @@ fn orchestrator_loop_spawn_ask_answer_done() {
         agents: &agents,
         switch_to_session: false,
         global: false,
+        parent_agent_id: None,
     })
     .expect("hop 1 (orch new) failed");
     let oid = orch.agent_id.as_str();

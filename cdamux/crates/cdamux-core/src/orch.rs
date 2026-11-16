@@ -97,6 +97,15 @@ pub enum OrchError {
     NoHome,
     #[error("io: {0}")]
     Io(String),
+    #[error("{0}")]
+    Invalid(String),
+    /// ADR-015: only a `scope=global` orchestrator may spawn a project orchestrator.
+    #[error("{0}")]
+    Depth(String),
+    #[error("caller agent '{0}' not found")]
+    CallerNotFound(String),
+    #[error("caller has no host session")]
+    NoHost,
 }
 
 #[derive(Debug, Clone)]
@@ -108,6 +117,8 @@ pub struct OrchNewRequest<'a> {
     pub switch_to_session: bool,
     /// Cross-project orchestrator (`scope=global`, cwd `$CDAMUX_HOME/global`).
     pub global: bool,
+    /// Nest under this global orchestrator agent id (`orch new --child`).
+    pub parent_agent_id: Option<&'a str>,
 }
 
 #[derive(Debug, Clone)]
@@ -124,6 +135,33 @@ pub struct OrchNewResult {
 
 /// Shared spawn args for `cdamux orch new` and the Fleet spawn-modal orchestrator role.
 pub fn spawn_orchestrator(req: OrchNewRequest<'_>) -> Result<OrchNewResult, OrchError> {
+    if req.global && req.parent_agent_id.is_some() {
+        return Err(OrchError::Invalid(
+            "--child is incompatible with --global".into(),
+        ));
+    }
+
+    // ADR-015 depth ≤ 2: only the global orchestrator may spawn a project orchestrator.
+    let parent_host = if let Some(parent_id) = req.parent_agent_id {
+        if !agent_scope_is_global(parent_id) {
+            return Err(OrchError::Depth(
+                "only a scope=global orchestrator may spawn a project orchestrator (depth ≤ 2: global → project → workers)".into(),
+            ));
+        }
+        let parent = crate::state::state_get(StateKind::Agents, parent_id)
+            .map_err(|e| OrchError::Io(e.to_string()))?
+            .ok_or_else(|| OrchError::CallerNotFound(parent_id.to_string()))?;
+        let host = parent
+            .get("host")
+            .and_then(|h| h.as_str())
+            .filter(|s| !s.is_empty())
+            .ok_or(OrchError::NoHost)?
+            .to_string();
+        Some(host)
+    } else {
+        None
+    };
+
     if req.global {
         if let Some((agent_id, host)) = find_live_global_orchestrator() {
             if req.switch_to_session {
@@ -183,7 +221,7 @@ pub fn spawn_orchestrator(req: OrchNewRequest<'_>) -> Result<OrchNewResult, Orch
     let extra = SpawnExtra {
         role: Some("orchestrator"),
         run: Some(run.as_str()),
-        parent_agent_id: None,
+        parent_agent_id: req.parent_agent_id,
         name: None,
     };
     let outcome = spawn_tmux_session_ex(
@@ -193,7 +231,7 @@ pub fn spawn_orchestrator(req: OrchNewRequest<'_>) -> Result<OrchNewResult, Orch
         PaneLayout::Single,
         req.switch_to_session,
         Some(client.as_str()),
-        None,
+        parent_host.as_deref(),
         extra,
     )?;
 
@@ -258,5 +296,73 @@ mod tests {
     fn prompt_for_selects_global() {
         assert_eq!(orch_boot_prompt_for(false), orch_boot_prompt());
         assert_eq!(orch_boot_prompt_for(true), orch_boot_prompt_global());
+    }
+
+    #[test]
+    fn child_refuses_non_global_parent() {
+        let _g = crate::env_lock();
+        let dir = tempfile::tempdir().unwrap();
+        std::env::set_var("CDAMUX_HOME", dir.path());
+        let _ = state_set(
+            StateKind::Agents,
+            "a-proj",
+            &json!({
+                "id": "a-proj",
+                "client": "claude",
+                "host": "c-proj",
+                "role": "orchestrator",
+                "parent": null,
+                "run": "r-1"
+            }),
+        );
+        let agents = AgentsConfig {
+            default: "claude".into(),
+            claude: Some(crate::AgentEntry {
+                command: "claude".into(),
+                resume: None,
+            }),
+            cursor: None,
+            opencode: None,
+            pi: None,
+        };
+        let cwd = dir.path().join("proj");
+        std::fs::create_dir(&cwd).unwrap();
+        let err = spawn_orchestrator(OrchNewRequest {
+            path: &cwd,
+            agent: Some("claude"),
+            agents: &agents,
+            switch_to_session: false,
+            global: false,
+            parent_agent_id: Some("a-proj"),
+        })
+        .expect_err("project orch must not spawn orch");
+        assert!(
+            matches!(err, OrchError::Depth(_)),
+            "got {err:?}"
+        );
+        let msg = err.to_string();
+        assert!(msg.contains("depth"), "{msg}");
+        std::env::remove_var("CDAMUX_HOME");
+    }
+
+    #[test]
+    fn child_incompatible_with_global_flag() {
+        let agents = AgentsConfig {
+            default: "claude".into(),
+            claude: None,
+            cursor: None,
+            opencode: None,
+            pi: None,
+        };
+        let err = spawn_orchestrator(OrchNewRequest {
+            path: Path::new("/tmp"),
+            agent: None,
+            agents: &agents,
+            switch_to_session: false,
+            global: true,
+            parent_agent_id: Some("a-global"),
+        })
+        .expect_err("--child + --global");
+        assert!(matches!(err, OrchError::Invalid(_)), "got {err:?}");
     }
 }

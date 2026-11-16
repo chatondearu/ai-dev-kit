@@ -25,9 +25,15 @@ When started with `cdamux orch new --global` (`scope=global`): you run outside
 any repo at `$CDAMUX_HOME/global`. List targets with `cdamux projects`.
 
 Pick the repo per request; if the project is ambiguous, ask the human — never
-guess. Nested project orchestrators as children are not yet available; for heavy
-per-project work use `orch.sh --repo <path>` or a planner/`worker spawn` with
-`--repo`.
+guess. For heavy per-project work, start a nested project orchestrator:
+
+```bash
+cdamux orch new --child --path <path|project>
+```
+
+It gets `parent` = you, its own run, and project boot prompt (ADR-015 depth ≤ 2:
+you cannot nest further). Relays its `report` / `done` / `ask` summaries. For
+lighter work use `orch.sh --repo <path>` or `worker spawn --repo` directly.
 
 Dispatch:
 

@@ -97,6 +97,7 @@ fn orch_new_sets_role_run_and_boot_prompt() {
         agents: &agents,
         switch_to_session: false,
         global: false,
+        parent_agent_id: None,
     })
     .expect("orch new");
 
@@ -193,6 +194,7 @@ fn orch_new_global_sets_scope_and_reuses_live() {
         agents: &agents,
         switch_to_session: false,
         global: true,
+        parent_agent_id: None,
     })
     .expect("global orch new");
 
@@ -213,12 +215,139 @@ fn orch_new_global_sets_scope_and_reuses_live() {
         agents: &agents,
         switch_to_session: false,
         global: true,
+        parent_agent_id: None,
     })
     .expect("second global orch new");
 
     assert!(second.reused);
     assert_eq!(second.host, first.host);
     assert_eq!(second.agent_id, first.agent_id);
+
+    let sock = Command::new("tmux")
+        .args(["display-message", "-p", "#{socket_path}"])
+        .output()
+        .expect("tmux");
+    let sock = String::from_utf8_lossy(&sock.stdout);
+    assert!(
+        sock.contains(tmp.path().to_str().unwrap_or("___")),
+        "refusing kill-server: socket {sock} not under temp"
+    );
+    let _ = Command::new("tmux").args(["kill-server"]).status();
+}
+
+#[test]
+fn orch_new_child_under_global_then_worker_msg() {
+    const SOCK: &str = "cdamux-orch-child-test";
+    let Some(real_tmux) = which("tmux") else {
+        eprintln!("tmux not on PATH: skipped");
+        return;
+    };
+    let Some(_git) = which("git") else {
+        eprintln!("git not on PATH: skipped");
+        return;
+    };
+
+    let tmp = tempfile::tempdir().unwrap();
+    let bin = tmp.path().join("bin");
+    std::fs::create_dir(&bin).unwrap();
+    let wrapper = bin.join("tmux");
+    std::fs::write(
+        &wrapper,
+        format!("#!/bin/sh\nexec {real_tmux} -L {SOCK} -f /dev/null \"$@\"\n"),
+    )
+    .unwrap();
+    let stub = bin.join("claude");
+    std::fs::write(&stub, "#!/bin/sh\nexec sleep 30\n").unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o755)).unwrap();
+    std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    let proj = tmp.path().join("proj");
+    std::fs::create_dir(&proj).unwrap();
+    assert!(Command::new("git")
+        .args(["-C", proj.to_str().unwrap(), "init"])
+        .status()
+        .unwrap()
+        .success());
+
+    let _env = env_lock();
+    let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default());
+    std::env::set_var("PATH", &path);
+    std::env::set_var("TMUX_TMPDIR", tmp.path());
+    let home = tmp.path().join("cdamux");
+    std::env::set_var("CDAMUX_HOME", &home);
+    std::env::remove_var("TMUX");
+
+    let agents = AgentsConfig {
+        default: "claude".into(),
+        claude: Some(AgentEntry {
+            command: "claude".into(),
+            resume: None,
+        }),
+        cursor: None,
+        opencode: None,
+        pi: None,
+    };
+
+    let global = spawn_orchestrator(OrchNewRequest {
+        path: &proj,
+        agent: Some("claude"),
+        agents: &agents,
+        switch_to_session: false,
+        global: true,
+        parent_agent_id: None,
+    })
+    .expect("global orch");
+
+    let child = spawn_orchestrator(OrchNewRequest {
+        path: &proj,
+        agent: Some("claude"),
+        agents: &agents,
+        switch_to_session: false,
+        global: false,
+        parent_agent_id: Some(global.agent_id.as_str()),
+    })
+    .expect("child orch");
+
+    assert!(!child.reused);
+    assert_ne!(child.agent_id, global.agent_id);
+    assert_ne!(child.run, global.run);
+    let child_doc = state_get(StateKind::Agents, &child.agent_id).unwrap().unwrap();
+    assert_eq!(child_doc["role"], "orchestrator");
+    assert_eq!(child_doc["parent"], global.agent_id);
+    assert!(child_doc.get("scope").is_none() || child_doc["scope"].is_null());
+    assert_eq!(child.path, proj);
+
+    use cdamux_core::{msg_send, spawn_worker, WorkerSpawnRequest, DEFAULT_NUDGE_QUIET_SECS};
+    let wt_root = tmp.path().join("wts");
+    let prompt = tmp.path().join("prompt.txt");
+    std::fs::write(&prompt, "nested-worker").unwrap();
+    let worker = spawn_worker(WorkerSpawnRequest {
+        name: "api",
+        caller_id: child.agent_id.as_str(),
+        agent: None,
+        prompt_file: Some(&prompt),
+        here: true,
+        repo: None,
+        worktree_root: Some(&wt_root),
+        agents: &agents,
+        cwd: &proj,
+    })
+    .expect("worker under child");
+    let wdoc = state_get(StateKind::Agents, &worker.agent_id).unwrap().unwrap();
+    assert_eq!(wdoc["parent"], child.agent_id);
+
+    let sent = msg_send(
+        &worker.agent_id,
+        &child.agent_id,
+        "report",
+        "hello-child",
+        None,
+        DEFAULT_NUDGE_QUIET_SECS,
+        None,
+    )
+    .expect("worker msg to child");
+    assert_eq!(sent.message.to, child.agent_id);
 
     let sock = Command::new("tmux")
         .args(["display-message", "-p", "#{socket_path}"])

@@ -1,6 +1,6 @@
 # PLAN-365 — feat(cdamux): project orchestrator as child of the global orchestrator
 
-- **Status**: ready
+- **Status**: done
 - **PRD**: [[../prd/PRD-357-global-orchestrator|PRD-357]] (slice 2)
 - **GitHub**: [#365](https://github.com/chatondearu/ai-dev-kit/issues/365)
 - **Date**: 2026-11-16
@@ -52,12 +52,13 @@ ADR-015 acceptance is #367's job — do not edit its status here. Merge after #3
 
 ## Tasks
 
-- [ ] CLI surface + depth guard + error messages
-- [ ] Child state (`role`, `parent`, `run`, no `scope=global`)
-- [ ] Restore subtree two levels + unit test
-- [ ] Throwaway-tmux test: global → child orch → worker; worker msg reaches child
-- [ ] Fleet nesting test
-- [ ] `cargo test` in `cdamux/`; `bash scripts/verify.sh`; PR `Closes #365`
+- [x] CLI surface + depth guard + error messages
+- [x] Child state (`role`, `parent`, `run`, no `scope=global`)
+- [x] Restore subtree two levels + unit test
+- [x] Throwaway-tmux test: global → child orch → worker; worker msg reaches child
+- [x] Fleet nesting test
+- [x] `cargo test` in `cdamux/`; `bash scripts/verify.sh`; PR `Closes #365`
+- [x] `cda-orchestrator` § Global: `--child` line (#367 already merged)
 
 ## Risks & mitigations
 
@@ -68,5 +69,5 @@ ADR-015 acceptance is #367's job — do not edit its status here. Merge after #3
 
 ## Test plan
 
-- [ ] `cargo test`
-- [ ] `bash scripts/verify.sh`
+- [x] `cargo test`
+- [x] `bash scripts/verify.sh`

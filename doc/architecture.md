@@ -64,11 +64,12 @@ flowchart LR
   end
   W1 --> I --> V
   V -->|fail| F --> I
-  V -->|MERGED| D[done merged by maintainer]
+  I -->|MERGED before iter| D[done merged by maintainer]
   W2 --> I
   W1 --> INT[integrator]
   W2 --> INT
   INT --> PR[PR plus CI]
+  PR -->|MERGED before review| D
 ```
 
 A maintainer merge mid-run short-circuits the worker to `done` (no further

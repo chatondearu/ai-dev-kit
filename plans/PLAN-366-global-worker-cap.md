@@ -34,8 +34,9 @@ with a clear error when that many workers are already live across all projects.
 
 ## Technical approach
 
-1. Live worker = agent with `role=worker`, `status` in `working`/`blocked`, and a `host`
-   that is a live tmux session (reuse the existing live-host check used for workers).
+1. Live worker = agent with `role=worker` whose `host` is a live tmux session, excluding
+   only `status` in `done`/`error`. Missing status (no `--cdamux-hooks`) and `idle` both
+   count; dormant = dead host so it never counts (ADR-011). Cap `0` = unlimited.
 2. In `spawn_worker`, before any side effect: if `max_workers > 0` and live ≥ cap →
    `Err(WorkerError::Cap { live, cap })`, message
    `worker cap reached: <live>/<cap> live workers ([orchestrator].max_workers)`.
@@ -44,7 +45,7 @@ with a clear error when that many workers are already live across all projects.
 ## Tasks
 
 - [x] Config struct + default + example toml + doc row
-- [x] Count fn (dormant/done/dead-host excluded) + unit tests
+- [x] Count fn (done/error/dead-host excluded; missing status + idle count) + unit tests
 - [x] Refuse in `spawn_worker` before worktree creation; CLI exits non-zero
 - [x] `cargo test` in `cdamux/`; `bash scripts/verify.sh`; PR `Closes #366`
 
@@ -57,5 +58,5 @@ with a clear error when that many workers are already live across all projects.
 
 ## Test plan
 
-- [x] Unit: count with working/blocked/done/dormant/dead-host mixes; cap 0 = unlimited
+- [x] Unit: count with working/blocked/idle/missing-status/done/error/dead-host mixes; cap 0 = unlimited
 - [x] `bash scripts/verify.sh`

@@ -320,7 +320,8 @@ fn worker_name_taken(name: &str, caller_id: &str) -> bool {
 }
 
 /// Count workers that count toward `[orchestrator].max_workers`.
-/// Live = `role=worker`, status `working`/`blocked`, and a host that passes `host_alive`.
+/// Live = `role=worker`, host that passes `host_alive`, status not `done`/`error`
+/// (missing status and `idle` both count; dormant hosts are dead so never pass liveness).
 pub fn count_live_workers<'a, I>(agents: I, host_alive: &dyn Fn(&str) -> bool) -> u32
 where
     I: IntoIterator<Item = &'a Value>,
@@ -329,9 +330,9 @@ where
         .into_iter()
         .filter(|v| {
             v.get("role").and_then(|r| r.as_str()) == Some("worker")
-                && matches!(
+                && !matches!(
                     v.get("status").and_then(|s| s.as_str()),
-                    Some("working") | Some("blocked")
+                    Some("done") | Some("error")
                 )
                 && v
                     .get("host")
@@ -493,14 +494,26 @@ mod tests {
         let agents = vec![
             json!({"role": "worker", "status": "working", "host": "live-a"}),
             json!({"role": "worker", "status": "blocked", "host": "live-b"}),
+            json!({"role": "worker", "status": "idle", "host": "live-idle"}),
+            // Missing status (no --cdamux-hooks) still counts when host is live.
+            json!({"role": "worker", "host": "live-nostatus"}),
             json!({"role": "worker", "status": "done", "host": "live-c"}),
-            json!({"role": "worker", "status": "dormant", "host": "live-d"}),
+            json!({"role": "worker", "status": "error", "host": "live-err"}),
+            // Dormant = dead host (ADR-011); dead host never counts.
+            json!({"role": "worker", "status": "dormant", "host": "dead-dormant"}),
             json!({"role": "worker", "status": "working", "host": "dead"}),
             json!({"role": "orchestrator", "status": "working", "host": "live-e"}),
             json!({"role": "worker", "status": "working"}),
         ];
-        let alive = |h: &str| matches!(h, "live-a" | "live-b" | "live-c" | "live-d" | "live-e");
-        assert_eq!(count_live_workers(agents.iter(), &alive), 2);
+        let alive = |h: &str| {
+            matches!(
+                h,
+                "live-a" | "live-b" | "live-idle" | "live-nostatus" | "live-c" | "live-err"
+                    | "live-e"
+            )
+        };
+        // working + blocked + idle + missing status = 4; done/error/dead/orch excluded
+        assert_eq!(count_live_workers(agents.iter(), &alive), 4);
     }
 
     #[test]

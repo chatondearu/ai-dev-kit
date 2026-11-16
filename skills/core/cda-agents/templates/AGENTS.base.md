@@ -64,6 +64,7 @@ Cursor rule (if present): `.cursor/rules/product-memory.mdc`.
 | Visual design pass (screenshot loop) | `cda-design-loop` |
 | User-facing `doc/` | `cda-docs` |
 | Library docs | `cda-context7` |
+| Open a URL in Zen | `cda-browser` |
 | Nix / direnv projects | `nix-develop-shell`, `nix-direnv-setup` |
 
 <!-- TYPE_OVERLAY -->

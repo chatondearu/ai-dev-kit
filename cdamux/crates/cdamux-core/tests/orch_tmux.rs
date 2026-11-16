@@ -317,6 +317,11 @@ fn orch_new_child_under_global_then_worker_msg() {
     assert_eq!(child_doc["parent"], global.agent_id);
     assert!(child_doc.get("scope").is_none() || child_doc["scope"].is_null());
     assert_eq!(child.path, proj);
+    let child_prompt = home
+        .join("prompts")
+        .join(format!("{}.md", child.host));
+    let child_prompt_body = std::fs::read_to_string(&child_prompt).unwrap();
+    assert_eq!(child_prompt_body.trim(), orch_boot_prompt());
 
     use cdamux_core::{msg_send, spawn_worker, WorkerSpawnRequest, DEFAULT_NUDGE_QUIET_SECS};
     let wt_root = tmp.path().join("wts");

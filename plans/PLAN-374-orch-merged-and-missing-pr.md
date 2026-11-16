@@ -1,6 +1,6 @@
 # PLAN-374 — fix(cda-dev): orch.sh handles PRs merged mid-run and workers that end without a PR
 
-- **Status**: ready
+- **Status**: done
 - **PRD**: none (fix; issue body is the spec)
 - **GitHub**: [#374](https://github.com/chatondearu/ai-dev-kit/issues/374)
 - **Date**: 2026-11-16

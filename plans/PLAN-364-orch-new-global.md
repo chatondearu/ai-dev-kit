@@ -1,6 +1,6 @@
 # PLAN-364 — feat(cdamux): orch new --global outside any repo
 
-- **Status**: in-progress
+- **Status**: done
 - **PRD**: [[../prd/PRD-357-global-orchestrator|PRD-357]]
 - **GitHub**: [#364](https://github.com/chatondearu/ai-dev-kit/issues/364)
 - **Date**: 2026-11-16

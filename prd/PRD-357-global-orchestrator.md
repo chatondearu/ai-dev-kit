@@ -1,6 +1,6 @@
 # PRD-357 — Global orchestrator across cdamux projects
 
-- **Status**: approved
+- **Status**: shipped
 - **GitHub**: [#357](https://github.com/chatondearu/ai-dev-kit/issues/357)
 - **Date**: 2026-11-15
 - **Tags**: #product #orchestration #cdamux
@@ -18,12 +18,12 @@ workers across projects, and `cda-orchestrator` has no global routing.
 
 ## Goals
 
-- [ ] `cdamux orch new --global` starts one orchestrator outside any repo
-- [ ] It dispatches workers into any discovered project (`worker spawn --repo`) and runs
+- [x] `cdamux orch new --global` starts one orchestrator outside any repo
+- [x] It dispatches workers into any discovered project (`worker spawn --repo`) and runs
       `orch.sh --repo` batches there
-- [ ] A cap on live workers across projects protects the machine
-- [ ] Slice 2: it can start a project orchestrator as its child for heavy per-project work
-- [ ] `cdamux orch new` in a project keeps working on its own
+- [x] A cap on live workers across projects protects the machine
+- [x] Slice 2: it can start a project orchestrator as its child for heavy per-project work
+- [x] `cdamux orch new` in a project keeps working on its own
 
 ## Non-goals
 
@@ -44,18 +44,18 @@ workers across projects, and `cda-orchestrator` has no global routing.
 
 ### Functional
 
-- [ ] `worker spawn --repo <path|project>` ([#363](https://github.com/chatondearu/ai-dev-kit/issues/363))
-- [ ] `orch new --global`, `scope=global`, one live global orchestrator, Fleet top level ([#364](https://github.com/chatondearu/ai-dev-kit/issues/364))
-- [ ] `[orchestrator].max_workers` cap, default 6 ([#366](https://github.com/chatondearu/ai-dev-kit/issues/366))
+- [x] `worker spawn --repo <path|project>` ([#363](https://github.com/chatondearu/ai-dev-kit/issues/363))
+- [x] `orch new --global`, `scope=global`, one live global orchestrator, Fleet top level ([#364](https://github.com/chatondearu/ai-dev-kit/issues/364))
+- [x] `[orchestrator].max_workers` cap, default 6 ([#366](https://github.com/chatondearu/ai-dev-kit/issues/366))
 - [x] `cda-orchestrator` § Global; ADR-015 accepted ([#367](https://github.com/chatondearu/ai-dev-kit/issues/367))
-- [ ] Slice 2: nested project orchestrator with restore parents-first ([#365](https://github.com/chatondearu/ai-dev-kit/issues/365))
+- [x] Slice 2: nested project orchestrator with restore parents-first ([#365](https://github.com/chatondearu/ai-dev-kit/issues/365))
 
 ### Non-functional
 
-- [ ] Built on [[PRD-356-orchestrator-actually-orchestrates|PRD-356]] (boot prompt, role
+- [x] Built on [[PRD-356-orchestrator-actually-orchestrates|PRD-356]] (boot prompt, role
       routing, hard rules): children blocked until those land
-- [ ] Tests on throwaway tmux servers only (`cdamux/AGENTS.md`)
-- [ ] Opt-in: nothing new in `install.sh` defaults
+- [x] Tests on throwaway tmux servers only (`cdamux/AGENTS.md`)
+- [x] Opt-in: nothing new in `install.sh` defaults
 
 ## Related project memory
 

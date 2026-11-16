@@ -96,7 +96,10 @@ Closed issue plans: `foam/archive/plans/`.
 **cdamux** (Rust agent/tmux orchestrator, ADR-004): in-tree at `cdamux/` until v0;
 see `cdamux/AGENTS.md` and `cdamux/docs/research.md`. Nix package: `nix build .#cdamux`
 (opt-in `cda.aitools.cdamux.*`, see `aitools/README.md`). Interactive session:
-`cdamux orch new` + skill `cda-orchestrator` (not `orch.sh`).
+`cdamux orch new` + skill `cda-orchestrator` (not `orch.sh`). One orchestrator for all
+projects: `cdamux orch new --global`, dispatch with `cdamux worker spawn --repo <path|project>`,
+nest a project orchestrator with `orch new --child --path …`; live workers capped by
+`[orchestrator].max_workers` (ADR-015).
 
 Experimental opt-in companion: `aitools/` (`cda.aitools` Nix modules, ADR-003).
 Never enabled by `install.sh`. Relocatable root: `CDA_AITOOLS_HOME`.

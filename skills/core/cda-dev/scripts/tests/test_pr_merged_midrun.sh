@@ -112,6 +112,27 @@ case "\$*" in
       MERGED)
         echo '[{"number":201,"url":"https://example/pull/201","state":"MERGED","title":"x"}]'
         ;;
+      OPEN_THEN_MERGED_AT_REVIEW)
+        # orch_pr_state uses --json number,state; list uses url,state,title.
+        # Probe order: graph + post-loop + line-399 = 3 OPEN, then round-1 MERGED.
+        # Distinguish orch_pr_state (number,state) from list (number,url,state,title).
+        case "\$*" in
+          *"--json number,state"*)
+            n=0
+            [ -f "$STUB_BIN/state-calls" ] && n="\$(cat "$STUB_BIN/state-calls")"
+            n=\$((n + 1))
+            echo "\$n" >"$STUB_BIN/state-calls"
+            if [ "\$n" -ge 4 ]; then
+              echo '[{"number":203,"state":"MERGED"}]'
+            else
+              echo '[{"number":203,"state":"OPEN"}]'
+            fi
+            ;;
+          *)
+            echo '[{"number":203,"url":"https://example/pull/203","state":"OPEN","title":"x"}]'
+            ;;
+        esac
+        ;;
       OPEN_AFTER_OPEN)
         if [ -f "$OPENED_MARKER" ]; then
           echo '[{"number":202,"url":"https://example/pull/202","state":"OPEN","title":"x"}]'
@@ -164,6 +185,30 @@ else
   PASSES=$((PASSES + 1))
 fi
 orch_worktree_remove "$TMP" "$(orch_worktree_path "$TMP" 40 issue-40)" 2>/dev/null || true
+
+echo "# ready-pickup: OPEN at lookup, MERGED before review round 1 → done (no reviewer)"
+printf 'OPEN_THEN_MERGED_AT_REVIEW\n' >"$STATE_FILE"
+rm -f "$OPENED_MARKER" "$STUB_BIN/state-calls"
+set +e
+out_rev="$(bash "$SCRIPTS/orch.sh" --repo "$TMP" --mode ready-pickup --issue 44 \
+  --agent "$STUB_BIN/stub-agent" 2>&1)"
+rc_rev=$?
+set -e
+assert_eq "$rc_rev" "0" "merged during review rounds exits 0"
+assert_contains "$out_rev" "done: issue 44 (merged by maintainer)" "merged during review reason"
+if echo "$out_rev" | grep -q "reviewer round"; then
+  FAILS=$((FAILS + 1))
+  printf 'FAIL review-round short-circuit must skip reviewer\n' >&2
+else
+  PASSES=$((PASSES + 1))
+fi
+if echo "$out_rev" | grep -qi "review fix"; then
+  FAILS=$((FAILS + 1))
+  printf 'FAIL review-round short-circuit must not fix-push\n' >&2
+else
+  PASSES=$((PASSES + 1))
+fi
+orch_worktree_remove "$TMP" "$(orch_worktree_path "$TMP" 44 issue-44)" 2>/dev/null || true
 
 echo "# ready-pickup: no PR → one open-PR step → then PR appears → done"
 printf 'OPEN_AFTER_OPEN\n' >"$STATE_FILE"

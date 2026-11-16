@@ -167,6 +167,22 @@ orch_pr_list_open_or_merged() {
       || printf '[]\n'
     return 0
   fi
-  # No jq: if any MERGED/OPEN token exists, return raw list (caller takes .[0]).
-  printf '%s\n' "$json"
+  # No jq: keep OPEN|MERGED only (missing state → OPEN); CLOSED-only → [].
+  local out="" obj st
+  while IFS= read -r obj; do
+    [ -n "$obj" ] || continue
+    st="$(printf '%s' "$obj" | sed -n 's/.*"state"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+    [ -z "$st" ] && st="OPEN"
+    case "$st" in
+      OPEN|MERGED)
+        [ -n "$out" ] && out+=","
+        out+="$obj"
+        ;;
+    esac
+  done < <(printf '%s' "$json" | grep -oE '\{[^{}]*\}' || true)
+  if [ -n "$out" ]; then
+    printf '[%s]\n' "$out"
+  else
+    printf '[]\n'
+  fi
 }

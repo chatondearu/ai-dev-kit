@@ -62,9 +62,9 @@ flowchart LR
     V[verify]
     F[fix optional]
   end
+  W1 -->|MERGED before iter| D[done merged by maintainer]
   W1 --> I --> V
   V -->|fail| F --> I
-  I -->|MERGED before iter| D[done merged by maintainer]
   W2 --> I
   W1 --> INT[integrator]
   W2 --> INT

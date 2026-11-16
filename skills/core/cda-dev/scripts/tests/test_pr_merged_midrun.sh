@@ -79,6 +79,40 @@ got="$(orch_pr_list_open_or_merged feat/x)"
 assert_contains "$got" '"number":9' "list picks OPEN after CLOSED"
 assert_eq "$(echo "$got" | jq 'length')" "1" "list filters to one usable PR"
 
+echo "# no-jq: CLOSED-only → [] (same as jq path)"
+# Nix puts jq next to sed/grep — symlink tools into a bin that omits jq.
+_no_jq_bin="$(mktemp -d)"
+for _b in bash sed grep printf head cut cat tr mktemp; do
+  _p="$(command -v "$_b" 2>/dev/null)" || continue
+  ln -s "$_p" "$_no_jq_bin/$_b"
+done
+ln -s "$STUB_BIN/gh" "$_no_jq_bin/gh"
+PATH="$_no_jq_bin"
+if command -v jq >/dev/null 2>&1; then
+  FAILS=$((FAILS + 1))
+  printf 'FAIL no-jq PATH still finds jq\n' >&2
+else
+  PASSES=$((PASSES + 1))
+fi
+printf 'CLOSED\n' >"$STATE_FILE"
+got="$(orch_pr_list_open_or_merged feat/x)"
+assert_eq "$got" "[]" "no-jq list drops CLOSED-only"
+printf 'BOTH\n' >"$STATE_FILE"
+got="$(orch_pr_list_open_or_merged feat/x)"
+assert_contains "$got" '"number":9' "no-jq list picks OPEN after CLOSED"
+if echo "$got" | grep -q '"state":"CLOSED"'; then
+  FAILS=$((FAILS + 1))
+  printf 'FAIL no-jq must filter CLOSED entries\n' >&2
+else
+  PASSES=$((PASSES + 1))
+fi
+printf 'OPEN\n' >"$STATE_FILE"
+got="$(orch_pr_list_open_or_merged feat/x)"
+assert_contains "$got" '"number":9' "no-jq list keeps OPEN"
+PATH="$STUB_BIN:$_ORIG_PATH"
+rm -rf "$_no_jq_bin"
+unset _no_jq_bin _b _p
+
 echo "# ready-pickup integration stubs"
 cat >"$STUB_BIN/stub-agent" <<EOF
 #!/usr/bin/env bash

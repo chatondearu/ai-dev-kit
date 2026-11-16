@@ -528,7 +528,7 @@ fn cmd_orch_new(
         cwd
     };
     let parent_id = if child {
-        match resolve_caller_agent_id() {
+        match resolve_caller_agent_id("orch new") {
             Ok(id) => Some(id),
             Err(c) => return c,
         }
@@ -569,11 +569,11 @@ fn cmd_orch_new(
     }
 }
 
-fn resolve_caller_agent_id() -> Result<String, ExitCode> {
+fn resolve_caller_agent_id(cmd: &str) -> Result<String, ExitCode> {
     match std::env::var("CDAMUX_AGENT_ID") {
         Ok(id) if !id.trim().is_empty() => Ok(id.trim().to_string()),
         _ => {
-            eprintln!("worker: must run inside an orchestrator (set CDAMUX_AGENT_ID)");
+            eprintln!("{cmd}: must run inside an orchestrator (set CDAMUX_AGENT_ID)");
             Err(ExitCode::from(2))
         }
     }
@@ -586,7 +586,7 @@ fn cmd_worker_spawn(
     here: bool,
     repo: Option<&str>,
 ) -> ExitCode {
-    let caller_id = match resolve_caller_agent_id() {
+    let caller_id = match resolve_caller_agent_id("worker") {
         Ok(id) => id,
         Err(c) => return c,
     };
@@ -640,7 +640,7 @@ fn cmd_worker_spawn(
 }
 
 fn cmd_worker_ls() -> ExitCode {
-    let caller_id = match resolve_caller_agent_id() {
+    let caller_id = match resolve_caller_agent_id("worker") {
         Ok(id) => id,
         Err(c) => return c,
     };
@@ -664,7 +664,7 @@ fn cmd_worker_ls() -> ExitCode {
 }
 
 fn cmd_worker_peek(name: &str, lines: i32) -> ExitCode {
-    let caller_id = match resolve_caller_agent_id() {
+    let caller_id = match resolve_caller_agent_id("worker") {
         Ok(id) => id,
         Err(c) => return c,
     };

@@ -30,7 +30,11 @@ cross-project orchestrator: cwd `$CDAMUX_HOME/global`, agent `scope=global`,
 global boot prompt (list projects, pick a repo, dispatch with
 `worker spawn --repo` / `orch.sh --repo`). Fleet shows it under
 “— global orchestrator”; the spawn modal offers the same via **o** then **g**.
-`--path` is incompatible with `--global`.
+
+`cdamux orch new --child --path <path|project>` nests a project orchestrator
+under the caller’s global session (`$CDAMUX_AGENT_ID` must be `scope=global`):
+fresh run, project boot prompt, `parent` = caller, no `scope=global`
+(ADR-015 depth ≤ 2). `--path` and `--child` are incompatible with `--global`.
 
 ## Graph orchestration (`cda-graph`)
 

@@ -201,16 +201,29 @@ orch_pr_review_feedback() {
     | "### \(.key + 1). \(.value.title)\n\(.value.body | split("\n") | map("> " + .) | join("\n"))\n"'
 }
 
+# Mark ready-pickup done because the maintainer merged mid-run (#374). Writes rc 0.
+orch_ready_done_merged() {
+  local id="$1" path="$2" rc_file="$3"
+  orch_progress_set "$id" done "merged by maintainer"
+  if ! orch_progress_enabled; then
+    printf 'done: issue %s (merged by maintainer)\n' "$id"
+  fi
+  if [ "${ORCH_FORCE_CLEAN:-0}" = "1" ]; then
+    orch_worktree_remove "$ORCH_REPO" "$path"
+  fi
+  echo 0 >"$rc_file"
+}
+
 # Run one ready-pickup worker end-to-end. Writes $ORCH_REPO/.orch/run/<id>.rc (0|1).
 orch_ready_pickup_one() {
   local id="$1"
   local slug="issue-$id"
   local branch="feat/${id}-${slug}"
   local path worker_prompt title plan_path p
-  local loop_rc=0 pr_num="" pr_json="" m=""
+  local loop_rc=0 pr_num="" pr_json="" m="" pr_state=""
   local rc_dir rc_file
   local lane="full" brief_path="N/A" brief_file=""
-  local allow_no_verify=0 review_prompt review_log fix_prompt
+  local allow_no_verify=0 review_prompt review_log fix_prompt open_pr_prompt
 
   export ORCH_WORKER_ID="$id"
   path="$(orch_worktree_path "$ORCH_REPO" "$id" "$slug")"
@@ -303,6 +316,7 @@ orch_ready_pickup_one() {
     "CONSTRAINTS=$ORCH_CONSTRAINTS"
 
   export ORCH_WT="$path"
+  export ORCH_WORKER_BRANCH="$branch"
   orch_resolve_agent worker >/dev/null
   orch_progress_set "$id" agent "starting"
   if [ -f "$path/.orch/graph-plan-complete" ]; then
@@ -312,7 +326,7 @@ orch_ready_pickup_one() {
     } >"$path/.orch/worker-prompt-handoff.md"
     worker_prompt="$path/.orch/worker-prompt-handoff.md"
   fi
-  local worker_env="ORCH_WT=\"$path\" ORCH_WORKER_ID=\"$id\" ORCH_REPO=\"$ORCH_REPO\" ORCH_PROGRESS=\"${ORCH_PROGRESS:-auto}\" ORCH_ALLOW_NO_VERIFY=\"$allow_no_verify\""
+  local worker_env="ORCH_WT=\"$path\" ORCH_WORKER_ID=\"$id\" ORCH_REPO=\"$ORCH_REPO\" ORCH_WORKER_BRANCH=\"$branch\" ORCH_PROGRESS=\"${ORCH_PROGRESS:-auto}\" ORCH_ALLOW_NO_VERIFY=\"$allow_no_verify\""
   orch_sandbox_wrap bash -c "$worker_env orch_loop_worker \"$path\" \"$worker_prompt\"" || loop_rc=$?
   if [ "$loop_rc" -ne 0 ]; then
     # rc 3 = no verify command, rc 4 = tier ceiling (loop already set the progress reason).
@@ -331,13 +345,44 @@ orch_ready_pickup_one() {
   fi
   orch_worker_result_warn "$path"
 
+  # Merged mid-run (graph may already have marked done; re-check before PR work).
+  if [ "$(orch_pr_state "$branch")" = "MERGED" ]; then
+    orch_ready_done_merged "$id" "$path" "$rc_file"
+    return 0
+  fi
+
   orch_progress_set "$id" ci "looking up PR for ${branch}"
-  if command -v gh >/dev/null 2>&1; then
-    pr_json="$(gh pr list --head "$branch" --json number,url,state,title 2>/dev/null || true)"
+  pr_json="$(orch_pr_list_open_or_merged "$branch")"
+  if command -v jq >/dev/null 2>&1; then
+    pr_num="$(jq -r '.[0].number // empty' <<<"$pr_json" 2>/dev/null || true)"
+    pr_state="$(jq -r '.[0].state // empty' <<<"$pr_json" 2>/dev/null || true)"
+  else
+    pr_num="$(echo "$pr_json" | grep -oE '"number":[0-9]+' | head -n 1 | cut -d: -f2)"
+    pr_state="$(echo "$pr_json" | sed -n 's/.*"state"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)"
+  fi
+  [ "$pr_num" = "null" ] && pr_num=""
+
+  # Green loop but no PR: one bounded "commit, push, open PR" agent step (#374).
+  if [ -z "$pr_num" ]; then
+    open_pr_prompt="$path/.orch/open-pr-prompt.md"
+    mkdir -p "$path/.orch"
+    cat >"$open_pr_prompt" <<EOF
+Commit all changes in this worktree, push branch \`${branch}\`, and open a pull request with \`Closes #${id}\` in the body.
+Do not merge. Stay on \`${branch}\`.
+EOF
+    orch_progress_set "$id" agent "open missing PR"
+    orch_sandbox_wrap bash -c "$worker_env orch_agent_run \"$path\" \"$open_pr_prompt\"" || true
+    if [ "$(orch_pr_state "$branch")" = "MERGED" ]; then
+      orch_ready_done_merged "$id" "$path" "$rc_file"
+      return 0
+    fi
+    pr_json="$(orch_pr_list_open_or_merged "$branch")"
     if command -v jq >/dev/null 2>&1; then
       pr_num="$(jq -r '.[0].number // empty' <<<"$pr_json" 2>/dev/null || true)"
+      pr_state="$(jq -r '.[0].state // empty' <<<"$pr_json" 2>/dev/null || true)"
     else
       pr_num="$(echo "$pr_json" | grep -oE '"number":[0-9]+' | head -n 1 | cut -d: -f2)"
+      pr_state="$(echo "$pr_json" | sed -n 's/.*"state"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)"
     fi
     [ "$pr_num" = "null" ] && pr_num=""
   fi
@@ -351,12 +396,22 @@ orch_ready_pickup_one() {
     return 1
   fi
 
+  if [ "$pr_state" = "MERGED" ] || [ "$(orch_pr_state "$branch")" = "MERGED" ]; then
+    orch_cdamux_publish_links "$id" "$id" "$pr_json"
+    orch_ready_done_merged "$id" "$path" "$rc_file"
+    return 0
+  fi
+
   orch_cdamux_publish_links "$id" "$id" "$pr_json"
 
   # Independent review gate (ADR-006): reviewer.md in a fresh agent context.
   # changes_requested → exactly one fix iteration, one re-review, then blocked.
   local round
   for round in 1 2; do
+    if [ "$(orch_pr_state "$branch")" = "MERGED" ]; then
+      orch_ready_done_merged "$id" "$path" "$rc_file"
+      return 0
+    fi
     review_prompt="$path/.orch/reviewer-prompt-${round}.md"
     review_log="$path/.orch/review-${round}.log"
     orch_render_prompt "$ORCH_ROOT/../prompts/reviewer.md" "$review_prompt" \

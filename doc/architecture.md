@@ -64,15 +64,18 @@ flowchart LR
   end
   W1 --> I --> V
   V -->|fail| F --> I
+  V -->|MERGED| D[done merged by maintainer]
   W2 --> I
   W1 --> INT[integrator]
   W2 --> INT
   INT --> PR[PR plus CI]
 ```
 
-Multi-issue runs write `$CDAMUX_HOME/runs/<run_id>.json` via `cdamux state`.
-Intra-issue fan-out uses `--graph-plan` (parallel when task `paths` are
-disjoint). Details: [graph-orchestration.md](graph-orchestration.md).
+A maintainer merge mid-run short-circuits the worker to `done` (no further
+pushes). Missing PR after a green loop gets one bounded open-PR step before
+`blocked`. Multi-issue runs write `$CDAMUX_HOME/runs/<run_id>.json` via
+`cdamux state`. Intra-issue fan-out uses `--graph-plan` (parallel when task
+`paths` are disjoint). Details: [graph-orchestration.md](graph-orchestration.md).
 
 ## What headless is for
 

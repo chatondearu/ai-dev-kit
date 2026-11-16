@@ -44,12 +44,12 @@ implement + verify yet leave no commit/PR.
 
 ## Tasks
 
-- [ ] `orch_pr_state` helper (+ stub-gh unit test)
-- [ ] Merged short-circuit in graph loop, PR lookup, review rounds
-- [ ] PR lookup with merged PRs
-- [ ] One "open the PR" step when the PR is missing
-- [ ] Tests for both cases; `run-tests.sh` picks them up
-- [ ] `bash scripts/verify.sh`; PR `Closes #374`
+- [x] `orch_pr_state` helper (+ stub-gh unit test)
+- [x] Merged short-circuit in graph loop, PR lookup, review rounds
+- [x] PR lookup with merged PRs
+- [x] One "open the PR" step when the PR is missing
+- [x] Tests for both cases; `run-tests.sh` picks them up
+- [x] `bash scripts/verify.sh`; PR `Closes #374`
 
 ## Risks & mitigations
 
@@ -60,5 +60,5 @@ implement + verify yet leave no commit/PR.
 
 ## Test plan
 
-- [ ] `bash skills/core/cda-dev/scripts/tests/run-tests.sh`
-- [ ] `bash scripts/verify.sh`
+- [x] `bash skills/core/cda-dev/scripts/tests/run-tests.sh` (via verify)
+- [x] `bash scripts/verify.sh`

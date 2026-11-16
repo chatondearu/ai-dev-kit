@@ -102,6 +102,21 @@ for v in ORCH_RUN_ID=run1 CDA_ROUTING=0; do
   out="$(echo '{"source":"startup"}' | env "$v" CDA_ROLE=orchestrator KISS_MAP=0 node activate.js)"
   echo "$out" | grep -q "CDA ROUTING" && { echo "FAIL: orch routing injected with $v"; exit 1; }
 done
+# Per-directory opt-out: <config dir>/cda-routing-off lists path prefixes; KISS stays on.
+mkdir -p "$tmp/owned/repo/sub" "$tmp/owned-not" "$tmp/other"
+printf '# another workflow routes here\n%s\n' "$tmp/owned" > "$tmp/cda-routing-off"
+for d in "$tmp/owned" "$tmp/owned/repo/sub"; do
+  out="$(echo '{"source":"startup"}' | CLAUDE_PROJECT_DIR="$d" KISS_MAP=0 node activate.js)"
+  echo "$out" | grep -q "CDA ROUTING" && { echo "FAIL: routing injected under listed dir $d"; exit 1; }
+  echo "$out" | grep -q "KISS MODE ACTIVE" || { echo "FAIL: ruleset lost under listed dir $d"; exit 1; }
+done
+for d in "$tmp/owned-not" "$tmp/other"; do
+  out="$(echo '{"source":"startup"}' | CLAUDE_PROJECT_DIR="$d" KISS_MAP=0 node activate.js)"
+  echo "$out" | grep -q "CDA ROUTING" || { echo "FAIL: routing missing outside listed dirs ($d)"; exit 1; }
+done
+out="$(cd "$tmp/owned/repo" && echo '{"source":"startup"}' | env -u CLAUDE_PROJECT_DIR KISS_MAP=0 node "$OLDPWD/activate.js")"
+echo "$out" | grep -q "CDA ROUTING" && { echo "FAIL: cwd fallback ignored the opt-out list"; exit 1; }
+rm "$tmp/cda-routing-off"
 echo '{"source":"startup"}' | HOME="$tmp" CURSOR_VERSION=1 KISS_MAP=0 node activate.js \
   | node -e 'let s="";process.stdin.on("data",c=>s+=c).on("end",()=>{if(!JSON.parse(s).additional_context.includes("CDA ROUTING"))process.exit(1)})' \
   || { echo "FAIL: cursor additional_context lacks routing"; exit 1; }

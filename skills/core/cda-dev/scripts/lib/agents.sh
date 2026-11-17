@@ -284,6 +284,7 @@ orch_tmux_agent_run() {
       return
     fi
     tmux set-option -w -t "=$s:" remain-on-exit on >/dev/null
+    orch_tmux_neutralize_detach
   fi
   if [ -n "${TMUX:-}" ]; then
     parent="$(tmux display-message -p '#{session_name}' 2>/dev/null || true)"
@@ -319,9 +320,19 @@ orch_tmux_agent_run() {
   if [ "${ORCH_TMUX_KEEP:-0}" = 1 ]; then
     tmux set-option -t "=$s:" @cdamux_state "$([ "$rc" = 0 ] && echo done || echo error)" 2>/dev/null || true
   else
+    orch_tmux_neutralize_detach
     tmux kill-session -t "=$s:" 2>/dev/null || true
   fi
   return "$rc"
+}
+
+# tmux 3.7.x: global detach-on-destroy next|previous makes ANY kill-session
+# exit the whole server. Flip it to `on` when a session is created and before
+# each kill, so our kills and bare ones from agents stay local.
+orch_tmux_neutralize_detach() {
+  case "$(tmux show-options -gv detach-on-destroy 2>/dev/null)" in
+    next|previous) tmux set-option -g detach-on-destroy on 2>/dev/null || true ;;
+  esac
 }
 
 # Kill every session of this run (Ctrl-C path: agents must not outlive orch).
@@ -329,6 +340,7 @@ orch_tmux_kill_run() {
   orch_tmux_on || return 0
   local p s
   p="$(orch_tmux_session "")"
+  orch_tmux_neutralize_detach
   tmux list-sessions -F '#{session_name}' 2>/dev/null | while IFS= read -r s; do
     case "$s" in "$p"*) tmux kill-session -t "=$s:" 2>/dev/null || true ;; esac
   done

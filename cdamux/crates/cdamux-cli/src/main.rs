@@ -26,7 +26,7 @@ use cdamux_core::{
     resolve_spawn_repo,
     note_refs_for_projects, current_tmux_session, kill_tmux_session, list_panes_all, msg_send,
     parents_first, peek_worker, read_messages, parse_unified_diff, resolve_agent_command,
-    restore_one, restore_targets, restart_plan, session_registry, resolve_note_path, send_to_session,
+    is_done_record, restore_one, restore_targets, restart_plan, session_registry, resolve_note_path, send_to_session,
     session_name_for_path, spawn_orchestrator, spawn_tmux_session_with_layout, spawn_worker,
     agent_cwd, clear_links, parse_link_ref, refresh_links, resolve_agent_id, set_link_override,
     state_append, state_get, state_set, run_gc, sweep_orphans, tmux_has_session, unique_session_name,
@@ -1339,7 +1339,12 @@ fn cmd_restore(name: Option<String>, all: bool) -> ExitCode {
         }
     };
     let records = if all {
-        parents_first(session_registry::load_all())
+        let (done, rest): (Vec<_>, Vec<_>) =
+            session_registry::load_all().into_iter().partition(is_done_record);
+        for rec in &done {
+            println!("{}: skipped (agent done; `cdamux restore {}` revives it)", rec.name, rec.name);
+        }
+        parents_first(rest)
     } else {
         let name = name.unwrap_or_default();
         match restore_targets(&name) {

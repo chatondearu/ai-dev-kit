@@ -132,17 +132,55 @@ pub fn parse_tailnet_bind_addr(raw: &str) -> Result<IpAddr, String> {
     Ok(ip)
 }
 
-/// Resolve bind address for tailnet HTTP (never `0.0.0.0`).
-pub fn resolve_tailnet_bind_ip() -> Result<IpAddr, String> {
-    if let Ok(raw) = std::env::var("CDAMUX_TAILNET_BIND_ADDR") {
-        return parse_tailnet_bind_addr(&raw);
+/// Why no tailnet bind address could be resolved; `cdamuxd` waits on `NotUp`, stops on the rest.
+#[derive(Debug, PartialEq)]
+pub enum TailnetIpError {
+    /// `tailscale` is not on PATH: nothing to wait for.
+    NotInstalled,
+    /// Tailscale is installed but has no IPv4 yet (stopped, logged out, starting).
+    NotUp(String),
+    /// Bad `CDAMUX_TAILNET_BIND_ADDR` or unparsable `tailscale ip -4` output.
+    Invalid(String),
+}
+
+impl std::fmt::Display for TailnetIpError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NotInstalled => f.write_str("tailscale is not installed (not on PATH)"),
+            Self::NotUp(e) => write!(f, "tailscale is not up: {e}"),
+            Self::Invalid(e) => f.write_str(e),
+        }
     }
-    let output = std::process::Command::new("tailscale")
-        .args(["ip", "-4"])
-        .output()
-        .map_err(|e| format!("tailscale ip -4: {e}"))?;
+}
+
+/// Resolve bind address for tailnet HTTP (never `0.0.0.0`).
+pub fn resolve_tailnet_bind_ip() -> Result<IpAddr, TailnetIpError> {
+    if let Ok(raw) = std::env::var("CDAMUX_TAILNET_BIND_ADDR") {
+        return parse_tailnet_bind_addr(&raw).map_err(TailnetIpError::Invalid);
+    }
+    tailscale_ip_from_output(
+        std::process::Command::new("tailscale")
+            .args(["ip", "-4"])
+            .output(),
+    )
+}
+
+fn tailscale_ip_from_output(
+    output: std::io::Result<std::process::Output>,
+) -> Result<IpAddr, TailnetIpError> {
+    let output = match output {
+        Ok(o) => o,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Err(TailnetIpError::NotInstalled)
+        }
+        Err(e) => return Err(TailnetIpError::NotUp(format!("tailscale ip -4: {e}"))),
+    };
     if !output.status.success() {
-        return Err("tailscale ip -4 failed".into());
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(TailnetIpError::NotUp(format!(
+            "tailscale ip -4 failed: {}",
+            stderr.trim()
+        )));
     }
     let stdout = String::from_utf8_lossy(&output.stdout);
     let line = stdout
@@ -151,9 +189,10 @@ pub fn resolve_tailnet_bind_ip() -> Result<IpAddr, String> {
         .map(str::trim)
         .unwrap_or("");
     if line.is_empty() {
-        return Err("tailscale ip -4 returned no address".into());
+        return Err(TailnetIpError::NotUp("tailscale ip -4 returned no address".into()));
     }
-    line.parse().map_err(|e| format!("parse tailscale IP: {e}"))
+    line.parse()
+        .map_err(|e| TailnetIpError::Invalid(format!("parse tailscale IP {line:?}: {e}")))
 }
 
 /// Header carrying the shared secret (`CDAMUX_TAILNET_TOKEN`).
@@ -567,6 +606,29 @@ fn msg_to_api(err: MsgError) -> TailnetApiError {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
+    #[test]
+    fn tailscale_ip_output_is_classified_for_cdamuxd() {
+        use std::os::unix::process::ExitStatusExt;
+        use std::process::{ExitStatus, Output};
+        let out = |code: i32, stdout: &str| {
+            Ok(Output {
+                status: ExitStatus::from_raw(code << 8),
+                stdout: stdout.as_bytes().to_vec(),
+                stderr: b"tailscale is stopped".to_vec(),
+            })
+        };
+        let missing = Err(std::io::Error::from(std::io::ErrorKind::NotFound));
+        assert_eq!(tailscale_ip_from_output(missing), Err(TailnetIpError::NotInstalled));
+        assert!(matches!(tailscale_ip_from_output(out(1, "")), Err(TailnetIpError::NotUp(_))));
+        assert!(matches!(tailscale_ip_from_output(out(0, "\n")), Err(TailnetIpError::NotUp(_))));
+        assert!(matches!(tailscale_ip_from_output(out(0, "nope")), Err(TailnetIpError::Invalid(_))));
+        assert_eq!(
+            tailscale_ip_from_output(out(0, "100.64.0.7\n")),
+            Ok("100.64.0.7".parse().unwrap())
+        );
+    }
+
     use super::*;
     use crate::session::{EnrichedSession, SessionGroup, SessionState};
     use crate::GroupBy;

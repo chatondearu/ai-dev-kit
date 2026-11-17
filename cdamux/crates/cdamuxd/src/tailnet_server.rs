@@ -2,11 +2,11 @@
 
 use crate::web_static::lookup_web_asset;
 use cdamux_core::{
-    check_tailnet_token, dispatch_tailnet_request, resolve_tailnet_bind_ip, LiveTailnetBackend,
+    check_tailnet_token, dispatch_tailnet_request, LiveTailnetBackend,
     ProjectsConfig, SessionsConfig, TailnetResponse, TAILNET_TOKEN_HEADER,
 };
 use std::io::Read;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use std::thread;
 use tiny_http::{Header, Method, Response, Server, StatusCode};
@@ -15,8 +15,9 @@ use tracing::{info, warn};
 /// Request bodies above this are refused with 413; the API only takes small JSON.
 const MAX_BODY: usize = 64 * 1024;
 
-/// Blocks serving requests; returns `Err` when the bind address cannot be resolved or bound.
+/// Blocks serving requests on `ip`; returns `Err` when the address cannot be bound.
 pub fn run_tailnet_server(
+    ip: IpAddr,
     port: u16,
     version: String,
     projects: ProjectsConfig,
@@ -24,7 +25,6 @@ pub fn run_tailnet_server(
     idle_seconds_for_needs_input: u32,
     working_warn_seconds: u32,
 ) -> Result<(), String> {
-    let ip = resolve_tailnet_bind_ip()?;
     let addr = SocketAddr::from((ip, port));
     let server = Server::http(addr).map_err(|e| format!("bind {addr}: {e}"))?;
     info!(%addr, "tailnet HTTP listening");

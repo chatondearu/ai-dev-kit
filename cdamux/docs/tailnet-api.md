@@ -6,9 +6,11 @@ Set `daemon.tailnet_port` (default `7480`) in `~/.config/cdamux/config.toml`.
 
 For tests or dev without Tailscale, set `CDAMUX_TAILNET_BIND_ADDR` to a local
 address (e.g. `127.0.0.1`). Unspecified addresses (`0.0.0.0`, `::`) are refused.
-When the address cannot be resolved (no `tailscale`, refused bind address) or bound,
-`cdamuxd` logs the error and exits 1, so `Restart=on-failure` / launchd `KeepAlive`
-retries it.
+If Tailscale is installed but not up (no IPv4 yet), `cdamuxd` stays alive and
+retries every 15 minutes. If `tailscale` is not installed or the bind address is
+invalid, it prints why and exits 0, so neither `Restart=on-failure` nor launchd
+`KeepAlive` restarts it in a loop: fix it, then restart `cdamuxd`. Only a failed
+bind exits 1 (retried by the supervisor).
 
 ## Authentication
 

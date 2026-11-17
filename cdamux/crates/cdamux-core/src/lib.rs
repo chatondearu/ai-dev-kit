@@ -66,7 +66,7 @@ pub use session::{
 };
 pub use tailnet_api::{
     check_tailnet_token, decode_path_segment, dispatch_tailnet_request, resolve_tailnet_bind_ip,
-    LiveTailnetBackend, TailnetApiBackend, TailnetResponse, TAILNET_TOKEN_HEADER,
+    LiveTailnetBackend, TailnetApiBackend, TailnetIpError, TailnetResponse, TAILNET_TOKEN_HEADER,
 };
 pub use foam::{
     extract_foam_path_from_text, extract_wikilinks, find_foam_entry, foam_file_wikilinks,

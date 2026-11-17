@@ -30,13 +30,18 @@ function writeJson(obj) {
   process.stdout.write(JSON.stringify(obj) + '\n');
 }
 
+// `working` only from idle / unset: sticky done/error/blocked (open ask) must survive.
+function liftIdle() {
+  const cur = readAgentStatus(process.env, resolveAgentId(process.env));
+  if (!cur || cur === 'idle') setAgentStatus(process.env, 'working');
+}
+
 function main() {
   const input = JSON.parse(fs.readFileSync(0, 'utf8'));
   const event = input.hook_event_name || input.event || '';
   let status = MAP[event];
   if (event === 'postToolUse' || event === 'postToolUseFailure') {
-    const cur = readAgentStatus(process.env, resolveAgentId(process.env));
-    if (!cur || cur === 'idle') setAgentStatus(process.env, 'working');
+    liftIdle();
     writeJson({});
     return;
   }
@@ -48,7 +53,10 @@ function main() {
     if (perm) status = 'needs_input';
   }
   const digest = unreadDigest(process.env);
-  if (event === 'stop' && digest && (Number(input.loop_count) || 0) === 0) status = 'working';
+  if (event === 'stop' && digest && (Number(input.loop_count) || 0) === 0) {
+    liftIdle();
+    status = null;
+  }
   if (status) setAgentStatus(process.env, status);
 
   if (event === 'beforeSubmitPrompt') {

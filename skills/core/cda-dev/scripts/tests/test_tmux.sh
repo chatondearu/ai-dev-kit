@@ -56,7 +56,7 @@ S=orch-r1-42
 tmux new-session -d -s _boot 'sleep 600'
 # Host configs (nix-darwin /etc/tmux.conf) set this; on tmux 3.7.x it makes any
 # kill-session exit the whole server unless orch neutralizes it.
-tmux set-option -g detach-on-destroy next
+tmux set-option -g detach-on-destroy next 2>/dev/null || true
 
 rc=0
 out="$(STUB_RC=7 orch_agent_run "$TMP/repo" "$TMP/prompt")" || rc=$?

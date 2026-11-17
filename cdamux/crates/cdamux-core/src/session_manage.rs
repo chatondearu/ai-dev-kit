@@ -37,7 +37,9 @@ pub fn home_session_new_argv() -> [&'static str; 5] {
 /// with the default shell over the stale screen) is respawned with `cdamux`.
 pub fn ensure_home_session() -> Result<(), SendError> {
     if !tmux_has_session(HOME_SESSION_NAME)? {
-        return tmux_ok(&["new-session", "-d", "-s", HOME_SESSION_NAME, "cdamux"]);
+        tmux_ok(&["new-session", "-d", "-s", HOME_SESSION_NAME, "cdamux"])?;
+        neutralize_detach_on_destroy();
+        return Ok(());
     }
     let target = format!("={HOME_SESSION_NAME}:");
     if pane_current_command(&target).is_some_and(|c| is_shell_command(&c)) {
@@ -50,7 +52,7 @@ pub fn ensure_home_session() -> Result<(), SendError> {
 /// Create the navigator session detached if missing (`cdamux nav --in-session`).
 pub fn ensure_nav_session() -> Result<(), SendError> {
     if !tmux_has_session(NAV_SESSION_NAME)? {
-        return tmux_ok(&[
+        tmux_ok(&[
             "new-session",
             "-d",
             "-s",
@@ -58,7 +60,9 @@ pub fn ensure_nav_session() -> Result<(), SendError> {
             "cdamux",
             "nav",
             "--in-session",
-        ]);
+        ])?;
+        neutralize_detach_on_destroy();
+        return Ok(());
     }
     let target = format!("={NAV_SESSION_NAME}:");
     if pane_current_command(&target).is_some_and(|c| is_shell_command(&c)) {
@@ -222,6 +226,17 @@ fn detach_on_destroy_set(value: &str) -> Result<(), SendError> {
     tmux_ok(&["set-option", "-g", "detach-on-destroy", value])
 }
 
+/// tmux 3.7.x: global `detach-on-destroy next|previous` makes ANY `kill-session`
+/// (ours or a bare `tmux kill-session` from a shell/agent) exit the whole server.
+/// Flip it to `on` and leave it: host configs (e.g. nix-darwin `/etc/tmux.conf`)
+/// set `next` again on every server start, so callers run this whenever cdamux
+/// creates a session, not only before its own kill. Best effort.
+pub fn neutralize_detach_on_destroy() {
+    if matches!(detach_on_destroy_get().as_deref(), Some("next" | "previous")) {
+        let _ = detach_on_destroy_set("on");
+    }
+}
+
 /// Switch the current client to `session` without setting `@cdamux_return`
 /// (used before kill so pane-died does not reopen a popup).
 fn switch_client_quiet(session: &str) -> Result<(), SendError> {
@@ -246,13 +261,7 @@ pub fn kill_tmux_session(name: &str) -> Result<(), SendError> {
     } else if should_ensure_home_before_kill(current.as_deref(), name, &visible_refs) {
         ensure_home_session()?;
     }
-    // tmux 3.7.x: `detach-on-destroy next|previous` makes any kill-session exit
-    // the whole server. Flip to `on` and leave it (do not restore — a later
-    // bare kill-session would take the server down again).
-    let previous = detach_on_destroy_get();
-    if previous.as_deref() == Some("next") || previous.as_deref() == Some("previous") {
-        let _ = detach_on_destroy_set("on");
-    }
+    neutralize_detach_on_destroy();
     tmux_ok(&["kill-session", "-t", &format!("={name}")])
 }
 

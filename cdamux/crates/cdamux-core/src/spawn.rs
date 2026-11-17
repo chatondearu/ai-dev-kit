@@ -261,6 +261,7 @@ fn create_tmux_session(
     if !status.success() {
         return Err(SpawnError::TmuxFailed);
     }
+    crate::session_manage::neutralize_detach_on_destroy();
 
     if let Some(id) = cdamux_id {
         let _ = Command::new("tmux")

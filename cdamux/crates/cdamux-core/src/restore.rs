@@ -227,12 +227,20 @@ pub fn restore_subtree(root: SessionRecord, all: Vec<SessionRecord>) -> Vec<Sess
     parents_first(out)
 }
 
+/// True when the record's agent reported `done` (`cdamux msg --kind done`): its job
+/// is over, so bulk restores (`--all`, an orchestrator's subtree) leave it dormant.
+pub fn is_done_record(rec: &SessionRecord) -> bool {
+    rec.cdamux_id.as_deref().and_then(load_reported_status) == Some(SessionState::Done)
+}
+
 /// Records `cdamux restore <name>` should touch: an orchestrator expands to its
-/// worker subtree; anything else is the single record.
+/// worker subtree (minus finished workers); anything else is the single record.
 pub fn restore_targets(name: &str) -> Option<Vec<SessionRecord>> {
     let root = session_registry::load(name)?;
     if root.role == "orchestrator" {
-        Some(restore_subtree(root, session_registry::load_all()))
+        let subtree = restore_subtree(root, session_registry::load_all());
+        // The named root is restored even when done: the user asked for it by name.
+        Some(subtree.into_iter().filter(|r| r.name == name || !is_done_record(r)).collect())
     } else {
         Some(vec![root])
     }
@@ -511,6 +519,24 @@ mod tests {
         assert!(names.contains(&"c-w1".into()) && names.contains(&"c-w2".into()));
         assert!(!names.contains(&"c-other".into()));
         assert_eq!(names.len(), 3);
+    }
+
+    #[test]
+    fn is_done_record_reads_agent_status() {
+        let _g = env_lock();
+        let dir = tempfile::tempdir().unwrap();
+        std::env::set_var("CDAMUX_HOME", dir.path());
+        let with_id = |name: &str, id: &str| SessionRecord {
+            cdamux_id: Some(id.into()),
+            ..rec(name, "claude", None, None)
+        };
+        state_set(StateKind::Agents, "a-done", &serde_json::json!({"id": "a-done", "status": "done"})).unwrap();
+        state_set(StateKind::Agents, "a-idle", &serde_json::json!({"id": "a-idle", "status": "idle"})).unwrap();
+        assert!(is_done_record(&with_id("c-done", "a-done")));
+        assert!(!is_done_record(&with_id("c-idle", "a-idle")));
+        assert!(!is_done_record(&with_id("c-none", "a-missing")));
+        assert!(!is_done_record(&rec("c-noid", "claude", None, None)));
+        std::env::remove_var("CDAMUX_HOME");
     }
 
     #[test]

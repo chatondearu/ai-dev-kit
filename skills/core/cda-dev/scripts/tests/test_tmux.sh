@@ -51,9 +51,12 @@ S=orch-r1-42
 
 # Prime the throwaway server with a clean client env. Otherwise the first
 # `STUB_RC=7 orch_agent_run` starts the server and freezes STUB_RC into the
-# global environment, so later panes inherit exit 7.
-tmux new-session -d -s _boot true
-tmux kill-session -t =_boot:
+# global environment, so later panes inherit exit 7. Keep _boot alive: a session
+# that exits at once empties the server, which then exits under our kill-session.
+tmux new-session -d -s _boot 'sleep 600'
+# Host configs (nix-darwin /etc/tmux.conf) set this; on tmux 3.7.x it makes any
+# kill-session exit the whole server unless orch neutralizes it.
+tmux set-option -g detach-on-destroy next 2>/dev/null || true
 
 rc=0
 out="$(STUB_RC=7 orch_agent_run "$TMP/repo" "$TMP/prompt")" || rc=$?
@@ -70,6 +73,8 @@ assert_contains "$opts" "@cdamux_agent cursor" "agent option is product name"
 assert_contains "$opts" "@cdamux_state running" "running while the agent runs"
 rc=0; tmux has-session -t "=$S:" 2>/dev/null || rc=$?
 assert_eq "$rc" "1" "session removed after the agent exits"
+rc=0; tmux has-session -t "=_boot:" 2>/dev/null || rc=$?
+assert_eq "$rc" "0" "worker kill leaves the server and other sessions alive"
 assert_eq "$(find "$TMP/tmpdir" -type f | wc -l | tr -d ' ')" "0" "runner and rc files removed"
 
 # KEEP: session survives with the final state; progress mirrors phases; kill_run cleans up.
@@ -88,5 +93,7 @@ fi
 orch_tmux_kill_run
 rc=0; tmux has-session -t "=$S:" 2>/dev/null || rc=$?
 assert_eq "$rc" "1" "kill_run removes the run's sessions"
+rc=0; tmux has-session -t "=_boot:" 2>/dev/null || rc=$?
+assert_eq "$rc" "0" "kill_run leaves the server and other sessions alive"
 
 summary

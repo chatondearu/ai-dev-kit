@@ -120,7 +120,7 @@ pub use state_gc::{
     is_gc_run_status, is_resumable_dormant, run_eligible, run_gc, GcReport, DEFAULT_RETENTION_DAYS,
 };
 pub use restore::{
-    dormant, is_busy_state, parents_first, restart_plan, restore_one, restore_subtree,
+    dormant, is_busy_state, is_done_record, parents_first, restart_plan, restore_one, restore_subtree,
     restore_targets, resume_command, RestoreError, RestoreOutcome,
 };
 pub use msg::{
@@ -137,7 +137,8 @@ pub use send::{send_to_session, SendError, tmux_has_session};
 pub use session_manage::{
     current_tmux_session, ensure_home_session, ensure_nav_session, home_session_new_argv,
     is_home_session, is_nav_session, kill_tmux_session, leave_nav_to_session,
-    mark_session_cdamux_return, nav_return_or_home, rename_tmux_session,
+    mark_session_cdamux_return, nav_return_or_home, neutralize_detach_on_destroy,
+    rename_tmux_session,
     should_ensure_home_before_kill, switch_client_to_session, toggle_nav_client,
     unique_session_name,
 };

@@ -279,8 +279,11 @@ stale screen), `ensure_home_session` respawns it with `cdamux` — on outside-tm
 entry and before a kill. Killing the session the client is on switches to this home
 session first. The kit template sets
 `detach-on-destroy on` — not `next`/`previous`, which on tmux 3.7.x exit the
-whole server on any `kill-session`. `kill_tmux_session` also flips those values
-to `on` (and leaves them) when it sees them.
+whole server on any `kill-session`, even one with no client attached. Host configs
+(e.g. a nix-darwin `/etc/tmux.conf`) may set `next` again on every server start, and
+agents run bare `tmux kill-session`, so `neutralize_detach_on_destroy` flips those
+values to `on` (and leaves them) whenever cdamux creates a session (spawn, restore,
+home, nav) and before `kill_tmux_session`; orch's `ORCH_TMUX=1` path does the same.
 
 ## Navigator session (ADR-014)
 
@@ -374,9 +377,11 @@ Operator curl examples: [tailnet-api.md](tailnet-api.md).
   `[A-Za-z0-9._-]`, or no template → the plain agent command (fresh conversation; a fresh
   claude gets a new `--session-id`, recorded). Shell entries reopen a shell. A resumed
   record keeps its id and `created_ts`. Live sessions are skipped; a missing cwd is an
-  error and the record is kept. `--all` restores parents before children. Restoring an
+  error and the record is kept. `--all` restores parents before children and skips
+  records whose agent reported `done` (`skipped (agent done; …)`; restore it by name to
+  revive it). Restoring an
   **orchestrator** by name also restores its workers (registry `parent` host links and
-  agent-state `parent` ids), parents first — same per-session status lines and exit 1 if
+  agent-state `parent` ids), minus `done` workers, parents first — same per-session status lines and exit 1 if
   any fail. One line per session (`restored`, `fresh (no id)`, `fresh (no resume command)`,
   `skipped (live)`, `error: …`). API: `restore_one`, `restore_targets`, `restore_subtree`,
   `resume_command`, `parents_first`, `dormant(records, &live_names)`.

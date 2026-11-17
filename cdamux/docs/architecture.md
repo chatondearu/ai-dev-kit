@@ -124,7 +124,12 @@ Delivery:
   hook's digest delivers it at the next prompt submit or turn end: a paste ends with
   Enter and would merge with what the user is typing.
 - **Orchestrator / other**: append only; when status is `idle` and the pane has been
-  quiet ≥ 10 s, types `📨 N messages — cdamux msg read --ack` into the pane (no daemon).
+  quiet ≥ 10 s, clears the input line (`C-u`) then types `📨 N messages — cdamux msg
+  read --ack` into the pane (no daemon).
+
+Every pane send waits 300 ms between writes (after `C-u`, before `Enter`). Cursor CLI
+reads keys that land in one burst as a paste: `text`+`Enter` becomes a newline (nothing
+submitted) and `C-u`+`text` drops the text.
 
 `msg send` prints the message id and `pasted`, `nudged` or `queued` (inbox only).
 

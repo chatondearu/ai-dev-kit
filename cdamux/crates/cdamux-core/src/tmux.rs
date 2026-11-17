@@ -319,6 +319,25 @@ fn send_line_argvs(
 
 const PASTE_BUFFER: &str = "cdamux-send";
 
+/// Pause between pane writes. Cursor CLI reads bytes that land in one burst as a paste:
+/// text + Enter becomes a newline (no submit), C-u + text drops the text. ≥100 ms also
+/// lets Cursor clear its composer after submit.
+const SEND_SETTLE: std::time::Duration = std::time::Duration::from_millis(300);
+
+/// Per argv: sleep [`SEND_SETTLE`] first? True for a pane write after an earlier one.
+fn settle_before(argvs: &[Vec<String>]) -> Vec<bool> {
+    let mut wrote = false;
+    argvs
+        .iter()
+        .map(|a| {
+            let pane_write = a[0] != "load-buffer";
+            let settle = pane_write && wrote;
+            wrote |= pane_write;
+            settle
+        })
+        .collect()
+}
+
 /// Send a literal line to the session's active pane; optional Enter keypress.
 pub fn send_line_to_session(session_name: &str, line: &str, enter: bool) -> Result<(), TmuxError> {
     send_line_to_session_ex(session_name, line, enter, false)
@@ -346,9 +365,13 @@ fn send_line_to_session_ex(
             TmuxError::ListFailed
         }
     };
-    for argv in send_line_argvs(session_name, line, enter, clear_line) {
+    let argvs = send_line_argvs(session_name, line, enter, clear_line);
+    for (argv, settle) in argvs.iter().zip(settle_before(&argvs)) {
+        if settle {
+            std::thread::sleep(SEND_SETTLE);
+        }
         let mut cmd = Command::new("tmux");
-        cmd.args(&argv);
+        cmd.args(argv);
         let ok = if argv[0] == "load-buffer" {
             let mut child = cmd.stdin(Stdio::piped()).spawn().map_err(map_err)?;
             // Dropping stdin after the write closes the pipe so load-buffer sees EOF.
@@ -406,6 +429,17 @@ mod tests {
                 vec!["send-keys", "-t", "=c-bar:", "Enter"],
             ]
         );
+    }
+
+    #[test]
+    fn send_settles_between_pane_writes() {
+        let s = |line, enter, clear| settle_before(&send_line_argvs("c-bar", line, enter, clear));
+        assert_eq!(s("hi", true, false), vec![false, true]); // pause before Enter
+        assert_eq!(s("hi", true, true), vec![false, true, true]); // after C-u too
+        assert_eq!(s("hi", false, false), vec![false]);
+        assert_eq!(s("", true, false), vec![false]);
+        // load-buffer is not a pane write: no pause before paste-buffer
+        assert_eq!(s("a\nb", true, false), vec![false, false, true]);
     }
 
     #[test]

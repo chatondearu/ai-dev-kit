@@ -8,8 +8,11 @@
 // Cursor: sessionStart/sessionEnd → idle; beforeSubmitPrompt → working when fired
 // (cannot inject context — see docs); stop → idle + followup_message digest.
 // Print-mode (`cursor-agent -p`) may omit beforeSubmitPrompt — rely on sessionStart/End.
+// Cursor CLI runs queued messages (stop followup_message, text typed mid-turn) without
+// beforeSubmitPrompt, so a stop that queues a followup stays `working` and postToolUse
+// lifts `idle` back to `working` (never a sticky status).
 const fs = require('fs');
-const { setAgentStatus, unreadDigest } = require('./ledger');
+const { setAgentStatus, readAgentStatus, resolveAgentId, unreadDigest } = require('./ledger');
 
 const MAP = {
   UserPromptSubmit: 'working',
@@ -27,10 +30,21 @@ function writeJson(obj) {
   process.stdout.write(JSON.stringify(obj) + '\n');
 }
 
+// `working` only from idle / unset: sticky done/error/blocked (open ask) must survive.
+function liftIdle() {
+  const cur = readAgentStatus(process.env, resolveAgentId(process.env));
+  if (!cur || cur === 'idle') setAgentStatus(process.env, 'working');
+}
+
 function main() {
   const input = JSON.parse(fs.readFileSync(0, 'utf8'));
   const event = input.hook_event_name || input.event || '';
   let status = MAP[event];
+  if (event === 'postToolUse' || event === 'postToolUseFailure') {
+    liftIdle();
+    writeJson({});
+    return;
+  }
   // Claude also fires Notification as `idle_prompt` ~60 s after a turn ends; only a
   // permission prompt means needs_input (older payloads have no type: match the text).
   if (event === 'Notification') {
@@ -38,9 +52,12 @@ function main() {
     const perm = type ? type === 'permission_prompt' : /permission/i.test(input.message || '');
     if (perm) status = 'needs_input';
   }
-  if (status) setAgentStatus(process.env, status);
-
   const digest = unreadDigest(process.env);
+  if (event === 'stop' && digest && (Number(input.loop_count) || 0) === 0) {
+    liftIdle();
+    status = null;
+  }
+  if (status) setAgentStatus(process.env, status);
 
   if (event === 'beforeSubmitPrompt') {
     // Cursor cannot inject additional_context here (continue / user_message only).

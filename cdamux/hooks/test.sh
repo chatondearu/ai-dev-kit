@@ -234,8 +234,25 @@ echo "$out" | jq -e '.hookSpecificOutput.hookEventName=="UserPromptSubmit"
 out="$(run_status '{"hook_event_name":"stop","loop_count":0}')"
 echo "$out" | jq -e '.followup_message|test("unread")' >/dev/null \
   || fail "cursor stop followup_message missing, got: $out"
+# The queued followup runs without beforeSubmitPrompt: the turn goes on, stay working.
+[ "$(jq -r .status "$AF")" = working ] || fail "cursor stop with followup must stay working"
 out="$(run_status '{"hook_event_name":"stop","loop_count":1}')"
 [ "$out" = '{}' ] || fail "cursor stop loop_count>0 must not follow up, got: $out"
+[ "$(jq -r .status "$AF")" = idle ] || fail "cursor stop without followup must set idle"
+# An open ask (blocked) survives a stop that queues the digest; the followup is still sent.
+printf '{"id":"a-hook1","status":"blocked"}\n' > "$AF"
+out="$(run_status '{"hook_event_name":"stop","loop_count":0}')"
+echo "$out" | jq -e '.followup_message|test("unread")' >/dev/null \
+  || fail "cursor stop followup_message missing when blocked, got: $out"
+[ "$(jq -r .status "$AF")" = blocked ] || fail "cursor stop followup cleared sticky blocked"
+printf '{"id":"a-hook1","status":"idle"}\n' > "$AF"
+# postToolUse: a tool ran, so a queued turn is live; lift idle only, never a sticky status.
+out="$(run_status '{"hook_event_name":"postToolUse"}')"
+[ "$out" = '{}' ] || fail "postToolUse must print {}, got: $out"
+[ "$(jq -r .status "$AF")" = working ] || fail "postToolUse did not lift idle to working"
+printf '{"id":"a-hook1","status":"done"}\n' > "$AF"
+run_status '{"hook_event_name":"postToolUseFailure"}' >/dev/null
+[ "$(jq -r .status "$AF")" = done ] || fail "postToolUse must not clear sticky done"
 # beforeSubmitPrompt still cannot inject (Cursor limit)
 out="$(run_status '{"hook_event_name":"beforeSubmitPrompt"}')"
 [ "$out" = '{"continue":true}' ] || fail "beforeSubmitPrompt must not inject, got: $out"

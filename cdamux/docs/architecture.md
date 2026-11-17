@@ -283,7 +283,7 @@ whole server on any `kill-session`, even one with no client attached. Host confi
 (e.g. a nix-darwin `/etc/tmux.conf`) may set `next` again on every server start, and
 agents run bare `tmux kill-session`, so `neutralize_detach_on_destroy` flips those
 values to `on` (and leaves them) whenever cdamux creates a session (spawn, restore,
-home) and before `kill_tmux_session`; orch's `ORCH_TMUX=1` path does the same.
+home, nav) and before `kill_tmux_session`; orch's `ORCH_TMUX=1` path does the same.
 
 ## Navigator session (ADR-014)
 

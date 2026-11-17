@@ -16,6 +16,26 @@ fn which(bin: &str) -> Option<String> {
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
 }
 
+/// Restores the process env vars a test mutates, even when it panics.
+struct EnvRestore(Vec<(&'static str, Option<std::ffi::OsString>)>);
+
+impl EnvRestore {
+    fn save(keys: &[&'static str]) -> Self {
+        Self(keys.iter().map(|k| (*k, std::env::var_os(k))).collect())
+    }
+}
+
+impl Drop for EnvRestore {
+    fn drop(&mut self) {
+        for (k, v) in &self.0 {
+            match v {
+                Some(v) => std::env::set_var(k, v),
+                None => std::env::remove_var(k),
+            }
+        }
+    }
+}
+
 fn tmux(args: &[&str]) -> std::process::Output {
     Command::new("tmux").args(args).output().expect("tmux")
 }
@@ -50,6 +70,7 @@ fn kill_with_detach_next_keeps_server() {
     std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o755)).unwrap();
 
     let _env = env_lock();
+    let _restore = EnvRestore::save(&["PATH", "TMUX_TMPDIR", "TMUX"]);
     let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default());
     std::env::set_var("PATH", &path);
     std::env::set_var("TMUX_TMPDIR", tmp.path());
@@ -112,6 +133,14 @@ fn bare_kill_of_spawned_worker_keeps_server() {
         return;
     };
     let _env = env_lock();
+    let _restore = EnvRestore::save(&[
+        "PATH",
+        "TMUX_TMPDIR",
+        "XDG_STATE_HOME",
+        "CDAMUX_HOME",
+        "SHELL",
+        "TMUX",
+    ]);
     let tmp = tempfile::tempdir().unwrap();
     let conf = tmp.path().join("tmux.conf");
     std::fs::write(

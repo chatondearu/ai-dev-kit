@@ -52,7 +52,7 @@ pub fn ensure_home_session() -> Result<(), SendError> {
 /// Create the navigator session detached if missing (`cdamux nav --in-session`).
 pub fn ensure_nav_session() -> Result<(), SendError> {
     if !tmux_has_session(NAV_SESSION_NAME)? {
-        return tmux_ok(&[
+        tmux_ok(&[
             "new-session",
             "-d",
             "-s",
@@ -60,7 +60,9 @@ pub fn ensure_nav_session() -> Result<(), SendError> {
             "cdamux",
             "nav",
             "--in-session",
-        ]);
+        ])?;
+        neutralize_detach_on_destroy();
+        return Ok(());
     }
     let target = format!("={NAV_SESSION_NAME}:");
     if pane_current_command(&target).is_some_and(|c| is_shell_command(&c)) {

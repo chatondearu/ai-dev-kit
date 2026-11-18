@@ -36,6 +36,11 @@ under the caller’s global session (`$CDAMUX_AGENT_ID` must be `scope=global`):
 fresh run, project boot prompt, `parent` = caller, no `scope=global`
 (ADR-015 depth ≤ 2). `--path` and `--child` are incompatible with `--global`.
 
+`cdamux orch ls [--json]` lists every recorded orchestrator (global, nested,
+stale) with `scope`, `live`, `repo` and `parent`; `cdamux capture <session>`
+prints a session's pane text read-only. Details:
+[cdamux architecture](../cdamux/docs/architecture.md#read-only-inspection-388).
+
 ## Graph orchestration (`cda-graph`)
 
 See **[graph-orchestration.md](graph-orchestration.md)** (cookbook, env vars, graph-plan, cdamux).

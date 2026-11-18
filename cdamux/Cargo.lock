@@ -176,6 +176,7 @@ dependencies = [
  "clap",
  "crossterm",
  "ratatui",
+ "serde",
  "serde_json",
  "skim",
  "tempfile",

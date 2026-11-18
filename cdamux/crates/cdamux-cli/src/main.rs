@@ -26,7 +26,7 @@ use cdamux_core::{
     resolve_spawn_repo,
     note_refs_for_projects, current_tmux_session, kill_tmux_session, list_panes_all, msg_send,
     parents_first, peek_worker, read_messages, parse_unified_diff, resolve_agent_command,
-    is_done_record, restore_one, restore_targets, restart_plan, session_registry, resolve_note_path, send_to_session,
+    is_done_record, restore_one, restore_targets, restart_plan, session_registry, resolve_note_path, send_input,
     session_name_for_path, spawn_orchestrator, spawn_tmux_session_with_layout, spawn_worker,
     agent_cwd, clear_links, parse_link_ref, refresh_links, resolve_agent_id, set_link_override,
     state_append, state_get, state_set, run_gc, sweep_orphans, tmux_has_session, unique_session_name,
@@ -104,7 +104,7 @@ enum Commands {
         force: bool,
     },
     /// Send text to a session pane without attaching (tmux send-keys).
-    #[command(after_help = "Examples:\n  cdamux send t1 \"echo hi\" --enter\n  cdamux send --enter t1 echo hi\n\nText starting with '-' needs `--` first: cdamux send t1 --enter -- -la")]
+    #[command(after_help = "Examples:\n  cdamux send t1 \"echo hi\" --enter\n  cdamux send --enter t1 echo hi\n  cdamux send t1 --key C-c --json\n  cdamux send t1 y --key Enter\n\nOrder: text, then each --key, then --enter.\nText starting with '-' needs `--` first: cdamux send t1 --enter -- -la")]
     Send {
         /// tmux session name (targets active window + active pane).
         session: String,
@@ -113,6 +113,15 @@ enum Commands {
         /// Append Enter after the message.
         #[arg(long)]
         enter: bool,
+        /// Named key to press after the text (repeatable; allow-list only).
+        #[arg(long = "key", value_name = "NAME", value_parser = clap::builder::PossibleValuesParser::new(cdamux_core::SEND_KEYS.iter().copied()))]
+        keys: Vec<String>,
+        /// Pane id (`%N`) of the session to write to (default: active pane).
+        #[arg(long)]
+        pane: Option<String>,
+        /// Print `{"v":1,"session","pane","sent_bytes","keys","outcome"}` on stdout.
+        #[arg(long)]
+        json: bool,
     },
     /// Inspect git diff hunks and send a review prompt to an agent session.
     Review {
@@ -452,7 +461,10 @@ fn main() -> ExitCode {
             session,
             message,
             enter,
-        }) => cmd_send(&session, &message, enter),
+            keys,
+            pane,
+            json,
+        }) => cmd_send(&session, &message, enter, &keys, pane.as_deref(), json),
         Some(Commands::Review {
             session,
             path,
@@ -1504,17 +1516,41 @@ fn resolve_review_repo(session: &str, path: Option<String>) -> Result<PathBuf, D
     }
 }
 
-fn cmd_send(session: &str, message: &[String], enter: bool) -> ExitCode {
+fn cmd_send(
+    session: &str,
+    message: &[String],
+    enter: bool,
+    keys: &[String],
+    pane: Option<&str>,
+    json: bool,
+) -> ExitCode {
     let text = message.join(" ");
-    if text.is_empty() && !enter {
-        eprintln!("send: provide a message and/or --enter");
+    if text.is_empty() && keys.is_empty() && !enter {
+        eprintln!("send: provide a message, --key and/or --enter");
         return ExitCode::from(2);
     }
-    match send_to_session(session, &text, enter) {
-        Ok(()) => ExitCode::SUCCESS,
+    let result = send_input(session, pane, &text, keys, enter);
+    if json {
+        let (pane, sent_bytes, sent_keys, outcome) = match &result {
+            Ok(o) => (Some(o.pane.as_str()), o.sent_bytes, o.keys.as_slice(), "ok"),
+            Err(SendError::SessionNotFound(_)) => (None, 0, keys, "session_not_found"),
+            Err(_) => (pane, 0, keys, "failed"),
+        };
+        let v = serde_json::json!({
+            "v": 1, "session": session, "pane": pane, "sent_bytes": sent_bytes,
+            "keys": sent_keys, "outcome": outcome,
+        });
+        println!("{v}");
+    }
+    match result {
+        Ok(_) => ExitCode::SUCCESS,
         Err(SendError::SessionNotFound(name)) => {
             eprintln!("send: no tmux session named '{name}'");
             ExitCode::from(1)
+        }
+        Err(e @ (SendError::KeyNotAllowed(_) | SendError::PaneNotFound(_))) => {
+            eprintln!("send: {e}");
+            ExitCode::from(2)
         }
         Err(e) => {
             eprintln!("send: {e}");
@@ -2005,9 +2041,24 @@ mod tests {
     fn parse_send(args: &[&str]) -> (String, Vec<String>, bool) {
         let cli = Cli::try_parse_from(args).expect("parse");
         match cli.command {
-            Some(Commands::Send { session, message, enter }) => (session, message, enter),
+            Some(Commands::Send { session, message, enter, .. }) => (session, message, enter),
             _ => panic!("expected send"),
         }
+    }
+
+    #[test]
+    fn send_keys_are_repeatable_and_allow_listed() {
+        let cli = Cli::try_parse_from(["cdamux", "send", "t1", "y", "--key", "C-c", "--key", "Enter", "--json"]).unwrap();
+        match cli.command {
+            Some(Commands::Send { message, keys, json, .. }) => {
+                assert_eq!(message, ["y"]);
+                assert_eq!(keys, ["C-c", "Enter"]);
+                assert!(json);
+            }
+            _ => panic!("expected send"),
+        }
+        let err = Cli::try_parse_from(["cdamux", "send", "t1", "--key", "C-c; kill-server"]).err().expect("refused");
+        assert_eq!(err.exit_code(), 2);
     }
 
     #[test]

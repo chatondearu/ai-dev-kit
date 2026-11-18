@@ -284,7 +284,19 @@ pub fn capture_pane_text(session_name: &str, max_lines: i32, escapes: bool) -> R
     Ok(String::from_utf8_lossy(&capture.stdout).to_string())
 }
 
-/// tmux argv per invocation needed to type `line` (and optionally submit it).
+/// Test shorthand: [`input_argvs`] on a session's active pane, no named keys.
+#[cfg(test)]
+fn send_line_argvs(
+    session_name: &str,
+    line: &str,
+    enter: bool,
+    clear_line: bool,
+) -> Vec<Vec<String>> {
+    input_argvs(&pane_target(session_name), line, &[], enter, clear_line)
+}
+
+/// tmux argv per invocation needed to type `line`, press named `keys` (one call each,
+/// never `-l`) and optionally submit it, on any tmux `target`.
 ///
 /// `-l` disables key-name lookup for every arg, so `Enter` must be a separate call.
 /// Multi-line text goes through a bracketed paste (`load-buffer -` reads stdin) so the
@@ -293,13 +305,14 @@ pub fn capture_pane_text(session_name: &str, max_lines: i32, escapes: bool) -> R
 /// When `clear_line` is true, send `C-u` first so a leftover composer draft is not
 /// concatenated. Needed for Cursor orch idle nudges: keyboard submit omits prompt clear
 /// (`us("")`); real fix is upstream Cursor. Heuristic may differ under vim-mode.
-fn send_line_argvs(
-    session_name: &str,
+fn input_argvs(
+    target: &str,
     line: &str,
+    keys: &[&str],
     enter: bool,
     clear_line: bool,
 ) -> Vec<Vec<String>> {
-    let target = pane_target(session_name);
+    let target = target.to_string();
     let argv = |args: &[&str]| -> Vec<String> { args.iter().map(|s| s.to_string()).collect() };
     let mut out = Vec::new();
     if clear_line {
@@ -310,6 +323,9 @@ fn send_line_argvs(
         out.push(argv(&["paste-buffer", "-p", "-d", "-b", PASTE_BUFFER, "-t", &target]));
     } else if !line.is_empty() {
         out.push(argv(&["send-keys", "-t", &target, "-l", "--", line]));
+    }
+    for key in keys {
+        out.push(argv(&["send-keys", "-t", &target, key]));
     }
     if enter {
         out.push(argv(&["send-keys", "-t", &target, "Enter"]));
@@ -358,6 +374,27 @@ fn send_line_to_session_ex(
     enter: bool,
     clear_line: bool,
 ) -> Result<(), TmuxError> {
+    run_input(&pane_target(session_name), line, &[], enter, clear_line)
+}
+
+/// Type `line`, then press `keys` (tmux key names, never `-l`), then optional Enter on `target`.
+/// Callers must pass allow-listed key names only (`send::SEND_KEYS`).
+pub(crate) fn send_input_to_target(
+    target: &str,
+    line: &str,
+    keys: &[&str],
+    enter: bool,
+) -> Result<(), TmuxError> {
+    run_input(target, line, keys, enter, false)
+}
+
+fn run_input(
+    target: &str,
+    line: &str,
+    keys: &[&str],
+    enter: bool,
+    clear_line: bool,
+) -> Result<(), TmuxError> {
     let map_err = |e: std::io::Error| {
         if e.kind() == std::io::ErrorKind::NotFound {
             TmuxError::NotFound
@@ -365,7 +402,7 @@ fn send_line_to_session_ex(
             TmuxError::ListFailed
         }
     };
-    let argvs = send_line_argvs(session_name, line, enter, clear_line);
+    let argvs = input_argvs(target, line, keys, enter, clear_line);
     for (argv, settle) in argvs.iter().zip(settle_before(&argvs)) {
         if settle {
             std::thread::sleep(SEND_SETTLE);
@@ -402,6 +439,19 @@ mod tests {
         );
         assert_eq!(send_line_argvs("c-bar", "y", false, false).len(), 1);
         assert_eq!(send_line_argvs("c-bar", "", true, false).len(), 1); // Enter only
+    }
+
+    #[test]
+    fn input_keys_go_between_text_and_enter_without_literal_flag() {
+        assert_eq!(
+            input_argvs("%3", "y", &["C-c", "Up"], true, false),
+            vec![
+                vec!["send-keys", "-t", "%3", "-l", "--", "y"],
+                vec!["send-keys", "-t", "%3", "C-c"],
+                vec!["send-keys", "-t", "%3", "Up"],
+                vec!["send-keys", "-t", "%3", "Enter"],
+            ]
+        );
     }
 
     #[test]

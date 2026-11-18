@@ -52,6 +52,13 @@ chmod +x "$STUB_BIN/npm"
 # Setup configurable stub gh
 cat >"$STUB_BIN/gh" <<'EOF'
 #!/usr/bin/env bash
+# Like real gh: without GH_REPO the base repo comes from cwd, so outside a git repo it fails.
+case "$*" in *"repo view"*) ;; *)
+  if [ -z "${GH_REPO:-}" ] && ! git rev-parse --git-dir >/dev/null 2>&1; then
+    echo "failed to run git: fatal: not a git repository" >&2
+    exit 1
+  fi ;;
+esac
 case "$*" in
   *"issue view"*)
     case "$*" in
@@ -145,8 +152,9 @@ assert_contains "$out_held" "holding #20 (blocked by open #999)" "held issue sur
 
 echo "# orch ready-pickup (issue 1: loop succeeds, no PR found -> status blocked, exit nonzero)"
 # No package.json yet: ORCH_VERIFY keeps this scenario on the no-PR path (ADR-006 would block on verify first).
+# Run from a non-git cwd (global orchestrator): gh must still reach the --repo issue.
 set +e
-out_no_pr="$(ORCH_VERIFY=true GH_STUB_NO_PR=1 bash "$SCRIPTS/orch.sh" --repo "$TMP" --mode ready-pickup --issue 1 --agent "$STUB_BIN/stub-agent" 2>&1)"
+out_no_pr="$(cd "$STUB_BIN" && ORCH_VERIFY=true GH_STUB_NO_PR=1 bash "$SCRIPTS/orch.sh" --repo "$TMP" --mode ready-pickup --issue 1 --agent "$STUB_BIN/stub-agent" 2>&1)"
 rc_no_pr=$?
 set -e
 assert_eq "$rc_no_pr" "1" "ready-pickup exits nonzero when worker blocked (no PR)"

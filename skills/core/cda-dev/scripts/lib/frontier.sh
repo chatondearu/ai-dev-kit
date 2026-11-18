@@ -19,7 +19,8 @@ orch_gh_repo_slug() {
     return 0
   fi
   local slug
-  slug="$(cd "$repo" && gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || true)"
+  # An inherited GH_REPO (e.g. from a parent orch on another repo) would override cwd.
+  slug="$(cd "$repo" && env -u GH_REPO gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null || true)"
   if [ -n "$slug" ]; then
     printf '%s\n' "$slug"
     return 0

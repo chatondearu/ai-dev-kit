@@ -92,6 +92,13 @@ export ORCH_MAX_PARALLEL="$MAX_P" ORCH_MAX_ITER="$MAX_I" ORCH_SANDBOX="$SANDBOX"
 export ORCH_FAIL_FAST="$FAIL_FAST" ORCH_FORCE_CLEAN="$FORCE_CLEAN" ORCH_ROOT="$ROOT"
 REPO="$(orch_repo_root "$REPO")"
 export ORCH_REPO="$REPO"
+# gh resolves the repo from cwd; pin it to --repo so a run started outside the repo
+# (e.g. a global orchestrator) does not silently fail every issue/PR lookup.
+if command -v gh >/dev/null 2>&1 && GH_REPO="$(orch_gh_repo_slug "$REPO")"; then
+  export GH_REPO
+else
+  unset GH_REPO
+fi
 if [ "$NO_PROGRESS" = 1 ]; then
   export ORCH_PROGRESS=0
 fi
@@ -149,7 +156,10 @@ orch_fetch_agent_brief() {
     return 1
   fi
   # Do not pass --comments with --json (gh rejects the combination).
-  raw="$(gh issue view "$id" --json comments 2>/dev/null || true)"
+  raw="$(gh issue view "$id" --json comments)" || {
+    printf 'orch: gh issue view %s failed (repo: %s)\n' "$id" "${GH_REPO:-cwd}" >&2
+    return 1
+  }
   [ -n "$raw" ] || return 1
   body="$(printf '%s' "$raw" | jq -r \
     '[.comments[] | select(.authorAssociation | IN("OWNER","MEMBER","COLLABORATOR")) | .body]
@@ -515,7 +525,7 @@ case "$MODE" in
     # is reset further down). Skipped in --dry-run, when ORCH_FRONTIER=0, or when
     # gh is unavailable.
     if [ "$DRY" != 1 ] && [ "${ORCH_FRONTIER:-auto}" != 0 ] && command -v gh >/dev/null 2>&1; then
-      GH_SLUG="$(orch_gh_repo_slug "$REPO" || true)"
+      GH_SLUG="${GH_REPO:-}"
       if [ -z "$GH_SLUG" ]; then
         printf 'orch: cannot resolve GitHub repo slug for %s (gh auth?)\n' "$REPO" >&2
         exit 1

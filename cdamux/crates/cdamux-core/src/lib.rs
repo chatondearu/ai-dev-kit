@@ -36,6 +36,7 @@ mod worktree;
 mod worker;
 mod tailnet_api;
 mod tmux;
+mod capture;
 
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -112,6 +113,8 @@ pub use orch::{
     orch_boot_prompt_for, orch_boot_prompt_global, spawn_orchestrator, OrchError, OrchNewRequest,
     OrchNewResult, ORCHESTRATOR_SKILL, ORCH_SCOPE_GLOBAL,
 };
+pub use orch::{list_orchestrators, orch_scope_of_agent, OrchEntry, ORCH_SCOPE_PROJECT};
+pub use capture::{capture_session, CaptureError, PaneCapture, CAPTURE_MAX_LINES};
 pub use state::{
     agent_state_path, generate_agent_id, generate_run_id, initial_agent_value, state_append,
     state_get, state_set, valid_state_id, StateKind,

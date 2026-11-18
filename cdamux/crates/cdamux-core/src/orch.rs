@@ -11,6 +11,7 @@ use crate::spawn::{
 use crate::state::{generate_run_id, state_append, state_list, state_set, StateKind};
 use crate::worker::{with_first_prompt, write_first_prompt};
 use crate::AgentsConfig;
+use serde::Serialize;
 use serde_json::json;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
@@ -20,6 +21,9 @@ pub const ORCHESTRATOR_SKILL: &str = "cda-orchestrator";
 
 /// Agent `scope` value for the cross-project orchestrator (ADR-015).
 pub const ORCH_SCOPE_GLOBAL: &str = "global";
+
+/// `scope` reported for a per-project orchestrator (no `scope` key in its record).
+pub const ORCH_SCOPE_PROJECT: &str = "project";
 
 /// First-turn boot text referencing [`ORCHESTRATOR_SKILL`] (per-project).
 pub fn orch_boot_prompt() -> &'static str {
@@ -56,23 +60,87 @@ pub fn global_orch_cwd() -> Result<PathBuf, OrchError> {
     Ok(dir)
 }
 
+/// `host` of an agent record when it names a live tmux session (non-empty + `has-session`).
+/// Shared liveness rule for [`find_live_global_orchestrator`] and [`list_orchestrators`].
+fn live_host(v: &serde_json::Value) -> Option<&str> {
+    let host = v.get("host").and_then(|h| h.as_str()).filter(|h| !h.is_empty())?;
+    tmux_has_session(host).unwrap_or(false).then_some(host)
+}
+
+fn is_orchestrator(v: &serde_json::Value) -> bool {
+    v.get("role").and_then(|r| r.as_str()) == Some("orchestrator")
+}
+
+fn is_global_scope(v: &serde_json::Value) -> bool {
+    v.get("scope").and_then(|s| s.as_str()) == Some(ORCH_SCOPE_GLOBAL)
+}
+
 /// Live agent with `role=orchestrator` and `scope=global`, if any.
 pub fn find_live_global_orchestrator() -> Option<(String, String)> {
-    for (id, _, v) in state_list(StateKind::Agents) {
-        if v.get("role").and_then(|r| r.as_str()) != Some("orchestrator") {
-            continue;
-        }
-        if v.get("scope").and_then(|s| s.as_str()) != Some(ORCH_SCOPE_GLOBAL) {
-            continue;
-        }
-        let Some(host) = v.get("host").and_then(|h| h.as_str()).filter(|h| !h.is_empty()) else {
-            continue;
-        };
-        if tmux_has_session(host).unwrap_or(false) {
-            return Some((id, host.to_string()));
-        }
-    }
-    None
+    state_list(StateKind::Agents)
+        .into_iter()
+        .filter(|(_, _, v)| is_orchestrator(v) && is_global_scope(v))
+        .find_map(|(id, _, v)| live_host(&v).map(|h| (id, h.to_string())))
+}
+
+/// One recorded orchestrator for `cdamux orch ls` (#388).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct OrchEntry {
+    pub id: String,
+    /// Recorded tmux session; empty for a stale record.
+    pub host: String,
+    /// `global` or `project` (ADR-015).
+    pub scope: &'static str,
+    /// Project root from the orchestrator's run (`runs/<run>.json`); none for `global`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub repo: Option<String>,
+    /// Reported agent status; `null` when never reported.
+    pub status: Option<String>,
+    /// Same rule as [`find_live_global_orchestrator`]; stale records stay listed with `false`.
+    pub live: bool,
+    /// Global orchestrator agent id of a nested one (`orch new --child`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent: Option<String>,
+}
+
+fn str_field(v: &serde_json::Value, key: &str) -> Option<String> {
+    v.get(key)
+        .and_then(|x| x.as_str())
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
+/// Every `role=orchestrator` agent record, live or not: global first, then by id.
+pub fn list_orchestrators() -> Vec<OrchEntry> {
+    let mut out: Vec<OrchEntry> = state_list(StateKind::Agents)
+        .into_iter()
+        .filter(|(_, _, v)| is_orchestrator(v))
+        .map(|(id, _, v)| {
+            let global = is_global_scope(&v);
+            let repo = (!global)
+                .then(|| str_field(&v, "run"))
+                .flatten()
+                .and_then(|run| crate::state::state_get(StateKind::Runs, &run).ok().flatten())
+                .and_then(|r| str_field(&r, "repo"));
+            OrchEntry {
+                host: str_field(&v, "host").unwrap_or_default(),
+                scope: if global { ORCH_SCOPE_GLOBAL } else { ORCH_SCOPE_PROJECT },
+                repo,
+                status: str_field(&v, "status"),
+                live: live_host(&v).is_some(),
+                parent: str_field(&v, "parent"),
+                id,
+            }
+        })
+        .collect();
+    out.sort_by(|a, b| (a.scope != ORCH_SCOPE_GLOBAL, &a.id).cmp(&(b.scope != ORCH_SCOPE_GLOBAL, &b.id)));
+    out
+}
+
+/// `scope` of an orchestrator agent record (`global` or `project`), for `cdamux list --json`.
+pub fn orch_scope_of_agent(id: &str) -> Option<&'static str> {
+    let v = crate::state::state_get(StateKind::Agents, id).ok().flatten()?;
+    is_orchestrator(&v).then(|| if is_global_scope(&v) { ORCH_SCOPE_GLOBAL } else { ORCH_SCOPE_PROJECT })
 }
 
 /// True when agent state for `id` has `scope=global`.

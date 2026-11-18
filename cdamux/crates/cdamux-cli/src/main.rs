@@ -58,7 +58,7 @@ struct Cli {
 enum Commands {
     /// Health check for tmux and config.
     Doctor,
-    /// List tmux sessions (read directly from tmux).
+    /// List tmux sessions (read directly from tmux). `--json`: `{"v":1,"group_by","groups"}`.
     List {
         #[arg(long)]
         json: bool,
@@ -218,6 +218,21 @@ enum Commands {
         #[command(subcommand)]
         command: OrchCommands,
     },
+    /// Print a session's active pane text (read-only `tmux capture-pane -p -J`; never sends keys).
+    #[command(after_help = "Prints the last N non-blank-trailing lines; --json `lines` is the count returned (≤ N).\nExit 2: unknown session (not in `cdamux list`, or not a tmux session with --any), or --lines outside 1..=500.\nExit 1: tmux missing or a tmux read failed.")]
+    Capture {
+        /// Session name as `cdamux list` shows it.
+        session: String,
+        /// Lines from the bottom of the pane (1..=500).
+        #[arg(long, default_value_t = 40, value_parser = clap::value_parser!(u16).range(1..=cdamux_core::CAPTURE_MAX_LINES as i64))]
+        lines: u16,
+        /// Print `{"v":1,"session","pane","lines","text"}`.
+        #[arg(long)]
+        json: bool,
+        /// Accept any tmux session, not only those `cdamux list` shows.
+        #[arg(long)]
+        any: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -236,6 +251,12 @@ enum OrchCommands {
         /// Nest under the caller's global orchestrator (`$CDAMUX_AGENT_ID`, ADR-015).
         #[arg(long)]
         child: bool,
+    },
+    /// List every recorded orchestrator (global, nested, stale) with scope and liveness.
+    Ls {
+        /// `{"v":1,"orchestrators":[{id, host, scope, repo?, status, live, parent?}, …]}`.
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -521,7 +542,67 @@ fn main() -> ExitCode {
                 global,
                 child,
             } => cmd_orch_new(agent.as_deref(), path.as_deref(), global, child),
+            OrchCommands::Ls { json } => cmd_orch_ls(json),
         },
+        Some(Commands::Capture {
+            session,
+            lines,
+            json,
+            any,
+        }) => cmd_capture(&session, lines, json, any),
+    }
+}
+
+fn cmd_orch_ls(json: bool) -> ExitCode {
+    let entries = cdamux_core::list_orchestrators();
+    if json {
+        #[derive(serde::Serialize)]
+        struct OrchLsJson<'a> {
+            v: u8,
+            orchestrators: &'a [cdamux_core::OrchEntry],
+        }
+        let out = OrchLsJson { v: 1, orchestrators: &entries };
+        println!("{}", serde_json::to_string(&out).unwrap());
+        return ExitCode::SUCCESS;
+    }
+    if entries.is_empty() {
+        println!("(no orchestrators)");
+        return ExitCode::SUCCESS;
+    }
+    for e in &entries {
+        let live = if e.live { "live" } else { "stale" };
+        println!(
+            "{}\t{}\t{}\t{}\t{}\t{}\t{}",
+            e.id,
+            if e.host.is_empty() { "-" } else { &e.host },
+            e.scope,
+            live,
+            e.status.as_deref().unwrap_or("-"),
+            e.repo.as_deref().unwrap_or("-"),
+            e.parent.as_deref().unwrap_or("-"),
+        );
+    }
+    ExitCode::SUCCESS
+}
+
+fn cmd_capture(session: &str, lines: u16, json: bool, any: bool) -> ExitCode {
+    match cdamux_core::capture_session(session, lines, any) {
+        Ok(cap) if json => {
+            println!("{}", serde_json::to_string(&cap).unwrap());
+            ExitCode::SUCCESS
+        }
+        Ok(cap) => {
+            print!("{}", cap.text);
+            ExitCode::SUCCESS
+        }
+        Err(e @ cdamux_core::CaptureError::Unknown(_)) => {
+            eprintln!("capture: {e}");
+            ExitCode::from(2)
+        }
+        Err(e) => {
+            eprintln!("capture: {e}");
+            ExitCode::from(1)
+        }
     }
 }
 
@@ -1193,6 +1274,54 @@ fn agent_executable_name(agents: &cdamux_core::AgentsConfig, id: &str) -> String
 }
 
 
+/// `cdamux list --json`: [`cdamux_core::GroupedSessions`] plus a leading schema `v` and an
+/// additive `scope` on orchestrator rows (#388); other rows serialize exactly as before.
+/// Mirrors `GroupedSessions` / `SessionGroup` field by field: the byte-compat test in
+/// `list_json_adds_scope_only_on_orchestrators` fails if either gains a field.
+#[derive(serde::Serialize)]
+struct ListJson<'a> {
+    v: u8,
+    group_by: GroupBy,
+    groups: Vec<ListGroupJson<'a>>,
+}
+
+#[derive(serde::Serialize)]
+struct ListGroupJson<'a> {
+    key: &'a str,
+    sessions: Vec<ListRowJson<'a>>,
+}
+
+#[derive(serde::Serialize)]
+struct ListRowJson<'a> {
+    #[serde(flatten)]
+    session: &'a cdamux_core::EnrichedSession,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    scope: Option<&'static str>,
+}
+
+impl<'a> From<&'a cdamux_core::GroupedSessions> for ListJson<'a> {
+    fn from(g: &'a cdamux_core::GroupedSessions) -> Self {
+        let row = |s: &'a cdamux_core::EnrichedSession| ListRowJson {
+            scope: (s.role.as_deref() == Some("orchestrator"))
+                .then(|| s.cdamux_id.as_deref().and_then(cdamux_core::orch_scope_of_agent))
+                .flatten(),
+            session: s,
+        };
+        ListJson {
+            v: 1,
+            group_by: g.group_by,
+            groups: g
+                .groups
+                .iter()
+                .map(|grp| ListGroupJson {
+                    key: &grp.key,
+                    sessions: grp.sessions.iter().map(row).collect(),
+                })
+                .collect(),
+        }
+    }
+}
+
 fn cmd_list(json: bool, group_by: GroupBy) -> ExitCode {
     let cfg = match load_config() {
         Ok(c) => c,
@@ -1210,7 +1339,7 @@ fn cmd_list(json: bool, group_by: GroupBy) -> ExitCode {
     );
 
     if json {
-        if let Err(e) = writeln!(io::stdout(), "{}", serde_json::to_string(&grouped).unwrap()) {
+        if let Err(e) = writeln!(io::stdout(), "{}", serde_json::to_string(&ListJson::from(&grouped)).unwrap()) {
             eprintln!("list: {e}");
             return ExitCode::from(1);
         }
@@ -1908,5 +2037,74 @@ mod tests {
         let after_words = parse_send(&["cdamux", "send", "t1", "echo", "hi", "--enter"]);
         assert_eq!(after_words.1, ["echo", "hi"]);
         assert!(after_words.2);
+    }
+
+    #[test]
+    fn capture_lines_bounds_exit_2() {
+        let ok = Cli::try_parse_from(["cdamux", "capture", "c-a", "--lines", "500", "--json"]);
+        assert!(matches!(
+            ok.unwrap().command,
+            Some(Commands::Capture { lines: 500, json: true, any: false, .. })
+        ));
+        for bad in ["501", "0"] {
+            let err = Cli::try_parse_from(["cdamux", "capture", "c-a", "--lines", bad]).err().unwrap();
+            assert_eq!(err.exit_code(), 2, "--lines {bad}");
+        }
+    }
+
+    #[test]
+    fn list_json_adds_scope_only_on_orchestrators() {
+        let _g = cdamux_core::env_lock();
+        let dir = tempfile::tempdir().unwrap();
+        let prev = std::env::var_os("CDAMUX_HOME");
+        std::env::set_var("CDAMUX_HOME", dir.path());
+        let rec = |scope: Option<&str>| {
+            let mut v = serde_json::json!({"role": "orchestrator", "host": "h"});
+            if let Some(s) = scope {
+                v["scope"] = s.into();
+            }
+            v
+        };
+        cdamux_core::state_set(cdamux_core::StateKind::Agents, "a-g", &rec(Some("global"))).unwrap();
+        cdamux_core::state_set(cdamux_core::StateKind::Agents, "a-p", &rec(None)).unwrap();
+
+        let sess = |name: &str, role: Option<&str>, id: Option<&str>| cdamux_core::EnrichedSession {
+            name: name.into(),
+            path: "/p".into(),
+            role: role.map(str::to_string),
+            cdamux_id: id.map(str::to_string),
+            ..Default::default()
+        };
+        let plain = cdamux_core::GroupedSessions {
+            group_by: GroupBy::Project,
+            groups: vec![cdamux_core::SessionGroup {
+                key: "k".into(),
+                sessions: vec![sess("w", Some("worker"), Some("a-w")), sess("s", None, None)],
+            }],
+        };
+        let before = serde_json::to_string(&plain).unwrap();
+        assert_eq!(
+            serde_json::to_string(&ListJson::from(&plain)).unwrap(),
+            format!("{{\"v\":1,{}", &before[1..]),
+            "only a leading v is added; non-orchestrator rows stay byte-identical"
+        );
+
+        let orch = cdamux_core::GroupedSessions {
+            group_by: GroupBy::Project,
+            groups: vec![cdamux_core::SessionGroup {
+                key: "k".into(),
+                sessions: vec![
+                    sess("g", Some("orchestrator"), Some("a-g")),
+                    sess("p", Some("orchestrator"), Some("a-p")),
+                ],
+            }],
+        };
+        let v = serde_json::to_value(ListJson::from(&orch)).unwrap();
+        let rows = &v["groups"][0]["sessions"];
+        assert_eq!((rows[0]["scope"].as_str(), rows[1]["scope"].as_str()), (Some("global"), Some("project")));
+        match prev {
+            Some(p) => std::env::set_var("CDAMUX_HOME", p),
+            None => std::env::remove_var("CDAMUX_HOME"),
+        }
     }
 }

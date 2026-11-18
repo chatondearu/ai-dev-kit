@@ -113,15 +113,34 @@ function resolveAgentId(env) {
   }
 }
 
-function readAgentStatus(env, id) {
+function readAgentField(env, id, key) {
   if (!id) return null;
   try {
     const file = path.join(stateDir(env, 'agents'), `${id}.json`);
     const rec = JSON.parse(fs.readFileSync(file, 'utf8'));
-    const s = rec && typeof rec.status === 'string' ? rec.status.trim().toLowerCase() : '';
+    const s = rec && typeof rec[key] === 'string' ? rec[key].trim().toLowerCase() : '';
     return s || null;
   } catch (e) {
     return null;
+  }
+}
+
+const readAgentStatus = (env, id) => readAgentField(env, id, 'status');
+
+// Turn end of an orchestrator: hand the hook payload to `cdamux events reply`, which
+// records its last assistant prose in the events feed (docs/events.md). Fail-open.
+function recordReply(env, input) {
+  const id = resolveAgentId(env);
+  if (readAgentField(env, id, 'role') !== 'orchestrator') return;
+  try {
+    execFileSync('cdamux', ['events', 'reply', id], {
+      env,
+      input: JSON.stringify(input),
+      timeout: 1000,
+      stdio: ['pipe', 'ignore', 'ignore'],
+    });
+  } catch (e) {
+    /* fail-open */
   }
 }
 
@@ -202,6 +221,7 @@ module.exports = {
   setAgentSessionId,
   resolveAgentId,
   readAgentStatus,
+  recordReply,
   setAgentStatus,
   readUnreadMessages,
   unreadDigest,

@@ -36,7 +36,7 @@ use cdamux_core::{
 };
 use clap::{Parser, Subcommand};
 use skim::prelude::*;
-use std::io::{self, BufRead, Cursor, Write};
+use std::io::{self, BufRead, Cursor, Read, Write};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
@@ -186,6 +186,28 @@ enum Commands {
         #[command(subcommand)]
         command: MsgCommands,
     },
+    /// Read-only events feed: orchestrator inbox msgs, status changes, orchestrator replies.
+    /// Schema `v: 1` in `docs/events.md`; never moves an inbox ack cursor.
+    #[command(args_conflicts_with_subcommands = true)]
+    Events {
+        #[command(subcommand)]
+        command: Option<EventsCommands>,
+        /// Keep streaming new items until killed.
+        #[arg(long)]
+        follow: bool,
+        /// Replay items strictly after this cursor (`0`: every retained item).
+        #[arg(long, default_value = "0")]
+        since: String,
+        /// Only this agent's items, its inbox traffic and its workers' status.
+        #[arg(long, conflicts_with = "orchestrators")]
+        agent: Option<String>,
+        /// Only msg / reply / human items and orchestrators' status.
+        #[arg(long)]
+        orchestrators: bool,
+        /// One JSON object per line (default: a short human line).
+        #[arg(long)]
+        json: bool,
+    },
     /// Interactive workers under the caller's orchestrator (ADR-011).
     Worker {
         #[command(subcommand)]
@@ -312,6 +334,16 @@ enum MsgCommands {
         /// Print a short digest instead of raw JSONL.
         #[arg(long)]
         digest: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum EventsCommands {
+    /// Turn-end hook: record the orchestrator's last assistant prose (hook JSON on stdin).
+    #[command(hide = true)]
+    Reply {
+        /// Agent id; no-op unless its role is `orchestrator`.
+        agent: String,
     },
 }
 
@@ -453,6 +485,18 @@ fn main() -> ExitCode {
                 cmd_msg_read(agent.as_deref(), ack, digest)
             }
         },
+        Some(Commands::Events {
+            command: Some(EventsCommands::Reply { agent }),
+            ..
+        }) => cmd_events_reply(&agent),
+        Some(Commands::Events {
+            command: None,
+            follow,
+            since,
+            agent,
+            orchestrators,
+            json,
+        }) => cmd_events(follow, &since, cdamux_core::EventFilter { agent, orchestrators }, json),
         Some(Commands::Worker { command }) => match command {
             WorkerCommands::Spawn {
                 name,
@@ -774,6 +818,72 @@ fn cmd_msg_read(agent: Option<&str>, ack: bool, digest: bool) -> ExitCode {
             ExitCode::from(1)
         }
     }
+}
+
+fn event_line(v: &serde_json::Value, json: bool) -> String {
+    if json {
+        return v.to_string();
+    }
+    let f = |k: &str| v[k].as_str().unwrap_or_default();
+    let who = match f("type") {
+        "msg" => format!("{}→{} [{}]", f("from"), f("to"), f("kind")),
+        "status" => format!("{} {}→{}", f("agent"), v["prev"].as_str().unwrap_or("-"), f("status")),
+        _ => f("agent").to_string(),
+    };
+    let text = f("text").lines().next().unwrap_or_default();
+    format!("{} {} {who} {text}", f("cursor"), f("type")).trim_end().to_string()
+}
+
+fn cmd_events(follow: bool, since: &str, filter: cdamux_core::EventFilter, json: bool) -> ExitCode {
+    let mut since = match cdamux_core::parse_cursor(since) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("events: {e}");
+            return ExitCode::from(2);
+        }
+    };
+    let mut stamp = None;
+    loop {
+        let now = cdamux_core::journal_stamp();
+        if stamp != Some(now) {
+            stamp = Some(now);
+            let items = match cdamux_core::read_events(since) {
+                Ok(items) => items,
+                Err(e) => {
+                    eprintln!("events: {e}");
+                    return ExitCode::from(1);
+                }
+            };
+            let mut out = io::stdout().lock();
+            for v in &items {
+                if let Some(c) = v["cursor"].as_str().and_then(|c| c.parse().ok()) {
+                    since = c;
+                }
+                if filter.matches(v) && writeln!(out, "{}", event_line(v, json)).is_err() {
+                    return ExitCode::SUCCESS; // reader went away
+                }
+            }
+            if out.flush().is_err() {
+                return ExitCode::SUCCESS;
+            }
+        }
+        if !follow {
+            return ExitCode::SUCCESS;
+        }
+        // shortcut: 500 ms poll on segment sizes; switch to fs notify if latency matters.
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
+}
+
+fn cmd_events_reply(agent: &str) -> ExitCode {
+    let mut input = String::new();
+    let _ = io::stdin().read_to_string(&mut input);
+    let payload = serde_json::from_str(&input).unwrap_or(serde_json::Value::Null);
+    // Fail-open: a turn-end hook must never fail on the feed.
+    if let Err(e) = cdamux_core::record_reply(agent, &payload) {
+        eprintln!("events reply: {e}");
+    }
+    ExitCode::SUCCESS
 }
 
 fn parse_state_json(json: &str) -> Result<serde_json::Value, ExitCode> {

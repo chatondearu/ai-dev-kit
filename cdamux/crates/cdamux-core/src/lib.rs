@@ -5,6 +5,7 @@ mod agents_util;
 mod client_name;
 mod daemon;
 mod diff;
+mod events;
 mod foam;
 mod markdown;
 mod notes;
@@ -41,6 +42,10 @@ use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 pub use daemon::{grouped_for_list, grouped_for_list_ex};
+pub use events::{
+    journal_stamp, last_turn_reply, parse_cursor, read_events, record_reply, EventFilter,
+    EventsError, EVENTS_SCHEMA_VERSION, MAX_REPLY_BYTES,
+};
 pub use diff::{
     format_review_prompt, git_diff_unified, parse_unified_diff, DiffError, DiffHunk,
 };

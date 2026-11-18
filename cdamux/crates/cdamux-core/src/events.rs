@@ -1,0 +1,402 @@
+//! Read-only events feed: append-only `$CDAMUX_HOME/events.jsonl` journal (ADR-011 §2).
+//! Schema `v: 1` in `docs/events.md`. Writers are fail-open: a journal error never
+//! breaks `msg send`, a state write or a hook. Readers never touch inbox cursors.
+
+use crate::msg::Message;
+use crate::paths::cdamux_home;
+use crate::session_links::read_tail;
+use crate::state::{state_append, state_get, with_entity_lock, StateKind};
+use serde_json::{json, Map, Value};
+use std::collections::BTreeMap;
+use std::io::{self, Write};
+use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
+use thiserror::Error;
+
+pub const EVENTS_SCHEMA_VERSION: u64 = 1;
+/// `reply` text cap (bytes, cut on a char boundary); longer text sets `truncated: true`.
+pub const MAX_REPLY_BYTES: usize = 8 * 1024;
+/// The live segment rotates to `events.1.jsonl` past this size; two segments are kept.
+const SEGMENT_MAX_BYTES: u64 = 2 * 1024 * 1024;
+/// Transcript bytes read at turn end to find the last turn's assistant text.
+const REPLY_TRANSCRIPT_TAIL_BYTES: u64 = 512 * 1024;
+/// Bytes read from a segment end to find its last cursor (one line is ≤ ~9 KiB).
+const LAST_CURSOR_TAIL_BYTES: u64 = 64 * 1024;
+
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum EventsError {
+    #[error("invalid cursor '{0}'")]
+    BadCursor(String),
+    #[error("cursor {since} expired: oldest retained item is {oldest}; replay with --since 0")]
+    Expired { since: u64, oldest: u64 },
+    #[error("cursor {since} is ahead of the journal (last item {last}); was it reset? replay with --since 0")]
+    Ahead { since: u64, last: u64 },
+    #[error("io: {0}")]
+    Io(String),
+}
+
+impl From<io::Error> for EventsError {
+    fn from(e: io::Error) -> Self {
+        EventsError::Io(e.to_string())
+    }
+}
+
+fn now_ts() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs())
+}
+
+fn journal_path() -> io::Result<PathBuf> {
+    cdamux_home().map(|h| h.join("events.jsonl")).ok_or_else(|| {
+        io::Error::new(io::ErrorKind::NotFound, "CDAMUX_HOME / XDG_STATE_HOME / HOME unset")
+    })
+}
+
+fn rotated_path(live: &Path) -> PathBuf {
+    live.with_file_name("events.1.jsonl")
+}
+
+fn line_cursor(v: &Value) -> Option<u64> {
+    v.get("cursor")?.as_str()?.parse().ok()
+}
+
+/// Cursor of the last parseable line of `path` (`None`: missing or no item).
+fn last_cursor(path: &Path) -> io::Result<Option<u64>> {
+    let tail = match read_tail(path, LAST_CURSOR_TAIL_BYTES) {
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+        r => r?,
+    };
+    Ok(tail
+        .lines()
+        .rev()
+        .find_map(|l| serde_json::from_str::<Value>(l).ok().as_ref().and_then(line_cursor)))
+}
+
+/// Append one item under the journal lock; returns its cursor. The cursor is a
+/// sequence number kept across rotation (read back from the last line).
+fn append_at(live: &Path, mut item: Map<String, Value>, segment_max: u64) -> io::Result<u64> {
+    with_entity_lock(live, || {
+        let old = rotated_path(live);
+        let last = match last_cursor(live)? {
+            Some(c) => c,
+            None => last_cursor(&old)?.unwrap_or(0),
+        };
+        if std::fs::metadata(live).is_ok_and(|m| m.len() >= segment_max) {
+            std::fs::rename(live, &old)?;
+        }
+        let cursor = last + 1;
+        let mut obj = Map::new();
+        obj.insert("v".into(), json!(EVENTS_SCHEMA_VERSION));
+        obj.insert("cursor".into(), json!(cursor.to_string()));
+        obj.append(&mut item);
+        let mut f = std::fs::OpenOptions::new().create(true).append(true).open(live)?;
+        f.write_all(format!("{}\n", Value::Object(obj)).as_bytes())?;
+        Ok(cursor)
+    })
+}
+
+/// Fail-open append of one item (`type`, `ts` and the type's fields).
+pub fn emit(item: Value) {
+    let (Ok(live), Value::Object(map)) = (journal_path(), item) else {
+        return;
+    };
+    let _ = append_at(&live, map, SEGMENT_MAX_BYTES);
+}
+
+/// `msg` item for a message appended to an orchestrator's inbox.
+pub fn emit_msg(m: &Message) {
+    let mut item = json!({
+        "type": "msg", "ts": m.ts, "id": m.id, "from": m.from, "to": m.to,
+        "kind": m.kind, "text": m.text,
+    });
+    if let Some(r) = &m.r#ref {
+        item["ref"] = json!(r);
+    }
+    emit(item);
+}
+
+/// `status` item when an agent record's `status` changes (`record`: the merged record).
+pub fn emit_status(agent: &str, status: &str, prev: Option<&str>, record: &Value) {
+    let mut item = json!({
+        "type": "status", "ts": now_ts(), "agent": agent, "status": status, "prev": prev,
+    });
+    for key in ["role", "parent"] {
+        if let Some(v) = record.get(key).and_then(Value::as_str) {
+            item[key] = json!(v);
+        }
+    }
+    emit(item);
+}
+
+/// Every retained item with a cursor strictly after `since` (`0`: all retained).
+/// Lock-free so a follower never stalls a hook's write: the live segment is read
+/// before the rotated one, so a rotation in between duplicates items (merged by
+/// cursor) instead of hiding them.
+fn read_at(live: &Path, since: u64) -> Result<Vec<Value>, EventsError> {
+    let mut items = BTreeMap::new();
+    for p in [live.to_path_buf(), rotated_path(live)] {
+        let text = match std::fs::read_to_string(&p) {
+            Err(e) if e.kind() == io::ErrorKind::NotFound => continue,
+            r => r?,
+        };
+        // A line still being written does not parse yet; the next read gets it.
+        for v in text.lines().filter_map(|l| serde_json::from_str::<Value>(l).ok()) {
+            if let Some(c) = line_cursor(&v) {
+                items.insert(c, v);
+            }
+        }
+    }
+    let oldest = items.keys().next().copied().unwrap_or(0);
+    let last = items.keys().next_back().copied().unwrap_or(0);
+    if since > last {
+        return Err(EventsError::Ahead { since, last });
+    }
+    if since > 0 && oldest > since + 1 {
+        return Err(EventsError::Expired { since, oldest });
+    }
+    Ok(items.into_iter().filter(|(c, _)| *c > since).map(|(_, v)| v).collect())
+}
+
+/// Parse a `--since` cursor (`0` replays every retained item).
+pub fn parse_cursor(s: &str) -> Result<u64, EventsError> {
+    s.trim().parse().map_err(|_| EventsError::BadCursor(s.to_string()))
+}
+
+pub fn read_events(since: u64) -> Result<Vec<Value>, EventsError> {
+    read_at(&journal_path()?, since)
+}
+
+/// Lengths of both segments: unchanged means no new item since the last read.
+pub fn journal_stamp() -> (u64, u64) {
+    let len = |p: &Path| std::fs::metadata(p).map_or(0, |m| m.len());
+    journal_path().map_or((0, 0), |live| (len(&rotated_path(&live)), len(&live)))
+}
+
+/// Feed filter: `agent` keeps that agent's items, its inbox traffic and its workers'
+/// status; `orchestrators` keeps msg / reply / human and orchestrator status items.
+#[derive(Debug, Clone, Default)]
+pub struct EventFilter {
+    pub agent: Option<String>,
+    pub orchestrators: bool,
+}
+
+impl EventFilter {
+    pub fn matches(&self, v: &Value) -> bool {
+        let field = |k: &str| v.get(k).and_then(Value::as_str);
+        if let Some(id) = &self.agent {
+            let id = Some(id.as_str());
+            if ![field("agent"), field("to"), field("from"), field("parent")].contains(&id) {
+                return false;
+            }
+        }
+        !self.orchestrators || field("type") != Some("status") || field("role") == Some("orchestrator")
+    }
+}
+
+/// Assistant text of the last turn of a Claude / Cursor JSONL transcript, and the
+/// id of its last text entry. A turn starts at a user line holding text (tool
+/// results do not count); tool calls, tool results and thinking are skipped.
+pub fn last_turn_reply(jsonl: &str) -> Option<(String, String)> {
+    let mut texts: Vec<String> = Vec::new();
+    let mut turn_id = String::new();
+    for line in jsonl.lines() {
+        let Ok(v) = serde_json::from_str::<Value>(line) else {
+            continue;
+        };
+        if v["isSidechain"] == true || v["isMeta"] == true {
+            continue;
+        }
+        let role = v["message"]["role"].as_str().or(v["role"].as_str()).unwrap_or_default();
+        let text = match &v["message"]["content"] {
+            Value::String(s) => s.clone(),
+            Value::Array(blocks) => blocks
+                .iter()
+                .filter(|b| b["type"] == "text")
+                .filter_map(|b| b["text"].as_str())
+                .collect::<Vec<_>>()
+                .join("\n"),
+            _ => continue,
+        };
+        let text = text.trim();
+        match role {
+            "user" if !text.is_empty() => {
+                texts.clear();
+                turn_id.clear();
+            }
+            "assistant" if !text.is_empty() => {
+                texts.push(text.to_string());
+                turn_id = v["uuid"]
+                    .as_str()
+                    .or(v["message"]["id"].as_str())
+                    .map_or_else(|| format!("h-{:016x}", fnv1a(text)), str::to_string);
+            }
+            _ => {}
+        }
+    }
+    (!texts.is_empty()).then(|| (texts.join("\n\n"), turn_id))
+}
+
+fn fnv1a(s: &str) -> u64 {
+    s.bytes()
+        .fold(0xcbf2_9ce4_8422_2325, |h, b| (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3))
+}
+
+/// Cap `text` at [`MAX_REPLY_BYTES`] on a char boundary; `true` when cut.
+fn cap_text(text: &str) -> (String, bool) {
+    if text.len() <= MAX_REPLY_BYTES {
+        return (text.to_string(), false);
+    }
+    let mut end = MAX_REPLY_BYTES;
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    (text[..end].to_string(), true)
+}
+
+/// Turn-end hook (`cdamux events reply`): emit one `reply` item for an orchestrator.
+/// `payload` is the client hook JSON (`transcript_path`, else `last_assistant_message`).
+/// A turn already recorded (same `turn_id` in `last_reply_turn`) is skipped.
+/// Returns whether an item was written.
+pub fn record_reply(agent: &str, payload: &Value) -> io::Result<bool> {
+    let Some(rec) = state_get(StateKind::Agents, agent)? else {
+        return Ok(false);
+    };
+    if rec.get("role").and_then(Value::as_str) != Some("orchestrator") {
+        return Ok(false);
+    }
+    let from_transcript = payload["transcript_path"]
+        .as_str()
+        .filter(|p| !p.is_empty())
+        .and_then(|p| read_tail(Path::new(p), REPLY_TRANSCRIPT_TAIL_BYTES).ok())
+        .and_then(|t| last_turn_reply(&t));
+    let reply = from_transcript.or_else(|| {
+        let text = payload["last_assistant_message"].as_str()?.trim();
+        (!text.is_empty()).then(|| (text.to_string(), format!("h-{:016x}", fnv1a(text))))
+    });
+    let Some((text, turn_id)) = reply else {
+        return Ok(false);
+    };
+    if rec.get("last_reply_turn").and_then(Value::as_str) == Some(turn_id.as_str()) {
+        return Ok(false);
+    }
+    let (text, truncated) = cap_text(&text);
+    let mut item = json!({
+        "type": "reply", "ts": now_ts(), "agent": agent, "text": text, "turn_id": turn_id,
+    });
+    if truncated {
+        item["truncated"] = json!(true);
+    }
+    emit(item);
+    state_append(StateKind::Agents, agent, &json!({ "last_reply_turn": turn_id }))?;
+    Ok(true)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::paths::env_lock;
+    use crate::state::state_set;
+
+    fn item(t: &str) -> Map<String, Value> {
+        json!({ "type": t, "ts": 1 }).as_object().unwrap().clone()
+    }
+
+    #[test]
+    fn cursor_replay_is_strictly_after() {
+        let dir = tempfile::tempdir().unwrap();
+        let live = dir.path().join("events.jsonl");
+        assert_eq!(read_at(&live, 0).unwrap(), Vec::<Value>::new());
+        for t in ["msg", "status", "reply"] {
+            append_at(&live, item(t), SEGMENT_MAX_BYTES).unwrap();
+        }
+        let all = read_at(&live, 0).unwrap();
+        assert_eq!(all.len(), 3);
+        assert!(all.iter().all(|v| v["v"] == 1 && v["cursor"].is_string()));
+        assert_eq!(all[2]["type"], "reply");
+        let last = parse_cursor(all[2]["cursor"].as_str().unwrap()).unwrap();
+        assert!(read_at(&live, last).unwrap().is_empty());
+        append_at(&live, item("msg"), SEGMENT_MAX_BYTES).unwrap();
+        assert_eq!(read_at(&live, last).unwrap().len(), 1);
+        assert_eq!(read_at(&live, 99), Err(EventsError::Ahead { since: 99, last: 4 }));
+        assert!(parse_cursor("x").is_err());
+    }
+
+    #[test]
+    fn rotation_keeps_cursors_and_reports_expired() {
+        let dir = tempfile::tempdir().unwrap();
+        let live = dir.path().join("events.jsonl");
+        // Tiny segments: every append past the first rotates.
+        for _ in 0..5 {
+            append_at(&live, item("msg"), 1).unwrap();
+        }
+        assert!(rotated_path(&live).exists());
+        let kept: Vec<u64> =
+            read_at(&live, 0).unwrap().iter().map(|v| line_cursor(v).unwrap()).collect();
+        assert_eq!(kept, [4, 5], "cursors keep counting across rotation");
+        assert_eq!(read_at(&live, 3).unwrap().len(), 2, "cursor just before oldest is fine");
+        assert_eq!(read_at(&live, 2), Err(EventsError::Expired { since: 2, oldest: 4 }));
+    }
+
+    #[test]
+    fn filter_by_agent_and_orchestrators() {
+        let f = EventFilter { agent: Some("a-o".into()), orchestrators: false };
+        assert!(f.matches(&json!({"type":"msg","from":"a-w","to":"a-o"})));
+        assert!(f.matches(&json!({"type":"status","agent":"a-w","parent":"a-o"})));
+        assert!(!f.matches(&json!({"type":"reply","agent":"a-x"})));
+        let o = EventFilter { agent: None, orchestrators: true };
+        assert!(o.matches(&json!({"type":"reply","agent":"a-x"})));
+        assert!(o.matches(&json!({"type":"status","agent":"a-o","role":"orchestrator"})));
+        assert!(!o.matches(&json!({"type":"status","agent":"a-w","role":"worker"})));
+    }
+
+    const TRANSCRIPT: &[&str] = &[
+        r#"{"type":"user","uuid":"u0","message":{"role":"user","content":"old prompt"}}"#,
+        r#"{"type":"assistant","uuid":"x0","message":{"role":"assistant","content":[{"type":"text","text":"old answer"}]}}"#,
+        r#"{"type":"user","uuid":"u1","message":{"role":"user","content":"status?"}}"#,
+        r#"{"type":"assistant","uuid":"x1","message":{"role":"assistant","content":[{"type":"thinking","thinking":"hm"}]}}"#,
+        r#"{"type":"assistant","uuid":"x2","message":{"role":"assistant","content":[{"type":"text","text":"Checking."},{"type":"tool_use","name":"Bash","input":{"command":"ls"}}]}}"#,
+        r#"{"type":"user","uuid":"u2","message":{"role":"user","content":[{"type":"tool_result","content":"secret tool output"}]}}"#,
+        r#"{"type":"user","uuid":"u3","isMeta":true,"message":{"role":"user","content":"meta caveat"}}"#,
+        r#"{"type":"assistant","uuid":"x3","message":{"role":"assistant","content":[{"type":"text","text":"Two workers done."}]}}"#,
+    ];
+
+    #[test]
+    fn last_turn_reply_is_assistant_prose_only() {
+        let (text, turn) = last_turn_reply(&TRANSCRIPT.join("\n")).unwrap();
+        assert_eq!(text, "Checking.\n\nTwo workers done.");
+        assert_eq!(turn, "x3");
+        assert_eq!(last_turn_reply(TRANSCRIPT[2]), None, "no assistant text yet");
+    }
+
+    #[test]
+    fn turn_end_writes_exactly_one_reply_for_orchestrators() {
+        let _g = env_lock();
+        let dir = tempfile::tempdir().unwrap();
+        std::env::set_var("CDAMUX_HOME", dir.path());
+        let tp = dir.path().join("t.jsonl");
+        std::fs::write(&tp, TRANSCRIPT.join("\n")).unwrap();
+        state_set(StateKind::Agents, "a-o", &json!({"id":"a-o","role":"orchestrator"})).unwrap();
+        state_set(StateKind::Agents, "a-w", &json!({"id":"a-w","role":"worker"})).unwrap();
+        let payload = json!({ "hook_event_name": "Stop", "transcript_path": tp });
+
+        assert!(!record_reply("a-w", &payload).unwrap(), "workers emit no reply");
+        assert!(record_reply("a-o", &payload).unwrap());
+        assert!(!record_reply("a-o", &payload).unwrap(), "same turn twice → one item");
+        let replies: Vec<Value> =
+            read_events(0).unwrap().into_iter().filter(|v| v["type"] == "reply").collect();
+        assert_eq!(replies.len(), 1);
+        assert_eq!(replies[0]["agent"], "a-o");
+        assert_eq!(replies[0]["text"], "Checking.\n\nTwo workers done.");
+        assert!(!replies[0]["text"].as_str().unwrap().contains("secret"));
+
+        // No transcript: fall back to the payload's last message; long text is capped.
+        let long = "é".repeat(MAX_REPLY_BYTES);
+        let p2 = json!({ "last_assistant_message": long });
+        assert!(record_reply("a-o", &p2).unwrap());
+        let last = read_events(0).unwrap().pop().unwrap();
+        assert_eq!(last["truncated"], true);
+        assert!(last["text"].as_str().unwrap().len() <= MAX_REPLY_BYTES);
+        std::env::remove_var("CDAMUX_HOME");
+    }
+}

@@ -501,6 +501,9 @@ pub fn msg_send(
     apply_kind_status(kind, from, &to)?;
 
     let (role, host) = agent_role_and_host(&to)?;
+    if role == "orchestrator" {
+        crate::events::emit_msg(&msg);
+    }
     let delivery = delivery_mode_for_role(&role);
     let mut pasted = false;
     let mut nudged = false;

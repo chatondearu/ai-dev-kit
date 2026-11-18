@@ -77,7 +77,7 @@ fn orch_ls_and_capture_on_throwaway_server() {
 
     for (name, cmd) in [
         ("c-global", "sleep 30"),
-        ("c-proj", "printf 'hello-capture\\n'; sleep 30"),
+        ("c-proj", "seq 1 30; printf 'hello-capture\\n'; sleep 30"),
         // Hidden from `cdamux list`: only `--any` may capture it.
         ("cdamux-nav", "sleep 30"),
     ] {
@@ -126,10 +126,16 @@ fn orch_ls_and_capture_on_throwaway_server() {
     };
     assert!(cap.text.contains("hello-capture"), "{cap:?}");
     assert_eq!((cap.v, cap.session.as_str(), cap.lines), (1, "c-proj", 10));
+    // Exactly the last 10 lines: `22`..`30` then the marker.
+    assert_eq!(cap.text.lines().count(), 10, "{cap:?}");
+    assert_eq!(cap.text.lines().next(), Some("22"), "{cap:?}");
+    let three = capture_session("c-proj", 3, false).unwrap();
+    assert_eq!((three.lines, three.text.as_str()), (3, "29\n30\nhello-capture\n"));
     assert!(cap.pane.starts_with('%'), "pane={}", cap.pane);
 
     assert_eq!(capture_session("c-proj", 0, false).unwrap().lines, 1);
-    assert_eq!(capture_session("c-proj", 9999, false).unwrap().lines, 500);
+    // Fewer lines exist than requested: `lines` reports the count returned (seq 30 + marker).
+    assert_eq!(capture_session("c-proj", 9999, false).unwrap().lines, 31);
     assert!(matches!(capture_session("nope", 10, false), Err(CaptureError::Unknown(_))));
     assert!(matches!(capture_session("nope", 10, true), Err(CaptureError::Unknown(_))));
     // Exact match only: `c-pro` must not prefix-match `c-proj`.

@@ -185,22 +185,26 @@ Requires `$CDAMUX_AGENT_ID` (caller must be an orchestrator session).
 ### Read-only inspection (#388)
 
 For local consumers (e.g. a bridge calling the CLI with `--json`); no caller scoping,
-no auth, no network listener.
+no auth, no network listener. Every JSON output carries a top-level schema `"v": 1`.
 
 - `cdamux orch ls [--json]` — every `role=orchestrator` agent record, global first:
-  `{id, host, scope: "global"|"project", repo?, status, live, parent?}`. `live` uses the
+  `{"v":1,"orchestrators":[{id, host, scope: "global"|"project", repo?, status, live, parent?}, …]}`. `live` uses the
   same rule as `orch new --global` reuse (non-empty `host` + exact `tmux has-session`);
   stale records (empty or dead `host`) stay listed with `live: false`. `repo` comes from
   the run of a project orchestrator; `parent` is set on nested ones (`orch new --child`);
   `status` is `null` until reported. Human output: one TSV line per entry
   (`id host scope live|stale status repo parent`, `-` when empty).
-- `cdamux list --json` — orchestrator rows gain `scope` (`global`|`project`, from
-  `agents/<id>.json`); other rows are unchanged.
+- `cdamux list --json` — `{"v":1,"group_by","groups"}`: a leading `v` is added and
+  orchestrator rows gain `scope` (`global`|`project`, from `agents/<id>.json`); other
+  rows are unchanged.
 - `cdamux capture <session> [--lines N] [--json] [--any]` — plain text of the session's
   active pane (`tmux capture-pane -p -J`, exact `=<session>:` target, then by pane id).
-  `N` defaults to 40, range 1..=500 (outside → clap error, exit 2). Only sessions
-  `cdamux list` shows, unless `--any` (any tmux session, exact name); unknown → exit 2.
-  `--json` prints `{"v":1,"session","pane","lines","text"}`. The command only runs
+  `N` defaults to 40, range 1..=500 (outside → clap error, exit 2). Output is exactly
+  the last N lines after dropping trailing blank pane rows (tmux `-S -N` also returns
+  the whole visible pane; it is trimmed). Only sessions `cdamux list` shows, unless
+  `--any` (any tmux session, exact name); unknown → exit 2; tmux missing or a tmux read
+  failing → exit 1. `--json` prints `{"v":1,"session","pane","lines","text"}`, with
+  `lines` = the count returned (≤ N). The command only runs
   `list-sessions` / `has-session` / `display-message -p` / `capture-pane` — it has no
   input path (`send-keys` is `cdamux send`).
 

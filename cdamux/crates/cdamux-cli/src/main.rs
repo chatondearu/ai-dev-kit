@@ -58,7 +58,7 @@ struct Cli {
 enum Commands {
     /// Health check for tmux and config.
     Doctor,
-    /// List tmux sessions (read directly from tmux).
+    /// List tmux sessions (read directly from tmux). `--json`: `{"v":1,"group_by","groups"}`.
     List {
         #[arg(long)]
         json: bool,
@@ -197,7 +197,7 @@ enum Commands {
         command: OrchCommands,
     },
     /// Print a session's active pane text (read-only `tmux capture-pane -p -J`; never sends keys).
-    #[command(after_help = "Exit 2: unknown session (not in `cdamux list`, or not a tmux session with --any), or --lines outside 1..=500.")]
+    #[command(after_help = "Prints the last N non-blank-trailing lines; --json `lines` is the count returned (≤ N).\nExit 2: unknown session (not in `cdamux list`, or not a tmux session with --any), or --lines outside 1..=500.\nExit 1: tmux missing or a tmux read failed.")]
     Capture {
         /// Session name as `cdamux list` shows it.
         session: String,
@@ -232,7 +232,7 @@ enum OrchCommands {
     },
     /// List every recorded orchestrator (global, nested, stale) with scope and liveness.
     Ls {
-        /// One JSON array: `{id, host, scope, repo?, status, live, parent?}` per orchestrator.
+        /// `{"v":1,"orchestrators":[{id, host, scope, repo?, status, live, parent?}, …]}`.
         #[arg(long)]
         json: bool,
     },
@@ -512,7 +512,13 @@ fn main() -> ExitCode {
 fn cmd_orch_ls(json: bool) -> ExitCode {
     let entries = cdamux_core::list_orchestrators();
     if json {
-        println!("{}", serde_json::to_string(&entries).unwrap());
+        #[derive(serde::Serialize)]
+        struct OrchLsJson<'a> {
+            v: u8,
+            orchestrators: &'a [cdamux_core::OrchEntry],
+        }
+        let out = OrchLsJson { v: 1, orchestrators: &entries };
+        println!("{}", serde_json::to_string(&out).unwrap());
         return ExitCode::SUCCESS;
     }
     if entries.is_empty() {
@@ -1158,10 +1164,13 @@ fn agent_executable_name(agents: &cdamux_core::AgentsConfig, id: &str) -> String
 }
 
 
-/// `cdamux list --json` rows: [`cdamux_core::EnrichedSession`] plus an additive `scope`
-/// on orchestrator sessions (#388); other rows serialize exactly as before.
+/// `cdamux list --json`: [`cdamux_core::GroupedSessions`] plus a leading schema `v` and an
+/// additive `scope` on orchestrator rows (#388); other rows serialize exactly as before.
+/// Mirrors `GroupedSessions` / `SessionGroup` field by field: the byte-compat test in
+/// `list_json_adds_scope_only_on_orchestrators` fails if either gains a field.
 #[derive(serde::Serialize)]
 struct ListJson<'a> {
+    v: u8,
     group_by: GroupBy,
     groups: Vec<ListGroupJson<'a>>,
 }
@@ -1189,6 +1198,7 @@ impl<'a> From<&'a cdamux_core::GroupedSessions> for ListJson<'a> {
             session: s,
         };
         ListJson {
+            v: 1,
             group_by: g.group_by,
             groups: g
                 .groups
@@ -1962,10 +1972,11 @@ mod tests {
                 sessions: vec![sess("w", Some("worker"), Some("a-w")), sess("s", None, None)],
             }],
         };
+        let before = serde_json::to_string(&plain).unwrap();
         assert_eq!(
             serde_json::to_string(&ListJson::from(&plain)).unwrap(),
-            serde_json::to_string(&plain).unwrap(),
-            "non-orchestrator rows must stay byte-identical"
+            format!("{{\"v\":1,{}", &before[1..]),
+            "only a leading v is added; non-orchestrator rows stay byte-identical"
         );
 
         let orch = cdamux_core::GroupedSessions {

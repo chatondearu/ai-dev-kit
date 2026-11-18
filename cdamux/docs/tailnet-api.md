@@ -46,7 +46,7 @@ get `405`.
 | Path | Method | Description |
 | ---- | ------ | ----------- |
 | `/v1/health` | GET | Daemon version and whether tmux is reachable |
-| `/v1/sessions` | GET | Grouped session list (same JSON as `cdamux list --json`, without its orchestrator `scope`) |
+| `/v1/sessions` | GET | Grouped session list (same JSON as `cdamux list --json`, without its `v` and orchestrator `scope`) |
 | `/v1/sessions/:id/pane` | GET | Captured pane text (bounded tail, plain text without ANSI escapes) |
 | `/v1/sessions/:id/send` | POST | Send a literal line; optional Enter. Body may set `"kind":"answer"` to reply to a pending worker ask via `cdamux msg` (resolves session → agent id, uses the worker's parent as `from`) |
 

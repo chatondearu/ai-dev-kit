@@ -29,6 +29,7 @@ pub struct PaneCapture {
     pub session: String,
     /// tmux pane id of the captured (active) pane, e.g. `%3`.
     pub pane: String,
+    /// Lines actually returned (≤ the requested count).
     pub lines: u16,
     pub text: String,
 }
@@ -77,10 +78,12 @@ pub fn capture_session(session: &str, lines: u16, any: bool) -> Result<PaneCaptu
         .trim()
         .to_string();
     // Capture by pane id so a window switch between the two calls cannot change the pane.
-    let text = tmux_read(
+    // `-S -N` returns N history lines plus the whole visible pane: trimmed below.
+    let raw = tmux_read(
         &["capture-pane", "-p", "-J", "-t", &pane, "-S", &format!("-{lines}")],
         "capture-pane",
     )?;
+    let (text, lines) = last_lines(&raw, lines);
     Ok(PaneCapture {
         v: 1,
         session: session.to_string(),
@@ -88,4 +91,34 @@ pub fn capture_session(session: &str, lines: u16, any: bool) -> Result<PaneCaptu
         lines,
         text,
     })
+}
+
+/// Last `n` lines of `text` after dropping trailing blank rows (unused pane rows),
+/// newline-terminated, and how many were kept.
+fn last_lines(text: &str, n: u16) -> (String, u16) {
+    let all: Vec<&str> = text.lines().collect();
+    let end = all
+        .iter()
+        .rposition(|l| !l.trim().is_empty())
+        .map_or(0, |i| i + 1);
+    let kept = &all[end.saturating_sub(n as usize)..end];
+    let mut out = kept.join("\n");
+    if !kept.is_empty() {
+        out.push('\n');
+    }
+    (out, kept.len() as u16)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::last_lines;
+
+    #[test]
+    fn last_lines_keeps_tail_and_drops_blank_rows() {
+        let raw = "h1\nh2\na\n\nb\n\n   \n\n";
+        assert_eq!(last_lines(raw, 3), ("a\n\nb\n".into(), 3));
+        assert_eq!(last_lines(raw, 1), ("b\n".into(), 1));
+        assert_eq!(last_lines(raw, 500), ("h1\nh2\na\n\nb\n".into(), 5));
+        assert_eq!(last_lines("\n\n", 5), (String::new(), 0));
+    }
 }

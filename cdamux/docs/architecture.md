@@ -53,7 +53,8 @@ $CDAMUX_HOME/
 ├── archive/agents|runs|inbox/ # Retention sink (`cdamux state gc`)
 ├── inbox/<agent-id>.jsonl     # messages received (append-only, ≤ 2 KB/line)
 ├── inbox/<agent-id>.cursor    # ack byte offset for `msg read --ack`
-└── events.jsonl               # (optional journal)
+├── events.jsonl               # events feed journal (`cdamux events`, docs/events.md)
+└── events.1.jsonl             # previous rotated segment
 ```
 
 Writers use `cdamux state set|get|append` and `cdamux msg send|read` (private JSON).

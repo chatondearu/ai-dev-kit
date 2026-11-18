@@ -260,6 +260,12 @@ out="$(run_status '{"hook_event_name":"beforeSubmitPrompt"}')"
 printf '%s' "$(wc -c < "$INBOX/a-hook1.jsonl" | tr -d ' ')" > "$INBOX/a-hook1.cursor"
 out="$(run_status '{"hook_event_name":"Stop"}')"
 [ -z "$out" ] || fail "acked inbox must yield empty Stop output, got: $out"
+# Events feed: an orchestrator's turn end hands the payload to `cdamux events reply`;
+# a worker's does not (no extra process per worker turn).
+grep -q 'events reply' "$CDAMUX_LOG" && fail "worker Stop must not record a reply"
+printf '{"id":"a-hook1","status":"idle","role":"orchestrator"}\n' > "$AF"
+run_status '{"hook_event_name":"Stop","transcript_path":"/t.jsonl"}' >/dev/null
+grep -q 'events reply a-hook1' "$CDAMUX_LOG" || fail "orchestrator Stop did not record a reply"
 
 # opencode status: `session.status` busy on the main session writes working; a child's busy does not.
 printf '{"id":"a-hook1","status":"idle"}\n' > "$AF"

@@ -90,7 +90,7 @@ extern "C" {
 /// read-merge-write of concurrent writers (hooks, answer, restore, …) never loses a key.
 /// The lock dies with the fd, a crashed writer cannot wedge it. The sidecar is never
 /// removed: unlinking it would let two writers lock different inodes.
-fn with_entity_lock<T>(path: &Path, f: impl FnOnce() -> io::Result<T>) -> io::Result<T> {
+pub(crate) fn with_entity_lock<T>(path: &Path, f: impl FnOnce() -> io::Result<T>) -> io::Result<T> {
     use std::os::unix::io::AsRawFd;
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
@@ -137,18 +137,26 @@ pub fn state_get(kind: StateKind, id: &str) -> io::Result<Option<Value>> {
 /// Non-object existing values are replaced by `patch` when `patch` is an object.
 pub fn state_append(kind: StateKind, id: &str, patch: &Value) -> io::Result<()> {
     let path = entity_path(kind, id)?;
-    with_entity_lock(&path, || {
-        let merged = match std::fs::read_to_string(&path) {
-            Err(e) if e.kind() == io::ErrorKind::NotFound => patch.clone(),
+    let (prev, merged) = with_entity_lock(&path, || {
+        let (prev, merged) = match std::fs::read_to_string(&path) {
+            Err(e) if e.kind() == io::ErrorKind::NotFound => (Value::Null, patch.clone()),
             Err(e) => return Err(e),
             Ok(text) => {
                 let existing: Value = serde_json::from_str(&text)?;
-                merge_shallow(existing, patch)
+                (existing["status"].clone(), merge_shallow(existing, patch))
             }
         };
         let bytes = serde_json::to_vec_pretty(&merged)?;
-        write_atomic(&path, &bytes)
-    })
+        write_atomic(&path, &bytes)?;
+        Ok((prev, merged))
+    })?;
+    // Events feed: one `status` item per agent status change (fail-open).
+    if let (StateKind::Agents, Some(status)) = (kind, patch["status"].as_str()) {
+        if prev.as_str() != Some(status) {
+            crate::events::emit_status(id, status, prev.as_str(), &merged);
+        }
+    }
+    Ok(())
 }
 
 fn merge_shallow(existing: Value, patch: &Value) -> Value {

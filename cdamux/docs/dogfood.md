@@ -155,7 +155,9 @@ cdamux send c-myapp --pane %4 --key Escape
 - `--json` fields: `sent_bytes` is the literal text length in bytes (keys and Enter not
   counted); `outcome` is `ok`, `session_not_found` (exit 1) or `failed` (exit 1; exit 2
   for an unknown `--pane` or a control character in text). A refused `--key` fails argument parsing: exit 2, no JSON.
-- Core helper: `cdamux_core::send_input` (keys + pane + outcome); `send_to_session` is unchanged.
+- Core helpers: `cdamux_core::send_input` (keys + pane + outcome) for `cdamux send`;
+  `send_to_session` (text + optional Enter, same unique-buffer paste, control chars
+  stripped) for msg paste, `say` and tailnet `send`.
 
 ## Hunk review → agent
 

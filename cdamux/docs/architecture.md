@@ -53,6 +53,7 @@ $CDAMUX_HOME/
 ├── archive/agents|runs|inbox/ # Retention sink (`cdamux state gc`)
 ├── inbox/<agent-id>.jsonl     # messages received (append-only, ≤ 2 KB/line)
 ├── inbox/<agent-id>.cursor    # ack byte offset for `msg read --ack`
+├── say/<orch-id>.jsonl        # `cdamux say` prompts queued until a turn end (docs/say.md)
 ├── events.jsonl               # events feed journal (`cdamux events`, docs/events.md)
 └── events.1.jsonl             # previous rotated segment
 ```
@@ -144,6 +145,10 @@ read (a line still being written stays unread). Each line is appended with a sin
 `write(2)`, so concurrent senders do not interleave. `kind=ask` sets the sender
 `blocked`; `kind=done` / `kind=error` set the sender `done` / `error` (a sticky status
 is kept); `kind=answer` clears the recipient to `idle`.
+
+A human talks to an orchestrator with `cdamux say` (prompt pasted when idle, else queued
+until a turn end) and answers a worker's ask with `cdamux msg answer`: see
+[`say.md`](say.md).
 
 ### Orchestrator session (`cdamux orch`)
 

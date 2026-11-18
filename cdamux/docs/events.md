@@ -32,7 +32,7 @@ One JSON object per line. Every item has:
 | `msg` | `id, from, to, kind, text, ref?` (the inbox line) | `cdamux msg send` appends to an **orchestrator's** inbox (role `orchestrator`); worker inboxes are not mirrored |
 | `status` | `agent, status, prev, role?, parent?` | `cdamux state append agents <id> {"status":…}` (hooks, `msg send` side effects) changes the value; `prev` is `null` for the first one. A full `state set` does not emit (#398). Emitted under the agent record lock, so journal order matches write order. |
 | `reply` | `agent, text, turn_id, truncated?` | An orchestrator's turn ends (`Stop` hook): the assistant **text blocks** of the last turn joined by a blank line — no thinking, tool calls or tool results |
-| `human` | `agent, from, text` | Reserved: a human prompt delivered by `cdamux say` (#387). Not written yet. |
+| `human` | `id, agent, from, text` | `cdamux say` accepted a human prompt for orchestrator `agent` (`id` = the `say` message id), whether it was pasted or queued — see [`say.md`](say.md) |
 
 Example:
 

@@ -144,6 +144,20 @@ function recordReply(env, input) {
   }
 }
 
+// Turn end of an orchestrator: paste the next queued `cdamux say` prompt (docs/say.md).
+// The queue file is checked first so an empty queue costs no process. Fail-open.
+function drainSay(env) {
+  const id = resolveAgentId(env);
+  if (readAgentField(env, id, 'role') !== 'orchestrator') return;
+  try {
+    if (fs.statSync(path.join(stateDir(env, 'say'), `${id}.jsonl`)).size === 0) return;
+    // The paste waits 300 ms between its tmux writes: leave room.
+    execFileSync('cdamux', ['msg', 'drain', id], { env, timeout: 3000, stdio: 'ignore' });
+  } catch (e) {
+    /* fail-open */
+  }
+}
+
 function stickyOk(current, next) {
   // A pending ask (`blocked`) must survive the asker's own turn-end hook.
   if (current === 'done' || current === 'error' || current === 'blocked') return next === 'working';
@@ -222,6 +236,7 @@ module.exports = {
   resolveAgentId,
   readAgentStatus,
   recordReply,
+  drainSay,
   setAgentStatus,
   readUnreadMessages,
   unreadDigest,

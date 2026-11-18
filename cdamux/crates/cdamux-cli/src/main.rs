@@ -103,7 +103,7 @@ enum Commands {
         #[arg(long)]
         force: bool,
     },
-    /// Send text to a session pane without attaching (tmux send-keys).
+    /// Send text to a session pane without attaching (tmux bracketed paste; keys via send-keys).
     #[command(after_help = "Examples:\n  cdamux send t1 \"echo hi\" --enter\n  cdamux send --enter t1 echo hi\n  cdamux send t1 --key C-c --json\n  cdamux send t1 y --key Enter\n\nOrder: text, then each --key, then --enter.\nText starting with '-' needs `--` first: cdamux send t1 --enter -- -la")]
     Send {
         /// tmux session name (targets active window + active pane).
@@ -194,6 +194,21 @@ enum Commands {
     Msg {
         #[command(subcommand)]
         command: MsgCommands,
+    },
+    /// Deliver a labelled human prompt to an orchestrator: pasted when idle, else queued
+    /// until its next turn end. Prints `<msg-id> delivered|queued`. See `docs/say.md`.
+    #[command(after_help = "Examples:\n  cdamux say a-xxxxx --from alice \"status of the PR?\"\n  cdamux say c-orch --from alice --json -- \"-v please\"\n\nExit 2: target is a worker (use `msg send`), unknown or ambiguous.")]
+    Say {
+        /// Orchestrator agent id (`a-xxxxx`) or its tmux session name.
+        target: String,
+        /// Who is talking; the prompt is pasted as `[<from>] text`.
+        #[arg(long)]
+        from: String,
+        /// Print `{"v":1,"id","target","outcome"}`.
+        #[arg(long)]
+        json: bool,
+        /// Prompt text (words joined with spaces).
+        text: Vec<String>,
     },
     /// Read-only events feed: orchestrator inbox msgs, status changes, orchestrator replies.
     /// Schema `v: 1` in `docs/events.md`; never moves an inbox ack cursor.
@@ -353,6 +368,26 @@ enum MsgCommands {
         /// Message body (words joined with spaces).
         text: Vec<String>,
     },
+    /// Answer a worker's pending ask (by ask message id) on a human's behalf: the worker
+    /// is unblocked and the orchestrator inbox gets a `relay` copy. Exit 2: unknown or answered.
+    Answer {
+        /// Id of the `ask` message (`m-xxxxx`, see `cdamux events`).
+        ask_id: String,
+        /// Who is answering; the worker sees `[<from>] text`.
+        #[arg(long)]
+        from: String,
+        /// Print `{"v":1,"id","ask","worker","outcome"}`.
+        #[arg(long)]
+        json: bool,
+        /// Answer text (words joined with spaces).
+        text: Vec<String>,
+    },
+    /// Turn-end hook: paste the next queued `say` prompt into an idle orchestrator.
+    #[command(hide = true)]
+    Drain {
+        /// Orchestrator agent id; no-op unless it reports `idle`.
+        agent: String,
+    },
     /// Print unread inbox lines for an agent; `--ack` advances the cursor.
     Read {
         /// Agent id (default: `$CDAMUX_AGENT_ID`).
@@ -506,6 +541,7 @@ fn main() -> ExitCode {
             } => cmd_state_gc(retention_days, sweep_orphans, dry_run),
         },
         Some(Commands::Link { target, pr, issue, clear }) => cmd_link(&target, pr, issue, clear),
+        Some(Commands::Say { target, from, json, text }) => cmd_say(&target, &from, json, &text),
         Some(Commands::Msg { command }) => match command {
             MsgCommands::Send {
                 to,
@@ -514,6 +550,14 @@ fn main() -> ExitCode {
                 from,
                 text,
             } => cmd_msg_send(&to, &kind, r#ref.as_deref(), from.as_deref(), &text),
+            MsgCommands::Answer { ask_id, from, json, text } => {
+                cmd_msg_answer(&ask_id, &from, json, &text)
+            }
+            MsgCommands::Drain { agent } => {
+                // Fail-open hook path: nothing to report, never a failing exit.
+                let _ = cdamux_core::say_drain(&agent);
+                ExitCode::SUCCESS
+            }
             MsgCommands::Read { agent, ack, digest } => {
                 cmd_msg_read(agent.as_deref(), ack, digest)
             }
@@ -877,6 +921,54 @@ fn cmd_msg_send(
         Err(e) => {
             eprintln!("msg send: {e}");
             ExitCode::from(1)
+        }
+    }
+}
+
+/// Exit 2 for a caller error (bad target, unknown / answered ask), 1 for an I/O failure.
+fn msg_exit(e: &cdamux_core::MsgError) -> ExitCode {
+    ExitCode::from(if matches!(e, cdamux_core::MsgError::Io(_)) { 1 } else { 2 })
+}
+
+fn cmd_say(target: &str, from: &str, json: bool, text: &[String]) -> ExitCode {
+    match cdamux_core::say(target, from, &text.join(" "), DEFAULT_NUDGE_QUIET_SECS, None) {
+        Ok(r) if json => {
+            let out = serde_json::json!({
+                "v": 1, "id": r.id, "target": r.target, "outcome": r.outcome.as_str(),
+            });
+            println!("{out}");
+            ExitCode::SUCCESS
+        }
+        Ok(r) => {
+            println!("{} {}", r.id, r.outcome.as_str());
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("say: {e}");
+            msg_exit(&e)
+        }
+    }
+}
+
+fn cmd_msg_answer(ask_id: &str, from: &str, json: bool, text: &[String]) -> ExitCode {
+    match cdamux_core::answer_ask(ask_id, from, &text.join(" ")) {
+        Ok(r) => {
+            if !r.relayed {
+                eprintln!("msg answer: answered, but the relay copy to the orchestrator failed");
+            }
+            if json {
+                let out = serde_json::json!({
+                    "v": 1, "id": r.id, "ask": r.ask, "worker": r.worker, "outcome": "answered",
+                });
+                println!("{out}");
+            } else {
+                println!("{} answered", r.id);
+            }
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("msg answer: {e}");
+            msg_exit(&e)
         }
     }
 }

@@ -187,7 +187,7 @@ fn spawn_ls_peek_and_msg_by_name() {
     assert_eq!(worker["host"], out.host);
     assert_eq!(
         worker["repo"].as_str().map(std::path::Path::new),
-        Some(repo.as_path())
+        Some(repo.canonicalize().unwrap()).as_deref() // macOS: /tmp -> /private/tmp
     );
 
     let rows = list_workers("a-orch1").unwrap();
@@ -372,7 +372,7 @@ fn spawn_repo_from_non_git_caller_cwd() {
     assert_eq!(worker["parent"], "a-orch-global");
     assert_eq!(
         worker["repo"].as_str().map(std::path::Path::new),
-        Some(target.as_path())
+        Some(target.canonicalize().unwrap()).as_deref()
     );
 
     let run = state_get(StateKind::Runs, &out.run).unwrap().unwrap();

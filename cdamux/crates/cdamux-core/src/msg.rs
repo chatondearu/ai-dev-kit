@@ -97,7 +97,7 @@ fn inbox_dir() -> io::Result<PathBuf> {
     })
 }
 
-fn inbox_path(agent_id: &str) -> io::Result<PathBuf> {
+pub(crate) fn inbox_path(agent_id: &str) -> io::Result<PathBuf> {
     if !valid_state_id(agent_id) {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -371,11 +371,17 @@ pub fn agent_parent_id(agent_id: &str) -> Option<String> {
         })
 }
 
-/// True when the worker's inbox holds an `answer` from the asked agent sent after `ask`.
+/// True when the worker's inbox answers `ask`: an `answer` whose `ref` is the ask id
+/// (`msg answer`, one ask), or one without `ref` (TUI / tailnet reply, worker-level) from
+/// the asked agent sent at or after the ask.
 pub fn ask_answered(ask: &Message, worker_msgs: &[Message]) -> bool {
-    worker_msgs
-        .iter()
-        .any(|ans| ans.kind == "answer" && ans.from == ask.to && ans.ts >= ask.ts)
+    worker_msgs.iter().any(|ans| {
+        ans.kind == "answer"
+            && match &ans.r#ref {
+                Some(r) => *r == ask.id,
+                None => ans.from == ask.to && ans.ts >= ask.ts,
+            }
+    })
 }
 
 /// True when `worker` sent an `ask` to `parent` with no later `answer` back.

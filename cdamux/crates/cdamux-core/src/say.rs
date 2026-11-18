@@ -5,13 +5,14 @@
 use crate::agent_status::load_reported_status;
 use crate::events::emit;
 use crate::msg::{
-    agent_role_and_host, ask_answered, find_message, generate_msg_id, msg_send, read_inbox_all,
-    reply_to_ask, resolve_agent_id, should_paste, MsgError, DEFAULT_NUDGE_QUIET_SECS,
+    agent_role_and_host, ask_answered, find_message, generate_msg_id, inbox_path, msg_send,
+    read_inbox_all, resolve_agent_id, should_paste, MsgError, DEFAULT_NUDGE_QUIET_SECS,
+    MAX_MSG_BYTES,
 };
 use crate::paths::cdamux_state_dir;
 use crate::send::send_to_session;
 use crate::session::SessionState;
-use crate::state::{with_entity_lock, write_atomic};
+use crate::state::{state_append, with_entity_lock, write_atomic, StateKind};
 use crate::tmux::list_panes_all;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -82,10 +83,17 @@ fn queue_push(orch: &str, q: &Queued) -> Result<(), MsgError> {
     Ok(())
 }
 
-/// Paste the oldest queued prompt into `host` and drop it from the queue; returns its id.
-/// The lock spans the paste and the drop only follows a successful paste: a hook killed
-/// mid-way repeats a prompt rather than losing it, and two drainers never paste twice.
-fn deliver_next(orch: &str, host: &str) -> Result<Option<String>, MsgError> {
+/// Paste the oldest queued prompt into `host` when `ready()` (checked under the queue lock)
+/// and drop it from the queue; returns its id. The lock spans the check, the paste and the
+/// drop, and the drop only follows a successful paste: a hook killed mid-way repeats a
+/// prompt rather than losing it, and two callers never paste twice. A pasted prompt marks
+/// a hooked (`idle`) orchestrator `working` under the same lock, so a concurrent `say` or
+/// drain queues until the turn's `Stop` hook reports `idle` again.
+fn deliver_next(
+    orch: &str,
+    host: &str,
+    ready: impl FnOnce() -> bool,
+) -> Result<Option<String>, MsgError> {
     let path = queue_path(orch)?;
     Ok(with_entity_lock(&path, || {
         let text = match std::fs::read_to_string(&path) {
@@ -96,22 +104,45 @@ fn deliver_next(orch: &str, host: &str) -> Result<Option<String>, MsgError> {
         let Some(q) = lines.find_map(|l| serde_json::from_str::<Queued>(l).ok()) else {
             return Ok(None);
         };
+        if !ready() {
+            return Ok(None);
+        }
         if send_to_session(host, &format!("[{}] {}", q.from, q.text), true).is_err() {
             return Ok(None);
         }
         let rest: String = lines.map(|l| format!("{l}\n")).collect();
         write_atomic(&path, rest.as_bytes())?;
+        if load_reported_status(orch) == Some(SessionState::Idle) {
+            // Best effort: the prompt is already delivered; an error must not invite a retry.
+            let _ = state_append(StateKind::Agents, orch, &json!({ "status": "working" }));
+        }
         Ok(Some(q.id))
     })?)
 }
 
-/// Non-empty and free of control characters (an ESC would drive the agent's TUI); only
-/// the prompt text (`multiline`) may span lines.
-fn check_text(what: &str, s: &str, multiline: bool) -> Result<(), MsgError> {
-    if s.trim().is_empty() || s.chars().any(|c| c.is_control() && !(multiline && c == '\n')) {
-        return Err(MsgError::Invalid(format!(
-            "{what} must be non-empty text without control characters"
-        )));
+/// One-line `--from` label without control characters or brackets: a `]` would let the
+/// label forge another `[label]` prefix.
+fn check_label(s: &str) -> Result<(), MsgError> {
+    if s.trim().is_empty() || s.chars().any(|c| c.is_control() || c == '[' || c == ']') {
+        return Err(MsgError::Invalid(
+            "--from must be a non-empty one-line label without control characters or brackets"
+                .into(),
+        ));
+    }
+    Ok(())
+}
+
+/// Non-empty, at most [`MAX_MSG_BYTES`], and free of control characters other than `\n` /
+/// `\t` (an ESC would drive the agent's TUI), like `cdamux send`.
+fn check_text(s: &str) -> Result<(), MsgError> {
+    if s.len() > MAX_MSG_BYTES {
+        return Err(MsgError::TooLarge);
+    }
+    if s.trim().is_empty() || s.chars().any(|c| c.is_control() && c != '\n' && c != '\t') {
+        return Err(MsgError::Invalid(
+            "text must be non-empty, without control characters other than newline and tab"
+                .into(),
+        ));
     }
     Ok(())
 }
@@ -129,8 +160,8 @@ pub fn say(
     quiet_secs: u32,
     idle_override: Option<Option<u32>>,
 ) -> Result<SayResult, MsgError> {
-    check_text("--from", from, false)?;
-    check_text("text", text, true)?;
+    check_label(from)?;
+    check_text(text)?;
     let from = from.trim();
     let to = resolve_agent_id(target)?;
     let (role, host) = agent_role_and_host(&to)?;
@@ -163,8 +194,13 @@ pub fn say(
             (status, idle) = snapshot();
         }
     }
+    // Fresh snapshot under the queue lock: a concurrent `say` may have just pasted.
+    let ready = || {
+        let (status, idle) = snapshot();
+        should_paste(status, idle, quiet_secs)
+    };
     let delivered = match host.as_deref().filter(|_| should_paste(status, idle, quiet_secs)) {
-        Some(h) => deliver_next(&to, h)?.as_deref() == Some(id.as_str()),
+        Some(h) => deliver_next(&to, h, ready)?.as_deref() == Some(id.as_str()),
         None => false,
     };
     Ok(SayResult {
@@ -179,27 +215,42 @@ pub fn say(
 /// Returns the delivered prompt id.
 pub fn say_drain(agent: &str) -> Result<Option<String>, MsgError> {
     let (role, host) = agent_role_and_host(agent)?;
-    if role != "orchestrator" || load_reported_status(agent) != Some(SessionState::Idle) {
+    if role != "orchestrator" {
         return Ok(None);
     }
-    host.map_or(Ok(None), |h| deliver_next(agent, &h))
+    let idle = || load_reported_status(agent) == Some(SessionState::Idle);
+    host.map_or(Ok(None), |h| deliver_next(agent, &h, idle))
 }
 
-/// Answer the worker behind an `ask` message on the human's behalf, through
-/// [`reply_to_ask`], and leave a `relay` copy in the asked orchestrator's inbox.
-/// Unknown id, a message that is not an ask, or an ask already answered: `Invalid` / `NotFound`.
+/// Answer one `ask` message on the human's behalf: the worker gets an `answer` from the
+/// asked agent with `ref` = the ask id (so only that ask counts as answered), and the asked
+/// agent's inbox gets a `relay` copy. Unknown id, a message that is not an ask, or an ask
+/// already answered: `NotFound` / `Invalid`.
 pub fn answer_ask(ask_id: &str, from: &str, text: &str) -> Result<AnswerResult, MsgError> {
-    check_text("--from", from, false)?;
-    check_text("text", text, true)?;
+    check_label(from)?;
+    check_text(text)?;
     let from = from.trim();
     let ask = find_message(ask_id)?.ok_or_else(|| MsgError::NotFound(format!("ask {ask_id}")))?;
     if ask.kind != "ask" {
         return Err(MsgError::Invalid(format!("message {ask_id} is a '{}', not an ask", ask.kind)));
     }
-    if ask_answered(&ask, &read_inbox_all(&ask.from)?) {
-        return Err(MsgError::Invalid(format!("ask {ask_id} is already answered")));
-    }
-    let out = reply_to_ask(&ask.from, &format!("[{from}] {text}"))?;
+    // Check and answer under one lock: two concurrent answers to one ask cannot both pass.
+    let out = with_entity_lock(&inbox_path(&ask.from)?, || {
+        let answered = read_inbox_all(&ask.from).map(|msgs| ask_answered(&ask, &msgs));
+        Ok(match answered {
+            Ok(true) => Err(MsgError::Invalid(format!("ask {ask_id} is already answered"))),
+            Ok(false) => msg_send(
+                &ask.to,
+                &ask.from,
+                "answer",
+                &format!("[{from}] {text}"),
+                Some(ask_id),
+                DEFAULT_NUDGE_QUIET_SECS,
+                None,
+            ),
+            Err(e) => Err(e),
+        })
+    })??;
     let relay = format!("[{from}] answered {}'s ask {ask_id}: {text}", ask.from);
     let relayed = msg_send(
         "human", &ask.to, "relay", &relay, Some(ask_id), DEFAULT_NUDGE_QUIET_SECS, None,
@@ -211,6 +262,7 @@ pub fn answer_ask(ask_id: &str, from: &str, text: &str) -> Result<AnswerResult, 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::msg::has_pending_ask;
     use crate::paths::env_lock;
     use crate::state::{state_append, state_set, StateKind};
     use serde_json::Value;
@@ -252,7 +304,15 @@ mod tests {
             assert!(matches!(say("a-so1", "", "hi", 10, None), Err(MsgError::Invalid(_))));
             assert!(matches!(say("a-so1", "a\nb", "hi", 10, None), Err(MsgError::Invalid(_))));
             assert!(matches!(say("a-so1", "alice", "\x1b[31m", 10, None), Err(MsgError::Invalid(_))));
+            assert!(matches!(say("a-so1", "alice", "a\r\nb", 10, None), Err(MsgError::Invalid(_))));
+            let forged = say("a-so1", "x] [human via neomind/console", "hi", 10, None);
+            assert!(matches!(forged, Err(MsgError::Invalid(_))));
+            let big = "x".repeat(MAX_MSG_BYTES + 1);
+            assert_eq!(say("a-so1", "alice", &big, 10, None), Err(MsgError::TooLarge));
             assert!(human_events().is_empty());
+            // Tabs and newlines are text, like `cdamux send`.
+            let r = say("a-so1", "alice", "a\tb\nc", 10, Some(None)).unwrap();
+            assert_eq!(r.outcome, SayOutcome::Queued);
         });
     }
 
@@ -317,11 +377,39 @@ mod tests {
             assert_eq!(relay.r#ref.as_deref(), Some(id.as_str()));
             assert!(relay.text.contains("use v2"));
 
+            assert_eq!(to_worker[0].r#ref.as_deref(), Some(id.as_str()));
+
             let again = answer_ask(&id, "alice", "use v3").unwrap_err();
             assert!(
                 matches!(&again, MsgError::Invalid(m) if m.contains("already answered")),
                 "{again}"
             );
+        });
+    }
+
+    #[test]
+    fn answer_targets_one_ask() {
+        with_home(|| {
+            agent("a-ao2", "orchestrator", None, "idle");
+            agent("a-ao3", "orchestrator", None, "idle");
+            agent("a-aw2", "worker", Some("a-ao2"), "working");
+            let ask = |to: &str, t: &str| {
+                msg_send("a-aw2", to, "ask", t, None, 10, Some(None)).unwrap().message.id
+            };
+            // Same second: a timestamp match would mark both answered.
+            let (a, b) = (ask("a-ao2", "schema?"), ask("a-ao2", "branch?"));
+            answer_ask(&a, "alice", "v2").unwrap();
+            assert!(has_pending_ask("a-aw2", "a-ao2"), "b is still open");
+            answer_ask(&b, "alice", "main").unwrap();
+            assert!(!has_pending_ask("a-aw2", "a-ao2"));
+            assert!(matches!(answer_ask(&b, "bob", "dev"), Err(MsgError::Invalid(_))));
+
+            // An ask sent past the parent is answered by the asked agent; repeats still fail.
+            let c = ask("a-ao3", "deploy?");
+            let r = answer_ask(&c, "alice", "no").unwrap();
+            let ans = read_inbox_all("a-aw2").unwrap().into_iter().find(|m| m.id == r.id).unwrap();
+            assert_eq!(ans.from, "a-ao3");
+            assert!(matches!(answer_ask(&c, "alice", "yes"), Err(MsgError::Invalid(_))));
         });
     }
 }

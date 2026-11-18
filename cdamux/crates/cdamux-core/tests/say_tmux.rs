@@ -108,6 +108,27 @@ fn say_pastes_when_idle_queues_when_busy_and_drains_in_order() {
     assert!(text.contains("[carol] second-queued"), "{text}");
     assert_eq!(say_drain("a-osay1").unwrap(), None);
 
+    // Two concurrent says to an idle orchestrator (pane activity pinned quiet): the first
+    // paste marks it working under the queue lock, so the other waits for the turn end.
+    set_status("a-osay1", "idle");
+    let racers: Vec<_> = ["race-one", "race-two"]
+        .into_iter()
+        .map(|t| std::thread::spawn(move || say("a-osay1", "dan", t, 10, Some(Some(15))).unwrap()))
+        .collect();
+    let mut rs: Vec<_> = racers.into_iter().map(|h| h.join().unwrap()).collect();
+    rs.sort_by_key(|r| r.outcome != SayOutcome::Delivered);
+    assert_eq!((rs[0].outcome, rs[1].outcome), (SayOutcome::Delivered, SayOutcome::Queued));
+    std::thread::sleep(Duration::from_millis(300));
+    // The tty echo and `cat` both print a paste: look for which prompts landed, not counts.
+    let text = pane("c-say");
+    assert!(text.contains("race-one") != text.contains("race-two"), "{text}");
+    assert_eq!(say_drain("a-osay1").unwrap(), None, "turn still running");
+    set_status("a-osay1", "idle");
+    assert_eq!(say_drain("a-osay1").unwrap().as_deref(), Some(rs[1].id.as_str()));
+    let text = wait_for_pane("c-say", "race-one");
+    let text = if text.contains("race-two") { text } else { wait_for_pane("c-say", "race-two") };
+    assert!(text.contains("[dan] race-one") && text.contains("[dan] race-two"), "{text}");
+
     let sock = Command::new("tmux")
         .args(["display-message", "-p", "#{socket_path}"])
         .output()

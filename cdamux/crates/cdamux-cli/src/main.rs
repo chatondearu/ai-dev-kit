@@ -103,7 +103,7 @@ enum Commands {
         #[arg(long)]
         force: bool,
     },
-    /// Send text to a session pane without attaching (tmux send-keys).
+    /// Send text to a session pane without attaching (tmux bracketed paste; keys via send-keys).
     #[command(after_help = "Examples:\n  cdamux send t1 \"echo hi\" --enter\n  cdamux send --enter t1 echo hi\n  cdamux send t1 --key C-c --json\n  cdamux send t1 y --key Enter\n\nOrder: text, then each --key, then --enter.\nText starting with '-' needs `--` first: cdamux send t1 --enter -- -la")]
     Send {
         /// tmux session name (targets active window + active pane).

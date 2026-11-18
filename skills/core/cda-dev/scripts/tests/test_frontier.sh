@@ -21,6 +21,13 @@ if orch_gh_repo_slug '/tmp/not-a-repo-orch-frontier-test' 2>/dev/null; then
   exit 1
 fi
 
+# Inherited GH_REPO must not override the repo at the given path.
+_SLUG_BIN="$(mktemp -d)"
+printf '#!%s\necho "${GH_REPO:-from-cwd}"\n' "$(command -v bash)" >"$_SLUG_BIN/gh"
+chmod +x "$_SLUG_BIN/gh"
+assert_eq "$(PATH="$_SLUG_BIN:$PATH" GH_REPO=other/repo orch_gh_repo_slug "$_SLUG_BIN")" "from-cwd" "slug ignores inherited GH_REPO"
+rm -rf "$_SLUG_BIN"
+
 # --- partition with a stubbed gh -------------------------------------------
 # Layout: #20 blocked by closed #12 → frontier; #21 blocked by open #15 → held;
 #         #22 no blockers → frontier; #23 body fetch fails → held.

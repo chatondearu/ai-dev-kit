@@ -86,7 +86,7 @@ PR, else the issue, in the browser.
 - [ ] Repo at `org/nested/repo` appears when `discover = "git_only"` (`cdamux projects`)
 - [ ] `list --group-by cwd` prints `##` group headers (text mode)
 - [ ] `list --json --group-by project` returns grouped JSON
-- [ ] `cdamux send <session> <message>` delivers text without attaching (targets session **active window / active pane** via `tmux send-keys -l -t`)
+- [ ] `cdamux send <session> <message>` delivers text without attaching (targets session **active window / active pane** via a bracketed `paste-buffer -p`)
 - [ ] `cdamux send <session> --enter` (or message + `--enter`) submits with Enter
 - [ ] `cdamux send <session> --key C-c --json` interrupts a running command and prints `"outcome":"ok"`; `--key Foo` exits 2
 - [ ] Spawn a claude session, `tmux kill-session` it, `cdamux restore --all` brings it back on the same conversation (`--resume <id>`)
@@ -139,6 +139,14 @@ cdamux send c-myapp --pane %4 --key Escape
 ```
 
 - Order: literal text, then each `--key` (one `send-keys` call each, never `-l`), then `--enter`.
+- Text is never typed as keys: it goes through a paste buffer unique to the call
+  (`load-buffer` + `paste-buffer -p -d`), deleted after the paste and on any failure, so a
+  secret never lingers in `tmux list-buffers` and concurrent sends do not mix.
+- Control characters in text: `\n` and `\t` are allowed; any other (`\r`, `^C`, ESC, DEL,
+  C1) makes `cdamux send` exit 2 before tmux runs — press keys with `--key` instead.
+  Internal callers (`send_to_session`, msg paste, tailnet `send`) strip them silently.
+- `-p` wraps the text in bracketed-paste markers **only when the receiving app enabled
+  bracketed paste** (agent CLIs, zsh/fish, bash ≥ 5.1). Otherwise each `\n` submits a line.
 - `--key` allow-list (`cdamux_core::SEND_KEYS`): `Enter, Escape, Tab, BTab, Up, Down, Left,
   Right, PageUp, PageDown, Home, End, BSpace, C-c, C-d, C-z, C-l, C-r`. Anything else exits 2
   before tmux runs; a raw tmux key string is never passed through.
@@ -146,7 +154,7 @@ cdamux send c-myapp --pane %4 --key Escape
   Default: the active pane; `--json` reports which pane id was written.
 - `--json` fields: `sent_bytes` is the literal text length in bytes (keys and Enter not
   counted); `outcome` is `ok`, `session_not_found` (exit 1) or `failed` (exit 1; exit 2
-  for an unknown `--pane`). A refused `--key` fails argument parsing: exit 2, no JSON.
+  for an unknown `--pane` or a control character in text). A refused `--key` fails argument parsing: exit 2, no JSON.
 - Core helper: `cdamux_core::send_input` (keys + pane + outcome); `send_to_session` is unchanged.
 
 ## Hunk review → agent

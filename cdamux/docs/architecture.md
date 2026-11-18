@@ -132,6 +132,10 @@ Every pane send waits 300 ms between writes (after `C-u`, before `Enter`). Curso
 reads keys that land in one burst as a paste: `text`+`Enter` becomes a newline (nothing
 submitted) and `C-u`+`text` drops the text.
 
+Text always reaches the pane as a bracketed paste from a per-call buffer
+(`paste-buffer -p -d`, deleted on failure too), never as `send-keys`; control characters
+other than `\n` / `\t` are stripped so text cannot act as keys (`cdamux send` refuses them).
+
 `msg send` prints the message id and `pasted`, `nudged` or `queued` (inbox only).
 
 `cdamux msg read [--agent id] [--ack] [--digest]` prints unread lines after the

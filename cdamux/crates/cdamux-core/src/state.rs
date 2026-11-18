@@ -137,7 +137,7 @@ pub fn state_get(kind: StateKind, id: &str) -> io::Result<Option<Value>> {
 /// Non-object existing values are replaced by `patch` when `patch` is an object.
 pub fn state_append(kind: StateKind, id: &str, patch: &Value) -> io::Result<()> {
     let path = entity_path(kind, id)?;
-    let (prev, merged) = with_entity_lock(&path, || {
+    with_entity_lock(&path, || {
         let (prev, merged) = match std::fs::read_to_string(&path) {
             Err(e) if e.kind() == io::ErrorKind::NotFound => (Value::Null, patch.clone()),
             Err(e) => return Err(e),
@@ -148,15 +148,15 @@ pub fn state_append(kind: StateKind, id: &str, patch: &Value) -> io::Result<()> 
         };
         let bytes = serde_json::to_vec_pretty(&merged)?;
         write_atomic(&path, &bytes)?;
-        Ok((prev, merged))
-    })?;
-    // Events feed: one `status` item per agent status change (fail-open).
-    if let (StateKind::Agents, Some(status)) = (kind, patch["status"].as_str()) {
-        if prev.as_str() != Some(status) {
-            crate::events::emit_status(id, status, prev.as_str(), &merged);
+        // Events feed: one `status` item per agent status change, emitted under the
+        // entity lock so the journal order matches the record's (fail-open).
+        if let (StateKind::Agents, Some(status)) = (kind, patch["status"].as_str()) {
+            if prev.as_str() != Some(status) {
+                crate::events::emit_status(id, status, prev.as_str(), &merged);
+            }
         }
-    }
-    Ok(())
+        Ok(())
+    })
 }
 
 fn merge_shallow(existing: Value, patch: &Value) -> Value {

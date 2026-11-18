@@ -30,7 +30,7 @@ One JSON object per line. Every item has:
 | `type` | Fields | Written when |
 | ------ | ------ | ------------ |
 | `msg` | `id, from, to, kind, text, ref?` (the inbox line) | `cdamux msg send` appends to an **orchestrator's** inbox (role `orchestrator`); worker inboxes are not mirrored |
-| `status` | `agent, status, prev, role?, parent?` | `cdamux state append agents <id> {"status":…}` (hooks, `msg send` side effects) changes the value; `prev` is `null` for the first one. A full `state set` does not emit. |
+| `status` | `agent, status, prev, role?, parent?` | `cdamux state append agents <id> {"status":…}` (hooks, `msg send` side effects) changes the value; `prev` is `null` for the first one. A full `state set` does not emit (#398). Emitted under the agent record lock, so journal order matches write order. |
 | `reply` | `agent, text, turn_id, truncated?` | An orchestrator's turn ends (`Stop` hook): the assistant **text blocks** of the last turn joined by a blank line — no thinking, tool calls or tool results |
 | `human` | `agent, from, text` | Reserved: a human prompt delivered by `cdamux say` (#387). Not written yet. |
 
@@ -69,15 +69,18 @@ Example:
 - `msg.text` follows the inbox cap (line ≤ 2 KB). `reply.text` is capped at 8 KiB
   (cut on a character boundary) with `truncated: true`.
 - Writers are fail-open: a journal error never fails `msg send`, a state write or a
-  hook; that item is lost.
+  hook; that item is lost (a `reply` turn is then left unrecorded and retried at the
+  next turn end). A line torn by a failed write is skipped by readers; the next item
+  starts on its own line.
 
 ## Client coverage for `reply`
 
 The status hook (`hooks/status.js`) calls `cdamux events reply <agent-id>` with the
 hook payload on stdin at turn end, only for agents whose role is `orchestrator`.
 cdamux reads `transcript_path` (last 512 KiB), finds the last user line holding text,
-and keeps the assistant text after it; without a transcript it uses
-`last_assistant_message`. A turn already recorded (same `turn_id`, kept as
+and keeps the assistant text after it. The transcript can lag the `Stop` hook: when
+the payload's `last_assistant_message` is not the end of that text (or there is no
+transcript), the reply is `last_assistant_message` alone. A turn already recorded (same `turn_id`, kept as
 `last_reply_turn` in the agent record) is not written twice.
 
 | Client | `reply` |

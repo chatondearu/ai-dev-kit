@@ -129,6 +129,13 @@ fn say_pastes_when_idle_queues_when_busy_and_drains_in_order() {
     let text = if text.contains("race-two") { text } else { wait_for_pane("c-say", "race-two") };
     assert!(text.contains("[dan] race-one") && text.contains("[dan] race-two"), "{text}");
 
+    // Sticky `done` is at rest too (Stop does not lift it to idle): pasted, then working.
+    set_status("a-osay1", "done");
+    let r = say("a-osay1", "erin", "after-done", 10, Some(Some(15))).unwrap();
+    assert_eq!(r.outcome, SayOutcome::Delivered);
+    assert!(wait_for_pane("c-say", "[erin] after-done").contains("[erin] after-done"));
+    assert_eq!(cdamux_core::load_reported_status("a-osay1"), Some(cdamux_core::SessionState::Working));
+
     let sock = Command::new("tmux")
         .args(["display-message", "-p", "#{socket_path}"])
         .output()

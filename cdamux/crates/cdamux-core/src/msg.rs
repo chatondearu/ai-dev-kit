@@ -371,14 +371,14 @@ pub fn agent_parent_id(agent_id: &str) -> Option<String> {
         })
 }
 
-/// True when the worker's inbox answers `ask`: an `answer` whose `ref` is the ask id
-/// (`msg answer`, one ask), or one without `ref` (TUI / tailnet reply, worker-level) from
-/// the asked agent sent at or after the ask.
+/// True when the worker's inbox answers `ask`: an `answer` whose `ref` is a message id
+/// answers that ask only (`msg answer`); any other `answer` (no `ref`, or a `--ref` path)
+/// answers every ask the worker sent its sender up to then (TUI / tailnet reply).
 pub fn ask_answered(ask: &Message, worker_msgs: &[Message]) -> bool {
     worker_msgs.iter().any(|ans| {
         ans.kind == "answer"
-            && match &ans.r#ref {
-                Some(r) => *r == ask.id,
+            && match ans.r#ref.as_deref().filter(|r| r.starts_with("m-")) {
+                Some(r) => r == ask.id,
                 None => ans.from == ask.to && ans.ts >= ask.ts,
             }
     })

@@ -18,9 +18,10 @@ cdamux say c-orch  --from alice --json "stop after this task"
 - The target (agent id, or tmux / registry session name) must be an **orchestrator**.
   A worker → exit 2, with a message pointing to `msg send`. Unknown or ambiguous → exit 2.
 - The prompt reaches the pane as `[<label>] text`, pasted with Enter. The label is one
-  line without control characters or `[` / `]` (no forged prefix). The text may hold
+  line of at most 64 bytes, without control characters or `[` / `]` (no forged prefix). The text may hold
   `\n` and `\t`; any other control character (`\r`, ESC, …) or more than 2 KB → exit 2.
-- **Idle** — reported status `idle` (or none: no hooks) and a pane quiet for ≥ 10 s —
+- **At rest** — reported status `idle`, a sticky `done` / `error` (a turn end does not
+  lift those to `idle`), or none (no hooks), and a pane quiet for ≥ 10 s —
   → pasted at once, outcome `delivered`. Right after a turn end the pane still counts
   as active, so `say` waits out the rest of the 10 s once (the call blocks up to 10 s).
 - **Anything else** — mid-turn (`working`), a permission prompt (`needs_input`: the
@@ -65,9 +66,9 @@ Answers a worker's pending `ask` on a human's behalf (the ask id appears in
 - Answers **that one ask**: the worker gets an `answer` message `[<label>] text` from the
   agent the ask went to, with `ref` = the ask id (pasted when idle), and goes from
   `blocked` back to `idle`. Another pending ask of the same worker stays pending.
-- An ask counts as answered by an `answer` whose `ref` is its id, whoever it went to.
-  The TUI / tailnet reply sends no `ref` and still answers every earlier ask from that
-  worker to its sender (worker-level).
+- An ask counts as answered by an `answer` whose `ref` is its id (`m-…`), whoever it
+  went to. An `answer` with no `ref` or a non-id `ref` (a `--ref` path; the TUI /
+  tailnet reply) still answers every earlier ask from that worker to its sender.
 - The orchestrator that received the ask gets a `relay` message in its inbox
   (`from` = `human`, `ref` = the ask id, text `[<label>] answered <worker>'s ask <id>: …`),
   so it stops waiting on that ask. If only this copy fails, the answer still stands and a

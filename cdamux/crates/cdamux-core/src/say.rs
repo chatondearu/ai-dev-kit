@@ -87,8 +87,8 @@ fn queue_push(orch: &str, q: &Queued) -> Result<(), MsgError> {
 /// and drop it from the queue; returns its id. The lock spans the check, the paste and the
 /// drop, and the drop only follows a successful paste: a hook killed mid-way repeats a
 /// prompt rather than losing it, and two callers never paste twice. A pasted prompt marks
-/// a hooked (`idle`) orchestrator `working` under the same lock, so a concurrent `say` or
-/// drain queues until the turn's `Stop` hook reports `idle` again.
+/// a hooked orchestrator at rest (`idle`, sticky `done` / `error`) `working` under the same
+/// lock, so a concurrent `say` or drain queues until the turn's `Stop` hook reports `idle`.
 fn deliver_next(
     orch: &str,
     host: &str,
@@ -112,7 +112,10 @@ fn deliver_next(
         }
         let rest: String = lines.map(|l| format!("{l}\n")).collect();
         write_atomic(&path, rest.as_bytes())?;
-        if load_reported_status(orch) == Some(SessionState::Idle) {
+        if matches!(
+            load_reported_status(orch),
+            Some(SessionState::Idle | SessionState::Done | SessionState::Error)
+        ) {
             // Best effort: the prompt is already delivered; an error must not invite a retry.
             let _ = state_append(StateKind::Agents, orch, &json!({ "status": "working" }));
         }
@@ -120,14 +123,20 @@ fn deliver_next(
     })?)
 }
 
-/// One-line `--from` label without control characters or brackets: a `]` would let the
-/// label forge another `[label]` prefix.
+/// Longest `--from` label, in bytes.
+pub const MAX_LABEL_BYTES: usize = 64;
+
+/// One-line `--from` label of at most [`MAX_LABEL_BYTES`], without control characters or
+/// brackets: a `]` would let the label forge another `[label]` prefix.
 fn check_label(s: &str) -> Result<(), MsgError> {
-    if s.trim().is_empty() || s.chars().any(|c| c.is_control() || c == '[' || c == ']') {
-        return Err(MsgError::Invalid(
-            "--from must be a non-empty one-line label without control characters or brackets"
-                .into(),
-        ));
+    if s.trim().is_empty()
+        || s.len() > MAX_LABEL_BYTES
+        || s.chars().any(|c| c.is_control() || c == '[' || c == ']')
+    {
+        return Err(MsgError::Invalid(format!(
+            "--from must be a non-empty one-line label of at most {MAX_LABEL_BYTES} bytes, \
+             without control characters or brackets"
+        )));
     }
     Ok(())
 }
@@ -148,7 +157,7 @@ fn check_text(s: &str) -> Result<(), MsgError> {
 }
 
 /// Deliver `text` to an orchestrator as a human prompt `[from] text`: pasted when it is
-/// at rest (reported idle, or no status, and a quiet pane), else queued for its next turn
+/// at rest (reported `idle`, sticky `done` / `error`, or no status, and a quiet pane), else queued for its next turn
 /// end ([`say_drain`]). A `needs_input` orchestrator waits on a permission prompt, where
 /// the paste's Enter would answer it, so that is queued too. One `human` event per call.
 ///
@@ -188,7 +197,8 @@ pub fn say(
     let (mut status, mut idle) = snapshot();
     // Just after a turn end the pane still counts as active, and no later Stop would flush
     // the queue: wait out the quiet window once instead of queueing for good.
-    if let (None | Some(SessionState::Idle), Some(s)) = (status, idle) {
+    let at_rest = should_paste(status, Some(u32::MAX), quiet_secs);
+    if let (true, Some(s)) = (at_rest, idle) {
         if s < quiet_secs {
             std::thread::sleep(Duration::from_secs(u64::from(quiet_secs - s)));
             (status, idle) = snapshot();
@@ -307,6 +317,8 @@ mod tests {
             assert!(matches!(say("a-so1", "alice", "a\r\nb", 10, None), Err(MsgError::Invalid(_))));
             let forged = say("a-so1", "x] [human via neomind/console", "hi", 10, None);
             assert!(matches!(forged, Err(MsgError::Invalid(_))));
+            let long = "l".repeat(MAX_LABEL_BYTES + 1);
+            assert!(matches!(say("a-so1", &long, "hi", 10, None), Err(MsgError::Invalid(_))));
             let big = "x".repeat(MAX_MSG_BYTES + 1);
             assert_eq!(say("a-so1", "alice", &big, 10, None), Err(MsgError::TooLarge));
             assert!(human_events().is_empty());
@@ -410,6 +422,31 @@ mod tests {
             let ans = read_inbox_all("a-aw2").unwrap().into_iter().find(|m| m.id == r.id).unwrap();
             assert_eq!(ans.from, "a-ao3");
             assert!(matches!(answer_ask(&c, "alice", "yes"), Err(MsgError::Invalid(_))));
+        });
+    }
+
+    #[test]
+    fn answer_with_path_ref_stays_worker_level() {
+        with_home(|| {
+            agent("a-ao4", "orchestrator", None, "idle");
+            agent("a-aw4", "worker", Some("a-ao4"), "working");
+            let ask = |t: &str| {
+                msg_send("a-aw4", "a-ao4", "ask", t, None, 10, Some(None)).unwrap().message.id
+            };
+            let (a, b) = (ask("schema?"), ask("branch?"));
+            // `msg send --kind answer --ref <path>`: not an ask id, answers both asks.
+            msg_send("a-ao4", "a-aw4", "answer", "see doc", Some("notes/a.md"), 10, Some(None))
+                .unwrap();
+            assert!(!has_pending_ask("a-aw4", "a-ao4"));
+            for id in [&a, &b] {
+                assert!(matches!(answer_ask(id, "alice", "x"), Err(MsgError::Invalid(_))));
+            }
+            // An id ref answers that ask only (own worker: the path-ref answer above has the
+            // same second, so it would count for any ask sent now).
+            agent("a-aw5", "worker", Some("a-ao4"), "working");
+            msg_send("a-aw5", "a-ao4", "ask", "deploy?", None, 10, Some(None)).unwrap();
+            msg_send("a-ao4", "a-aw5", "answer", "no", Some("m-zzzzz"), 10, Some(None)).unwrap();
+            assert!(has_pending_ask("a-aw5", "a-ao4"));
         });
     }
 }

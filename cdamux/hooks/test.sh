@@ -266,6 +266,22 @@ grep -q 'events reply' "$CDAMUX_LOG" && fail "worker Stop must not record a repl
 printf '{"id":"a-hook1","status":"idle","role":"orchestrator"}\n' > "$AF"
 run_status '{"hook_event_name":"Stop","transcript_path":"/t.jsonl"}' >/dev/null
 grep -q 'events reply a-hook1' "$CDAMUX_LOG" || fail "orchestrator Stop did not record a reply"
+# `cdamux say` queue: an orchestrator's turn end drains it only when a prompt is queued;
+# a worker's, an empty queue and a turn that continues (Cursor followup) do not spawn it.
+SAYQ="$tmp/state/cdamux/say/a-hook1.jsonl"
+: > "$CDAMUX_LOG"
+run_status '{"hook_event_name":"Stop"}' >/dev/null
+grep -q 'msg drain' "$CDAMUX_LOG" && fail "empty say queue must not spawn a drain"
+mkdir -p "$(dirname "$SAYQ")"; printf '{"id":"m-s1","ts":1,"from":"alice","text":"hi"}\n' > "$SAYQ"
+run_status '{"hook_event_name":"Stop"}' >/dev/null
+grep -q 'msg drain a-hook1' "$CDAMUX_LOG" || fail "orchestrator Stop did not drain the say queue"
+: > "$CDAMUX_LOG"
+run_status '{"hook_event_name":"UserPromptSubmit"}' >/dev/null
+grep -q 'msg drain' "$CDAMUX_LOG" && fail "a running turn must not drain"
+printf '{"id":"a-hook1","status":"idle","role":"worker"}\n' > "$AF"; : > "$CDAMUX_LOG"
+run_status '{"hook_event_name":"Stop"}' >/dev/null
+grep -q 'msg drain' "$CDAMUX_LOG" && fail "worker Stop must not drain"
+rm -f "$SAYQ"
 
 # opencode status: `session.status` busy on the main session writes working; a child's busy does not.
 printf '{"id":"a-hook1","status":"idle"}\n' > "$AF"

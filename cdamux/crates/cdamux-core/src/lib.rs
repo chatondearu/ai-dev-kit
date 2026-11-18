@@ -20,6 +20,7 @@ mod orch_steps;
 mod paths;
 mod project_tree;
 mod restore;
+mod say;
 mod send;
 mod session;
 mod session_chrome;
@@ -132,11 +133,12 @@ pub use restore::{
     restore_targets, resume_command, RestoreError, RestoreOutcome,
 };
 pub use msg::{
-    agent_parent_id, append_message, delivery_mode_for_role, format_unread_digest, generate_msg_id,
+    agent_parent_id, append_message, ask_answered, find_message, delivery_mode_for_role, format_unread_digest, generate_msg_id,
     has_pending_ask, inbox_badges, msg_send, nudge_text, read_inbox_all, read_messages, reply_to_ask,
     resolve_agent_id, should_nudge, unread_count, valid_kind, DeliveryMode, Message, MsgError,
     SendOutcome, DEFAULT_NUDGE_QUIET_SECS, MAX_MSG_BYTES,
 };
+pub use say::{answer_ask, say, say_drain, AnswerResult, SayOutcome, SayResult};
 pub use sidebar::{
     client_session, default_client, find_sidebar, focus_main_pane, follow_session, spawn_sidebar,
     SidebarSide, DEFAULT_SIDEBAR_WIDTH,

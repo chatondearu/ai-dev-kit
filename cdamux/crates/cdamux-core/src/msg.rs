@@ -192,7 +192,7 @@ pub fn resolve_agent_id(to: &str) -> Result<String, MsgError> {
     }
 }
 
-fn agent_role_and_host(id: &str) -> Result<(String, Option<String>), MsgError> {
+pub(crate) fn agent_role_and_host(id: &str) -> Result<(String, Option<String>), MsgError> {
     let v = state_get(StateKind::Agents, id)
         .map_err(|e| MsgError::Io(e.to_string()))?
         .ok_or_else(|| MsgError::NotFound(id.to_string()))?;
@@ -371,6 +371,13 @@ pub fn agent_parent_id(agent_id: &str) -> Option<String> {
         })
 }
 
+/// True when the worker's inbox holds an `answer` from the asked agent sent after `ask`.
+pub fn ask_answered(ask: &Message, worker_msgs: &[Message]) -> bool {
+    worker_msgs
+        .iter()
+        .any(|ans| ans.kind == "answer" && ans.from == ask.to && ans.ts >= ask.ts)
+}
+
 /// True when `worker` sent an `ask` to `parent` with no later `answer` back.
 pub fn has_pending_ask(worker_id: &str, parent_id: &str) -> bool {
     let Ok(parent_msgs) = read_inbox_all(parent_id) else {
@@ -379,13 +386,30 @@ pub fn has_pending_ask(worker_id: &str, parent_id: &str) -> bool {
     let Ok(worker_msgs) = read_inbox_all(worker_id) else {
         return false;
     };
-    parent_msgs.iter().any(|ask| {
-        ask.kind == "ask"
-            && ask.from == worker_id
-            && !worker_msgs.iter().any(|ans| {
-                ans.kind == "answer" && ans.from == parent_id && ans.ts >= ask.ts
-            })
-    })
+    parent_msgs
+        .iter()
+        .any(|ask| ask.kind == "ask" && ask.from == worker_id && !ask_answered(ask, &worker_msgs))
+}
+
+/// The inbox line with this message id, wherever it was delivered.
+pub fn find_message(id: &str) -> Result<Option<Message>, MsgError> {
+    if !valid_state_id(id) {
+        return Err(MsgError::Invalid(format!("invalid message id '{id}'")));
+    }
+    let entries = match fs::read_dir(inbox_dir()?) {
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+        r => r?,
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().is_some_and(|e| e == "jsonl") {
+            let owner = path.file_stem().and_then(|s| s.to_str()).unwrap_or_default();
+            if let Some(m) = read_inbox_all(owner)?.into_iter().find(|m| m.id == id) {
+                return Ok(Some(m));
+            }
+        }
+    }
+    Ok(None)
 }
 
 /// Inbox badges for one agent: unread in its own inbox, and (for workers) a

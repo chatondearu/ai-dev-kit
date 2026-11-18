@@ -1802,9 +1802,24 @@ mod tests {
     fn parse_send(args: &[&str]) -> (String, Vec<String>, bool) {
         let cli = Cli::try_parse_from(args).expect("parse");
         match cli.command {
-            Some(Commands::Send { session, message, enter }) => (session, message, enter),
+            Some(Commands::Send { session, message, enter, .. }) => (session, message, enter),
             _ => panic!("expected send"),
         }
+    }
+
+    #[test]
+    fn send_keys_are_repeatable_and_allow_listed() {
+        let cli = Cli::try_parse_from(["cdamux", "send", "t1", "y", "--key", "C-c", "--key", "Enter", "--json"]).unwrap();
+        match cli.command {
+            Some(Commands::Send { message, keys, json, .. }) => {
+                assert_eq!(message, ["y"]);
+                assert_eq!(keys, ["C-c", "Enter"]);
+                assert!(json);
+            }
+            _ => panic!("expected send"),
+        }
+        let err = Cli::try_parse_from(["cdamux", "send", "t1", "--key", "C-c; kill-server"]).err().expect("refused");
+        assert_eq!(err.exit_code(), 2);
     }
 
     #[test]

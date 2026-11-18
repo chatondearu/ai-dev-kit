@@ -21,6 +21,9 @@ if [ "$pid" -lt "$B" ]; then i=0; else i=$((pid - B)); fi
 shift "$i"; echo "$((B + i + 1)) $1"
 PS
 chmod +x "$tmp/bin/tmux" "$tmp/bin/ps"
+# A caller inside a cdamux session (worker, orchestrator) exports these: they would win over
+# XDG_STATE_HOME and point the hooks at the live state.
+unset CDAMUX_HOME CDAMUX_AGENT_ID
 export PATH="$tmp/bin:$PATH" HOME="$tmp/home" XDG_STATE_HOME="$tmp/state" TMUX="/tmp/fake,1,0" TMUX_PANE="%1"
 L="$tmp/state/cdamux/agents/fleet_demo.jsonl"   # `/` in the session name -> `_`
 
@@ -179,6 +182,9 @@ node "$tmp/bin/merge-status.js" "\$f" "\$5"
 CD
 chmod +x "$tmp/bin/cdamux"
 export CDAMUX_AGENT_ID=a-hook1 CDAMUX_LOG="$tmp/cdamux.log"
+# macOS scans a new executable on its first exec (~250 ms): warm the stub so the hooks'
+# 40 ms timeout measures the stub, not the scan.
+"$tmp/bin/cdamux" warm
 printf '{"id":"a-hook1","status":"done"}\n' > "$AF"
 run_status() { printf '%s' "$1" | node "$ST" || fail "status hook exited non-zero"; }
 : > "$CDAMUX_LOG"

@@ -40,6 +40,12 @@ fn wait_home_command(want: &str) -> bool {
 
 #[test]
 fn home_shell_pane_is_respawned_other_commands_kept() {
+    // macOS tmux reports the executable (`/bin/sh` is bash), not argv[0]: the names below
+    // only hold where tmux reads /proc.
+    if !cfg!(target_os = "linux") {
+        eprintln!("pane_current_command from argv[0] needs Linux: skipped");
+        return;
+    }
     let Some(real_tmux) = which("tmux") else {
         eprintln!("tmux not on PATH: skipped");
         return;

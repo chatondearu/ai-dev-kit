@@ -133,7 +133,7 @@ pub use sidebar::{
     client_session, default_client, find_sidebar, focus_main_pane, follow_session, spawn_sidebar,
     SidebarSide, DEFAULT_SIDEBAR_WIDTH,
 };
-pub use send::{send_to_session, SendError, tmux_has_session};
+pub use send::{send_input, send_to_session, SendError, InputOutcome, SEND_KEYS, tmux_has_session};
 pub use session_manage::{
     current_tmux_session, ensure_home_session, ensure_nav_session, home_session_new_argv,
     is_home_session, is_nav_session, kill_tmux_session, leave_nav_to_session,

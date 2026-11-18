@@ -88,6 +88,7 @@ PR, else the issue, in the browser.
 - [ ] `list --json --group-by project` returns grouped JSON
 - [ ] `cdamux send <session> <message>` delivers text without attaching (targets session **active window / active pane** via `tmux send-keys -l -t`)
 - [ ] `cdamux send <session> --enter` (or message + `--enter`) submits with Enter
+- [ ] `cdamux send <session> --key C-c --json` interrupts a running command and prints `"outcome":"ok"`; `--key Foo` exits 2
 - [ ] Spawn a claude session, `tmux kill-session` it, `cdamux restore --all` brings it back on the same conversation (`--resume <id>`)
 - [ ] Spawn `cdamux orch new` + a worker, kill both hosts, `cdamux restore <orch>` brings orch then workers back (resume ids + `@cdamux_parent` kept)
 - [ ] The killed session shows as a dimmed `◌ … dormant` row in the Fleet; `Enter` restores it, `x` `x` forgets it
@@ -123,6 +124,30 @@ cdamux send c-myapp --enter
 
 Targeting matches tmux: `-t <session>` uses that session's current window and active pane.
 Core helper: `cdamux_core::send_to_session` (for future `cdamuxd` HTTP).
+
+### Named keys, pane, JSON (remote input)
+
+```bash
+# Interrupt the running command; machine-readable outcome
+cdamux send c-myapp --key C-c --json
+# {"v":1,"session":"c-myapp","pane":"%3","sent_bytes":0,"keys":["C-c"],"outcome":"ok"}
+
+# Answer a y/N prompt, navigate a menu, write to a given pane
+cdamux send c-myapp y --key Enter
+cdamux send c-myapp --key Down --key Down --key Enter
+cdamux send c-myapp --pane %4 --key Escape
+```
+
+- Order: literal text, then each `--key` (one `send-keys` call each, never `-l`), then `--enter`.
+- `--key` allow-list (`cdamux_core::SEND_KEYS`): `Enter, Escape, Tab, BTab, Up, Down, Left,
+  Right, PageUp, PageDown, Home, End, BSpace, C-c, C-d, C-z, C-l, C-r`. Anything else exits 2
+  before tmux runs; a raw tmux key string is never passed through.
+- `--pane <id>` must be one of the session's pane ids (`list-panes -s`), else exit 2.
+  Default: the active pane; `--json` reports which pane id was written.
+- `--json` fields: `sent_bytes` is the literal text length in bytes (keys and Enter not
+  counted); `outcome` is `ok`, `session_not_found` (exit 1) or `failed` (exit 1; exit 2
+  for an unknown `--pane`). A refused `--key` fails argument parsing: exit 2, no JSON.
+- Core helper: `cdamux_core::send_input` (keys + pane + outcome); `send_to_session` is unchanged.
 
 ## Hunk review → agent
 

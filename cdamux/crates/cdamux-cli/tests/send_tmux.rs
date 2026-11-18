@@ -52,6 +52,10 @@ fn refused_keys_exit_2_without_calling_tmux() {
         let out = run(&path, tmp.path(), &["send", "t1", "--key", bad, "--json"]);
         assert_eq!(out.status.code(), Some(2), "{bad}: {out:?}");
     }
+    for text in ["echo hi\r", "a\x03", "\x1b[A"] {
+        let out = run(&path, tmp.path(), &["send", "t1", text]);
+        assert_eq!(out.status.code(), Some(2), "{text:?}: {out:?}");
+    }
     assert!(!tmp.path().join("bin/called").exists(), "tmux was called");
 }
 

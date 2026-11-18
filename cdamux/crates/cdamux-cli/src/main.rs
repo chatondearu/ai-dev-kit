@@ -108,7 +108,7 @@ enum Commands {
     Send {
         /// tmux session name (targets active window + active pane).
         session: String,
-        /// Literal text to send (`-l`); words are joined with spaces.
+        /// Literal text (bracketed paste; no control chars but \n/\t); words are joined with spaces.
         message: Vec<String>,
         /// Append Enter after the message.
         #[arg(long)]
@@ -1640,7 +1640,7 @@ fn cmd_send(
             eprintln!("send: no tmux session named '{name}'");
             ExitCode::from(1)
         }
-        Err(e @ (SendError::KeyNotAllowed(_) | SendError::PaneNotFound(_))) => {
+        Err(e @ (SendError::KeyNotAllowed(_) | SendError::PaneNotFound(_) | SendError::ControlInText)) => {
             eprintln!("send: {e}");
             ExitCode::from(2)
         }

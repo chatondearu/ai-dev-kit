@@ -73,6 +73,21 @@ fn last_cursor(path: &Path) -> io::Result<Option<u64>> {
         .find_map(|l| serde_json::from_str::<Value>(l).ok().as_ref().and_then(line_cursor)))
 }
 
+fn ends_without_newline(path: &Path) -> io::Result<bool> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut f = match std::fs::File::open(path) {
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(false),
+        r => r?,
+    };
+    if f.metadata()?.len() == 0 {
+        return Ok(false);
+    }
+    let mut last = [0u8; 1];
+    f.seek(SeekFrom::End(-1))?;
+    f.read_exact(&mut last)?;
+    Ok(last[0] != b'\n')
+}
+
 /// Append one item under the journal lock; returns its cursor. The cursor is a
 /// sequence number kept across rotation (read back from the last line).
 fn append_at(live: &Path, mut item: Map<String, Value>, segment_max: u64) -> io::Result<u64> {
@@ -90,18 +105,21 @@ fn append_at(live: &Path, mut item: Map<String, Value>, segment_max: u64) -> io:
         obj.insert("v".into(), json!(EVENTS_SCHEMA_VERSION));
         obj.insert("cursor".into(), json!(cursor.to_string()));
         obj.append(&mut item);
+        // A torn last line (failed write) stays its own unparseable line.
+        let sep = if ends_without_newline(live)? { "\n" } else { "" };
         let mut f = std::fs::OpenOptions::new().create(true).append(true).open(live)?;
-        f.write_all(format!("{}\n", Value::Object(obj)).as_bytes())?;
+        f.write_all(format!("{sep}{}\n", Value::Object(obj)).as_bytes())?;
         Ok(cursor)
     })
 }
 
-/// Fail-open append of one item (`type`, `ts` and the type's fields).
-pub fn emit(item: Value) {
+/// Fail-open append of one item (`type`, `ts` and the type's fields); `false` when
+/// the journal could not be written.
+pub fn emit(item: Value) -> bool {
     let (Ok(live), Value::Object(map)) = (journal_path(), item) else {
-        return;
+        return false;
     };
-    let _ = append_at(&live, map, SEGMENT_MAX_BYTES);
+    append_at(&live, map, SEGMENT_MAX_BYTES).is_ok()
 }
 
 /// `msg` item for a message appended to an orchestrator's inbox.
@@ -136,11 +154,13 @@ pub fn emit_status(agent: &str, status: &str, prev: Option<&str>, record: &Value
 fn read_at(live: &Path, since: u64) -> Result<Vec<Value>, EventsError> {
     let mut items = BTreeMap::new();
     for p in [live.to_path_buf(), rotated_path(live)] {
-        let text = match std::fs::read_to_string(&p) {
+        let bytes = match std::fs::read(&p) {
             Err(e) if e.kind() == io::ErrorKind::NotFound => continue,
             r => r?,
         };
-        // A line still being written does not parse yet; the next read gets it.
+        // A line still being written or torn by a failed write (even mid UTF-8
+        // sequence) does not parse and is skipped; the rest stays readable.
+        let text = String::from_utf8_lossy(&bytes);
         for v in text.lines().filter_map(|l| serde_json::from_str::<Value>(l).ok()) {
             if let Some(c) = line_cursor(&v) {
                 items.insert(c, v);
@@ -265,15 +285,20 @@ pub fn record_reply(agent: &str, payload: &Value) -> io::Result<bool> {
     if rec.get("role").and_then(Value::as_str) != Some("orchestrator") {
         return Ok(false);
     }
+    let last_msg = payload["last_assistant_message"]
+        .as_str()
+        .map(str::trim)
+        .filter(|t| !t.is_empty());
     let from_transcript = payload["transcript_path"]
         .as_str()
         .filter(|p| !p.is_empty())
         .and_then(|p| read_tail(Path::new(p), REPLY_TRANSCRIPT_TAIL_BYTES).ok())
-        .and_then(|t| last_turn_reply(&t));
-    let reply = from_transcript.or_else(|| {
-        let text = payload["last_assistant_message"].as_str()?.trim();
-        (!text.is_empty()).then(|| (text.to_string(), format!("h-{:016x}", fnv1a(text))))
-    });
+        .and_then(|t| last_turn_reply(&t))
+        // The transcript may lag the Stop hook: trust it only when it already ends
+        // with the client's last assistant message.
+        .filter(|(text, _)| last_msg.is_none_or(|m| text.ends_with(m)));
+    let reply = from_transcript
+        .or_else(|| last_msg.map(|t| (t.to_string(), format!("h-{:016x}", fnv1a(t)))));
     let Some((text, turn_id)) = reply else {
         return Ok(false);
     };
@@ -287,7 +312,10 @@ pub fn record_reply(agent: &str, payload: &Value) -> io::Result<bool> {
     if truncated {
         item["truncated"] = json!(true);
     }
-    emit(item);
+    // Unwritten item: leave the turn unrecorded so a later turn end can retry it.
+    if !emit(item) {
+        return Ok(false);
+    }
     state_append(StateKind::Agents, agent, &json!({ "last_reply_turn": turn_id }))?;
     Ok(true)
 }
@@ -336,6 +364,43 @@ mod tests {
         assert_eq!(kept, [4, 5], "cursors keep counting across rotation");
         assert_eq!(read_at(&live, 3).unwrap().len(), 2, "cursor just before oldest is fine");
         assert_eq!(read_at(&live, 2), Err(EventsError::Expired { since: 2, oldest: 4 }));
+    }
+
+    #[test]
+    fn torn_line_neither_breaks_reads_nor_swallows_the_next_item() {
+        let dir = tempfile::tempdir().unwrap();
+        let live = dir.path().join("events.jsonl");
+        append_at(&live, item("msg"), SEGMENT_MAX_BYTES).unwrap();
+        // A failed write left half an item, cut inside a UTF-8 sequence, no newline.
+        let mut f = std::fs::OpenOptions::new().append(true).open(&live).unwrap();
+        f.write_all(b"{\"v\":1,\"cursor\":\"2\",\"text\":\"\xc3").unwrap();
+        assert_eq!(read_at(&live, 0).unwrap().len(), 1);
+        assert_eq!(append_at(&live, item("reply"), SEGMENT_MAX_BYTES).unwrap(), 2);
+        let all = read_at(&live, 0).unwrap();
+        assert_eq!(all.len(), 2);
+        assert_eq!(all[1]["type"], "reply");
+    }
+
+    #[test]
+    fn concurrent_writers_get_unique_contiguous_cursors() {
+        let dir = tempfile::tempdir().unwrap();
+        let live = dir.path().join("events.jsonl");
+        let threads: Vec<_> = (0..8)
+            .map(|_| {
+                let live = live.clone();
+                // Small segments so rotation races with appends too.
+                std::thread::spawn(move || {
+                    (0..25).map(|_| append_at(&live, item("msg"), 4096).unwrap()).collect::<Vec<_>>()
+                })
+            })
+            .collect();
+        let mut got: Vec<u64> = threads.into_iter().flat_map(|t| t.join().unwrap()).collect();
+        got.sort_unstable();
+        assert_eq!(got, (1..=200).collect::<Vec<u64>>());
+        let kept: Vec<u64> =
+            read_at(&live, 0).unwrap().iter().map(|v| line_cursor(v).unwrap()).collect();
+        let first = kept[0];
+        assert_eq!(kept, (first..=200).collect::<Vec<u64>>(), "retained items are contiguous");
     }
 
     #[test]
@@ -397,6 +462,23 @@ mod tests {
         let last = read_events(0).unwrap().pop().unwrap();
         assert_eq!(last["truncated"], true);
         assert!(last["text"].as_str().unwrap().len() <= MAX_REPLY_BYTES);
+
+        // Transcript lags the Stop hook (final message not flushed yet): use the payload's.
+        let lag = json!({ "transcript_path": tp, "last_assistant_message": "All merged." });
+        assert!(record_reply("a-o", &lag).unwrap());
+        assert_eq!(read_events(0).unwrap().pop().unwrap()["text"], "All merged.");
+        // Caught-up transcript: its full turn text wins over the last message alone.
+        let synced = json!({ "transcript_path": tp, "last_assistant_message": "Two workers done." });
+        assert!(record_reply("a-o", &synced).unwrap());
+        assert_eq!(read_events(0).unwrap().pop().unwrap()["text"], "Checking.\n\nTwo workers done.");
+
+        // Journal write fails: the turn stays unrecorded so a later turn end can retry.
+        let before = state_get(StateKind::Agents, "a-o").unwrap().unwrap()["last_reply_turn"].clone();
+        let live = dir.path().join("events.jsonl");
+        std::fs::rename(&live, dir.path().join("saved.jsonl")).unwrap();
+        std::fs::create_dir(&live).unwrap();
+        assert!(!record_reply("a-o", &json!({ "last_assistant_message": "lost?" })).unwrap());
+        assert_eq!(state_get(StateKind::Agents, "a-o").unwrap().unwrap()["last_reply_turn"], before);
         std::env::remove_var("CDAMUX_HOME");
     }
 }

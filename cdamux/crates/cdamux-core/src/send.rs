@@ -1,7 +1,7 @@
 //! Push keys/text to a tmux session pane without attaching (shared by CLI and future daemon HTTP).
 
 use crate::tmux::{
-    pane_target, send_input_to_target, send_line_to_session, send_line_to_session_preclear, TmuxError,
+    is_forbidden_control, pane_target, send_input_to_target, send_line_to_session, send_line_to_session_preclear, TmuxError,
 };
 use std::process::{Command, Stdio};
 use thiserror::Error;
@@ -18,6 +18,8 @@ pub enum SendError {
     KeyNotAllowed(String),
     #[error("no pane '{0}' in that session")]
     PaneNotFound(String),
+    #[error("text contains a control character (only \\n and \\t are allowed; use --key)")]
+    ControlInText,
 }
 
 /// Named keys `cdamux send --key` may press, spelled as tmux `send-keys` key names.
@@ -140,7 +142,7 @@ fn resolve_pane(session: &str, pane: Option<&str>) -> Result<String, SendError> 
 /// Send literal `text`, then allow-listed `keys`, then optional Enter to one pane of `session`.
 ///
 /// Keys are checked against [`SEND_KEYS`] before tmux is touched. `text` keeps the
-/// [`send_to_session`] behavior (literal `-l`, bracketed paste when multi-line).
+/// [`send_to_session`] paste path; control characters other than `\n`/`\t` are refused.
 pub fn send_input(
     session: &str,
     pane: Option<&str>,
@@ -149,6 +151,9 @@ pub fn send_input(
     enter: bool,
 ) -> Result<InputOutcome, SendError> {
     let keys = allowed_keys(keys)?;
+    if text.chars().any(is_forbidden_control) {
+        return Err(SendError::ControlInText);
+    }
     if !tmux_has_session(session)? {
         return Err(SendError::SessionNotFound(session.to_string()));
     }
@@ -179,6 +184,14 @@ mod tests {
                 allowed_keys(&["Enter".into(), bad.into()]),
                 Err(SendError::KeyNotAllowed(bad.into()))
             );
+        }
+    }
+
+    #[test]
+    fn control_chars_in_text_fail_before_tmux() {
+        for text in ["echo hi\r", "a\x03", "\x1b[A"] {
+            let err = send_input("=no such session=", None, text, &[], false).unwrap_err();
+            assert_eq!(err, SendError::ControlInText, "{text:?}");
         }
     }
 

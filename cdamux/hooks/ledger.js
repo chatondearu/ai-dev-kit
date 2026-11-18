@@ -151,7 +151,8 @@ function drainSay(env) {
   if (readAgentField(env, id, 'role') !== 'orchestrator') return;
   try {
     if (fs.statSync(path.join(stateDir(env, 'say'), `${id}.jsonl`)).size === 0) return;
-    execFileSync('cdamux', ['msg', 'drain', id], { env, timeout: 1000, stdio: 'ignore' });
+    // The paste waits 300 ms between its tmux writes: leave room.
+    execFileSync('cdamux', ['msg', 'drain', id], { env, timeout: 3000, stdio: 'ignore' });
   } catch (e) {
     /* fail-open */
   }

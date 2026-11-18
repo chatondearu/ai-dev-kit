@@ -105,8 +105,10 @@ fn deliver_next(orch: &str, host: &str) -> Result<Option<String>, MsgError> {
     })?)
 }
 
-fn check_text(what: &str, s: &str) -> Result<(), MsgError> {
-    if s.trim().is_empty() || s.chars().any(|c| c.is_control() && c != '\n') {
+/// Non-empty and free of control characters (an ESC would drive the agent's TUI); only
+/// the prompt text (`multiline`) may span lines.
+fn check_text(what: &str, s: &str, multiline: bool) -> Result<(), MsgError> {
+    if s.trim().is_empty() || s.chars().any(|c| c.is_control() && !(multiline && c == '\n')) {
         return Err(MsgError::Invalid(format!(
             "{what} must be non-empty text without control characters"
         )));
@@ -127,8 +129,8 @@ pub fn say(
     quiet_secs: u32,
     idle_override: Option<Option<u32>>,
 ) -> Result<SayResult, MsgError> {
-    check_text("--from", from)?;
-    check_text("text", text)?;
+    check_text("--from", from, false)?;
+    check_text("text", text, true)?;
     let from = from.trim();
     let to = resolve_agent_id(target)?;
     let (role, host) = agent_role_and_host(&to)?;
@@ -187,8 +189,8 @@ pub fn say_drain(agent: &str) -> Result<Option<String>, MsgError> {
 /// [`reply_to_ask`], and leave a `relay` copy in the asked orchestrator's inbox.
 /// Unknown id, a message that is not an ask, or an ask already answered: `Invalid` / `NotFound`.
 pub fn answer_ask(ask_id: &str, from: &str, text: &str) -> Result<AnswerResult, MsgError> {
-    check_text("--from", from)?;
-    check_text("text", text)?;
+    check_text("--from", from, false)?;
+    check_text("text", text, true)?;
     let from = from.trim();
     let ask = find_message(ask_id)?.ok_or_else(|| MsgError::NotFound(format!("ask {ask_id}")))?;
     if ask.kind != "ask" {
@@ -248,6 +250,8 @@ mod tests {
             assert!(matches!(say("a-nope", "alice", "hi", 10, None), Err(MsgError::NotFound(_))));
             assert!(matches!(say("a-so1", "alice", "  ", 10, None), Err(MsgError::Invalid(_))));
             assert!(matches!(say("a-so1", "", "hi", 10, None), Err(MsgError::Invalid(_))));
+            assert!(matches!(say("a-so1", "a\nb", "hi", 10, None), Err(MsgError::Invalid(_))));
+            assert!(matches!(say("a-so1", "alice", "\x1b[31m", 10, None), Err(MsgError::Invalid(_))));
             assert!(human_events().is_empty());
         });
     }

@@ -2,6 +2,7 @@
 
 mod agent_status;
 mod agents_util;
+mod board_index;
 mod client_name;
 mod daemon;
 mod diff;
@@ -74,6 +75,9 @@ pub use session::{
 pub use tailnet_api::{
     check_tailnet_token, decode_path_segment, dispatch_tailnet_request, resolve_tailnet_bind_ip,
     LiveTailnetBackend, TailnetApiBackend, TailnetIpError, TailnetResponse, TAILNET_TOKEN_HEADER,
+};
+pub use board_index::{
+    board_index_file, refresh_board_index, BoardIndex, RefreshOptions, BOARD_INDEX_FILE,
 };
 pub use foam::{
     extract_foam_path_from_text, extract_wikilinks, find_foam_entry, foam_file_wikilinks,

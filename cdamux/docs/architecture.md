@@ -55,8 +55,15 @@ $CDAMUX_HOME/
 ├── inbox/<agent-id>.cursor    # ack byte offset for `msg read --ack`
 ├── say/<orch-id>.jsonl        # `cdamux say` prompts queued until a turn end (docs/say.md)
 ├── events.jsonl               # events feed journal (`cdamux events`, docs/events.md)
-└── events.1.jsonl             # previous rotated segment
+├── events.1.jsonl             # previous rotated segment
+└── board-index.json           # foam-board resume cache (ADR-016); never SoT
 ```
+
+`board-index.json` is rebuilt from each discovered project's `foam/board` by
+`cdamux board refresh` (default: `git fetch` + local files; `--pull` for
+`git pull --ff-only`). Read with `cat "$CDAMUX_HOME/board-index.json"` or
+`cdamux board`. Beamy names/paths/`beamysoftware/*` remotes are omitted;
+missing foam is a skip entry and refresh still exits 0.
 
 Writers use `cdamux state set|get|append` and `cdamux msg send|read` (private JSON).
 `cdamux state gc` archives then removes `done`/`error` agents and finished runs

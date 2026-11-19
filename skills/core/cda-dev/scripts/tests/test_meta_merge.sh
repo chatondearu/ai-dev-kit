@@ -113,17 +113,46 @@ echo "# harness stub: merge invoked only on allow"
 cat >"$STUB_BIN/gh" <<EOF
 #!/usr/bin/env bash
 echo "\$*" >>"$MERGE_LOG"
-exit 0
+case "\$*" in
+  *"pr diff"*)
+    printf '%s\n' "\${GH_STUB_PR_FILES:-}"
+    exit 0
+    ;;
+  *"pr merge"*)
+    exit 0
+    ;;
+  *)
+    exit 0
+    ;;
+esac
 EOF
 chmod +x "$STUB_BIN/gh"
 export PATH="$STUB_BIN:$PATH"
 
+ALLOW_PR_FILES=$'prd/x.md\nplans/y.md\nfoam/decisions/z.md\nfoam/board/c.md'
 set +e
-orch_meta_try_merge 42 "$TMP" >/dev/null 2>"$STUB_BIN/allow.err"
+GH_STUB_PR_FILES="$ALLOW_PR_FILES" orch_meta_try_merge 42 "$TMP" >/dev/null 2>"$STUB_BIN/allow.err"
 rc_allow=$?
 set -e
 assert_eq "$rc_allow" "0" "try_merge succeeds on allowlist diff"
 assert_contains "$(cat "$MERGE_LOG")" "pr merge 42" "gh pr merge invoked on allow"
+assert_contains "$(cat "$MERGE_LOG")" "match-head-commit" "merge pins worktree HEAD"
+
+echo "# local allowlist + stub PR files with skills/ must not merge"
+: >"$MERGE_LOG"
+set +e
+GH_STUB_PR_FILES=$'prd/x.md\nskills/from-worker.sh' \
+  orch_meta_try_merge 44 "$TMP" >/dev/null 2>"$STUB_BIN/prdirty.err"
+rc_prdirty=$?
+set -e
+assert_eq "$rc_prdirty" "1" "try_merge skips when GitHub PR files include skills/"
+if grep -q "pr merge" "$MERGE_LOG"; then
+  FAILS=$((FAILS + 1))
+  printf 'FAIL gh pr merge must not run when PR files include skills/\n%s\n' "$(cat "$MERGE_LOG")" >&2
+else
+  PASSES=$((PASSES + 1))
+fi
+assert_contains "$(cat "$STUB_BIN/prdirty.err")" "PR diff outside ADR-016 allowlist" "PR-files skip reason logged"
 
 : >"$MERGE_LOG"
 mkdir -p "$TMP/doc"
@@ -131,10 +160,10 @@ printf 'docs\n' >"$TMP/doc/x.md"
 git -C "$TMP" add doc/x.md
 git -C "$TMP" commit -qm "doc"
 set +e
-orch_meta_try_merge 43 "$TMP" >/dev/null 2>"$STUB_BIN/reject.err"
+GH_STUB_PR_FILES="$ALLOW_PR_FILES" orch_meta_try_merge 43 "$TMP" >/dev/null 2>"$STUB_BIN/reject.err"
 rc_reject=$?
 set -e
-assert_eq "$rc_reject" "1" "try_merge skips mixed/doc diff"
+assert_eq "$rc_reject" "1" "try_merge skips mixed/doc worktree diff"
 if grep -q "pr merge" "$MERGE_LOG"; then
   FAILS=$((FAILS + 1))
   printf 'FAIL gh pr merge must not run on reject\n' >&2
@@ -194,6 +223,13 @@ case "\$*" in
     ;;
   *"pr list"*)
     echo "[{\"number\":\${GH_STUB_PR_NUM:-301},\"state\":\"OPEN\"}]"
+    ;;
+  *"pr diff"*)
+    if [ "${STUB_COMMIT_SKILLS:-0}" = "1" ]; then
+      echo "skills/from-worker.sh"
+    else
+      echo "prd/from-worker.md"
+    fi
     ;;
   *"pr checks"*)
     echo '[{"name":"ci","state":"SUCCESS","bucket":"pass"}]'

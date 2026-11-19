@@ -52,17 +52,39 @@ orch_meta_diff_allowlisted() {
   printf '%s\n' "$paths" | orch_meta_paths_allowlisted
 }
 
-# After verify + REVIEW: approved + checks green-or-none: merge $1 if $2's
-# diff is allowlisted. 0 = merged, 1 = skipped or gh failed (PR left open).
-# Uses the repo default merge method (no --merge/--squash/--rebase/--admin).
+# Paths GitHub will merge: name-only plus `rename from` (old path on rename).
+orch_meta_pr_diff_paths() {
+  local pr="$1" names patch
+  [ -n "$pr" ] || return 1
+  names="$(gh pr diff "$pr" --name-only --color=never)" || return 1
+  patch="$(gh pr diff "$pr" --color=never)" || patch=""
+  {
+    printf '%s\n' "$names"
+    printf '%s\n' "$patch" | sed -n 's/^rename from //p'
+  } | sed '/^$/d'
+}
+
+# After verify + REVIEW: approved + checks green-or-none: merge $1 if the
+# GitHub PR (and worktree HEAD) are allowlisted. 0 = merged, 1 = skipped or
+# gh failed (PR left open). --match-head-commit refuses a different remote SHA.
+# Repo default merge method (no --merge/--squash/--rebase/--admin).
 orch_meta_try_merge() {
-  local pr="$1" wt="$2"
+  local pr="$1" wt="$2" pr_paths head
   [ -n "$pr" ] && [ -n "$wt" ] || return 1
-  if ! orch_meta_diff_allowlisted "$wt"; then
-    printf 'meta-merge: skip PR #%s (diff outside ADR-016 allowlist)\n' "$pr" >&2
+  pr_paths="$(orch_meta_pr_diff_paths "$pr")" || {
+    printf 'meta-merge: skip PR #%s (could not list PR files)\n' "$pr" >&2
+    return 1
+  }
+  if ! printf '%s\n' "$pr_paths" | orch_meta_paths_allowlisted; then
+    printf 'meta-merge: skip PR #%s (PR diff outside ADR-016 allowlist)\n' "$pr" >&2
     return 1
   fi
-  if ! GH_PROMPT_DISABLED=1 gh pr merge "$pr" </dev/null; then
+  if ! orch_meta_diff_allowlisted "$wt"; then
+    printf 'meta-merge: skip PR #%s (worktree diff outside ADR-016 allowlist)\n' "$pr" >&2
+    return 1
+  fi
+  head="$(git -C "$wt" rev-parse HEAD)" || return 1
+  if ! GH_PROMPT_DISABLED=1 gh pr merge "$pr" --match-head-commit "$head" </dev/null; then
     printf 'meta-merge: gh pr merge failed for PR #%s (PR left open)\n' "$pr" >&2
     return 1
   fi

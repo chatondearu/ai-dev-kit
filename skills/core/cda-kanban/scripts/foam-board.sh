@@ -98,7 +98,8 @@ card_id() {
   basename "$file" .md
 }
 
-# Resolve id (github_issue, filename stem, or numeric prefix) to a card path.
+# Resolve id to a card path: exact basename or github_issue first; numeric
+# "{N}-*.md" prefix only if want is all digits and no exact match.
 find_card() {
   local want="$1" f base gi
   [ -n "$want" ] || return 1
@@ -114,6 +115,13 @@ find_card() {
       printf '%s\n' "$f"
       return 0
     fi
+  done < <(card_files)
+  case "$want" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    base="$(basename "$f" .md)"
     case "$base" in
       "$want"-*) printf '%s\n' "$f"; return 0 ;;
     esac

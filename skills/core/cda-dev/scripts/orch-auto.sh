@@ -88,20 +88,23 @@ log() {
 
 # Print why issue $1 must be skipped and return 0; return 1 when eligible.
 # Fail closed: a gh/jq failure (rate limit, network) skips the issue, like frontier.
-# Foam-only slugs (no github_issue) skip GitHub lookups (ADR-016).
+# Foam-only slugs skip gh issue view/labels (no GitHub issue) but still skip when
+# an open PR exists on feat/<id>-issue-<id> (same branch orch.sh uses).
 issue_skip_reason() {
-  local id="$1" branch="feat/${1}-issue-${1}" raw labels n
+  local id="$1" branch="feat/${1}-issue-${1}" raw labels n numeric=1
   case "$id" in
-    ''|*[!0-9]*) return 1 ;;
+    ''|*[!0-9]*) numeric=0 ;;
   esac
-  if ! raw="$(gh issue view "$id" --repo "$OWNER/$REPO_NAME" --json labels 2>/dev/null)" ||
-    ! labels="$(printf '%s' "$raw" | jq -er '[.labels[].name] | join(",")' 2>/dev/null)"; then
-    echo "labels lookup failed; fail closed"
-    return 0
-  fi
-  if [[ ",$labels," == *",triage:ready-for-human,"* ]]; then
-    echo "ready-for-human"
-    return 0
+  if [ "$numeric" = 1 ]; then
+    if ! raw="$(gh issue view "$id" --repo "$OWNER/$REPO_NAME" --json labels 2>/dev/null)" ||
+      ! labels="$(printf '%s' "$raw" | jq -er '[.labels[].name] | join(",")' 2>/dev/null)"; then
+      echo "labels lookup failed; fail closed"
+      return 0
+    fi
+    if [[ ",$labels," == *",triage:ready-for-human,"* ]]; then
+      echo "ready-for-human"
+      return 0
+    fi
   fi
   if ! raw="$(gh pr list --repo "$OWNER/$REPO_NAME" --head "$branch" --state open \
       --json number 2>/dev/null)" ||

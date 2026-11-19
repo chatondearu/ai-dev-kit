@@ -39,11 +39,28 @@ slugify() {
     | cut -c1-40
 }
 
+# True when any card frontmatter has github_issue: N (filename may be {slug}.md).
 card_exists_for_issue() {
-  local n="$1" f
+  local n="$1" f base gi
   shopt -s nullglob
-  for f in foam/board/"$n"-*.md foam/board/"$n".md; do
-    [ -f "$f" ] && return 0
+  for f in foam/board/*.md; do
+    [ -f "$f" ] || continue
+    base="$(basename "$f")"
+    case "$base" in
+      README.md|_*) continue ;;
+    esac
+    gi="$(awk '
+      BEGIN { c=0 }
+      /^---[[:space:]]*$/ { c++; if (c==2) exit; next }
+      c==1 && $0 ~ /^[[:space:]]*#/ { next }
+      c==1 && $0 ~ /^github_issue:/ {
+        sub(/^github_issue:[[:space:]]*/, "")
+        sub(/[[:space:]]+$/, "")
+        print
+        exit
+      }
+    ' "$f")"
+    [ "$gi" = "$n" ] && return 0
   done
   return 1
 }

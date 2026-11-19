@@ -110,6 +110,38 @@ case ",$unblocked," in
   *) printf 'FAIL expected blocked-item after done blocker, got %s\n' "$unblocked" >&2; FAILS=$((FAILS + 1)) ;;
 esac
 
+# Prefix glob must not steal an exact slug (import-board vs import-board-fix).
+cat >"$TMP/repo/foam/board/import-board.md" <<'EOF'
+---
+title: "feat: import-board"
+status: ready
+priority: P1
+updated: 2026-11-19
+---
+EOF
+cat >"$TMP/repo/foam/board/import-board-fix.md" <<'EOF'
+---
+title: "fix: child of import-board"
+status: ready
+priority: P1
+updated: 2026-11-19
+blocked_by: [import-board]
+---
+EOF
+got="$(find_card import-board)"
+assert_eq "$got" "$TMP/repo/foam/board/import-board.md" "find_card exact slug, not import-board-fix.md"
+child_blocked="$(OUT_JSON=0 cmd_list_ready | sort | paste -sd, -)"
+case ",$child_blocked," in
+  *,import-board-fix,*) printf 'FAIL import-board-fix listed while blocker ready, got %s\n' "$child_blocked" >&2; FAILS=$((FAILS + 1)) ;;
+  *) printf 'ok   import-board-fix hidden while import-board is not done\n' ;;
+esac
+update_fm_field "$TMP/repo/foam/board/import-board.md" status done
+child_ready="$(OUT_JSON=0 cmd_list_ready | sort | paste -sd, -)"
+case ",$child_ready," in
+  *,import-board-fix,*) printf 'ok   import-board-fix listed after import-board is done\n' ;;
+  *) printf 'FAIL expected import-board-fix after done blocker, got %s\n' "$child_ready" >&2; FAILS=$((FAILS + 1)) ;;
+esac
+
 # Skill contract: orchestrator names the index path (ADR-015 / #407 file).
 SKILL_ROOT="$(cd "$ROOT/../.." && pwd)"
 if grep -q 'board-index.json' "$SKILL_ROOT/cda-orchestrator/SKILL.md"; then

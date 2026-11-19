@@ -57,11 +57,18 @@ case "$*" in
   *"repo view"*)
     printf '%s\n' '{"nameWithOwner":"owner/repo"}'
     ;;
+  *"issue view"*foam-only*)
+    echo "should not gh issue view a foam-only slug" >&2
+    exit 2
+    ;;
   *"issue view"*11*)
     printf '%s\n' '{"labels":[{"name":"triage:ready-for-human"}]}'
     ;;
   *"issue view"*)
     printf '%s\n' '{"labels":[{"name":"type:fix"}]}'
+    ;;
+  *"pr list"*feat/foam-only-*)
+    if [ "${GH_STUB_FOAM_PR:-0}" = 1 ]; then echo '[{"number":88}]'; else echo '[]'; fi
     ;;
   *"pr list"*feat/12-*)
     echo '[{"number":99}]'
@@ -104,7 +111,7 @@ assert_eq "$out_fp" "" "open-PR lookup failure -> nothing dispatched"
 assert_contains "$(cat "$TMP/stderr")" "skip #10 (open-PR lookup failed; fail closed)" "logs PR failure skip"
 assert_contains "$(cat "$TMP/stderr")" "skip #11 (ready-for-human)" "labels still checked first"
 
-echo "# orch-auto foam-only slug skips GitHub label/PR lookups"
+echo "# orch-auto foam-only slug skips labels but still skips on open PR"
 cat >"$STUB_BIN/fake-foam-board.sh" <<'EOF'
 #!/usr/bin/env bash
 case "${1:-}" in
@@ -114,8 +121,11 @@ esac
 EOF
 chmod +x "$STUB_BIN/fake-foam-board.sh"
 out_slug="$(ORCH_FOAM_BOARD="$STUB_BIN/fake-foam-board.sh" bash "$SCRIPTS/orch-auto.sh" --repo "$TMP" --dry-run 2>"$TMP/stderr")"
-assert_eq "$out_slug" $'10\nfoam-only' "numeric skip rules + foam-only eligible"
-! grep -q 'skip #foam-only' "$TMP/stderr" || { FAILS=$((FAILS + 1)); echo "FAIL foam-only was skipped" >&2; }
+assert_eq "$out_slug" $'10\nfoam-only' "foam-only eligible when no open PR (labels skipped)"
+! grep -q 'skip #foam-only' "$TMP/stderr" || { FAILS=$((FAILS + 1)); echo "FAIL foam-only skipped without open PR" >&2; }
+out_slug_pr="$(ORCH_FOAM_BOARD="$STUB_BIN/fake-foam-board.sh" GH_STUB_FOAM_PR=1 bash "$SCRIPTS/orch-auto.sh" --repo "$TMP" --dry-run 2>"$TMP/stderr")"
+assert_eq "$out_slug_pr" "10" "foam-only skipped when open PR on feat/foam-only-issue-foam-only"
+assert_contains "$(cat "$TMP/stderr")" "skip #foam-only" "logs skip foam-only open PR"
 
 echo "# orch-auto dry-run uses real foam-board fixture (ready listed, backlog/blocked not)"
 FIX="$(cd "$SCRIPTS/../../cda-kanban/scripts/tests/fixtures/foam-board" && pwd)"

@@ -20,10 +20,10 @@ mod tui;
 mod widgets;
 
 use cdamux_core::{
-    cdamux_home, command_on_path, config_path, configured_agent_ids, default_agent_name,
+    board_index_file, cdamux_home, command_on_path, config_path, configured_agent_ids, default_agent_name,
     discover_projects, ensure_home_session, ensure_note_file, format_unread_digest, git_diff_unified,
     git_toplevel, home_session_new_argv, list_tmux_sessions, list_worktrees, list_workers, load_config,
-    resolve_spawn_repo,
+    refresh_board_index, resolve_spawn_repo, RefreshOptions,
     note_refs_for_projects, current_tmux_session, kill_tmux_session, list_panes_all, msg_send,
     parents_first, peek_worker, read_messages, parse_unified_diff, resolve_agent_command,
     is_done_record, restore_one, restore_targets, restart_plan, session_registry, resolve_note_path, send_input,
@@ -67,6 +67,12 @@ enum Commands {
     },
     /// Discover configured project roots on disk.
     Projects,
+    /// Foam-board resume index (`$CDAMUX_HOME/board-index.json`, ADR-016). Cache, not SoT.
+    #[command(after_help = "Read:\n  cat \"$CDAMUX_HOME/board-index.json\"\n  cdamux board\n\nRebuild (no TUI):\n  cdamux board refresh\n\nDefault refresh: git fetch + local foam/board. --pull runs git pull --ff-only.")]
+    Board {
+        #[command(subcommand)]
+        command: Option<BoardCommands>,
+    },
     /// Attach to a tmux session name.
     Attach {
         session: String,
@@ -256,6 +262,16 @@ enum Commands {
         /// Accept any tmux session, not only those `cdamux list` shows.
         #[arg(long)]
         any: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum BoardCommands {
+    /// Rebuild `$CDAMUX_HOME/board-index.json` from discovered projects (no TUI).
+    Refresh {
+        /// Fast-forward each project (`git pull --ff-only`). Off by default.
+        #[arg(long)]
+        pull: bool,
     },
 }
 
@@ -484,6 +500,7 @@ fn main() -> ExitCode {
         Some(Commands::Doctor) => cmd_doctor(),
         Some(Commands::List { json, group_by }) => cmd_list(json, group_by.into()),
         Some(Commands::Projects) => cmd_projects(),
+        Some(Commands::Board { command }) => cmd_board(command),
         Some(Commands::Attach { session }) => cmd_attach(&session),
         Some(Commands::Spawn {
             agent,
@@ -1568,6 +1585,80 @@ fn cmd_projects() -> ExitCode {
     ExitCode::SUCCESS
 }
 
+fn cmd_board(command: Option<BoardCommands>) -> ExitCode {
+    match command {
+        None => cmd_board_cat(),
+        Some(BoardCommands::Refresh { pull }) => cmd_board_refresh(pull),
+    }
+}
+
+fn cmd_board_home() -> Result<PathBuf, ExitCode> {
+    cdamux_home().ok_or_else(|| {
+        eprintln!("board: cannot resolve CDAMUX_HOME (set CDAMUX_HOME, XDG_STATE_HOME, or HOME)");
+        ExitCode::from(1)
+    })
+}
+
+fn cmd_board_cat() -> ExitCode {
+    let home = match cmd_board_home() {
+        Ok(h) => h,
+        Err(c) => return c,
+    };
+    let path = board_index_file(&home);
+    match std::fs::read_to_string(&path) {
+        Ok(raw) => {
+            print!("{raw}");
+            ExitCode::SUCCESS
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            eprintln!(
+                "board: missing {} — run `cdamux board refresh` (or cat that path after refresh)",
+                path.display()
+            );
+            ExitCode::from(1)
+        }
+        Err(e) => {
+            eprintln!("board: {e}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+fn cmd_board_refresh(pull: bool) -> ExitCode {
+    let home = match cmd_board_home() {
+        Ok(h) => h,
+        Err(c) => return c,
+    };
+    let cfg = match load_config() {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("{e}");
+            return ExitCode::from(1);
+        }
+    };
+    let projects = discover_projects(&cfg.projects);
+    let opts = RefreshOptions {
+        pull,
+        ..RefreshOptions::default()
+    };
+    match refresh_board_index(&home, &projects, &opts) {
+        Ok(index) => match serde_json::to_string_pretty(&index) {
+            Ok(raw) => {
+                println!("{raw}");
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("board: {e}");
+                ExitCode::from(1)
+            }
+        },
+        Err(e) => {
+            eprintln!("board: {e}");
+            ExitCode::from(1)
+        }
+    }
+}
+
 pub(crate) const DASHBOARD_REVIEW_INSTRUCTION: &str =
     "Please review these diff hunks and suggest fixes.";
 
@@ -2180,6 +2271,22 @@ mod tests {
         let after_words = parse_send(&["cdamux", "send", "t1", "echo", "hi", "--enter"]);
         assert_eq!(after_words.1, ["echo", "hi"]);
         assert!(after_words.2);
+    }
+
+    #[test]
+    fn board_refresh_parses_pull() {
+        let cli = Cli::try_parse_from(["cdamux", "board", "refresh", "--pull"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Commands::Board {
+                command: Some(BoardCommands::Refresh { pull: true })
+            })
+        ));
+        let cat = Cli::try_parse_from(["cdamux", "board"]).unwrap();
+        assert!(matches!(
+            cat.command,
+            Some(Commands::Board { command: None })
+        ));
     }
 
     #[test]

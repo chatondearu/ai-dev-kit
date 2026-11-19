@@ -396,12 +396,12 @@ mod tests {
         let raw = vec![
             TmuxSession {
                 name: "c-a".into(),
-                path: "/hdd/dev/org/a".into(),
+                path: "/src/org/a".into(),
                 ..Default::default()
             },
             TmuxSession {
                 name: "c-b".into(),
-                path: "/hdd/dev/org/b".into(),
+                path: "/src/org/b".into(),
                 ..Default::default()
             },
         ];

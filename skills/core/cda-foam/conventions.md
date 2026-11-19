@@ -7,7 +7,7 @@ All paths are **repo root** relative:
 | Path | Purpose |
 | ---- | ------- |
 | `foam/` | Knowledge graph (not `docs/foam/`) |
-| `foam/board/` | Execution status (one card per file; ADR-016). Skip `README.md` and `_*.md` |
+| `foam/board/` | Execution status (one card per file; ADR-016). Skip `README.md` and `_*.md`. **Privacy:** this repo only — no host paths, other-project inventories, personal data, or secrets |
 | `prd/` | Product requirements |
 | `plans/` | Implementation plans |
 | `.foam/templates/` | Foam VS Code snippet templates |

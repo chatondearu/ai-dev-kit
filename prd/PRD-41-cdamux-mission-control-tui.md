@@ -52,7 +52,7 @@ Validated mockup (archived): [`foam/archive/cdamux-prototype/`](../foam/archive/
 
 | Persona | Scenario |
 | ------- | -------- |
-| Maintainer | Open `cdamux` → see projects under `/hdd/dev` → expand → pick session → read preview → send follow-up in composer |
+| Maintainer | Open `cdamux` → see discovered projects → expand → pick session → read preview → send follow-up in composer |
 | Multi-session project | Two sessions under same project node; status icons show which needs input |
 | New work | `n` → pick discovered repo → cursor agent → split vertical (agent + shell) |
 | Shell-only | Quick bash in repo without starting cursor-agent |

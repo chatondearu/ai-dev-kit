@@ -22,6 +22,11 @@ humans share the same memory:
 | **Plan** | `plans/` | How / when (checklist derived from PRD) |
 | **Kanban** | `foam/board/` | Execution status (ADR-016; use `cda-kanban`) |
 
+**Board privacy:** one board = this repository. Never commit host paths,
+other-project inventories, personal data, or secrets into `foam/board`
+(or kit plans/ADRs that describe boards). Runtime discovery (`cdamux
+projects`, `$CDAMUX_HOME`) stays on the operator machine.
+
 `foam/` is **agent decision memory**. User-facing docs may live elsewhere (`doc/`,
 `README.md`) — do not duplicate; link from `foam/` when needed.
 

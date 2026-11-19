@@ -52,7 +52,7 @@ mod tests {
         assert_eq!(
             issue_from_branch_or_path(
                 "—",
-                "/hdd/dev/repo/.orch/worktrees/41-issue-41"
+                "/src/repo/.orch/worktrees/41-issue-41"
             ),
             Some(41)
         );

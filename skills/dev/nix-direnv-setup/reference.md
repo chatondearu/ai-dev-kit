@@ -4,7 +4,7 @@ Copy and adapt. Replace `<project>` and version pins from the target repo.
 
 ## Vue / Nuxt / TypeScript (PATH guard)
 
-Matches `beamy`, `vue-maplibre`, `leonardo-downloader`.
+Typical Vue / Nuxt / TypeScript app.
 
 ```nix
 {
@@ -42,7 +42,7 @@ Matches `beamy`, `vue-maplibre`, `leonardo-downloader`.
 
 ## pnpm monorepo + Postgres + Docker
 
-Matches `bajometer`, `cda` (without Postgres).
+Matches a typical pnpm monorepo (optional Postgres).
 
 ```nix
 devShells.default = pkgs.mkShell {
@@ -70,7 +70,7 @@ dotenv_if_exists .env
 
 ## pnpm monorepo with local PNPM_HOME
 
-Matches `cda`.
+Typical pnpm monorepo that wants a repo-local PNPM_HOME.
 
 ```nix
 shellHook = ''
@@ -81,7 +81,7 @@ shellHook = ''
 
 ## Python + uv (multi-system, pinned nixpkgs)
 
-Matches `cool-tts-service`. Use when PyPI wheels need a stable GCC / zlib on Linux.
+Use when PyPI wheels need a stable GCC / zlib on Linux.
 
 ```nix
 {
@@ -132,7 +132,7 @@ use flake
 
 ## Node + Python + corepack + auto venv
 
-Matches `mirabelle-ha-blueprints`.
+Typical mixed Node + Python repo that auto-creates a venv.
 
 `.envrc`:
 
@@ -162,7 +162,7 @@ Read `package.json` `packageManager` for the exact `corepack prepare pnpm@…` v
 
 ## Minimal ops / scripts only
 
-Matches `my-cooli-claw`.
+Minimal flake for ops/scripts-only repos.
 
 ```nix
 {

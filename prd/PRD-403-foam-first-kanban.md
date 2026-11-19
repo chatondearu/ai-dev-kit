@@ -23,8 +23,8 @@ merge click.
       verify + ADR-006 review; fail closed otherwise
 - [ ] `$CDAMUX_HOME/board-index.json` is a cache of per-repo foam boards for
       the global orch; git remains the sync
-- [ ] Kit dogfood, then every non-Beamy cdamux project (checklist; no GH
-      issues on those repos)
+- [ ] Kit dogfood, then every non-Beamy cdamux project discovered at
+      runtime (no GH issues on those repos)
 
 ## Non-goals
 
@@ -58,7 +58,7 @@ merge click.
 - [ ] #405 — skills + orch list-ready from foam; `cda-orchestrator` reads the global index; `gh issue` only when a card opts in
 - [ ] #406 — worker self-merge on the allowlist; fail closed outside it
 - [ ] #407 — `$CDAMUX_HOME/board-index.json` + refresh; skip Beamy; missing foam does not crash
-- [ ] #408 — rollout checklist of non-Beamy repos; kit first; one-shot map then stop writing Projects
+- [ ] #408 — rollout to runtime-included remotes; kit first; one-shot map then stop writing Projects
 
 ### Non-functional
 
@@ -76,7 +76,7 @@ merge click.
 | [#405](https://github.com/chatondearu/ai-dev-kit/issues/405) | Skills + orch list-ready from foam |
 | [#406](https://github.com/chatondearu/ai-dev-kit/issues/406) | Worker meta auto-merge (`Blocked by: #405`) |
 | [#407](https://github.com/chatondearu/ai-dev-kit/issues/407) | cdamux global index (`Blocked by: #404`) |
-| [#408](https://github.com/chatondearu/ai-dev-kit/issues/408) | Rollout checklist (`Blocked by: #405`) |
+| [#408](https://github.com/chatondearu/ai-dev-kit/issues/408) | Rollout to runtime-included remotes (`Blocked by: #405`) |
 
 ## Related project memory
 

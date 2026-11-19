@@ -41,7 +41,7 @@ config pain) cannot be added/edited/deleted in the UI.
 | ------- | -------- |
 | Operator | On Fleet, glance footer → see `m` rename → press `m` → rename modal |
 | Operator | Press `?` → same bindings as footer, grouped |
-| Maintainer | Tab `5` Settings → edit roots (add `/hdd/dev`, fix label) → `S` → rediscover |
+| Maintainer | Tab `5` Settings → edit roots (add a path, fix label) → `S` → rediscover |
 | Maintainer | Toggle `listen_tailnet`, bump `preview_max_lines`, cycle `attach_mode` without opening TOML |
 
 ## Requirements

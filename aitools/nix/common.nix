@@ -63,7 +63,7 @@
       type = lib.types.str;
       default = "";
       description = "Host-specific primary [[projects.roots]] path in config.toml (required when deploy.enable).";
-      example = "/hdd/dev";
+      example = "/path/to/projects";
     };
 
     hooks = {

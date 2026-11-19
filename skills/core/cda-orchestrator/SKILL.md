@@ -173,7 +173,8 @@ spec covers → relay the answer; anything else → escalate to the maintainer.
 ## Done → ready to merge
 
 **From an `orch.sh` worker**: its PR already passed verify, the review gate and
-CI. Report it ready to merge. `blocked` / `error` → read the `ref`, then
+CI. If orch.sh already merged it (ADR-016 allowlist), report merged. Otherwise
+report it ready to merge. `blocked` / `error` → read the `ref`, then
 `orch.sh --mode pr-fix --pr <N>` (background) or escalate.
 
 **From a spawned worker**, on `done` with a PR:

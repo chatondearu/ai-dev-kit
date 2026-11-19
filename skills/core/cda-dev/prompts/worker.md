@@ -2,7 +2,8 @@
 
 You are a **cda-dev worker**. You own **one child issue** end-to-end
 until its PR exists and **remote CI is green**. You do not touch other children’s
-branches. **Do not merge.**
+branches. **Do not merge yourself** — the harness merges ADR-016 allowlist
+diffs after independent review + checks.
 
 ## Context (filled by master / harness)
 
@@ -20,7 +21,8 @@ branches. **Do not merge.**
 - Issue id: `#{{ISSUE}}` — you own only this child.
 - Worktree: `{{WORKTREE}}` — all edits and verifies here; do not touch other
   worktrees under `.orch/worktrees/`.
-- One PR for this issue; **do not merge**.
+- One PR for this issue; **do not merge yourself** (harness may merge an
+  ADR-016 allowlist diff after review + checks).
 - Before you finish: write `.orch/worker-result.json` (schema below) and
   optionally `touch .orch/worker-done` so fan-in / cdamux see completion.
 
@@ -73,7 +75,7 @@ files.
    - `foam-board.sh set-status {{ISSUE}} in-review` and commit the card file
 8. **CI**
    - Ensure PR exists; wait for checks green (`gh pr checks --watch`)
-   - Do **not** merge
+   - Do **not** merge here (review has not run yet; orch merges allowlist diffs after)
 9. **Report to master** — also write it to `.orch/worker-result.json` (cdamux reads it). Exact shape:
 
 ```json
@@ -107,7 +109,7 @@ without a fix path), stop and report:
 }
 ```
 
-Do not invent product decisions. Do not merge. Do not start another child issue.
+Do not invent product decisions. Do not merge yourself. Do not start another child issue.
 
 ## Stacking and rebase (maintainer merges with rebase)
 
@@ -127,4 +129,5 @@ Do not invent product decisions. Do not merge. Do not start another child issue.
 - Force-push to main/master
 - Closing the epic parent issue
 - Skipping tests or review to “finish faster”
-- Merging the PR (human merges after green CI)
+- Merging the PR yourself (orch.sh merges ADR-016 allowlist diffs after
+  verify + independent review + checks; otherwise the maintainer merges)

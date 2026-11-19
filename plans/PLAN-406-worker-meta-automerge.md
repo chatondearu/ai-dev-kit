@@ -1,6 +1,6 @@
 # PLAN-406 — feat(cda-dev): worker self-merge of foam/prd/plans/decisions PRs
 
-- **Status**: draft
+- **Status**: in-review
 - **PRD**: [[../prd/PRD-403-foam-first-kanban|PRD-403]]
 - **GitHub**: [#406](https://github.com/chatondearu/ai-dev-kit/issues/406)
 - **Date**: 2026-11-19
@@ -54,11 +54,11 @@ predicate is true.
 
 ## Tasks
 
-- [ ] Allowlist predicate matches ADR-016 prefixes; a diff with only `prd/`+`plans/`+`foam/decisions/`+`foam/board/` is true; a diff that also has `doc/` or `skills/` is false
-- [ ] After verify + independent review + checks policy, true → worker/orch runs `gh pr merge` and reports merged; false → does not merge and says so
-- [ ] Worker and cda-dev docs state the allowlist in the positive (what to merge), plus fail-closed as the guardrail
-- [ ] No GitHub ruleset, app, or workflow is added
-- [ ] Tests cover both branches; `bash scripts/verify.sh`; PR `Closes #406`
+- [x] Allowlist predicate matches ADR-016 prefixes; a diff with only `prd/`+`plans/`+`foam/decisions/`+`foam/board/` is true; a diff that also has `doc/` or `skills/` is false
+- [x] After verify + independent review + checks policy, true → worker/orch runs `gh pr merge` and reports merged; false → does not merge and says so
+- [x] Worker and cda-dev docs state the allowlist in the positive (what to merge), plus fail-closed as the guardrail
+- [x] No GitHub ruleset, app, or workflow is added
+- [x] Tests cover both branches; `bash scripts/verify.sh`; PR `Closes #406`
 
 ## Risks & mitigations
 
@@ -73,11 +73,11 @@ predicate is true.
 Seams: the allowlist function (list of paths → bool); orch post-review
 branch (merge vs report). Do not hit live GitHub merge in unit tests.
 
-- [ ] Fixture path lists: allow / reject
-- [ ] Harness stub: merge command invoked only on allow
-- [ ] `bash scripts/verify.sh`
+- [x] Fixture path lists: allow / reject
+- [x] Harness stub: merge command invoked only on allow
+- [x] `bash scripts/verify.sh`
 
 ## Verification
 
-- [ ] Lint / test / build per project conventions
-- [ ] Update foam / ADR if a new decision was made
+- [x] Lint / test / build per project conventions
+- [x] Update foam / ADR if a new decision was made (none; ADR-016 already records the allowlist)

@@ -26,6 +26,7 @@ source "$ROOT/lib/worktree.sh"
 source "$ROOT/lib/agents.sh"
 source "$ROOT/lib/verify.sh"
 source "$ROOT/lib/ci.sh"
+source "$ROOT/lib/meta.sh"
 source "$ROOT/lib/sandbox.sh"
 source "$ROOT/lib/loop.sh"
 source "$ROOT/lib/graph.sh"
@@ -491,9 +492,18 @@ EOF
     echo 1 >"$rc_file"
     return 1
   fi
-  orch_progress_set "$id" done "PR #${pr_num} green (${m})"
-  if ! orch_progress_enabled; then
-    printf 'done: issue %s (PR %s checks green, mergeable=%s)\n' "$id" "$pr_num" "$m"
+  # ADR-016: self-merge only when the committed diff is the meta allowlist.
+  # Product / doc / skills diffs stay open for the maintainer. Never force-push.
+  if orch_meta_try_merge "$pr_num" "$path"; then
+    orch_progress_set "$id" done "PR #${pr_num} merged (ADR-016 allowlist)"
+    if ! orch_progress_enabled; then
+      printf 'done: issue %s (PR %s merged, ADR-016 allowlist)\n' "$id" "$pr_num"
+    fi
+  else
+    orch_progress_set "$id" done "PR #${pr_num} green (${m})"
+    if ! orch_progress_enabled; then
+      printf 'done: issue %s (PR %s checks green, mergeable=%s)\n' "$id" "$pr_num" "$m"
+    fi
   fi
 
   if [ "${ORCH_FORCE_CLEAN:-0}" = "1" ]; then

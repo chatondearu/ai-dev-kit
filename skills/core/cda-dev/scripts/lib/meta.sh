@@ -4,12 +4,12 @@
 # Never --admin, never force-push. Empty diffs fail closed.
 
 # True when $1 is an ADR-016 allowlist path (prefix rules). Fail closed otherwise.
-# Product-status foam (shipped / backlog catalogs) is not allowlisted.
+# foam/features/ is a product catalog (not "foam that does not change product status").
 orch_meta_path_allowed() {
   local p="${1#./}"
   case "$p" in
     "") return 1 ;;
-    foam/features/shipped.md|foam/features/backlog.md) return 1 ;;
+    foam/features|foam/features/*) return 1 ;;
     prd|prd/*) return 0 ;;
     plans|plans/*) return 0 ;;
     foam/board|foam/board/*) return 0 ;;

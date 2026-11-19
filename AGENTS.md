@@ -142,9 +142,10 @@ bash scripts/verify.sh
   orch: allow-no-checks
   (or `ORCH_ALLOW_NO_CHECKS=1`). Poll live worker state under `$CDAMUX_HOME/runs/`
   (and agents); `.orch/run/` keeps work artefacts only.
-- ADR-016: worker/orch `gh pr merge` after verify + independent review + checks
+- ADR-016: `orch.sh` `gh pr merge` after verify + independent review + checks
   green-or-none **only** when the diff is the meta allowlist (`foam/board/**`,
-  `prd/`, `plans/`, `foam/decisions/`, other non-status foam). Otherwise the
-  maintainer merges. Never force-push to main.
+  `prd/`, `plans/`, `foam/decisions/`, other foam except `foam/features/**`).
+  Workers never merge themselves. Otherwise the maintainer merges. Never
+  force-push to main.
 
 verify: bash scripts/verify.sh (or mise run verify; nix develop only if toolchain missing)

@@ -113,7 +113,7 @@ A worker is **done** only when its PR is open, the **independent review** said
 `REVIEW: approved`, **and** `gh pr checks` reports green (or the run is
 **blocked** with a documented reason). Then **merge only** if every path in
 the merge-base…HEAD diff is the ADR-016 allowlist (`foam/board/**`, `prd/`,
-`plans/`, `foam/decisions/`, other foam except shipped/backlog catalogs).
+`plans/`, `foam/decisions/`, other foam except `foam/features/**`).
 Otherwise leave the PR open for the maintainer. Never force-push to main.
 
 In cdamux state (ADR-011 §3), `orch.sh` reports a wait (held by a dependency, no verify

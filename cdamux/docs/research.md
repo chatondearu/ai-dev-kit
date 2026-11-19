@@ -8,8 +8,8 @@ when evaluating new tools.
 
 1. **Orchestrator model** — the tool spawns and supervises tmux sessions (skzv/ccmux),
    not only jump to panes started by hand (epilande picker-first).
-2. **Multi-root and nested repos** — e.g. `/hdd/dev/org/repo`, plus paths outside
-   one `projects.root` (NixOS configs under `/home/chaton/etc/nixos`).
+2. **Multi-root and nested repos** — e.g. `/src/org/repo`, plus paths outside
+   one `projects.root` (NixOS configs under a second root).
 3. **Dynamic session grouping** — `groupBy` project/cwd/session like epilande, not
    only manual group trees (agent-manager).
 4. **Popup-friendly picker** — choose session → attach/switch → **process exits**
@@ -85,7 +85,7 @@ when evaluating new tools.
 **Limits**
 
 - **No** epilande-style `groupBy` on live sessions — groups are curated, not views.
-- Does not auto-scan `/hdd/dev/**` for git repos; map disks via group `default path`.
+- Does not auto-scan project roots for git repos; map disks via group `default path`.
 - Sessions on separate tmux server — not mixed with personal tmux (by design).
 
 **Keys (reference)**: `n` new, `g` group, `A` fullscreen attach, `enter` focus in place,
@@ -151,7 +151,7 @@ but Orca owns the full GUI and supervised inbox; we keep **tmux + bash orch + fo
 - Not tmux-native — different from maintainer popup/`M-p` + personal tmux mix.
 - Orchestration state lives in Orca runtime, not repo-local JSON + foam.
 - Heavy desktop; we optimize for Nix/tmux/headless orch on a always-on host.
-- Multi-root discover and `/hdd/dev/**` layout are cdamux config concerns Orca solves differently (workspace folders).
+- Multi-root discover and host layout are cdamux config concerns Orca solves differently (workspace folders).
 
 **Do not confuse**
 

@@ -63,6 +63,8 @@ Execution status (ADR-016). One markdown file per card. Required frontmatter:
 `status`, `priority`, `updated`. Optional: `title`, `github_issue`, `blocked_by`.
 Glob `*.md`; skip `README.md` and `_*.md`. Ready oracle:
 `cda-kanban` `foam-board.sh`. One-shot GH map: `import-board.sh` (not a loop).
+Board privacy: this repo only; no host paths, other-project inventories,
+personal data, or secrets.
 
 ## Difference from cda-docs
 

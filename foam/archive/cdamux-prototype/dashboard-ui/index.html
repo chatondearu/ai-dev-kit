@@ -310,20 +310,20 @@
 
   <script>
     const PROJECTS = [
-      { id: 'ai-dev-kit', name: 'ai-dev-kit', path: '/hdd/dev/chatondearu/ai-dev-kit', root: 'dev' },
-      { id: 'wiregraph', name: 'wiregraph', path: '/hdd/dev/chatondearu/wiregraph', root: 'dev' },
-      { id: 'barajeuxonline', name: 'barajeuxonline', path: '/hdd/dev/barajeuxonline/barajeuxonline', root: 'dev' },
-      { id: 'motoko-ops', name: 'motoko-ops', path: '/hdd/dev/neomatix/motoko-ops', root: 'dev' },
-      { id: 'nixos', name: 'nixos', path: '/home/chaton/etc/nixos', root: 'nixos' },
-      { id: 'cool-tts', name: 'cool-tts-service', path: '/hdd/dev/chatondearu/cool-tts-service', root: 'dev' },
+      { id: 'kit', name: 'example-kit', path: '/src/org/example-kit', root: 'dev' },
+      { id: 'app', name: 'example-app', path: '/src/org/example-app', root: 'dev' },
+      { id: 'web', name: 'example-web', path: '/src/org/example-web', root: 'dev' },
+      { id: 'ops', name: 'example-ops', path: '/src/org/example-ops', root: 'dev' },
+      { id: 'nixos', name: 'nixos', path: '/etc/nixos', root: 'nixos' },
+      { id: 'svc', name: 'example-svc', path: '/src/org/example-svc', root: 'dev' },
     ];
 
     const SESSIONS = [
-      { name: 'ai-dev-kit', path: '/hdd/dev/chatondearu/ai-dev-kit', agent: 'cursor', state: 'active', projectId: 'ai-dev-kit', needs: false },
-      { name: 'c-wiregraph', path: '/hdd/dev/chatondearu/wiregraph', agent: 'cursor', state: 'needs_input', projectId: 'wiregraph', needs: true },
-      { name: 'bajo-secu', path: '/hdd/dev/barajeuxonline/barajeuxonline', agent: 'opencode', state: 'idle', projectId: 'barajeuxonline', needs: false },
-      { name: 'motoko-ops', path: '/hdd/dev/neomatix/motoko-ops', agent: 'cursor', state: 'idle', projectId: 'motoko-ops', needs: false },
-      { name: 'neonix-default', path: '/home/chaton/etc/nixos', agent: 'cursor', state: 'idle', projectId: 'nixos', needs: false },
+      { name: 'example-kit', path: '/src/org/example-kit', agent: 'cursor', state: 'active', projectId: 'kit', needs: false },
+      { name: 'c-app', path: '/src/org/example-app', agent: 'cursor', state: 'needs_input', projectId: 'app', needs: true },
+      { name: 'web-idle', path: '/src/org/example-web', agent: 'opencode', state: 'idle', projectId: 'web', needs: false },
+      { name: 'ops', path: '/src/org/example-ops', agent: 'cursor', state: 'idle', projectId: 'ops', needs: false },
+      { name: 'nixos-default', path: '/etc/nixos', agent: 'cursor', state: 'idle', projectId: 'nixos', needs: false },
     ];
 
     const COPY = {
@@ -332,16 +332,16 @@
 ok. 27 passed
 
 agent> waiting for input…`,
-      notes: `# ai-dev-kit\n\n- Dashboard variant C\n- Preview composer = agent-manager inline input`,
+      notes: `# example-kit\n\n- Dashboard variant C\n- Preview composer = agent-manager inline input`,
       review: `diff --git a/src/tui.rs\n+ inline composer in preview tab`,
     };
 
     const state = {
       appTab: 'fleet',
       sideTab: 'preview',
-      selectedSession: 'ai-dev-kit',
-      selectedProject: 'ai-dev-kit',
-      expandedProjects: new Set(['ai-dev-kit', 'wiregraph', 'barajeuxonline', 'motoko-ops', 'nixos']),
+      selectedSession: 'example-kit',
+      selectedProject: 'kit',
+      expandedProjects: new Set(['kit', 'app', 'web', 'ops', 'nixos']),
       filterWaiting: false,
       previewLines: [COPY.preview],
       lastAction: 'init',
@@ -469,7 +469,7 @@ agent> waiting for input…`,
         <div class="settings-grid" style="max-width:900px">
           <fieldset>
             <legend>Roots (config)</legend>
-            <p>/hdd/dev <span class="badge">dev</span> · /home/chaton/etc/nixos <span class="badge">nixos</span></p>
+            <p>/src/projects <span class="badge">dev</span> · /etc/nixos <span class="badge">nixos</span></p>
             <p style="color:var(--muted);font-size:11px">discover = git_only · max_depth = 6</p>
           </fieldset>
         </div>

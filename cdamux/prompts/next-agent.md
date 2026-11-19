@@ -20,7 +20,7 @@ Only for new issues after v1:
 
 ```bash
 bash ~/.cursor/skills/cda-dev/scripts/orch.sh \
-  --mode ready-pickup --repo /hdd/dev/chatondearu/ai-dev-kit --issue <N>
+  --mode ready-pickup --repo /path/to/ai-dev-kit --issue <N>
 ```
 
 ## Do not

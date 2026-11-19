@@ -7,8 +7,8 @@
 
 ## Problem
 
-The maintainer runs one orchestrator per project (ai-dev-kit, neomind, barajeuxonline,
-nixos, …) and switches tmux sessions to talk to each. They want one session, started from
+The maintainer runs one orchestrator per project (this kit and others
+discovered at runtime) and switches tmux sessions to talk to each. They want one session, started from
 cdamux, that dispatches work into any discovered project. A per-project orchestrator must
 remain possible.
 
@@ -36,9 +36,9 @@ workers across projects, and `cda-orchestrator` has no global routing.
 | Persona | Scenario |
 | ------- | -------- |
 | Maintainer | `cdamux orch new --global` (or Fleet `n` → global) → "fix the popup lag in cdamux and add the coolify bind in nixos" → two workers, one per repo, appear under their projects in Fleet |
-| Maintainer | "neomind: big refactor" → global starts a neomind project orchestrator as its child (slice 2) and relays its summaries |
+| Maintainer | "big refactor on a discovered project" → global starts a project orchestrator as its child (slice 2) and relays its summaries |
 | Maintainer | 6 workers already live → `worker spawn` refuses with "6/6 live workers"; the orchestrator queues and says so |
-| Maintainer | Already has a neomind orchestrator → keeps using it directly |
+| Maintainer | Already has a project orchestrator → keeps using it directly |
 
 ## Requirements
 

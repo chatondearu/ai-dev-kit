@@ -35,7 +35,7 @@ Do not violate accepted ADRs without superseding them.
   the repo is git+gh), write the index atomically
 - Read: `cat` the file; optional `cdamux board` / `cdamux board refresh`
   wrappers that do not change the schema
-- Skip list: names/paths in ADR-016 plus any `beamysoftware/*` remote
+- Skip Beamy by org/remote (`beamysoftware/*` and remotes identified as Beamy at runtime)
 - Missing foam/board: entry with an error/skip field; continue
 
 ### Out of scope
@@ -58,7 +58,7 @@ stable enough for `jq '.projects[] | select(.ready|length>0)'`.
 
 - [ ] Refresh writes `$CDAMUX_HOME/board-index.json` atomically; a second refresh with no card changes is idempotent aside from `generated_at`
 - [ ] Included project with foam/board: Ready, in-progress, in-review, `blocked_by`, and known open PRs appear
-- [ ] Beamy names/paths and `beamysoftware/*` remotes are absent
+- [ ] Beamy org/remotes (`beamysoftware/*`) are absent from the index
 - [ ] Missing foam or foam/board: project entry with skip/error, exit 0
 - [ ] CLI or documented `cat` path so the global orch reads it in one shot; refresh invoked without a TUI
 - [ ] Tests use a temp `CDAMUX_HOME` and temp repos; `cargo test` + `bash scripts/verify.sh`; PR `Closes #407`

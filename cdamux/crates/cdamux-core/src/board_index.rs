@@ -15,7 +15,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// Filename under `$CDAMUX_HOME`.
 pub const BOARD_INDEX_FILE: &str = "board-index.json";
 
-/// Project names omitted from the index (ADR-016).
+/// Local directory names omitted from the index (Beamy clones that may lack
+/// the org in the remote). ADR-016 skip policy is org/remote; do not add
+/// host filesystem paths here.
 const SKIP_NAMES: &[&str] = &[
     "beamy-v2",
     "data-pipelines",
@@ -23,9 +25,6 @@ const SKIP_NAMES: &[&str] = &[
     "web-extension",
     "windows-agent",
 ];
-
-/// Path prefixes omitted from the index (ADR-016).
-const SKIP_PATH_PREFIXES: &[&str] = &["/hdd/dev/chatondearu/beamy"];
 
 const BOARD_DIR: &str = "foam/board";
 
@@ -100,18 +99,8 @@ fn is_skipped_project(name: &str, path: &Path, remotes: &[String]) -> bool {
     skipped_name_or_path(name, path) || remotes.iter().any(|r| remote_is_beamy(r))
 }
 
-fn skipped_name_or_path(name: &str, path: &Path) -> bool {
-    if SKIP_NAMES.iter().any(|n| *n == name) {
-        return true;
-    }
-    let path_str = path.to_string_lossy();
-    SKIP_PATH_PREFIXES
-        .iter()
-        .any(|prefix| path_matches_prefix(&path_str, prefix))
-}
-
-fn path_matches_prefix(path: &str, prefix: &str) -> bool {
-    path == prefix || path.starts_with(&format!("{prefix}/"))
+fn skipped_name_or_path(name: &str, _path: &Path) -> bool {
+    SKIP_NAMES.iter().any(|n| *n == name)
 }
 
 fn remote_is_beamy(remote: &str) -> bool {
@@ -575,19 +564,9 @@ mod tests {
             Path::new("/src/beamy-v2"),
             &[]
         ));
-        assert!(is_skipped_project(
-            "app",
-            Path::new("/hdd/dev/chatondearu/beamy"),
-            &[]
-        ));
-        assert!(is_skipped_project(
-            "app",
-            Path::new("/hdd/dev/chatondearu/beamy/nested"),
-            &[]
-        ));
         assert!(!is_skipped_project(
             "app",
-            Path::new("/hdd/dev/chatondearu/beamy-other"),
+            Path::new("/src/app"),
             &[]
         ));
         assert!(is_skipped_project(

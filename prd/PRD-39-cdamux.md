@@ -10,7 +10,7 @@
 Managing many AI agent sessions in tmux requires juggling tools: skzv/ccmux for
 spawning and remote notes, agent-manager for review and quick prompts, epilande-style
 pickers for popup navigation and `groupBy`, and ad-hoc scripts for multi-root layouts
-like `/hdd/dev/**/repo`. No single tool combines orchestration, project discovery,
+like `/src/org/repo`. No single tool combines orchestration, project discovery,
 dynamic grouping, picker UX, tailnet access, and a path to browser UI.
 
 ## Goals
@@ -39,7 +39,7 @@ dynamic grouping, picker UX, tailnet access, and a path to browser UI.
 | Persona | Scenario |
 | ------- | -------- |
 | Maintainer | Popup `M-p` → pick session → pane focuses agent; popup closes |
-| Multi-repo layout | Roots `/hdd/dev` + `/home/chaton/etc/nixos`; discover `git_only` |
+| Multi-repo layout | Configurable project roots (code + NixOS); discover `git_only` |
 | Fleet | Several agents; group list by `cwd` or `project` without manual group tree |
 | Remote | Laptop lists sessions on always-on host via tailnet API (read + spawn later) |
 | Future | Browser dashboard on tailnet for status + send (v0.2) |

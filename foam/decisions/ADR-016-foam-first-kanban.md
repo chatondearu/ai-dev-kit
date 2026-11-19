@@ -101,9 +101,9 @@ product/`doc/` diffs. Review-gate (ADR-006) is unchanged.
   (git is the sync across machines). The index is never authoritative.
 - Refresh: a command the global orch runs at **turn start** and on a
   **frequent interval**. Idempotent.
-- Project set: `cdamux projects`, **minus Beamy** (`beamy-v2`,
-  `data-pipelines`, `dev-setup`, `web-extension`, `windows-agent`,
-  `/hdd/dev/chatondearu/beamy`, any `beamysoftware/*` remote).
+- Project set: `cdamux projects`, **minus Beamy** (`beamysoftware/*`
+  remotes and remotes identified as Beamy at runtime). Do not commit the
+  runtime project list or host filesystem paths into this repository.
 - A repo missing `foam/` or `foam/board/` is **reported in the index** and
   skipped; refresh does not crash.
 
@@ -124,7 +124,7 @@ rollout itself.
 | GitHub ruleset / automerge app for meta paths | Owner: workers `gh pr merge` themselves after the local gate |
 | Auto-merge `doc/` / README / skills | User-facing and product; fail closed until the owner expands the list |
 | Index as a second SoT (push status into `$CDAMUX_HOME` only) | Same repo on several machines; git is the sync |
-| Include Beamy in the index / rollout | Owner skip list |
+| Include Beamy in the index / rollout | Owner skip: `beamysoftware/*` and remotes identified as Beamy at runtime |
 
 ## Consequences
 

@@ -12,17 +12,17 @@ Run on maintainer NixOS/Linux host with tmux + Ghostty.
 
 ```bash
 mkdir -p ~/.config/cdamux
-cp /hdd/dev/chatondearu/ai-dev-kit/cdamux/config/cdamux.example.toml \
+cp cdamux/config/cdamux.example.toml \
   ~/.config/cdamux/config.toml
 # Edit paths under [[projects.roots]] for your machine.
 ```
 
-Example roots in the template: `/hdd/dev`, `/home/chaton/etc/nixos`.
+Example roots in the template are placeholders — replace them with your machine's project directories.
 
 ## Build
 
 ```bash
-cd /hdd/dev/chatondearu/ai-dev-kit/cdamux
+cd cdamux
 cargo build
 cargo test
 ```

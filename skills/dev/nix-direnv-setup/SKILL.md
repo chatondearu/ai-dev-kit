@@ -19,7 +19,7 @@ inside the shell). This skill covers how to **author** `flake.nix` and `.envrc`.
    - `pyproject.toml` / `requirements*.txt` / `uv.lock` → Python version, `uv`
    - `Cargo.toml`, `go.mod`, `Dockerfile`, `docker-compose.yml` → extra native tools
    - Existing `flake.nix` / `.envrc` → extend or replace only what the user asked for
-2. **Check sibling projects** under `/hdd/dev/` for a matching stack (copy patterns, not blind copy-paste).
+2. **Check sibling projects** on this machine for a matching stack (copy patterns, not blind copy-paste).
 3. **Never overwrite** an existing `flake.nix` or `.envrc` without explicit user approval.
 
 ## Defaults on this machine
@@ -123,7 +123,7 @@ dotenv_if_exists .env
 [[ -f .envrc.local ]] && source_env .envrc.local
 ```
 
-**Heavy Python / slow reloads** — use `nix-direnv` + `watch_file` (see mirabelle-ha-blueprints pattern in [reference.md](reference.md)).
+**Heavy Python / slow reloads** — use `nix-direnv` + `watch_file` (see the mixed Node + Python pattern in [reference.md](reference.md)).
 
 **Optional guard** when Nix may be absent (CI checkouts, contributors without Nix):
 

@@ -11,11 +11,11 @@ discover = "git_only"
 max_depth = 6
 
 [[projects.roots]]
-path = "/hdd/dev"
+path = "/path/to/projects"
 label = "dev"
 
 [[projects.roots]]
-path = "/home/chaton/etc/nixos"
+path = "/path/to/nixos"
 label = "nixos"
 
 [sessions]

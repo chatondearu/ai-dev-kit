@@ -53,14 +53,15 @@ Epic table: [templates/epic-breakdown.md](templates/epic-breakdown.md).
 2. One child = one worktree = one branch = one PR.
 3. Autonomy stops at **CI green + mergeable PR**, except ADR-016 allowlist
    self-merge after the review gate.
-4. **Merge only when the ADR-016 predicate is true**: every path in
-   `git diff --name-only --no-renames` merge-base…HEAD is `foam/board/**`,
-   `prd/`, `plans/`, `foam/decisions/`, or other foam that does not change
-   product status (`foam/features/**` fail closed). Then **orch.sh**
-   `gh pr merge` (repo default method) after verify + independent review
-   (`REVIEW: approved`) + checks green-or-none. Workers never merge themselves
-   (ADR-006: writer self-review is not the gate). Any other path → leave the
-   PR open. Never force-push to main/master.
+4. **Merge only when the ADR-016 predicate is true**: every path in the
+   GitHub PR (`gh pr diff --name-only`, including rename-from) **and** the
+   worktree `git diff --name-only --no-renames` merge-base…HEAD is
+   `foam/board/**`, `prd/`, `plans/`, `foam/decisions/`, or other foam that
+   does not change product status (`foam/features/**` fail closed). Then
+   **orch.sh** `gh pr merge --match-head-commit` (repo default method) after
+   verify + independent review (`REVIEW: approved`) + checks green-or-none.
+   Workers never merge themselves (ADR-006: writer self-review is not the
+   gate). Any other path → leave the PR open. Never force-push to main/master.
 5. Harness uses portable bash / `git` / `gh` only — no proprietary IDE APIs.
 6. Do **not** invent product decisions to unblock; surface **BLOCKED**.
 

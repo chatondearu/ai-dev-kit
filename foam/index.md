@@ -7,7 +7,8 @@ Map of Content (MOC). Start here before product or architecture decisions.
 1. **New feature** → `cda-prd` → `prd/PRD-NNN-slug.md`, link ADRs.
 2. **Implementation** → `cda-plan` → `plans/PLAN-NNN-slug.md`.
 3. **Technical choice** → `foam/decisions/ADR-NNN-slug.md`.
-4. **Sync kanban** → `import-kanban.sh` refreshes [[features/shipped|shipped]] / [[features/backlog|backlog]].
+4. **Board** → [[board/README|foam/board/]] (ADR-016). Optional GH issue on a card; Projects is not SoT.
+5. **Sync shipped catalog** → `import-kanban.sh` still refreshes [[features/shipped|shipped]] / [[features/backlog|backlog]] from GitHub when issues exist.
 
 **Where files live:** [[product/documentation-layout|Documentation layout]] (do not add
 `docs/superpowers/` or PRDs/plans outside `prd/` / `plans/`).
@@ -47,12 +48,15 @@ Index: [[decisions/index|All ADRs]]
 - [[decisions/ADR-013-mise-alongside-nix-devshell|ADR-013 — Mise alongside Nix for daily Node/Rust]]
 - [[decisions/ADR-014-cdamux-dedicated-navigator-session|ADR-014 — cdamux dedicated navigator session]]
 - [[decisions/ADR-015-global-and-nested-orchestrators|ADR-015 — Global and nested cdamux orchestrators]]
+- [[decisions/ADR-016-foam-first-kanban|ADR-016 — Foam-first kanban (proposed)]]
+- [[board/README|Foam board]] (execution status; ADR-016)
 - [[graph/README|Foam machine graph + orch overlay]]
 
 ## PRDs & plans
 
 | PRD | Status |
 | --- | ------ |
+| [[../prd/PRD-403-foam-first-kanban|PRD-403]] foam-first kanban, worker meta auto-merge, global resume index (plans: [[../plans/PLAN-404-adr-016-foam-first-kanban|PLAN-404]], [[../plans/PLAN-405-skills-foam-board|PLAN-405]], [[../plans/PLAN-406-worker-meta-automerge|PLAN-406]], [[../plans/PLAN-407-cdamux-board-index|PLAN-407]], [[../plans/PLAN-408-foam-board-rollout|PLAN-408]]) | approved |
 | [[../prd/PRD-357-global-orchestrator|PRD-357]] global orchestrator across cdamux projects (plans: [[../plans/PLAN-363-worker-spawn-repo|PLAN-363]], [[../plans/PLAN-364-orch-new-global|PLAN-364]], [[../plans/PLAN-366-global-worker-cap|PLAN-366]], [[../plans/PLAN-367-orchestrator-global-section|PLAN-367]], [[../plans/PLAN-365-nested-project-orchestrator|PLAN-365]]) | shipped |
 | [[../prd/PRD-356-orchestrator-actually-orchestrates|PRD-356]] orchestrator sessions actually orchestrate (plans: [[../plans/PLAN-358-cdamux-orch-boot-prompt-file|PLAN-358]], [[../plans/PLAN-359-role-aware-routing|PLAN-359]], [[../plans/PLAN-360-orchestrator-hard-rules|PLAN-360]], [[../plans/PLAN-361-isolate-tests-cdamux-home|PLAN-361]], [[../plans/PLAN-362-merge-no-harness-fallbacks|PLAN-362]]) | shipped |
 | [[../prd/PRD-353-harden-orch-export-without-compgen|PRD-353]] harden orch export without compgen (plan: [[../plans/PLAN-354-fix-cda-dev-harden-orch-export-functions-for-shells-without-|PLAN-354]]) | approved |

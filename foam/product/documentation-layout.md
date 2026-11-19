@@ -8,7 +8,8 @@ English only for all paths below. Do **not** create parallel trees (e.g.
 | Layer | Path | Role |
 | ----- | ---- | ---- |
 | Agent memory (MOC, ADRs, catalogs) | `foam/` | Start at [[../index|index.md]] |
-| Product requirements | `prd/PRD-NNN-slug.md` | Via `cda-prd` / Kanban issue # |
+| Execution status (kanban) | `foam/board/` | One markdown file per card; SoT ([[../decisions/ADR-016-foam-first-kanban|ADR-016]]). GitHub Issues optional. GitHub Projects is not SoT. |
+| Product requirements | `prd/PRD-NNN-slug.md` | Via `cda-prd`; optional `github_issue` on the card |
 | Implementation checklists | `plans/PLAN-NNN-slug.md` | Active issues only; closed → [[../archive/plans/README|foam/archive/plans]] |
 | Operator docs (humans) | `doc/` | Via `cda-docs`; mirrors runtime |
 | External tools (not vendored) | `docs/recommended.md` | Host CLIs, optional services |

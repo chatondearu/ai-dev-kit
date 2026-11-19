@@ -21,6 +21,7 @@ Status values: `proposed` | `accepted` | `deprecated` | `superseded`.
 | [[ADR-013-mise-alongside-nix-devshell|ADR-013]] | Mise alongside Nix for daily Node/Rust toolchain | accepted | #architecture #tooling |
 | [[ADR-014-cdamux-dedicated-navigator-session|ADR-014]] | cdamux dedicated navigator session (replaces join-pane sidebar) | accepted | #architecture #tooling #cdamux |
 | [[ADR-015-global-and-nested-orchestrators|ADR-015]] | Global and nested cdamux orchestrators | accepted | #architecture #tooling #cdamux #autonomy |
+| [[ADR-016-foam-first-kanban|ADR-016]] | Foam-first kanban, optional GH issues, worker meta auto-merge | proposed | #architecture #tooling #autonomy #foam |
 
 ## Template
 

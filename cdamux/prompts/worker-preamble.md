@@ -18,13 +18,5 @@ Put durable detail behind `--ref` (a log or report file); keep `text` short.
 Before `done`: run your spec's `Acceptance` check. Code changes also: run the
 repo's verify command (its `AGENTS.md`), review your diff with skill
 `cda-review` and fix its Critical/Important findings, push your branch and open
-a PR. Merge with `gh pr merge <pr>` (repo default method, no `--admin`, no
-force-push) **only** when every path in
-`git diff --name-only --no-renames $(git merge-base HEAD origin/main)...HEAD`
-is the ADR-016 allowlist (`foam/board/**`, `prd/`, `plans/`, `foam/decisions/`,
-other foam except `foam/features/shipped.md` / `backlog.md`) **and** verify +
-independent review (`REVIEW: approved`) + checks green-or-none
-(`orch: allow-no-checks`) all passed. Any other path → leave the PR open and
-report; do not ask the maintainer to merge a meta-only PR. Product PRs still
-wait for the maintainer. Commits, PR text and code comments in English. Stay
-inside the scope of your spec; anything outside it is an `ask`.
+a PR. Never merge. Commits, PR text and code comments in English. Stay inside
+the scope of your spec; anything outside it is an `ask`.

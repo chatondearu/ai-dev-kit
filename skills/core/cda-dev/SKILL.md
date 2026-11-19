@@ -56,10 +56,11 @@ Epic table: [templates/epic-breakdown.md](templates/epic-breakdown.md).
 4. **Merge only when the ADR-016 predicate is true**: every path in
    `git diff --name-only --no-renames` merge-base…HEAD is `foam/board/**`,
    `prd/`, `plans/`, `foam/decisions/`, or other foam that does not change
-   product status (`foam/features/shipped.md`, `foam/features/backlog.md`
-   fail closed). Then worker/orch `gh pr merge` (repo default method) after
-   verify + independent review (`REVIEW: approved`) + checks green-or-none.
-   Any other path → leave the PR open. Never force-push to main/master.
+   product status (`foam/features/**` fail closed). Then **orch.sh**
+   `gh pr merge` (repo default method) after verify + independent review
+   (`REVIEW: approved`) + checks green-or-none. Workers never merge themselves
+   (ADR-006: writer self-review is not the gate). Any other path → leave the
+   PR open. Never force-push to main/master.
 5. Harness uses portable bash / `git` / `gh` only — no proprietary IDE APIs.
 6. Do **not** invent product decisions to unblock; surface **BLOCKED**.
 
@@ -169,8 +170,8 @@ ADR-016 allowlist after the review gate; no invented product decisions.
 Mode + issue#/PR#; plan path; epic PRD + ADRs; worktree path + branch; verify
 hints; max-iterations; sandbox on/off. Workers must not touch other worktrees,
 skip verify, expand scope beyond approved plan/PRD, or invent product
-decisions. They must not merge themselves; orch.sh merges after review+checks
-when the ADR-016 predicate is true.
+decisions. They must not merge (spawned workers included). orch.sh merges
+after independent review + checks when the ADR-016 predicate is true.
 
 **BLOCKED:** ADR conflict, product ambiguity, missing secrets/access, ownership
 collision, max iterations, CI red needing product/decision input.

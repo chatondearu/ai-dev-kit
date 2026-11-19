@@ -187,9 +187,9 @@ report it ready to merge. `blocked` / `error` → read the `ref`, then
    `gh pr checkout` it: the branch is already checked out there.
    Critical/Important → relay them once; still failing after the fix →
    escalate to the maintainer.
-3. If the worker already merged (ADR-016 allowlist: `foam/board/**`, `prd/`,
-   `plans/`, `foam/decisions/`, other non-status foam), report that. Otherwise
-   tell the maintainer the PR is ready to merge. Never merge from this session.
+3. If orch.sh already merged (ADR-016 allowlist), report that. Otherwise tell
+   the maintainer the PR is ready to merge. Never merge from this session
+   (writer self-review is not the ADR-006 gate).
 4. After the merge, offer to remove the worktree; never remove one with
    unpushed commits.
 

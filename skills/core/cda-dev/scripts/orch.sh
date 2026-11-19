@@ -376,10 +376,17 @@ orch_ready_pickup_one() {
   if [ -z "$pr_num" ]; then
     open_pr_prompt="$path/.orch/open-pr-prompt.md"
     mkdir -p "$path/.orch"
-    cat >"$open_pr_prompt" <<EOF
+    if orch_is_issue_number "$id"; then
+      cat >"$open_pr_prompt" <<EOF
 Commit all changes in this worktree, push branch \`${branch}\`, and open a pull request with \`Closes #${id}\` in the body.
 Do not merge. Stay on \`${branch}\`.
 EOF
+    else
+      cat >"$open_pr_prompt" <<EOF
+Commit all changes in this worktree, push branch \`${branch}\`, and open a pull request.
+Do not create a GitHub issue. Mention the foam/board card in the body. Do not merge. Stay on \`${branch}\`.
+EOF
+    fi
     orch_progress_set "$id" agent "open missing PR"
     orch_sandbox_wrap bash -c "$worker_env orch_agent_run \"$path\" \"$open_pr_prompt\"" || true
     if [ "$(orch_pr_state "$branch")" = "MERGED" ]; then
@@ -523,21 +530,34 @@ case "$MODE" in
     # not all closed; only the frontier is dispatched. Held issues are surfaced
     # on the progress board and in the summary below (not here — the progress dir
     # is reset further down). Skipped in --dry-run, when ORCH_FRONTIER=0, or when
-    # gh is unavailable.
+    # gh is unavailable. Foam-only slugs skip gh issue view (list-ready already
+    # filtered foam blocked_by).
     if [ "$DRY" != 1 ] && [ "${ORCH_FRONTIER:-auto}" != 0 ] && command -v gh >/dev/null 2>&1; then
-      GH_SLUG="${GH_REPO:-}"
-      if [ -z "$GH_SLUG" ]; then
-        printf 'orch: cannot resolve GitHub repo slug for %s (gh auth?)\n' "$REPO" >&2
-        exit 1
+      _num_ids=(); _foam_ids=(); _gh_front=()
+      for _id in "${ISSUES[@]}"; do
+        if orch_is_issue_number "$_id"; then
+          _num_ids+=("$_id")
+        else
+          _foam_ids+=("$_id")
+        fi
+      done
+      if [ "${#_num_ids[@]}" -gt 0 ]; then
+        GH_SLUG="${GH_REPO:-}"
+        if [ -z "$GH_SLUG" ]; then
+          printf 'orch: cannot resolve GitHub repo slug for %s (gh auth?)\n' "$REPO" >&2
+          exit 1
+        fi
+        export ORCH_GH_REPO="$GH_SLUG"
+        orch_frontier_partition "$GH_SLUG" "${_num_ids[@]}"
+        if [ "${#HELD_IDS[@]}" -gt 0 ]; then
+          for i in "${!HELD_IDS[@]}"; do
+            printf 'orch: holding #%s (blocked by open #%s)\n' "${HELD_IDS[$i]}" "${HELD_REASON[$i]}" >&2
+          done
+          any_blocked=1
+        fi
+        _gh_front=("${FRONTIER_IDS[@]+"${FRONTIER_IDS[@]}"}")
       fi
-      export ORCH_GH_REPO="$GH_SLUG"
-      orch_frontier_partition "$GH_SLUG" "${ISSUES[@]}"
-      if [ "${#HELD_IDS[@]}" -gt 0 ]; then
-        for i in "${!HELD_IDS[@]}"; do
-          printf 'orch: holding #%s (blocked by open #%s)\n' "${HELD_IDS[$i]}" "${HELD_REASON[$i]}" >&2
-        done
-        any_blocked=1
-      fi
+      FRONTIER_IDS=("${_foam_ids[@]+"${_foam_ids[@]}"}" "${_gh_front[@]+"${_gh_front[@]}"}")
       if [ "${#FRONTIER_IDS[@]}" -eq 0 ]; then
         printf 'orch: no frontier — every requested issue is blocked\n' >&2
         exit 1

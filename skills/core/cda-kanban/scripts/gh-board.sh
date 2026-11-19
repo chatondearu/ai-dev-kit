@@ -14,7 +14,8 @@
 #     [--base origin/dev] [--status Backlog] [--apply] [--json] [--limit 100]
 #     [--chunk 40]
 #   ./gh-board.sh list-ready [--json] [--limit N]
-#     Ready-column open Issues (numbers); used by orch-auto.sh
+#     Projects Ready-column (opt-in GH path / tests). Default oracle:
+#     foam-board.sh list-ready (ADR-016).
 #
 # `events` aggregates, per board item and since a cursor, a normalized activity
 # feed: comments, reviews, labels, assignment, PR merge/close, and Status column

@@ -1,6 +1,6 @@
 ---
 title: "docs(foam): record ADR-016 foam-first kanban and global board index"
-status: in-review
+status: done
 priority: P0
 updated: 2026-11-19
 github_issue: 404

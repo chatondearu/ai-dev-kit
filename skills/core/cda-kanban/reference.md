@@ -1,4 +1,9 @@
-# gh CLI reference — GitHub Kanban Orchestrator
+# gh CLI reference — opt-in GitHub issues
+
+Default Ready listing and status moves use
+[`foam-board.sh`](scripts/foam-board.sh) on `foam/board/` (ADR-016). This page is
+the **optional** GitHub issue / Projects helper: comments, `Closes`, events.
+Do not call Projects in the default Ready path.
 
 Repo-agnostic recipes. Resolve identifiers once, then reuse the exported vars.
 

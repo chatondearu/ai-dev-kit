@@ -7,6 +7,7 @@ All paths are **repo root** relative:
 | Path | Purpose |
 | ---- | ------- |
 | `foam/` | Knowledge graph (not `docs/foam/`) |
+| `foam/board/` | Execution status (one card per file; ADR-016). Skip `README.md` and `_*.md` |
 | `prd/` | Product requirements |
 | `plans/` | Implementation plans |
 | `.foam/templates/` | Foam VS Code snippet templates |

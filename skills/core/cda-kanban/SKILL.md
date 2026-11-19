@@ -1,67 +1,47 @@
 ---
 name: cda-kanban
 description: >-
-  Orchestrates any GitHub repository's backlog via milestones, issues, PRs, and a
-  GitHub Projects (v2) Kanban board. Auto-detects the repo and project at runtime
-  (no hardcoded IDs). Listens to board activity (comments, reviews, labels,
-  assignment, PR merge/close, Status column changes) and reacts. Use when planning
-  work, creating or triaging issues, moving cards across columns, watching issue/PR
-  events, coordinating one or several agents on tasks, or linking branches and PRs
-  to board items.
+  Orchestrates the repo foam/board kanban (ADR-016). Ready listing and status
+  moves use foam cards, not GitHub Projects. GitHub Issues are optional
+  (`github_issue` on a card) for comments and `Closes`. Use when listing Ready,
+  claiming work, moving cards, or linking an opt-in GitHub issue.
 ---
 
-# GitHub Kanban Orchestrator
+# Foam kanban orchestrator
 
 ## Scope
 
-Governs **project management on GitHub** for the current repository. It does not replace code skills (`cda-dev`, `review-and-ship`, `new-branch-and-pr`) — it wires them to a Kanban board.
+Governs **execution status** for the current repository. It does not replace
+code skills (`cda-dev`, `review-and-ship`, `new-branch-and-pr`) — it wires them
+to `foam/board/`.
 
-This skill is **repo-agnostic**: it resolves the owner, repo, project number, and field/option IDs at runtime. Nothing is hardcoded.
+This skill is **repo-agnostic**. Default path is git + markdown. `gh` is only
+required for cards that opted into a GitHub issue.
 
 ## Prerequisites
 
-1. `gh` authenticated: `gh auth status`
-2. Token has `project` scope. If missing: `gh auth refresh -s project`
-3. Run from inside the target git repo (commands use `git rev-parse --show-toplevel`)
-4. A GitHub Projects (v2) board linked to the repo or owner. If none exists, see "Bootstrap a board".
+1. Run from inside the target git repo (`git rev-parse --show-toplevel`)
+2. `foam/board/` with one markdown file per card (see repo `foam/board/README.md`)
+3. `gh` authenticated only when a card has `github_issue` (comments / `Closes`)
 
-## Resolve context first (always)
-
-Before any board action, resolve identifiers with the helper:
-
-```bash
-source "$(dirname "$0")/scripts/gh-board.sh"   # or run subcommands directly
-gh-board env        # prints OWNER, REPO, PROJECT_NUMBER, PROJECT_ID, field + option IDs
-```
-
-The helper auto-detects:
-- `OWNER/REPO` via `gh repo view --json owner,name`
-- The linked project (first project linked to the repo, or prompts if several)
-- `Status`, `Priority`, `Size` field IDs and their option IDs via `gh project field-list`
-
-If detection is ambiguous (multiple projects), pass an override:
-
-```bash
-gh-board env --project-number 2 --owner some-owner
-```
-
-Never paste IDs from another repo. Re-resolve per repository.
+`git pull` (or fetch) before listing Ready so the worktree is not stale.
 
 ## Source of truth
 
 | Layer | Role |
 |-------|------|
-| **GitHub Project** (Kanban board) | Status, priority, size, dates |
-| **Issues** | Scoped work units, acceptance criteria, `Closes #N` linkage |
-| **Milestones** | Phase / release grouping |
-| **PRs** | Implementation + review; auto-linked when referencing issues |
+| **`foam/board/`** | Status, priority, blockers (ADR-016). Glob `*.md`; skip `README.md` and `_*.md` |
+| **GitHub Issues** | Optional. Set `github_issue` for discussion, `Closes #N`, external trackers |
+| **GitHub Projects** | Not SoT. Do not call Projects in list-ready, orch-auto, or status moves |
+| **PRs** | Implementation + review; `Closes #N` only when the card has `github_issue` |
 
 Conventions (labels, branches, claim protocol): [conventions.md](conventions.md)
-`gh` command recipes + the discovery helper: [reference.md](reference.md)
+Foam helper: [scripts/foam-board.sh](scripts/foam-board.sh)
+Opt-in GitHub helper (comments / events, not Ready): [scripts/gh-board.sh](scripts/gh-board.sh), [reference.md](reference.md)
 
 ## Kanban columns (Status)
 
-Default flow (adapt to the board's actual options, discovered at runtime):
+Default flow:
 
 ```
 Backlog → Ready → In progress → In review → Done
@@ -75,7 +55,7 @@ Backlog → Ready → In progress → In review → Done
 | **In review** | PR open, awaiting merge | Implementing agent after PR |
 | **Done** | Merged + verified | Agent after merge (or human) |
 
-If the board uses different option names, map intent to the closest existing option rather than inventing new ones.
+Status lives on the card file (`status:` in frontmatter). Do not invent a second kanban.
 
 ## Core workflows
 
@@ -97,15 +77,15 @@ If the board uses different option names, map intent to the closest existing opt
 
 Pipeline context: `cda-plan` § End-to-end feature pipeline.
 
-1. `gh project item-list` — find **Ready** items without an active PR
-2. Confirm no other agent claimed it (no open PR, no "Claimed" comment in last 24h)
-3. Comment on issue: `Claimed for implementation.`
-4. Move card → **In progress**
-5. Create branch: `<type>/<issue#>-<short-slug>` (see conventions.md)
-6. Implement; commit with Conventional Commits; reference `Refs #N` or `Closes #N`
+1. `foam-board.sh list-ready` — **Ready** cards whose `blocked_by` is clear
+2. Confirm no other agent claimed it (card still `ready`, no open PR on the expected branch)
+3. `foam-board.sh claim <id>` — writes `in-progress`; comments on GitHub only if `github_issue` is set. Never `gh issue create`.
+4. Commit the card file
+5. Create branch: `<type>/<id>-<short-slug>` (see conventions.md)
+6. Implement; commit with Conventional Commits; `Closes #N` only when `github_issue` is set
 7. Open PR (use `new-branch-and-pr` or `review-and-ship`)
-8. Move card → **In review**
-9. After merge + CI green → move card → **Done**, close issue if not auto-closed
+8. `foam-board.sh set-status <id> in-review` and commit the card
+9. After merge + CI green → `set-status <id> done` (and close the GitHub issue if `github_issue` + `Closes` did not)
 
 ### C — Multi-agent coordination
 
@@ -125,12 +105,17 @@ Pipeline context: `cda-plan` § End-to-end feature pipeline.
 ### E0 — List Ready (for orch-auto)
 
 ```bash
-./scripts/gh-board.sh list-ready          # open Issues in Ready, one number per line
-./scripts/gh-board.sh list-ready --json
+./scripts/foam-board.sh list-ready          # github_issue numbers or slugs; no Projects
+./scripts/foam-board.sh list-ready --json
+./scripts/foam-board.sh set-status <id> in-progress
+./scripts/foam-board.sh claim <id>
 ```
 
 Used by `cda-dev` `orch-auto.sh` (AFK poller). Filtering `triage:ready-for-human`
-and open PRs is orch-auto’s job, not this helper.
+and open PRs (cards with `github_issue` only) is orch-auto’s job, not this helper.
+
+`gh-board.sh list-ready` still exists for the opt-in GitHub-issue/Projects path
+and its tests; it is **not** the default Ready oracle.
 
 ### E — Reconcile Backlog (API-efficient)
 
@@ -231,17 +216,13 @@ Closes #N
 
 ## Status transitions (quick commands)
 
-After `gh-board env` exported the IDs and you resolved the item ID:
-
 ```bash
-gh project item-edit \
-  --project-id "$PROJECT_ID" \
-  --id "$ITEM_ID" \
-  --field-id "$STATUS_FIELD_ID" \
-  --single-select-option-id "$STATUS_IN_PROGRESS"
+./scripts/foam-board.sh set-status <id> in-progress   # also: ready | in-review | done | backlog
+# then: git add foam/board/<file> && git commit
 ```
 
-All `$*_FIELD_ID` and `$STATUS_*` / `$PRIORITY_*` / `$SIZE_*` come from `gh-board env`. See [reference.md](reference.md).
+Do not write GitHub Projects by default. `gh-board env` / `gh project item-edit`
+stay in [reference.md](reference.md) for an optional mirror only.
 
 ## Bootstrap a board (no project yet)
 
@@ -290,13 +271,14 @@ Always sync board status when those skills change PR/issue state.
 
 | Kanban layer | Foam layer (`cda-foam`) |
 |--------------|-------------------------------------|
-| Issue scoped work | `prd/PRD-NNN-*.md` |
+| Card `foam/board/*.md` | Execution status (this skill) |
+| Optional `github_issue` | `prd/PRD-NNN-*.md` source |
 | Epic / Done | `foam/features/shipped.md` (or `import-kanban.sh`) |
 | Implementation | `plans/PLAN-NNN-*.md` |
 | Architecture choice | `foam/decisions/ADR-NNN-*.md` |
 
-After merge: run `import-kanban.sh` or update foam; add ADR when a new technical
-decision was made.
+One-shot map of existing GH issues → cards: `cda-foam` `import-board.sh` (not a loop).
+After merge: update the card to `done`; add ADR when a new technical decision was made.
 
 ## Output format
 

@@ -16,7 +16,7 @@
 | Product spec | **One** `prd/PRD-<epic#>-slug.md` | Status `approved` after user GO |
 | Work units | Child issues | Status **Ready** before dispatch |
 | Implementation | `plans/PLAN-<child#>-slug.md` per child | Cite epic PRD + ADRs in constraints |
-| Execution | Board Status on **children** | Ready → In progress → In review → Done |
+| Execution | `foam/board` card status | Ready → In progress → In review → Done |
 
 Unlike a solo feature (1 issue ↔ 1 PRD), batch mode keeps **one PRD on the epic**.
 Children do not get separate PRDs unless the user later splits the epic.
@@ -224,12 +224,13 @@ state can't be read, is held (reason `body-fetch-failed` / the blocker number).
 
 ## Claim protocol
 
-Unchanged from `cda-kanban`:
+`cda-kanban` `foam-board.sh` (ADR-016). GitHub Projects is not SoT.
 
-1. Child must be **Ready**
-2. Comment: `Claimed for implementation.`
-3. Move → **In progress** before first commit
-4. After PR → **In review**
+1. Child must be **Ready** on `foam/board`
+2. `foam-board.sh claim <id>` — writes `in-progress`; comments `Claimed for implementation.` only when `github_issue` is set
+3. Commit the card file before the first product commit
+4. After PR → `foam-board.sh set-status <id> in-review` (commit the card)
+5. Never `gh issue create` for foam-only cards
 
 Epic parent is not claimed for implementation.
 

@@ -1,6 +1,6 @@
 # PLAN-405 — feat(skills): list-ready and orch from foam board, not GitHub Projects
 
-- **Status**: draft
+- **Status**: in-progress
 - **PRD**: [[../prd/PRD-403-foam-first-kanban|PRD-403]]
 - **GitHub**: [#405](https://github.com/chatondearu/ai-dev-kit/issues/405)
 - **Date**: 2026-11-19
@@ -58,13 +58,13 @@ per-repo foam glob.
 
 ## Tasks
 
-- [ ] list-ready returns Ready foam cards without calling Projects; a fixture repo with three cards (ready / backlog / blocked) matches expected numbers
-- [ ] orch-auto dry-run uses that list; existing skip rules (`triage:ready-for-human`, open PR on the expected branch) still apply to cards with `github_issue`
-- [ ] Claim / column moves update the card file status (and `updated`); they do not write Projects by default
-- [ ] Cards with `github_issue` still get `gh issue` comment + `Closes`; cards without one never call `gh issue create`
-- [ ] cda-foam skill + conventions describe `foam/board/` as SoT; one-shot map from `gh issue list` is documented as import, not a loop
-- [ ] cda-orchestrator turn start: refresh index when possible, read it, do not crash when the file or a project foam is missing
-- [ ] Tests for the parser and list-ready; `bash scripts/verify.sh`; PR `Closes #405`
+- [x] list-ready returns Ready foam cards without calling Projects; a fixture repo with three cards (ready / backlog / blocked) matches expected numbers
+- [x] orch-auto dry-run uses that list; existing skip rules (`triage:ready-for-human`, open PR on the expected branch) still apply to cards with `github_issue`
+- [x] Claim / column moves update the card file status (and `updated`); they do not write Projects by default
+- [x] Cards with `github_issue` still get `gh issue` comment + `Closes`; cards without one never call `gh issue create`
+- [x] cda-foam skill + conventions describe `foam/board/` as SoT; one-shot map from `gh issue list` is documented as import, not a loop
+- [x] cda-orchestrator turn start: refresh index when possible, read it, do not crash when the file or a project foam is missing
+- [x] Tests for the parser and list-ready; `bash scripts/verify.sh`; PR `Closes #405`
 
 ## Risks & mitigations
 
@@ -80,11 +80,11 @@ Seams: list-ready stdout (issue numbers or slugs); orch-auto dry-run;
 frontmatter parser on `_template.md` + fixtures; orchestrator skill text
 names the index path.
 
-- [ ] Fixture: ready card listed; backlog not; `blocked_by` on an open blocker not
-- [ ] Existing gh-board tests still pass for the opt-in GitHub-issue path
-- [ ] `bash scripts/verify.sh`
+- [x] Fixture: ready card listed; backlog not; `blocked_by` on an open blocker not
+- [x] Existing gh-board tests still pass for the opt-in GitHub-issue path
+- [x] `bash scripts/verify.sh`
 
 ## Verification
 
-- [ ] Lint / test / build per project conventions
-- [ ] Update foam / ADR if a new decision was made
+- [x] Lint / test / build per project conventions
+- [x] Update foam / ADR if a new decision was made

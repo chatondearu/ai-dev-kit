@@ -11,6 +11,11 @@
 # This is the same dependency language cda-explore uses, so a decision that
 # graduates into implementation keeps one blocking convention end to end.
 
+# Numeric GitHub issue ids vs foam-only card slugs (ADR-016).
+orch_is_issue_number() {
+  [[ "$1" =~ ^[0-9]+$ ]]
+}
+
 # Resolve GitHub owner/repo for `gh --repo` (not a filesystem path).
 orch_gh_repo_slug() {
   local repo="$1"

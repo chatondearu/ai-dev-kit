@@ -40,9 +40,10 @@ files.
 
 ## Steps (mandatory order)
 
-1. **Claim** (`cda-kanban` protocol)
-   - Confirm card is Ready; comment `Claimed for implementation.`
-   - Move → In progress
+1. **Claim** (`cda-kanban` / foam board)
+   - Confirm the `foam/board` card is Ready (`foam-board.sh list-ready`)
+   - `foam-board.sh claim {{ISSUE}}` (writes `status: in-progress` + `updated`; comments on GitHub only when the card has `github_issue`)
+   - Commit the card file. Never `gh issue create`. Never GitHub Projects.
 2. **Branch / worktree**
    - Branch: `{{BRANCH}}` (already checked out in the worktree). Stay on this branch, do not
      create another: the harness looks up your PR by this exact head branch.
@@ -66,9 +67,10 @@ files.
    - Follow [reviewer.md](reviewer.md) and/or skill `cda-review`
    - Fix Critical and Important findings; re-review until clean or BLOCKED
 7. **PR**
-   - Open PR with `Closes #{{ISSUE}}`
+   - If `{{ISSUE}}` is a GitHub issue number: open PR with `Closes #{{ISSUE}}`
+   - Foam-only (slug): do **not** `gh issue create`; mention the card path in the PR body
    - English title/body; link plan + epic PRD when `full`, or the issue brief when `fast`
-   - Move board card → In review
+   - `foam-board.sh set-status {{ISSUE}} in-review` and commit the card file
 8. **CI**
    - Ensure PR exists; wait for checks green (`gh pr checks --watch`)
    - Do **not** merge

@@ -1,7 +1,8 @@
 # Conventions — GitHub Kanban Orchestrator
 
-Repo-agnostic conventions. All identifiers are resolved at runtime by
-[`scripts/gh-board.sh`](scripts/gh-board.sh) — never hardcode them here.
+Repo-agnostic conventions. Execution status is [`scripts/foam-board.sh`](scripts/foam-board.sh)
+on `foam/board/` (ADR-016). [`scripts/gh-board.sh`](scripts/gh-board.sh) is the
+opt-in GitHub-issue helper — never hardcode project IDs.
 
 ## Board model (expected fields)
 
@@ -66,10 +67,11 @@ Examples:
 
 ## Agent claim protocol
 
-1. Issue must be **Ready** on the board
-2. Comment: `Claimed for implementation.`
-3. Optional self-assign: `gh issue edit N --add-assignee @me`
-4. Move to **In progress** before the first commit
+1. Card must be **Ready** (`foam-board.sh list-ready`)
+2. `foam-board.sh claim <id>` — sets `in-progress` + `updated`; comments
+   `Claimed for implementation.` only when `github_issue` is set
+3. Commit the card file. Never `gh issue create`. Never GitHub Projects by default
+4. Optional self-assign when `github_issue` is set: `gh issue edit N --add-assignee @me`
 
 ## Definition of done (issue)
 

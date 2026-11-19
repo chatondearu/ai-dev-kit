@@ -48,11 +48,16 @@ Two gaps remain:
   via systemd start/stop; headless stays a light local tool.
 - **Negative**: Fast-lane quality depends on triage brief discipline; mis-triaged
   cards can still be picked up.
-- **Constraint**: No auto-merge. Units stay templates unless the operator copies
-  and enables them.
+- **Constraint**: Units stay templates unless the operator copies and enables
+  them. Auto-merge of **product / `doc/` / skills** diffs stays forbidden.
 - **Amended by [[ADR-010-worker-cli-inheritance-and-tiers|ADR-010]]**: `orch-auto.sh`
   exits 2 when `ORCH_AGENT` is empty (an AFK timer has no parent session to inherit
   a CLI from); set it in the env file.
+- **Amended by [[ADR-016-foam-first-kanban|ADR-016]]** (proposed): Ready listing
+  comes from `foam/board/`, not GitHub Projects. Workers may `gh pr merge`
+  their own PR when the diff is only the meta allowlist (`foam/board/**`,
+  `prd/`, `plans/`, `foam/decisions/`, other non-status foam). Fast-lane vs
+  full-lane and the poller itself are unchanged.
 
 ## References
 
@@ -62,3 +67,4 @@ Two gaps remain:
 - `skills/core/cda-dev/templates/systemd/`
 - `skills/core/cda-triage/` (agent brief → Ready)
 - [[ADR-001-host-tools-vs-kit|ADR-001]]
+- [[ADR-016-foam-first-kanban|ADR-016]] (Ready listing + meta auto-merge)

@@ -1,11 +1,11 @@
 ---
 name: cda-foam
 description: >-
-  Bootstrap and maintain a Foam-style project memory graph (ADR, PRD, plans) at
-  repo-root foam/, wired to GitHub Kanban. Use when starting project memory,
-  recording architecture decisions, drafting PRDs/plans, importing kanban issues
-  into foam, or before product/architecture changes so the agent can challenge
-  against accepted ADRs.
+  Bootstrap and maintain a Foam-style project memory graph (ADR, PRD, plans,
+  foam/board) at repo-root foam/. Execution status is foam/board (ADR-016), not
+  GitHub Projects. Use when starting project memory, recording architecture
+  decisions, drafting PRDs/plans, one-shot mapping GH issues to board cards, or
+  before product/architecture changes so the agent can challenge accepted ADRs.
 ---
 
 # Foam project memory
@@ -20,7 +20,7 @@ humans share the same memory:
 | **Foam graph** | `foam/` | MOC, ADRs, product notes, feature catalog |
 | **PRD** | `prd/` | What / why per feature |
 | **Plan** | `plans/` | How / when (checklist derived from PRD) |
-| **Kanban** | GitHub Projects | Execution status (use `cda-kanban`) |
+| **Kanban** | `foam/board/` | Execution status (ADR-016; use `cda-kanban`) |
 
 `foam/` is **agent decision memory**. User-facing docs may live elsewhere (`doc/`,
 `README.md`) — do not duplicate; link from `foam/` when needed.
@@ -44,6 +44,9 @@ bash "$(dirname "$0")/scripts/init.sh"
 
 # import closed/open issues from GitHub into foam/features/
 bash "$(dirname "$0")/scripts/import-kanban.sh"
+
+# one-shot map of open GH issues → foam/board cards (not a loop)
+bash "$(dirname "$0")/scripts/import-board.sh"
 ```
 
 `init.sh` copies templates only. It does **not** run `git commit` — you decide
@@ -104,7 +107,7 @@ alternative within a decision* still belongs in that ADR's "alternatives rejecte
 out-of-scope.md is for whole features ruled beyond the product's scope. Don't dump
 every "not now" here — only conscious scope decisions worth defending later.
 
-### C — Sync from Kanban
+### C — Sync shipped/backlog catalogs
 
 ```bash
 bash scripts/import-kanban.sh          # refresh shipped + backlog indexes
@@ -113,6 +116,18 @@ bash scripts/import-kanban.sh --dry-run
 
 Regenerates `foam/features/shipped.md` and `foam/features/backlog.md` from
 `gh issue list`. Re-run after milestones or when onboarding a repo.
+
+### C1 — One-shot map onto `foam/board/` (not a loop)
+
+```bash
+bash scripts/import-board.sh           # create missing foam/board/{N}-*.md
+bash scripts/import-board.sh --dry-run
+```
+
+Maps open `gh issue list` rows to cards with `github_issue` set and
+`status: backlog`. **Does not overwrite** existing cards. Run once when
+adopting foam-first kanban, then stop writing GitHub Projects. Status after
+that lives on the files (`cda-kanban` `foam-board.sh`).
 
 ### C2 — Doc layout verify
 
@@ -133,7 +148,8 @@ into ADRs and PRDs (do not dump every issue as an ADR).
 
 | Kanban | Foam |
 | ------ | ---- |
-| Issue #N title/body | PRD source (`cda-prd`) |
+| `foam/board/*.md` | Execution status (SoT) |
+| Optional `github_issue` | PRD source (`cda-prd`) |
 | Status Ready | PRD `approved` + plan exists (`cda-plan`) |
 | Status Done | PRD `shipped`, plan `done` |
 | Epic / backlog | `foam/features/backlog.md` + PRDs |
@@ -145,6 +161,7 @@ into ADRs and PRDs (do not dump every issue as an ADR).
 foam/
   index.md              # start here
   README.md
+  board/                # execution status (one file per card; ADR-016)
   decisions/            # ADRs
   product/                # vision, rules
   features/               # shipped / backlog catalog

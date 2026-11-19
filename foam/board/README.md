@@ -31,4 +31,6 @@ Filename: `{slug}.md`. When `github_issue` is set, prefer `{N}-{slug}.md`.
 
 - [[../decisions/ADR-016-foam-first-kanban|ADR-016]]
 - Fleet browse: epic [#265](https://github.com/chatondearu/ai-dev-kit/issues/265) (UI only; not this board)
+- Ready oracle + status: `cda-kanban` `foam-board.sh` (`list-ready`, `claim`, `set-status`)
 - Optional GH helper: `cda-kanban` `gh-board.sh` (opt-in issues only)
+- One-shot GH → cards: `cda-foam` `import-board.sh` (not a loop)

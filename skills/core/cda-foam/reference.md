@@ -57,6 +57,13 @@ Install [Foam](https://marketplace.visualstudio.com/items?itemName=foam.foam-vsc
 for wikilink autocomplete and graph view. `.vscode/settings.json` in the scaffold
 enables Foam when present. Plain Markdown works without the extension.
 
+## Foam board (`foam/board/`)
+
+Execution status (ADR-016). One markdown file per card. Required frontmatter:
+`status`, `priority`, `updated`. Optional: `title`, `github_issue`, `blocked_by`.
+Glob `*.md`; skip `README.md` and `_*.md`. Ready oracle:
+`cda-kanban` `foam-board.sh`. One-shot GH map: `import-board.sh` (not a loop).
+
 ## Difference from cda-docs
 
 | Skill | Output | Audience |

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# orch-auto.sh — discover Ready Kanban issues and run ready-pickup (ADR-002).
+# orch-auto.sh — discover Ready foam/board cards and run ready-pickup (ADR-002, ADR-016).
 # Opt-in AFK poller; pair with templates/systemd/ for start/stop.
 #
 #   bash orch-auto.sh --repo DIR [--dry-run]
@@ -18,8 +18,8 @@ usage() {
   cat <<'EOF'
 orch-auto.sh — poll Ready cards → orch ready-pickup
 
-  --repo DIR     working tree with board (default: cwd)
-  --dry-run      print eligible issue numbers; do not invoke orch
+  --repo DIR     working tree with foam/board (default: cwd)
+  --dry-run      print eligible ids (github_issue or slug); do not invoke orch
   --max-parallel N   passed to orch (default: ORCH_MAX_PARALLEL or 1)
   -h|--help
 
@@ -52,21 +52,21 @@ source "$ROOT/lib/worktree.sh"
 REPO="$(orch_repo_root "$REPO")"
 export ORCH_REPO="$REPO" ORCH_PROGRESS="${ORCH_PROGRESS:-0}"
 
-GH_BOARD="${ORCH_GH_BOARD:-}"
-if [ -z "$GH_BOARD" ]; then
+FOAM_BOARD="${ORCH_FOAM_BOARD:-${ORCH_GH_BOARD:-}}"
+if [ -z "$FOAM_BOARD" ]; then
   for cand in \
-    "$ROOT/../../cda-kanban/scripts/gh-board.sh" \
-    "${HOME}/.cursor/skills/cda-kanban/scripts/gh-board.sh" \
-    "${HOME}/.claude/skills/cda-kanban/scripts/gh-board.sh"
+    "$ROOT/../../cda-kanban/scripts/foam-board.sh" \
+    "${HOME}/.cursor/skills/cda-kanban/scripts/foam-board.sh" \
+    "${HOME}/.claude/skills/cda-kanban/scripts/foam-board.sh"
   do
     if [ -f "$cand" ]; then
-      GH_BOARD="$(cd "$(dirname "$cand")" && pwd)/$(basename "$cand")"
+      FOAM_BOARD="$(cd "$(dirname "$cand")" && pwd)/$(basename "$cand")"
       break
     fi
   done
 fi
-[ -n "$GH_BOARD" ] && [ -f "$GH_BOARD" ] || {
-  echo "orch-auto: gh-board.sh not found (install cda-kanban skill)" >&2
+[ -n "$FOAM_BOARD" ] && [ -f "$FOAM_BOARD" ] || {
+  echo "orch-auto: foam-board.sh not found (install cda-kanban skill)" >&2
   exit 1
 }
 
@@ -88,8 +88,12 @@ log() {
 
 # Print why issue $1 must be skipped and return 0; return 1 when eligible.
 # Fail closed: a gh/jq failure (rate limit, network) skips the issue, like frontier.
+# Foam-only slugs (no github_issue) skip GitHub lookups (ADR-016).
 issue_skip_reason() {
   local id="$1" branch="feat/${1}-issue-${1}" raw labels n
+  case "$id" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
   if ! raw="$(gh issue view "$id" --repo "$OWNER/$REPO_NAME" --json labels 2>/dev/null)" ||
     ! labels="$(printf '%s' "$raw" | jq -er '[.labels[].name] | join(",")' 2>/dev/null)"; then
     echo "labels lookup failed; fail closed"
@@ -114,7 +118,7 @@ issue_skip_reason() {
 
 discover_eligible() {
   local nums n reason
-  nums="$(bash "$GH_BOARD" list-ready --repo "$OWNER/$REPO_NAME" 2>/dev/null)" || {
+  nums="$(bash "$FOAM_BOARD" list-ready 2>/dev/null)" || {
     log "orch-auto: list-ready failed"
     return 1
   }
@@ -164,7 +168,7 @@ run_once() {
   bash "$ROOT/orch.sh" "${args[@]}"
 }
 
-# Resolve owner/repo from cwd of REPO for list-ready --repo flag.
+# list-ready reads foam/board from this cwd (ADR-016).
 cd "$REPO"
 
 exec 9>"$LOCK"

@@ -7,6 +7,7 @@ Structured project memory for humans and AI agents. **Start at
 
 ```
 foam/           # Knowledge graph (wikilinks)
+  board/        # Execution status (one card per file)
   decisions/    # Architecture Decision Records (ADRs)
   product/      # Vision, rules
   features/     # Shipped / backlog (sync via import-kanban.sh)

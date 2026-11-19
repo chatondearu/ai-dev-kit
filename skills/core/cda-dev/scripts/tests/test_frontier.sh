@@ -5,6 +5,11 @@ source "$TROOT/helpers.sh"
 source "$TROOT/../lib/frontier.sh"
 
 # --- pure parser -----------------------------------------------------------
+if orch_is_issue_number 12; then rc=0; else rc=1; fi
+assert_eq "$rc" "0" "numeric id is a GitHub issue"
+if orch_is_issue_number foam-only; then rc=0; else rc=1; fi
+assert_eq "$rc" "1" "slug is not a GitHub issue"
+
 assert_eq "$(orch_parse_blockers 'Blocked by: #12, #15')" "12 15" "comma + hash"
 assert_eq "$(orch_parse_blockers 'blocked by: #7')" "7" "lowercase"
 assert_eq "$(orch_parse_blockers 'Blocked by: #12 (ADR-004 must land; see PR 3)')" "12" "trailing prose numbers ignored"

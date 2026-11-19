@@ -77,7 +77,7 @@ EOF
 chmod +x "$STUB_BIN/gh"
 
 export PATH="$STUB_BIN:$PATH"
-export ORCH_GH_BOARD="$STUB_BIN/fake-gh-board.sh"
+export ORCH_FOAM_BOARD="$STUB_BIN/fake-gh-board.sh"
 
 echo "# orch-auto refuses to run without ORCH_AGENT (no parent session to inherit)"
 set +e
@@ -103,6 +103,37 @@ out_fp="$(GH_STUB_FAIL_PRS=1 bash "$SCRIPTS/orch-auto.sh" --repo "$TMP" --dry-ru
 assert_eq "$out_fp" "" "open-PR lookup failure -> nothing dispatched"
 assert_contains "$(cat "$TMP/stderr")" "skip #10 (open-PR lookup failed; fail closed)" "logs PR failure skip"
 assert_contains "$(cat "$TMP/stderr")" "skip #11 (ready-for-human)" "labels still checked first"
+
+echo "# orch-auto foam-only slug skips GitHub label/PR lookups"
+cat >"$STUB_BIN/fake-foam-board.sh" <<'EOF'
+#!/usr/bin/env bash
+case "${1:-}" in
+  list-ready) printf '10\nfoam-only\n' ;;
+  *) echo "unexpected: $*" >&2; exit 1 ;;
+esac
+EOF
+chmod +x "$STUB_BIN/fake-foam-board.sh"
+out_slug="$(ORCH_FOAM_BOARD="$STUB_BIN/fake-foam-board.sh" bash "$SCRIPTS/orch-auto.sh" --repo "$TMP" --dry-run 2>"$TMP/stderr")"
+assert_eq "$out_slug" $'10\nfoam-only' "numeric skip rules + foam-only eligible"
+! grep -q 'skip #foam-only' "$TMP/stderr" || { FAILS=$((FAILS + 1)); echo "FAIL foam-only was skipped" >&2; }
+
+echo "# orch-auto dry-run uses real foam-board fixture (ready listed, backlog/blocked not)"
+FIX="$(cd "$SCRIPTS/../../cda-kanban/scripts/tests/fixtures/foam-board" && pwd)"
+FOAM_SH="$(cd "$SCRIPTS/../../cda-kanban/scripts" && pwd)/foam-board.sh"
+mkdir -p "$TMP/foamfx"
+cp -R "$FIX/." "$TMP/foamfx"
+git -C "$TMP/foamfx" init -q
+git -C "$TMP/foamfx" config user.email auto@test
+git -C "$TMP/foamfx" config user.name auto
+git -C "$TMP/foamfx" add foam
+git -C "$TMP/foamfx" commit -qm board
+out_fx="$(ORCH_FOAM_BOARD="$FOAM_SH" bash "$SCRIPTS/orch-auto.sh" --repo "$TMP/foamfx" --dry-run 2>"$TMP/stderr")"
+assert_eq "$out_fx" "10" "fixture: only github_issue 10 (backlog + blocked skipped)"
+if grep -qi 'project' "$TMP/stderr"; then
+  FAILS=$((FAILS + 1)); echo "FAIL fixture orch-auto mentioned Projects" >&2
+else
+  PASSES=$((PASSES + 1))
+fi
 
 echo "# orch-auto keeps only the newest 50 logs"
 for n in $(seq -w 1 60); do

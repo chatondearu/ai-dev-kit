@@ -58,7 +58,8 @@ binaries (`all_compile = false` in `mise.toml`).
 | `ORCH_FRONTIER` | `auto` | `0` disables Blocked-by gating |
 | `ORCH_FORCE_CLEAN` | off | Remove worktrees after success |
 | `ORCH_REPO` | cwd / `--repo` | Target git tree (required in systemd env) |
-| `ORCH_GH_BOARD` | discovered | Path to `gh-board.sh` for orch-auto |
+| `ORCH_FOAM_BOARD` | discovered | Path to `foam-board.sh` for orch-auto Ready listing |
+| `ORCH_GH_BOARD` | discovered | Legacy alias for `ORCH_FOAM_BOARD` |
 | `CDA_DESIGN_LOOP` | off | Opt-in design loop for UI diffs |
 | `ORCH_GRAPH` | `1` | Live `$CDAMUX_HOME/runs/<run_id>.json` via `cdamux state` (`0` / `--no-graph` off; the worker loop and verifier still run) |
 | `ORCH_GRAPH_VERIFY` | `1` | foam/plan verifier agent after local verify; `0` disables |

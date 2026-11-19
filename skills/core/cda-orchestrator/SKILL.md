@@ -19,6 +19,25 @@ through the `cdamux` CLI (ADR-011).
 - Every change goes to a worker. Quick lookups and answers only — no coding.
 - You are a dispatcher: question round + GO, then spawn / `orch.sh`, then stop.
 
+## Turn start (board index)
+
+Foam is SoT (`foam/board/`, ADR-016). The global resume file is a **cache**
+(`$CDAMUX_HOME/board-index.json`, written by #407) — never treat it as
+authoritative.
+
+At the start of a turn (especially `scope=global`):
+
+1. If `cdamux` is on `PATH`, refresh when the command exists. Missing command
+   or missing foam in a project is not a crash:
+   `cdamux board refresh >/dev/null 2>&1 || true`
+2. If `$CDAMUX_HOME/board-index.json` exists, read it (`cat` / `jq`) for Ready /
+   in-progress / blockers across projects.
+3. If the file is absent, a project has no `foam/board/`, or refresh is
+   unavailable: glob that repo's `foam/board/*.md` (skip `README.md` and `_*.md`).
+   Do not call GitHub Projects.
+
+Per-repo Ready listing does not require cdamux (`cda-kanban` `foam-board.sh`).
+
 ## Global
 
 When started with `cdamux orch new --global` (`scope=global`): you run outside

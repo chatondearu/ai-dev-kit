@@ -142,18 +142,20 @@ exits immediately with status `none` (does not wait for CI that will never start
 
 ## AFK poller (`orch-auto`)
 
-Discovers open Issues in board Status **Ready**, skips
-`triage:ready-for-human` and issues that already have an open PR on
-`feat/<id>-issue-<id>`, then runs `orch.sh --mode ready-pickup`. If a label or
-PR lookup fails (rate limit, network), the issue is skipped (fail closed).
+Discovers Ready cards from `foam/board/` (`cda-kanban` `foam-board.sh
+list-ready`; no GitHub Projects). Skips `triage:ready-for-human` and issues
+that already have an open PR on `feat/<id>-issue-<id>` when the card has
+`github_issue`. Then runs `orch.sh --mode ready-pickup`. If a label or PR
+lookup fails (rate limit, network), that GitHub-backed card is skipped (fail
+closed). Foam-only slugs skip those GitHub lookups.
 
 ```bash
 bash "$SKILL/scripts/orch-auto.sh" --repo /path/to/repo --dry-run
 bash "$SKILL/scripts/orch-auto.sh" --repo /path/to/repo
 ```
 
-Board listing uses `cda-kanban` `gh-board.sh list-ready`. Override path with
-`ORCH_GH_BOARD` if needed (tests / custom layout).
+Board listing uses `cda-kanban` `foam-board.sh list-ready`. Override path with
+`ORCH_FOAM_BOARD` (or legacy `ORCH_GH_BOARD`) if needed (tests / custom layout).
 
 One run at a time: flock on `<repo>/.orch/auto.lock`. Logs under
 `<repo>/.orch/auto/` (newest 50 kept). A second run exits 75 (EX_TEMPFAIL) when the lock is held, so a timer sees it did not run.

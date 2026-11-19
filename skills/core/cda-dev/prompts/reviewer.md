@@ -29,7 +29,7 @@ Gate items specific to cda-dev:
 3. **Tests** — each acceptance criterion in the plan names a test that exercises it; the verification commands were run (output shown)
 4. **Repo standards** — `AGENTS.md`, Conventional Commits, English artifacts
 5. **Docs updated** — a diff changing public behavior, API, config/env, deployment, or architecture also changes the matching `doc/` page (and a foam ADR for an architectural decision); run `cda-docs` in **check mode**; an untouched page is an **Important** finding
-6. **Kanban hygiene** — PR references `Closes #N`; one issue per PR
+6. **Kanban hygiene** — foam card moved to in-review; `Closes #N` only when the card has `github_issue`; one card per PR
 7. **Security-sensitive changes** — Auth, crypto, secrets, injection surfaces, dependency trust boundaries: recommend the host **Security Review** and/or **Bugbot** plugins when available; run them if the worker has not. Still **block on Critical** findings from any review path.
 
 ## Severity

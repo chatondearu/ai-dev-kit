@@ -32,7 +32,7 @@ Details: [conventions.md](conventions.md). Design:
 | Mode | Trigger | Human GO | Bootstrap | Exit |
 | ---- | ------- | -------- | --------- | ---- |
 | `intake` | Feature/fix request in chat, one or more subjects | Yes (breakdown) | Epic issue (2+ children) + approved PRD + N≥1 Ready children + plans | PRs CI-green |
-| `ready-pickup` | Ready Kanban cards | No | Plan **or** triage agent brief (fast-lane) | PRs CI-green |
+| `ready-pickup` | Ready `foam/board` cards | No | Plan **or** triage agent brief (fast-lane) | PRs CI-green |
 | `pr-fix` | PR URL/number | No | None | Same PR CI-green, trusted review feedback addressed (none + green → no agent) |
 
 **Lanes (ready-pickup):** if `plans/PLAN-<id>-*` exists → `full` (plan/PRD).

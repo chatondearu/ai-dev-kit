@@ -137,8 +137,9 @@ main() {
   log "Next:"
   log "  1. Edit foam/product/vision.md"
   log "  2. bash $SKILL_DIR/scripts/import-kanban.sh   # if GitHub repo"
-  log "  3. git add foam prd plans .foam .vscode .cursor AGENTS.md"
-  log "  4. git commit -m \"docs: scaffold foam project memory\""
+  log "  3. bash $SKILL_DIR/scripts/import-board.sh    # one-shot GH issues → foam/board"
+  log "  4. git add foam prd plans .foam .vscode .cursor AGENTS.md"
+  log "  5. git commit -m \"docs: scaffold foam project memory\""
 }
 
 main "$@"

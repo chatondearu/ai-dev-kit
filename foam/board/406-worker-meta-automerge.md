@@ -1,6 +1,6 @@
 ---
 title: "feat(cda-dev): worker self-merge of foam/prd/plans/decisions PRs"
-status: backlog
+status: in-review
 priority: P0
 updated: 2026-11-19
 github_issue: 406

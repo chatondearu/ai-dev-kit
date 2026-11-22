@@ -183,6 +183,7 @@ pub fn enrich_sessions_ex(
         Vec::new()
     };
     let panes = list_panes_all();
+    let _ = crate::restore::reap_dead_agent_panes(&panes);
     raw.iter()
         .map(|s| {
             let info = panes.get(&s.name).cloned().unwrap_or_default();
@@ -389,10 +390,14 @@ fn agent_key_from_session_name(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::paths::env_lock;
     use crate::{DiscoverMode, ProjectRoot};
 
     #[test]
     fn groups_by_project_basename() {
+        let _g = env_lock();
+        let dir = tempfile::tempdir().unwrap();
+        std::env::set_var("CDAMUX_HOME", dir.path());
         let raw = vec![
             TmuxSession {
                 name: "c-a".into(),
@@ -408,6 +413,7 @@ mod tests {
         let cfg = ProjectsConfig::default();
         let enriched = enrich_sessions(&raw, GroupBy::Project, &cfg, 3);
         let grouped = group_sessions(enriched, GroupBy::Project);
+        std::env::remove_var("CDAMUX_HOME");
         assert_eq!(grouped.groups.len(), 2);
     }
 
@@ -429,7 +435,9 @@ mod tests {
 
     #[test]
     fn group_path_uses_root_label() {
+        let _g = env_lock();
         let tmp = tempfile::tempdir().unwrap();
+        std::env::set_var("CDAMUX_HOME", tmp.path());
         let repo = tmp.path().join("org").join("my-app");
         std::fs::create_dir_all(repo.join(".git")).unwrap();
         let raw = vec![TmuxSession {
@@ -446,6 +454,7 @@ mod tests {
             }],
         };
         let enriched = enrich_sessions(&raw, GroupBy::GroupPath, &cfg, 3);
+        std::env::remove_var("CDAMUX_HOME");
         assert!(enriched[0].group_key.contains("dev/"));
     }
 }

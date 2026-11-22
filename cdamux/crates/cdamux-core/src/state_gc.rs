@@ -138,7 +138,7 @@ pub fn agent_eligible(
     if is_resumable_dormant(id, host_field(value), registry) {
         return false;
     }
-    older_than_retention(path, now, retention_days)
+    retention_days == 0 || older_than_retention(path, now, retention_days)
 }
 
 /// Eligibility for a run entity file.
@@ -163,7 +163,7 @@ pub fn run_eligible(
             return false;
         }
     }
-    older_than_retention(path, now, retention_days)
+    retention_days == 0 || older_than_retention(path, now, retention_days)
 }
 
 /// Move one agent file (and its inbox) to `archive/`. Caller must have already
@@ -217,18 +217,31 @@ pub fn archive_run(id: &str) -> io::Result<()> {
 
 /// Scan `$CDAMUX_HOME` agents/runs, archive then remove eligible entities.
 ///
-/// `retention_days` must be ≥ 1 (`0` is rejected).
+/// `retention_days = 0` archives eligible `done`/`error` now (no age wait).
+/// Never archives live hosts, non-terminal statuses, or ADR-009 resumable dormant.
 pub fn run_gc(
     retention_days: u32,
     now: SystemTime,
     host_alive: &dyn Fn(&str) -> bool,
 ) -> io::Result<GcReport> {
-    if retention_days == 0 {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "retention_days must be >= 1",
-        ));
-    }
+    run_gc_ex(retention_days, now, host_alive, true)
+}
+
+/// Like [`run_gc`] but never archives `runs/` (reboot `--last-orch`: agent stubs only).
+pub fn run_gc_agents_only(
+    retention_days: u32,
+    now: SystemTime,
+    host_alive: &dyn Fn(&str) -> bool,
+) -> io::Result<GcReport> {
+    run_gc_ex(retention_days, now, host_alive, false)
+}
+
+fn run_gc_ex(
+    retention_days: u32,
+    now: SystemTime,
+    host_alive: &dyn Fn(&str) -> bool,
+    archive_runs: bool,
+) -> io::Result<GcReport> {
     let days = retention_days;
     let registry = session_registry::load_all();
     let mut report = GcReport::default();
@@ -247,12 +260,14 @@ pub fn run_gc(
         report.archived_agents.push(id);
     }
 
-    for (id, path, value) in state_list(StateKind::Runs) {
-        if !run_eligible(&value, &path, now, days, host_alive) {
-            continue;
+    if archive_runs {
+        for (id, path, value) in state_list(StateKind::Runs) {
+            if !run_eligible(&value, &path, now, days, host_alive) {
+                continue;
+            }
+            archive_run(&id)?;
+            report.archived_runs.push(id);
         }
-        archive_run(&id)?;
-        report.archived_runs.push(id);
     }
 
     report.archived_agents.sort();
@@ -444,10 +459,74 @@ mod tests {
     }
 
     #[test]
-    fn run_gc_rejects_zero_retention() {
-        with_temp_home(|_| {
-            let err = run_gc(0, SystemTime::now(), &|_| false).unwrap_err();
-            assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
+    fn run_gc_zero_retention_archives_fresh_unrestorable() {
+        with_temp_home(|home| {
+            let alive = |h: &str| h == "c-live";
+            set_aged_agent(
+                "a-fresh-err",
+                serde_json::json!({"id":"a-fresh-err","role":"orchestrator","status":"error","host":""}),
+                0,
+            );
+            set_aged_agent(
+                "a-live-orch",
+                serde_json::json!({"id":"a-live-orch","role":"orchestrator","status":"working","host":"c-live"}),
+                0,
+            );
+            set_aged_agent(
+                "a-idle",
+                serde_json::json!({"id":"a-idle","status":"idle","host":""}),
+                0,
+            );
+            session_registry::record(&SessionRecord {
+                name: "c-dorm".into(),
+                cwd: "/tmp/p".into(),
+                agent: "cursor".into(),
+                agent_session_id: Some("conv-1".into()),
+                cdamux_id: Some("a-keep".into()),
+                parent: None,
+                role: "worker".into(),
+                layout: PaneLayout::Single,
+                created_ts: 1,
+                updated_ts: 1,
+            })
+            .unwrap();
+            set_aged_agent(
+                "a-keep",
+                serde_json::json!({"id":"a-keep","status":"done","host":"c-dorm"}),
+                0,
+            );
+
+            let now = SystemTime::now();
+            let report = run_gc(0, now, &alive).unwrap();
+            assert_eq!(report.archived_agents, vec!["a-fresh-err"]);
+            assert_eq!(report.skipped_dormant, vec!["a-keep"]);
+            assert!(!home.join("agents/a-fresh-err.json").exists());
+            assert!(home.join("agents/a-live-orch.json").is_file());
+            assert!(home.join("agents/a-idle.json").is_file());
+            assert!(home.join("agents/a-keep.json").is_file());
+        });
+    }
+
+    #[test]
+    fn run_gc_agents_only_keeps_finished_runs() {
+        with_temp_home(|home| {
+            let alive = |_h: &str| false;
+            set_aged_agent(
+                "a-err",
+                serde_json::json!({"id":"a-err","status":"error","host":""}),
+                0,
+            );
+            set_aged_run(
+                "r-fin",
+                serde_json::json!({"id":"r-fin","status":"ok","session":""}),
+                0,
+            );
+            let now = SystemTime::now();
+            let report = run_gc_agents_only(0, now, &alive).unwrap();
+            assert_eq!(report.archived_agents, vec!["a-err"]);
+            assert!(report.archived_runs.is_empty());
+            assert!(home.join("runs/r-fin.json").is_file());
+            assert!(!home.join("agents/a-err.json").exists());
         });
     }
 

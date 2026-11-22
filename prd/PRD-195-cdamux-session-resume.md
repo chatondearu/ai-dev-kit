@@ -18,20 +18,24 @@ is gone and the agent conversation has to be found and resumed by hand — or is
 - [ ] Every session cdamux spawns is recorded in a restore registry that survives the tmux server
 - [ ] The registry holds the agent session id and keeps it current across `/clear` and resumes
 - [ ] `cdamux restore <name>|--all` brings dead sessions back on the same conversation
+- [ ] `cdamux restore --last-orch` prunes unrestorable stubs and restores the last global orch + resumable workers (reboot oneshot)
 - [ ] Fleet shows dead recorded sessions as dormant rows with a restore key
 - [ ] `cdamux restart --all` restarts every recorded agent session on its conversation (kit update)
+- [ ] Live tmux + dead agent CLI (`fish`/`mise`) is `error` + parent inbox, not silent `working`
 
 ## Non-goals
 
-- Auto-restore when the tmux server starts
+- Auto-restore when the tmux **server** starts (no hook in tmux.conf / continuum)
 - pi (no resume flag wired yet), orch worker sessions (`ORCH_TMUX`), web UI
 - Restoring scrollback or pane contents (tmux-resurrect territory)
+
+Reboot via an **explicit** `cdamux restore --last-orch` oneshot is in scope (ADR-009 §7).
 
 ## Decisions taken at intake (operator, 2026-11-05)
 
 1. One JSON file per session under `${XDG_STATE_HOME:-~/.local/state}/cdamux/sessions/`; ADR-009 amends ADR-004 (tmux stays the truth for what runs; the registry is a restore snapshot only).
 2. Claude gets `--session-id <uuid>` at spawn (works without hooks); `SessionStart` hooks for Claude / Cursor / opencode keep the id current, opt-in via `install.sh --cdamux-hooks`.
-3. Restore is explicit: CLI + Fleet dormant rows.
+3. Restore is explicit: CLI + Fleet dormant rows. Reboot uses `cdamux restore --last-orch` (not implicit tmux start).
 4. `cdamux restart --all` = kill + resume; busy sessions skipped unless `--force`.
 5. Closing a session from cdamux forgets it; an external kill or a reboot leaves it dormant.
 6. Orch worker sessions are excluded.

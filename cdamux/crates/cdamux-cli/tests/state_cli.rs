@@ -101,19 +101,43 @@ fn state_gc_archives_old_done_agent() {
 }
 
 #[test]
-fn state_gc_rejects_zero_retention_days() {
+fn state_gc_unrestorable_archives_fresh_error_keeps_live() {
     let tmp = tempfile::tempdir().unwrap();
     let home = tmp.path().join("home");
     let bin = env!("CARGO_BIN_EXE_cdamux");
-    let gc = Command::new(bin)
-        .args(["state", "gc", "--retention-days", "0"])
-        .env("CDAMUX_HOME", &home)
-        .output()
-        .expect("spawn cdamux");
-    assert!(
-        !gc.status.success(),
-        "expected clap reject for --retention-days 0"
-    );
+    let run = |args: &[&str]| {
+        Command::new(bin)
+            .args(args)
+            .env("CDAMUX_HOME", &home)
+            .output()
+            .expect("spawn cdamux")
+    };
+
+    let stale = run(&[
+        "state",
+        "set",
+        "agents",
+        "a-stale",
+        r#"{"id":"a-stale","role":"orchestrator","status":"error","host":""}"#,
+    ]);
+    assert!(stale.status.success(), "{}", String::from_utf8_lossy(&stale.stderr));
+    let live = run(&[
+        "state",
+        "set",
+        "agents",
+        "a-live",
+        r#"{"id":"a-live","role":"orchestrator","status":"working","host":"c-global"}"#,
+    ]);
+    assert!(live.status.success(), "{}", String::from_utf8_lossy(&live.stderr));
+
+    let gc = run(&["state", "gc", "--unrestorable"]);
+    assert!(gc.status.success(), "gc: {}", String::from_utf8_lossy(&gc.stderr));
+    let out = String::from_utf8_lossy(&gc.stdout);
+    assert!(out.contains("a-stale"), "{out}");
+    assert!(!out.contains("a-live"), "{out}");
+    assert!(!home.join("agents/a-stale.json").exists());
+    assert!(home.join("agents/a-live.json").is_file());
+    assert!(home.join("archive/agents/a-stale.json").is_file());
 }
 
 #[test]

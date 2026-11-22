@@ -26,7 +26,8 @@ use cdamux_core::{
     refresh_board_index, resolve_spawn_repo, RefreshOptions,
     note_refs_for_projects, current_tmux_session, kill_tmux_session, list_panes_all, msg_send,
     parents_first, peek_worker, read_messages, parse_unified_diff, resolve_agent_command,
-    is_done_record, restore_one, restore_targets, restart_plan, session_registry, resolve_note_path, send_input,
+    is_done_record, last_global_orch_record, restore_one, restore_targets, reap_dead_agent_panes, restart_plan, session_registry, resolve_note_path, send_input,
+    find_live_global_orchestrator, run_gc_agents_only,
     session_name_for_path, spawn_orchestrator, spawn_tmux_session_with_layout, spawn_worker,
     agent_cwd, clear_links, parse_link_ref, refresh_links, resolve_agent_id, set_link_override,
     state_append, state_get, state_set, run_gc, sweep_orphans, tmux_has_session, unique_session_name,
@@ -89,13 +90,16 @@ enum Commands {
     },
     /// Recreate recorded sessions that are not live, resuming their agent conversation.
     /// An orchestrator name also restores its workers (parents first).
-    #[command(group = clap::ArgGroup::new("target").required(true).args(["name", "all"]))]
+    #[command(group = clap::ArgGroup::new("target").required(true).args(["name", "all", "last_orch"]))]
     Restore {
         /// Recorded session name (see the restore registry, ADR-009).
         name: Option<String>,
         /// Every recorded session that is not live, parents before children.
         #[arg(long)]
         all: bool,
+        /// Last recorded global orchestrator and its resumable (non-done) workers (reboot path).
+        #[arg(long)]
+        last_orch: bool,
     },
     /// Kill then restore live recorded agent sessions on their conversation (e.g. after a kit update).
     #[command(group = clap::ArgGroup::new("target").required(true).args(["name", "all"]))]
@@ -353,9 +357,13 @@ enum StateCommands {
     },
     /// Archive then remove done/error agents and finished runs past retention.
     Gc {
-        /// Override `[state].retention_days` from config (must be ≥ 1).
-        #[arg(long, value_parser = clap::value_parser!(u32).range(1..))]
+        /// Override `[state].retention_days` from config (`0` = archive eligible now).
+        #[arg(long, value_parser = clap::value_parser!(u32).range(0..))]
         retention_days: Option<u32>,
+        /// Archive unrestorable `done`/`error` now (same as `--retention-days 0`).
+        /// Never live, idle, working, or registry-dormant (ADR-009).
+        #[arg(long, conflicts_with = "retention_days")]
+        unrestorable: bool,
         /// Finalize non-terminal agents/runs whose tmux host is dead (before retention).
         #[arg(long)]
         sweep_orphans: bool,
@@ -507,7 +515,7 @@ fn main() -> ExitCode {
             path,
             interactive,
         }) => cmd_spawn(agent, path, interactive),
-        Some(Commands::Restore { name, all }) => cmd_restore(name, all),
+        Some(Commands::Restore { name, all, last_orch }) => cmd_restore(name, all, last_orch),
         Some(Commands::Restart { name, all, force }) => cmd_restart(name, all, force),
         Some(Commands::Send {
             session,
@@ -553,9 +561,10 @@ fn main() -> ExitCode {
             StateCommands::Append { kind, id, json } => cmd_state_append(&kind, &id, &json),
             StateCommands::Gc {
                 retention_days,
+                unrestorable,
                 sweep_orphans,
                 dry_run,
-            } => cmd_state_gc(retention_days, sweep_orphans, dry_run),
+            } => cmd_state_gc(retention_days, unrestorable, sweep_orphans, dry_run),
         },
         Some(Commands::Link { target, pr, issue, clear }) => cmd_link(&target, pr, issue, clear),
         Some(Commands::Say { target, from, json, text }) => cmd_say(&target, &from, json, &text),
@@ -1206,16 +1215,25 @@ fn cmd_state_append(kind: &str, id: &str, json: &str) -> ExitCode {
     }
 }
 
-fn cmd_state_gc(retention_days: Option<u32>, sweep: bool, dry_run: bool) -> ExitCode {
+fn cmd_state_gc(
+    retention_days: Option<u32>,
+    unrestorable: bool,
+    sweep: bool,
+    dry_run: bool,
+) -> ExitCode {
     if dry_run && !sweep {
         eprintln!("state gc: --dry-run requires --sweep-orphans");
         return ExitCode::from(2);
     }
-    let days = retention_days.unwrap_or_else(|| {
-        load_config()
-            .map(|c| c.state.retention_days)
-            .unwrap_or(cdamux_core::DEFAULT_RETENTION_DAYS)
-    });
+    let days = if unrestorable {
+        0
+    } else {
+        retention_days.unwrap_or_else(|| {
+            load_config()
+                .map(|c| c.state.retention_days)
+                .unwrap_or(cdamux_core::DEFAULT_RETENTION_DAYS)
+        })
+    };
     // Fail closed: refuse destructive GC when tmux cannot be probed.
     if let Err(e) = tmux_has_session("__cdamux_gc_probe__") {
         eprintln!("state gc: cannot probe tmux sessions ({e}); aborting");
@@ -1788,7 +1806,33 @@ pub(crate) fn tmux_attach_session_with_mode(
     }
 }
 
-fn cmd_restore(name: Option<String>, all: bool) -> ExitCode {
+/// Archive unrestorable `done`/`error` (no live host, not registry-dormant).
+fn prune_unrestorable_agents() -> Result<(), ExitCode> {
+    if let Err(e) = tmux_has_session("__cdamux_gc_probe__") {
+        eprintln!("restore: cannot probe tmux sessions ({e}); aborting prune");
+        return Err(ExitCode::from(1));
+    }
+    let host_alive = |host: &str| match tmux_has_session(host) {
+        Ok(alive) => alive,
+        Err(_) => true,
+    };
+    match run_gc_agents_only(0, std::time::SystemTime::now(), &host_alive) {
+        Ok(report) => {
+            println!(
+                "restore: pruned {} unrestorable agent(s); kept {} dormant resumable",
+                report.archived_agents.len(),
+                report.skipped_dormant.len()
+            );
+            Ok(())
+        }
+        Err(e) => {
+            eprintln!("restore: prune unrestorable: {e}");
+            Err(ExitCode::from(1))
+        }
+    }
+}
+
+fn cmd_restore(name: Option<String>, all: bool, last_orch: bool) -> ExitCode {
     let cfg = match load_config() {
         Ok(c) => c,
         Err(e) => {
@@ -1796,7 +1840,30 @@ fn cmd_restore(name: Option<String>, all: bool) -> ExitCode {
             return ExitCode::from(1);
         }
     };
-    let records = if all {
+    let _ = reap_dead_agent_panes(&list_panes_all());
+    if last_orch {
+        if let Err(code) = prune_unrestorable_agents() {
+            return code;
+        }
+    }
+    let records = if last_orch {
+        match last_global_orch_record() {
+            Some(rec) => {
+                println!("restore --last-orch: {}", rec.name);
+                restore_targets(&rec.name).unwrap_or_else(|| vec![rec])
+            }
+            None => match find_live_global_orchestrator() {
+                Some((_, host)) => {
+                    println!("restore --last-orch: {host} (already live)");
+                    return ExitCode::SUCCESS;
+                }
+                None => {
+                    eprintln!("restore: no recorded global orchestrator");
+                    return ExitCode::from(1);
+                }
+            },
+        }
+    } else if all {
         let (done, rest): (Vec<_>, Vec<_>) =
             session_registry::load_all().into_iter().partition(is_done_record);
         for rec in &done {
@@ -1842,6 +1909,7 @@ fn cmd_restart(name: Option<String>, all: bool, force: bool) -> ExitCode {
         }
     };
     let live = list_panes_all();
+    let _ = reap_dead_agent_panes(&live);
     let records = if all {
         session_registry::load_all()
     } else {
@@ -2245,12 +2313,17 @@ mod tests {
     }
 
     #[test]
-    fn restore_takes_a_name_or_all() {
-        for args in [&["cdamux", "restore", "c-a"][..], &["cdamux", "restore", "--all"]] {
+    fn restore_takes_a_name_or_all_or_last_orch() {
+        for args in [
+            &["cdamux", "restore", "c-a"][..],
+            &["cdamux", "restore", "--all"],
+            &["cdamux", "restore", "--last-orch"],
+        ] {
             assert!(matches!(Cli::try_parse_from(args).unwrap().command, Some(Commands::Restore { .. })));
         }
         assert!(Cli::try_parse_from(["cdamux", "restore"]).is_err());
         assert!(Cli::try_parse_from(["cdamux", "restore", "c-a", "--all"]).is_err());
+        assert!(Cli::try_parse_from(["cdamux", "restore", "--all", "--last-orch"]).is_err());
     }
 
     #[test]

@@ -3,6 +3,8 @@
 
 use crate::agent_status::load_reported_status;
 use crate::client_name::normalize_client_name;
+use crate::msg::{msg_send, DEFAULT_NUDGE_QUIET_SECS};
+use crate::orch::ORCH_SCOPE_GLOBAL;
 use crate::send::tmux_has_session;
 use crate::session::SessionState;
 use crate::session_manage::{is_home_session, is_nav_session};
@@ -11,8 +13,8 @@ use crate::spawn::{
     agent_entry, default_shell_command, resolve_agent_command, respawn_recorded,
     with_claude_session_id, SpawnError, SpawnOutcome,
 };
-use crate::orch::ORCH_SCOPE_GLOBAL;
-use crate::state::{state_get, StateKind};
+use crate::state::{state_append, state_get, StateKind};
+use crate::state_gc::is_gc_agent_status;
 use crate::tmux::SessionPaneInfo;
 use crate::AgentsConfig;
 use std::collections::{HashMap, HashSet};
@@ -32,7 +34,10 @@ pub enum RestoreOutcome {
     /// Recreated on the recorded conversation (or a shell reopened).
     Restored(SpawnOutcome),
     /// Recreated with a fresh conversation; `reason` says why it could not resume.
-    Fresh { reason: &'static str, spawn: SpawnOutcome },
+    Fresh {
+        reason: &'static str,
+        spawn: SpawnOutcome,
+    },
     /// A tmux session with that name already runs: nothing done.
     SkippedLive,
 }
@@ -54,7 +59,10 @@ enum Plan {
     SkipLive,
     Resume(String),
     /// Fresh conversation; claude still gets a new pre-assigned id to record.
-    Fresh { command: String, reason: &'static str },
+    Fresh {
+        command: String,
+        reason: &'static str,
+    },
 }
 
 /// Resume command for `agent` on conversation `id`: the `resume` template of
@@ -80,7 +88,10 @@ pub fn resume_command(agents: &AgentsConfig, agent: &str, id: &str) -> Option<St
 
 /// The id is typed into a shell: accept only plain id characters (uuids, `ses_…`).
 fn safe_id(id: &str) -> bool {
-    !id.is_empty() && id.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+    !id.is_empty()
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
 }
 
 fn plan(rec: &SessionRecord, agents: &AgentsConfig, live: bool) -> Result<Plan, SpawnError> {
@@ -93,10 +104,16 @@ fn plan(rec: &SessionRecord, agents: &AgentsConfig, live: bool) -> Result<Plan, 
     let fresh = resolve_agent_command(agents, &rec.agent)?;
     let id = rec.agent_session_id.as_deref().filter(|id| safe_id(id));
     Ok(match id {
-        None => Plan::Fresh { command: fresh, reason: "no id" },
+        None => Plan::Fresh {
+            command: fresh,
+            reason: "no id",
+        },
         Some(id) => match resume_command(agents, &rec.agent, id) {
             Some(cmd) => Plan::Resume(cmd),
-            None => Plan::Fresh { command: fresh, reason: "no resume command" },
+            None => Plan::Fresh {
+                command: fresh,
+                reason: "no resume command",
+            },
         },
     })
 }
@@ -105,7 +122,10 @@ fn plan(rec: &SessionRecord, agents: &AgentsConfig, live: bool) -> Result<Plan, 
 /// unless one with that name is live. Never switches the client. Missing cwd →
 /// `Err` and the record is kept. A fresh claude conversation gets a new `--session-id`
 /// that replaces the stale one in the record.
-pub fn restore_one(rec: &SessionRecord, agents: &AgentsConfig) -> Result<RestoreOutcome, RestoreError> {
+pub fn restore_one(
+    rec: &SessionRecord,
+    agents: &AgentsConfig,
+) -> Result<RestoreOutcome, RestoreError> {
     let live = tmux_has_session(&rec.name).map_err(|_| RestoreError::LiveCheck)?;
     Ok(match plan(rec, agents, live)? {
         Plan::SkipLive => RestoreOutcome::SkippedLive,
@@ -126,14 +146,21 @@ pub fn restore_one(rec: &SessionRecord, agents: &AgentsConfig) -> Result<Restore
 
 /// Records with no live tmux session of that name, parents before children.
 pub fn dormant(records: Vec<SessionRecord>, live: &HashSet<String>) -> Vec<SessionRecord> {
-    parents_first(records.into_iter().filter(|r| !live.contains(&r.name)).collect())
+    parents_first(
+        records
+            .into_iter()
+            .filter(|r| !live.contains(&r.name))
+            .collect(),
+    )
 }
 
 /// Stable sort so a fork parent present in `records` comes before its children
 /// (its `@cdamux_parent` then names a live session again).
 pub fn parents_first(mut records: Vec<SessionRecord>) -> Vec<SessionRecord> {
-    let parent_of: HashMap<String, Option<String>> =
-        records.iter().map(|r| (r.name.clone(), r.parent.clone())).collect();
+    let parent_of: HashMap<String, Option<String>> = records
+        .iter()
+        .map(|r| (r.name.clone(), r.parent.clone()))
+        .collect();
     let depth = |name: &str| {
         let mut d = 0;
         let mut cur = parent_of.get(name).cloned().flatten();
@@ -156,8 +183,7 @@ fn agent_is_child_of(cdamux_id: &str, parent_ids: &HashSet<String>) -> bool {
             let role = v.get("role").and_then(|r| r.as_str());
             let nested = role == Some("worker") || role == Some("orchestrator");
             nested
-                && v
-                    .get("parent")
+                && v.get("parent")
                     .and_then(|p| p.as_str())
                     .is_some_and(|p| parent_ids.contains(p))
         }
@@ -220,7 +246,10 @@ pub fn restore_subtree(root: SessionRecord, all: Vec<SessionRecord>) -> Vec<Sess
             break;
         }
     }
-    let mut out: Vec<SessionRecord> = all.into_iter().filter(|r| wanted.contains(&r.name)).collect();
+    let mut out: Vec<SessionRecord> = all
+        .into_iter()
+        .filter(|r| wanted.contains(&r.name))
+        .collect();
     if !out.iter().any(|r| r.name == root.name) {
         out.push(root);
     }
@@ -259,7 +288,12 @@ pub fn restore_targets(name: &str) -> Option<Vec<SessionRecord>> {
     if root.role == "orchestrator" {
         let subtree = restore_subtree(root, session_registry::load_all());
         // The named root is restored even when done: the user asked for it by name.
-        Some(subtree.into_iter().filter(|r| r.name == name || !is_done_record(r)).collect())
+        Some(
+            subtree
+                .into_iter()
+                .filter(|r| r.name == name || !is_done_record(r))
+                .collect(),
+        )
     } else {
         Some(vec![root])
     }
@@ -267,12 +301,21 @@ pub fn restore_targets(name: &str) -> Option<Vec<SessionRecord>> {
 
 /// `@cdamux_state` of an agent mid-turn: `cdamux restart` leaves it alone without `--force`.
 pub fn is_busy_state(raw: Option<&str>) -> bool {
-    raw.is_some_and(|s| matches!(s.trim().to_ascii_lowercase().as_str(), "running" | "active" | "working" | "busy"))
+    raw.is_some_and(|s| {
+        matches!(
+            s.trim().to_ascii_lowercase().as_str(),
+            "running" | "active" | "working" | "busy"
+        )
+    })
 }
 
 /// Busy when transitional `@cdamux_state` says so, or when `agents/<id>.json` reports
 /// `working` (hooks write there; ADR-011 reported-wins).
 fn is_busy_session(info: &SessionPaneInfo, record_id: Option<&str>) -> bool {
+    // Agent CLI gone (fish / mise / direnv) for long enough: not busy.
+    if pane_is_dead_agent(info) {
+        return false;
+    }
     if is_busy_state(info.hook_state.as_deref()) {
         return true;
     }
@@ -291,26 +334,101 @@ pub fn restart_plan(
     current: Option<&str>,
     force: bool,
 ) -> Vec<(SessionRecord, Result<(), &'static str>)> {
-    let mut plan: Vec<_> = parents_first(records.into_iter().filter(|r| live.contains_key(&r.name)).collect())
-        .into_iter()
-        .map(|r| {
-            let info = &live[&r.name];
-            let step = if is_home_session(&r.name) {
-                Err("home session")
-            } else if is_nav_session(&r.name) {
-                Err("navigator session")
-            } else if r.role != "agent" || r.agent == "shell" {
-                Err("shell session")
-            } else if !force && is_busy_session(info, r.cdamux_id.as_deref()) {
-                Err("busy; --force restarts it")
-            } else {
-                Ok(())
-            };
-            (r, step)
-        })
-        .collect();
+    let mut plan: Vec<_> = parents_first(
+        records
+            .into_iter()
+            .filter(|r| live.contains_key(&r.name))
+            .collect(),
+    )
+    .into_iter()
+    .map(|r| {
+        let info = &live[&r.name];
+        let step = if is_home_session(&r.name) {
+            Err("home session")
+        } else if is_nav_session(&r.name) {
+            Err("navigator session")
+        } else if r.role == "shell" || r.agent == "shell" {
+            Err("shell session")
+        } else if !force && is_busy_session(info, r.cdamux_id.as_deref()) {
+            Err("busy; --force restarts it")
+        } else {
+            Ok(())
+        };
+        (r, step)
+    })
+    .collect();
     plan.sort_by_key(|(r, _)| current == Some(r.name.as_str()));
     plan
+}
+
+/// Seconds a shell/`mise` pane must stay that way before we treat the agent as dead.
+/// Avoids the spawn race where `#{pane_current_command}` is still `sh` wrapping the CLI.
+pub const DEAD_AGENT_PANE_SECS: u32 = 10;
+
+fn pane_is_dead_agent(info: &SessionPaneInfo) -> bool {
+    info.saw_pane_command
+        && !info.has_agent_process
+        && info.idle_seconds.is_some_and(|s| s >= DEAD_AGENT_PANE_SECS)
+}
+
+/// Recorded agent/worker/orch whose tmux host is live but the pane is only a
+/// shell (or `mise` / `direnv`): mark `error` and inbox the parent (nudge).
+/// Host is kept so `cdamux restore` / `restart --force` can resume.
+/// Fail-open: IO / msg errors skip that row.
+pub fn reap_dead_agent_panes(panes: &HashMap<String, SessionPaneInfo>) -> usize {
+    let mut n = 0;
+    for rec in session_registry::load_all() {
+        if rec.role == "shell" || rec.agent == "shell" {
+            continue;
+        }
+        let Some(info) = panes.get(&rec.name) else {
+            continue;
+        };
+        if !pane_is_dead_agent(info) {
+            continue;
+        }
+        let Some(id) = rec.cdamux_id.as_deref() else {
+            continue;
+        };
+        let Ok(Some(v)) = state_get(StateKind::Agents, id) else {
+            continue;
+        };
+        let status = v.get("status").and_then(|s| s.as_str()).unwrap_or("");
+        if is_gc_agent_status(status) {
+            continue;
+        }
+        // Force error even from sticky `blocked`: the process is gone.
+        if state_append(
+            StateKind::Agents,
+            id,
+            &serde_json::json!({"status": "error"}),
+        )
+        .is_err()
+        {
+            continue;
+        }
+        if let Some(parent) = v
+            .get("parent")
+            .and_then(|p| p.as_str())
+            .filter(|p| !p.is_empty())
+        {
+            let text = format!(
+                "agent process gone on {} (pane is shell/mise, CLI exited or mise untrusted). cdamux restore {}",
+                rec.name, rec.name
+            );
+            let _ = msg_send(
+                id,
+                parent,
+                "error",
+                &text,
+                None,
+                DEFAULT_NUDGE_QUIET_SECS,
+                None,
+            );
+        }
+        n += 1;
+    }
+    n
 }
 
 #[cfg(test)]
@@ -361,9 +479,15 @@ mod tests {
             resume_command(&a, "claude", "u1").as_deref(),
             Some("/opt/bin/claude --model opus --resume u1")
         );
-        assert_eq!(resume_command(&a, "cursor", "c1").as_deref(), Some("cursor-agent --resume=c1"));
+        assert_eq!(
+            resume_command(&a, "cursor", "c1").as_deref(),
+            Some("cursor-agent --resume=c1")
+        );
         // Empty command → agent id as executable.
-        assert_eq!(resume_command(&a, "opencode", "s1").as_deref(), Some("opencode --session s1"));
+        assert_eq!(
+            resume_command(&a, "opencode", "s1").as_deref(),
+            Some("opencode --session s1")
+        );
         assert_eq!(resume_command(&a, "pi", "x"), None);
         assert_eq!(resume_command(&a, "nope", "x"), None);
 
@@ -371,34 +495,55 @@ mod tests {
         a.claude = entry("claude", Some("cl -r {id} --x"));
         a.cursor = entry("cursor-agent", Some(""));
         a.pi = entry("pi", Some("pi --continue {id}"));
-        assert_eq!(resume_command(&a, "claude", "u1").as_deref(), Some("cl -r u1 --x"));
+        assert_eq!(
+            resume_command(&a, "claude", "u1").as_deref(),
+            Some("cl -r u1 --x")
+        );
         assert_eq!(resume_command(&a, "cursor", "c1"), None);
-        assert_eq!(resume_command(&a, "pi", "p1").as_deref(), Some("pi --continue p1"));
+        assert_eq!(
+            resume_command(&a, "pi", "p1").as_deref(),
+            Some("pi --continue p1")
+        );
     }
 
     #[test]
     fn plan_resume_fresh_shell_and_live() {
         let a = agents();
         let p = |r: &SessionRecord, live| plan(r, &a, live).unwrap();
-        assert_eq!(p(&rec("c", "claude", Some("u1"), None), true), Plan::SkipLive);
+        assert_eq!(
+            p(&rec("c", "claude", Some("u1"), None), true),
+            Plan::SkipLive
+        );
         assert_eq!(
             p(&rec("c", "claude", Some("u1"), None), false),
             Plan::Resume("/opt/bin/claude --model opus --resume u1".into())
         );
         assert_eq!(
             p(&rec("c", "cursor", None, None), false),
-            Plan::Fresh { command: "cursor-agent".into(), reason: "no id" }
+            Plan::Fresh {
+                command: "cursor-agent".into(),
+                reason: "no id"
+            }
         );
         // An id that could inject shell syntax is treated as missing.
         assert_eq!(
             p(&rec("c", "cursor", Some("x; rm -rf ~"), None), false),
-            Plan::Fresh { command: "cursor-agent".into(), reason: "no id" }
+            Plan::Fresh {
+                command: "cursor-agent".into(),
+                reason: "no id"
+            }
         );
         assert_eq!(
             p(&rec("c", "pi", Some("p1"), None), false),
-            Plan::Fresh { command: "pi".into(), reason: "no resume command" }
+            Plan::Fresh {
+                command: "pi".into(),
+                reason: "no resume command"
+            }
         );
-        assert_eq!(p(&rec("c", "shell", None, None), false), Plan::Resume(default_shell_command()));
+        assert_eq!(
+            p(&rec("c", "shell", None, None), false),
+            Plan::Resume(default_shell_command())
+        );
         assert!(matches!(
             plan(&rec("c", "gone", Some("x"), None), &a, false),
             Err(SpawnError::UnknownAgent(_))
@@ -407,7 +552,10 @@ mod tests {
 
     #[test]
     fn restart_plan_skips_busy_shell_home_and_dormant_current_last() {
-        let state = |s: Option<&str>| SessionPaneInfo { hook_state: s.map(str::to_string), ..Default::default() };
+        let state = |s: Option<&str>| SessionPaneInfo {
+            hook_state: s.map(str::to_string),
+            ..Default::default()
+        };
         let live: HashMap<String, SessionPaneInfo> = [
             ("a-cur", state(None)),
             ("b-busy", state(Some("running"))),
@@ -440,7 +588,9 @@ mod tests {
         assert_eq!(names.last(), Some(&"a-cur"), "current session last");
         let pos = |n: &str| names.iter().position(|x| *x == n).unwrap();
         assert!(pos("c-idle") < pos("e-child"), "parents first");
-        let step = |p: &[(String, Result<(), &'static str>)], n: &str| p.iter().find(|(x, _)| x == n).unwrap().1;
+        let step = |p: &[(String, Result<(), &'static str>)], n: &str| {
+            p.iter().find(|(x, _)| x == n).unwrap().1
+        };
         assert_eq!(step(&plan, "b-busy"), Err("busy; --force restarts it"));
         assert_eq!(step(&plan, "d-shell"), Err("shell session"));
         assert_eq!(step(&plan, "cdamux"), Err("home session"));
@@ -448,8 +598,60 @@ mod tests {
         assert_eq!(step(&plan, "e-child"), Ok(()));
         let forced = steps(true);
         assert_eq!(step(&forced, "b-busy"), Ok(()));
-        assert_eq!(step(&forced, "cdamux"), Err("home session"), "--force never kills home");
-        assert!(is_busy_state(Some(" Working ")) && !is_busy_state(Some("done")) && !is_busy_state(None));
+        assert_eq!(
+            step(&forced, "cdamux"),
+            Err("home session"),
+            "--force never kills home"
+        );
+        assert!(
+            is_busy_state(Some(" Working "))
+                && !is_busy_state(Some("done"))
+                && !is_busy_state(None)
+        );
+    }
+
+    #[test]
+    fn restart_plan_restarts_worker_role_and_dead_agent_pane() {
+        let live: HashMap<String, SessionPaneInfo> = [
+            (
+                "c-w",
+                SessionPaneInfo {
+                    hook_state: Some("working".into()),
+                    saw_pane_command: true,
+                    has_agent_process: false,
+                    idle_seconds: Some(super::DEAD_AGENT_PANE_SECS),
+                    ..Default::default()
+                },
+            ),
+            (
+                "c-ok",
+                SessionPaneInfo {
+                    hook_state: Some("working".into()),
+                    saw_pane_command: true,
+                    has_agent_process: true,
+                    ..Default::default()
+                },
+            ),
+        ]
+        .into_iter()
+        .map(|(n, s)| (n.to_string(), s))
+        .collect();
+        let mut worker = rec("c-w", "claude", None, None);
+        worker.role = "worker".into();
+        let mut live_agent = rec("c-ok", "claude", None, None);
+        live_agent.role = "worker".into();
+        let plan = restart_plan(vec![worker, live_agent], &live, None, false);
+        let step = |n: &str| plan.iter().find(|(r, _)| r.name == n).unwrap().1;
+        assert_eq!(
+            step("c-w"),
+            Ok(()),
+            "dead pane is not a shell skip and not busy"
+        );
+        assert_eq!(step("c-ok"), Err("busy; --force restarts it"));
+        assert_eq!(
+            restart_plan(vec![rec("c-ok", "claude", None, None)], &live, None, true)[0].1,
+            Ok(())
+        );
     }
 
     #[test]
@@ -486,10 +688,7 @@ mod tests {
         let plan = restart_plan(vec![record.clone()], &live, None, false);
         assert_eq!(plan.len(), 1);
         assert_eq!(plan[0].1, Err("busy; --force restarts it"));
-        assert_eq!(
-            restart_plan(vec![record], &live, None, true)[0].1,
-            Ok(())
-        );
+        assert_eq!(restart_plan(vec![record], &live, None, true)[0].1, Ok(()));
         std::env::remove_var("CDAMUX_HOME");
     }
 
@@ -505,7 +704,10 @@ mod tests {
             rec("cyc2", "claude", None, Some("cyc1")),
         ];
         let live: HashSet<String> = ["live".to_string()].into();
-        let names: Vec<String> = dormant(records, &live).into_iter().map(|r| r.name).collect();
+        let names: Vec<String> = dormant(records, &live)
+            .into_iter()
+            .map(|r| r.name)
+            .collect();
         let pos = |n: &str| names.iter().position(|x| x == n).unwrap();
         assert!(!names.contains(&"live".to_string()));
         assert_eq!(names.len(), 6);
@@ -549,8 +751,18 @@ mod tests {
             cdamux_id: Some(id.into()),
             ..rec(name, "claude", None, None)
         };
-        state_set(StateKind::Agents, "a-done", &serde_json::json!({"id": "a-done", "status": "done"})).unwrap();
-        state_set(StateKind::Agents, "a-idle", &serde_json::json!({"id": "a-idle", "status": "idle"})).unwrap();
+        state_set(
+            StateKind::Agents,
+            "a-done",
+            &serde_json::json!({"id": "a-done", "status": "done"}),
+        )
+        .unwrap();
+        state_set(
+            StateKind::Agents,
+            "a-idle",
+            &serde_json::json!({"id": "a-idle", "status": "idle"}),
+        )
+        .unwrap();
         assert!(is_done_record(&with_id("c-done", "a-done")));
         assert!(!is_done_record(&with_id("c-idle", "a-idle")));
         assert!(!is_done_record(&with_id("c-none", "a-missing")));
@@ -612,7 +824,13 @@ mod tests {
         state_set(
             StateKind::Agents,
             "a-proj",
-            &initial_agent_value("a-proj", "claude", "c-proj", "orchestrator", Some("a-global")),
+            &initial_agent_value(
+                "a-proj",
+                "claude",
+                "c-proj",
+                "orchestrator",
+                Some("a-global"),
+            ),
         )
         .unwrap();
         state_set(
@@ -621,11 +839,10 @@ mod tests {
             &initial_agent_value("a-w", "claude", "c-w", "worker", Some("a-proj")),
         )
         .unwrap();
-        let names: Vec<String> =
-            restore_subtree(global.clone(), vec![worker, project, global])
-                .into_iter()
-                .map(|r| r.name)
-                .collect();
+        let names: Vec<String> = restore_subtree(global.clone(), vec![worker, project, global])
+            .into_iter()
+            .map(|r| r.name)
+            .collect();
         assert_eq!(
             names,
             vec![
@@ -721,6 +938,167 @@ mod tests {
         let got = last_global_orch_record().expect("global orch");
         assert_eq!(got.name, "c-global");
         assert_eq!(got.cdamux_id.as_deref(), Some("a-new"));
+        std::env::remove_var("CDAMUX_HOME");
+    }
+
+    #[test]
+    fn reap_dead_agent_panes_marks_error_and_inboxes_parent() {
+        let _g = env_lock();
+        let dir = tempfile::tempdir().unwrap();
+        std::env::set_var("CDAMUX_HOME", dir.path());
+        state_set(
+            StateKind::Agents,
+            "a-orch-reap",
+            &initial_agent_value(
+                "a-orch-reap",
+                "claude",
+                "c-reap-orch-no-tmux",
+                "orchestrator",
+                None,
+            ),
+        )
+        .unwrap();
+        state_set(
+            StateKind::Agents,
+            "a-dead",
+            &initial_agent_value(
+                "a-dead",
+                "cursor",
+                "c-fil-diag",
+                "worker",
+                Some("a-orch-reap"),
+            ),
+        )
+        .unwrap();
+        state_append(
+            StateKind::Agents,
+            "a-dead",
+            &serde_json::json!({"status": "working"}),
+        )
+        .unwrap();
+        state_set(
+            StateKind::Agents,
+            "a-live",
+            &initial_agent_value("a-live", "cursor", "c-alive", "worker", Some("a-orch-reap")),
+        )
+        .unwrap();
+        state_append(
+            StateKind::Agents,
+            "a-live",
+            &serde_json::json!({"status": "working"}),
+        )
+        .unwrap();
+        let mut dead = rec("c-fil-diag", "cursor", None, Some("c-reap-orch-no-tmux"));
+        dead.role = "worker".into();
+        dead.cdamux_id = Some("a-dead".into());
+        let mut live = rec("c-alive", "cursor", None, Some("c-reap-orch-no-tmux"));
+        live.role = "worker".into();
+        live.cdamux_id = Some("a-live".into());
+        session_registry::record(&dead).unwrap();
+        session_registry::record(&live).unwrap();
+
+        let panes: HashMap<String, SessionPaneInfo> = [
+            (
+                "c-fil-diag".to_string(),
+                SessionPaneInfo {
+                    saw_pane_command: true,
+                    has_agent_process: false,
+                    idle_seconds: Some(DEAD_AGENT_PANE_SECS),
+                    ..Default::default()
+                },
+            ),
+            (
+                "c-alive".to_string(),
+                SessionPaneInfo {
+                    saw_pane_command: true,
+                    has_agent_process: true,
+                    idle_seconds: Some(DEAD_AGENT_PANE_SECS),
+                    ..Default::default()
+                },
+            ),
+        ]
+        .into_iter()
+        .collect();
+
+        assert_eq!(reap_dead_agent_panes(&panes), 1);
+        let dead_st = state_get(StateKind::Agents, "a-dead").unwrap().unwrap();
+        assert_eq!(dead_st["status"], "error");
+        let live_st = state_get(StateKind::Agents, "a-live").unwrap().unwrap();
+        assert_eq!(live_st["status"], "working");
+        let inbox = crate::msg::read_inbox_all("a-orch-reap").unwrap();
+        assert_eq!(inbox.len(), 1);
+        assert_eq!(inbox[0].kind, "error");
+        assert!(inbox[0].text.contains("c-fil-diag"));
+        assert_eq!(reap_dead_agent_panes(&panes), 0, "idempotent once error");
+
+        let mut mise = rec("c-mise", "cursor", None, Some("c-reap-orch-no-tmux"));
+        mise.role = "worker".into();
+        mise.cdamux_id = Some("a-mise".into());
+        state_set(
+            StateKind::Agents,
+            "a-mise",
+            &initial_agent_value("a-mise", "cursor", "c-mise", "worker", Some("a-orch-reap")),
+        )
+        .unwrap();
+        state_append(
+            StateKind::Agents,
+            "a-mise",
+            &serde_json::json!({"status": "working"}),
+        )
+        .unwrap();
+        session_registry::record(&mise).unwrap();
+        let mut panes = panes;
+        panes.insert(
+            "c-mise".into(),
+            SessionPaneInfo {
+                saw_pane_command: true,
+                has_agent_process: false,
+                idle_seconds: Some(DEAD_AGENT_PANE_SECS),
+                ..Default::default()
+            },
+        );
+        // Fresh spawn: pane still `sh` wrapping the CLI — do not reap.
+        let mut fresh = rec("c-fresh", "cursor", None, Some("c-reap-orch-no-tmux"));
+        fresh.role = "worker".into();
+        fresh.cdamux_id = Some("a-fresh".into());
+        state_set(
+            StateKind::Agents,
+            "a-fresh",
+            &initial_agent_value(
+                "a-fresh",
+                "cursor",
+                "c-fresh",
+                "worker",
+                Some("a-orch-reap"),
+            ),
+        )
+        .unwrap();
+        state_append(
+            StateKind::Agents,
+            "a-fresh",
+            &serde_json::json!({"status": "working"}),
+        )
+        .unwrap();
+        session_registry::record(&fresh).unwrap();
+        panes.insert(
+            "c-fresh".into(),
+            SessionPaneInfo {
+                saw_pane_command: true,
+                has_agent_process: false,
+                idle_seconds: Some(0),
+                ..Default::default()
+            },
+        );
+        assert_eq!(reap_dead_agent_panes(&panes), 1);
+        assert_eq!(
+            state_get(StateKind::Agents, "a-mise").unwrap().unwrap()["status"],
+            "error"
+        );
+        assert_eq!(
+            state_get(StateKind::Agents, "a-fresh").unwrap().unwrap()["status"],
+            "working",
+            "idle 0 shell pane is spawn, not death"
+        );
         std::env::remove_var("CDAMUX_HOME");
     }
 }

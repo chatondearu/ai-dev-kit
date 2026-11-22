@@ -33,6 +33,7 @@ Wave 1: R1. Wave 2: R2, R3. Wave 3: R4.
 
 - [x] R1 · [x] R2 · [x] R3 · [x] R4
 - [x] Follow-up: `state gc --unrestorable` + `restore --last-orch` (reboot path, ADR-009 §7)
+- [x] Follow-up: dead agent / live pane (`fish`/`mise`) → `error` + parent inbox; `restart` no longer skips `role=worker` as shell (ADR-009 §8)
 
 ## Risks
 

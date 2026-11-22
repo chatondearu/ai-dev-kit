@@ -50,3 +50,15 @@ workers. Point `cdamux-restore-dormant` at `--last-orch` rather than `--all`
 (`--all` would respawn every idle recorded worker).
 
 A stub with empty `host` and no `sessions/*.json` cannot come back — prune it.
+
+## Dead agent, live pane
+
+tmux can stay up after the CLI exits (`fish`), or never start (`mise` untrusted).
+Reported `working` is not rewritten by a quiet pane (that is only `working ⚠`).
+`cdamux list`, Fleet, `worker ls`, `restore`, and `restart` treat a recorded
+non-shell session whose `#{pane_current_command}` is a shell / `mise` / `direnv`
+as **dead**: status becomes `error`, the parent gets an inbox `error` (nudge when
+idle). Host is kept — `cdamux restore <name>` or `restart --force` resumes.
+`restart` no longer skips `role=worker` as a shell session. Missing
+`pane_current_command` or a shell pane idle under 10s is fail-closed (no reap:
+spawn still shows `sh` wrapping the CLI).

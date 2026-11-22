@@ -133,8 +133,9 @@ pub use state_gc::{
     is_gc_run_status, is_resumable_dormant, run_eligible, run_gc, GcReport, DEFAULT_RETENTION_DAYS,
 };
 pub use restore::{
-    dormant, is_busy_state, is_done_record, last_global_orch_record, parents_first, restart_plan,
-    restore_one, restore_subtree, restore_targets, resume_command, RestoreError, RestoreOutcome,
+    dormant, is_busy_state, is_done_record, last_global_orch_record, parents_first,
+    reap_dead_agent_panes, restart_plan, restore_one, restore_subtree, restore_targets,
+    resume_command, RestoreError, RestoreOutcome, DEAD_AGENT_PANE_SECS,
 };
 pub use msg::{
     agent_parent_id, append_message, ask_answered, find_message, delivery_mode_for_role, format_unread_digest, generate_msg_id,

@@ -86,6 +86,9 @@ Each section below records one resolved decision ticket of the map.
   detection) apply only to an Agent with no hook signal, or for `needs_input` on clients
   without that event. An Agent `working` with no pane output for more than N minutes is
   shown `working ⚠` (possible hang or crash) without changing the stored status.
+  Exception: a live host whose pane command is only a shell / `mise` / `direnv`
+  (CLI exited or never started) is written `error` and the parent is inboxed
+  (ADR-009 §8) — not left as `working`.
 - **Stickiness**: `done` and `error` stay until the next prompt submit on that Agent.
 - **Install**: the status hooks join `install.sh --cdamux-hooks` and
   `cda.aitools.cdamux.hooks.enable`, which stay opt-in (ADR-007).

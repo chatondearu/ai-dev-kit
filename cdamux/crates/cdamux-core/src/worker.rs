@@ -238,6 +238,8 @@ fn find_worker_doc(key: &str, parent: Option<&str>) -> Result<(String, Value), W
 pub fn list_workers(caller_id: &str) -> Result<Vec<WorkerRow>, WorkerError> {
     // Hosts that are not live tmux sessions show `dormant`, like Fleet (a killed worker
     // keeps its stored `working`).
+    let panes = crate::tmux::list_panes_all();
+    let _ = crate::restore::reap_dead_agent_panes(&panes);
     let live: Vec<String> = crate::tmux::list_tmux_sessions()
         .unwrap_or_default()
         .into_iter()

@@ -26,7 +26,7 @@ use cdamux_core::{
     refresh_board_index, resolve_spawn_repo, RefreshOptions,
     note_refs_for_projects, current_tmux_session, kill_tmux_session, list_panes_all, msg_send,
     parents_first, peek_worker, read_messages, parse_unified_diff, resolve_agent_command,
-    is_done_record, last_global_orch_record, restore_one, restore_targets, restart_plan, session_registry, resolve_note_path, send_input,
+    is_done_record, last_global_orch_record, restore_one, restore_targets, reap_dead_agent_panes, restart_plan, session_registry, resolve_note_path, send_input,
     session_name_for_path, spawn_orchestrator, spawn_tmux_session_with_layout, spawn_worker,
     agent_cwd, clear_links, parse_link_ref, refresh_links, resolve_agent_id, set_link_override,
     state_append, state_get, state_set, run_gc, sweep_orphans, tmux_has_session, unique_session_name,
@@ -1840,6 +1840,7 @@ fn cmd_restore(name: Option<String>, all: bool, last_orch: bool) -> ExitCode {
             return ExitCode::from(1);
         }
     };
+    let _ = reap_dead_agent_panes(&list_panes_all());
     if last_orch {
         if let Err(code) = prune_unrestorable_agents() {
             return code;
@@ -1902,6 +1903,7 @@ fn cmd_restart(name: Option<String>, all: bool, force: bool) -> ExitCode {
         }
     };
     let live = list_panes_all();
+    let _ = reap_dead_agent_panes(&live);
     let records = if all {
         session_registry::load_all()
     } else {

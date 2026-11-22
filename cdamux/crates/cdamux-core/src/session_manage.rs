@@ -1,7 +1,7 @@
 //! Kill, rename, fork naming, attach helpers.
 
 use crate::send::{spawn_err, tmux_has_session, SendError};
-use crate::tmux::{list_tmux_sessions, HOME_SESSION_NAME, NAV_SESSION_NAME};
+use crate::tmux::{is_shell_command, list_tmux_sessions, HOME_SESSION_NAME, NAV_SESSION_NAME};
 use std::process::{Command, Stdio};
 
 /// Session option on `cdamux-nav` remembering where Alt-N / `q` should return.
@@ -168,14 +168,6 @@ fn pane_current_command(target: &str) -> Option<String> {
     out.status
         .success()
         .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
-}
-
-/// Login shells show as `-fish`, `-bash`, …
-fn is_shell_command(cmd: &str) -> bool {
-    matches!(
-        cmd.trim_start_matches('-'),
-        "sh" | "bash" | "zsh" | "fish" | "dash" | "ksh" | "mksh" | "tcsh" | "csh" | "nu"
-    )
 }
 
 /// Current client session name when inside tmux (`None` outside or on failure).

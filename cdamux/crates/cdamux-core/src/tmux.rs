@@ -106,13 +106,17 @@ pub struct SessionPaneInfo {
     pub cdamux_id: Option<String>,
     pub cdamux_agent: Option<String>,
     pub ccmux_agent: Option<String>,
+    /// True when any pane's `#{pane_current_command}` looks like an agent CLI.
+    pub has_agent_process: bool,
+    /// True when at least one pane reported a non-empty `pane_current_command`.
+    pub saw_pane_command: bool,
 }
 
 /// Session user options resolve through pane formats, so one `-a` call covers every session.
 /// tmux has no pane idle format (`pane_idle_time` does not exist and expands empty):
 /// idle is `now - window_activity` (epoch of the window's last pane output).
 const LIST_PANES_ALL_FORMAT: &str =
-    "#{session_name}\t#{pane_active}\t#{window_activity}\t#{@cdamux_state}\t#{@cdamux_id}\t#{@cdamux_agent}\t#{@ccmux_agent}";
+    "#{session_name}\t#{pane_active}\t#{window_activity}\t#{@cdamux_state}\t#{@cdamux_id}\t#{@cdamux_agent}\t#{@ccmux_agent}\t#{pane_current_command}";
 
 fn non_empty(s: &str) -> Option<String> {
     let t = s.trim();
@@ -141,6 +145,12 @@ pub fn parse_list_panes_all(stdout: &str, now: u64) -> HashMap<String, SessionPa
         info.cdamux_id = f.next().and_then(non_empty);
         info.cdamux_agent = f.next().and_then(non_empty);
         info.ccmux_agent = f.next().and_then(non_empty);
+        if let Some(cmd) = f.next().and_then(non_empty) {
+            info.saw_pane_command = true;
+            if looks_like_agent_process(&cmd) {
+                info.has_agent_process = true;
+            }
+        }
     }
     out
 }
@@ -183,7 +193,13 @@ pub(crate) fn pane_target(session_name: &str) -> String {
 pub fn tmux_user_option(session_name: &str, option: &str) -> Option<String> {
     let format = user_option_display_format(option);
     let out = Command::new("tmux")
-        .args(["display-message", "-p", "-t", &pane_target(session_name), &format])
+        .args([
+            "display-message",
+            "-p",
+            "-t",
+            &pane_target(session_name),
+            &format,
+        ])
         .output()
         .ok()?;
     if !out.status.success() {
@@ -195,6 +211,24 @@ pub fn tmux_user_option(session_name: &str, option: &str) -> Option<String> {
     } else {
         Some(s)
     }
+}
+
+/// Login shells show as `-fish`, `-bash`, …
+pub fn is_shell_command(cmd: &str) -> bool {
+    matches!(
+        cmd.trim_start_matches('-'),
+        "sh" | "bash" | "zsh" | "fish" | "dash" | "ksh" | "mksh" | "tcsh" | "csh" | "nu"
+    )
+}
+
+/// True when `#{pane_current_command}` is the agent CLI, not a leftover shell / mise.
+pub fn looks_like_agent_process(cmd: &str) -> bool {
+    let c = cmd.trim_start_matches('-').trim();
+    if c.is_empty() || is_shell_command(c) {
+        return false;
+    }
+    // mise untrusted / direnv hook: the agent never started.
+    !matches!(c, "mise" | "direnv")
 }
 
 /// Pane heuristics when no reported agent status exists (see architecture.md).
@@ -245,7 +279,14 @@ fn pane_tail_looks_like_input(tail: &str) -> bool {
 /// Plain (no escapes) tail of the active pane for the prompt heuristics.
 pub fn pane_tail(session_name: &str) -> Option<String> {
     let capture = Command::new("tmux")
-        .args(["capture-pane", "-p", "-t", &pane_target(session_name), "-S", "-30"])
+        .args([
+            "capture-pane",
+            "-p",
+            "-t",
+            &pane_target(session_name),
+            "-S",
+            "-30",
+        ])
         .output()
         .ok()?;
     if !capture.status.success() {
@@ -261,23 +302,29 @@ fn capture_pane_args(session_name: &str, max_lines: i32, escapes: bool) -> Vec<S
     if escapes {
         args.push("-e".into());
     }
-    args.extend(["-t".into(), pane_target(session_name), "-S".into(), format!("-{}", max_lines.max(1))]);
+    args.extend([
+        "-t".into(),
+        pane_target(session_name),
+        "-S".into(),
+        format!("-{}", max_lines.max(1)),
+    ]);
     args
 }
 
 /// Capture active pane text for a session (negative start = lines from bottom).
-pub fn capture_pane_text(session_name: &str, max_lines: i32, escapes: bool) -> Result<String, TmuxError> {
+pub fn capture_pane_text(
+    session_name: &str,
+    max_lines: i32,
+    escapes: bool,
+) -> Result<String, TmuxError> {
     let args = capture_pane_args(session_name, max_lines, escapes);
-    let capture = Command::new("tmux")
-        .args(&args)
-        .output()
-        .map_err(|e| {
-            if e.kind() == std::io::ErrorKind::NotFound {
-                TmuxError::NotFound
-            } else {
-                TmuxError::ListFailed
-            }
-        })?;
+    let capture = Command::new("tmux").args(&args).output().map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            TmuxError::NotFound
+        } else {
+            TmuxError::ListFailed
+        }
+    })?;
     if !capture.status.success() {
         return Err(TmuxError::ListFailed);
     }
@@ -292,7 +339,14 @@ fn send_line_argvs(
     enter: bool,
     clear_line: bool,
 ) -> Vec<Vec<String>> {
-    input_argvs(&pane_target(session_name), line, &[], enter, clear_line, "cdamux-send-test")
+    input_argvs(
+        &pane_target(session_name),
+        line,
+        &[],
+        enter,
+        clear_line,
+        "cdamux-send-test",
+    )
 }
 
 /// Control characters text may not carry into a pane: they act as keys (`\r` submits,
@@ -329,7 +383,15 @@ fn input_argvs(
     }
     if !line.is_empty() {
         out.push(argv(&["load-buffer", "-b", buffer, "-"]));
-        out.push(argv(&["paste-buffer", "-p", "-d", "-b", buffer, "-t", &target]));
+        out.push(argv(&[
+            "paste-buffer",
+            "-p",
+            "-d",
+            "-b",
+            buffer,
+            "-t",
+            &target,
+        ]));
     }
     for key in keys {
         out.push(argv(&["send-keys", "-t", &target, key]));
@@ -438,7 +500,10 @@ fn run_argvs(argvs: &[Vec<String>], line: &str) -> Result<(), TmuxError> {
         let ok = if argv[0] == "load-buffer" {
             let mut child = cmd.stdin(Stdio::piped()).spawn().map_err(map_err)?;
             // Dropping stdin after the write closes the pipe so load-buffer sees EOF.
-            let wrote = child.stdin.take().map(|mut i| i.write_all(line.as_bytes()).is_ok());
+            let wrote = child
+                .stdin
+                .take()
+                .map(|mut i| i.write_all(line.as_bytes()).is_ok());
             child.wait().map_err(map_err)?.success() && wrote == Some(true)
         } else {
             cmd.status().map_err(map_err)?.success()
@@ -458,7 +523,15 @@ mod tests {
     fn paste(target: &str) -> Vec<Vec<&str>> {
         vec![
             vec!["load-buffer", "-b", "cdamux-send-test", "-"],
-            vec!["paste-buffer", "-p", "-d", "-b", "cdamux-send-test", "-t", target],
+            vec![
+                "paste-buffer",
+                "-p",
+                "-d",
+                "-b",
+                "cdamux-send-test",
+                "-t",
+                target,
+            ],
         ]
     }
 
@@ -475,8 +548,14 @@ mod tests {
     fn text_never_goes_through_send_keys() {
         for line in ["y", "a\nb", "-la", "C-c"] {
             let argvs = send_line_argvs("c-bar", line, true, true);
-            assert!(argvs.iter().all(|a| !a.contains(&line.to_string())), "{line}: {argvs:?}");
-            assert!(argvs.iter().all(|a| !a.contains(&"-l".to_string())), "{line}: {argvs:?}");
+            assert!(
+                argvs.iter().all(|a| !a.contains(&line.to_string())),
+                "{line}: {argvs:?}"
+            );
+            assert!(
+                argvs.iter().all(|a| !a.contains(&"-l".to_string())),
+                "{line}: {argvs:?}"
+            );
         }
     }
 
@@ -502,7 +581,10 @@ mod tests {
         want.push(vec!["send-keys", "-t", "%3", "C-c"]);
         want.push(vec!["send-keys", "-t", "%3", "Up"]);
         want.push(vec!["send-keys", "-t", "%3", "Enter"]);
-        assert_eq!(input_argvs("%3", "y", &["C-c", "Up"], true, false, "cdamux-send-test"), want);
+        assert_eq!(
+            input_argvs("%3", "y", &["C-c", "Up"], true, false, "cdamux-send-test"),
+            want
+        );
     }
 
     #[test]
@@ -510,9 +592,15 @@ mod tests {
         let mut want = vec![vec!["send-keys", "-t", "=c-bar:", "C-u"]];
         want.extend(paste("=c-bar:"));
         want.push(vec!["send-keys", "-t", "=c-bar:", "Enter"]);
-        assert_eq!(send_line_argvs("c-bar", "📨 1 messages — cdamux msg read --ack", true, true), want);
+        assert_eq!(
+            send_line_argvs("c-bar", "📨 1 messages — cdamux msg read --ack", true, true),
+            want
+        );
         // Default path (worker paste / CLI send) must not clear.
-        assert_eq!(send_line_argvs("c-bar", "hello", true, false)[0][0], "load-buffer");
+        assert_eq!(
+            send_line_argvs("c-bar", "hello", true, false)[0][0],
+            "load-buffer"
+        );
     }
 
     #[test]
@@ -624,8 +712,28 @@ mod tests {
         let first = parse_list_panes_all("c\t0\t995\t\t\t\t\nc\t0\t991\t\t\t\t\n", 1000);
         assert_eq!(first["c"].idle_seconds, Some(5));
         // Activity stamped after `now` (clock race) saturates to 0, not a panic.
-        assert_eq!(parse_list_panes_all("d\t1\t1002\t\t\t\t\n", 1000)["d"].idle_seconds, Some(0));
+        assert_eq!(
+            parse_list_panes_all("d\t1\t1002\t\t\t\t\n", 1000)["d"].idle_seconds,
+            Some(0)
+        );
         assert!(parse_list_panes_all("", 1000).is_empty());
+        let dead = parse_list_panes_all("e\t1\t990\t\ta-e\tcursor\t\tfish\n", 1000);
+        assert!(dead["e"].saw_pane_command && !dead["e"].has_agent_process);
+        let live = parse_list_panes_all(
+            "f\t1\t990\t\ta-f\tcursor\t\tfish\nf\t0\t990\t\ta-f\tcursor\t\tcursor-agent\n",
+            1000,
+        );
+        assert!(live["f"].has_agent_process);
+    }
+
+    #[test]
+    fn looks_like_agent_process_rejects_shell_and_mise() {
+        assert!(looks_like_agent_process("cursor-agent"));
+        assert!(looks_like_agent_process("claude"));
+        assert!(!looks_like_agent_process("fish"));
+        assert!(!looks_like_agent_process("-zsh"));
+        assert!(!looks_like_agent_process("mise"));
+        assert!(!looks_like_agent_process(""));
     }
 
     #[test]

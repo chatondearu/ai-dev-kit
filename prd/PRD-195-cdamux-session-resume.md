@@ -21,6 +21,7 @@ is gone and the agent conversation has to be found and resumed by hand — or is
 - [ ] `cdamux restore --last-orch` prunes unrestorable stubs and restores the last global orch + resumable workers (reboot oneshot)
 - [ ] Fleet shows dead recorded sessions as dormant rows with a restore key
 - [ ] `cdamux restart --all` restarts every recorded agent session on its conversation (kit update)
+- [ ] Live tmux + dead agent CLI (`fish`/`mise`) is `error` + parent inbox, not silent `working`
 
 ## Non-goals
 

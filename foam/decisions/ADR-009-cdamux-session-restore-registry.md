@@ -49,6 +49,10 @@ Amends ADR-004.
    resumable (non-`done`) workers using registry `agent_session_id`. A user systemd
    oneshot may invoke that command (explicit CLI, not implicit tmux-continuum).
    `cdamux restore --all` stays an operator action and still skips `done`.
+8. **Dead CLI, live tmux (amended 2026-11-22):** a recorded non-shell session whose
+   pane command is a shell / `mise` / `direnv` is not treated as healthy `working`.
+   Status becomes `error`, the parent is inboxed; the host is kept for restore.
+   `cdamux restart` skips only `role=shell` / `agent=shell`, not `role=worker`.
 
 ## Alternatives considered
 

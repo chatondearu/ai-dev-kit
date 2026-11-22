@@ -109,10 +109,12 @@ worker preamble for `cdamux msg`). Spawn refuses when live workers already meet
 live tmux host, excluding only status `done`/`error` — missing status and `idle`
 count; dormant hosts are dead so never count; all projects). `cdamux restore <orch>` rebuilds the
 orchestrator host and its workers (resume by id when recorded). Retention:
-`cdamux state gc` (optional `--retention-days N`, N ≥ 1) archives then removes
-done/error agents and finished runs with no live host older than
-`[state].retention_days` (default 14, must be ≥ 1) into `$CDAMUX_HOME/archive/`;
+`cdamux state gc` (optional `--retention-days N`, or `--unrestorable` for N = 0)
+archives then removes done/error agents and finished runs with no live host older
+than `[state].retention_days` (default 14; `0` = now) into `$CDAMUX_HOME/archive/`;
 dormant resumable agents stay. Aborts if tmux cannot be probed.
+`cdamux restore --last-orch` prunes unrestorable stubs then restores the last
+global orchestrator (see [cdamux/docs/restore.md](../cdamux/docs/restore.md)).
 Layout, ids, delivery and restore: [cdamux/docs/architecture.md](../cdamux/docs/architecture.md)
 § State root.
 

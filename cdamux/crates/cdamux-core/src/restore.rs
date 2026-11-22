@@ -11,6 +11,7 @@ use crate::spawn::{
     agent_entry, default_shell_command, resolve_agent_command, respawn_recorded,
     with_claude_session_id, SpawnError, SpawnOutcome,
 };
+use crate::orch::ORCH_SCOPE_GLOBAL;
 use crate::state::{state_get, StateKind};
 use crate::tmux::SessionPaneInfo;
 use crate::AgentsConfig;
@@ -231,6 +232,24 @@ pub fn restore_subtree(root: SessionRecord, all: Vec<SessionRecord>) -> Vec<Sess
 /// is over, so bulk restores (`--all`, an orchestrator's subtree) leave it dormant.
 pub fn is_done_record(rec: &SessionRecord) -> bool {
     rec.cdamux_id.as_deref().and_then(load_reported_status) == Some(SessionState::Done)
+}
+
+/// Registry record of the most recently updated `scope=global` orchestrator, if any.
+/// Reboot path (`cdamux restore --last-orch`): restore this host and its resumable workers.
+pub fn last_global_orch_record() -> Option<SessionRecord> {
+    session_registry::load_all()
+        .into_iter()
+        .filter(|r| r.role == "orchestrator" && record_scope_is_global(r))
+        .max_by_key(|r| r.updated_ts)
+}
+
+fn record_scope_is_global(rec: &SessionRecord) -> bool {
+    rec.cdamux_id
+        .as_deref()
+        .and_then(|id| state_get(StateKind::Agents, id).ok().flatten())
+        .and_then(|v| v.get("scope").and_then(|s| s.as_str()).map(str::to_string))
+        .as_deref()
+        == Some(ORCH_SCOPE_GLOBAL)
 }
 
 /// Records `cdamux restore <name>` should touch: an orchestrator expands to its
@@ -652,6 +671,56 @@ mod tests {
             vec!["c-plain".to_string()]
         );
         assert!(restore_targets("missing").is_none());
+        std::env::remove_var("CDAMUX_HOME");
+    }
+
+    #[test]
+    fn last_global_orch_record_picks_newest_global() {
+        let _g = env_lock();
+        let dir = tempfile::tempdir().unwrap();
+        std::env::set_var("CDAMUX_HOME", dir.path());
+        let old = SessionRecord {
+            role: "orchestrator".into(),
+            cdamux_id: Some("a-old".into()),
+            updated_ts: 10,
+            ..rec("c-old-global", "cursor", Some("sid-old"), None)
+        };
+        let newest = SessionRecord {
+            role: "orchestrator".into(),
+            cdamux_id: Some("a-new".into()),
+            updated_ts: 50,
+            ..rec("c-global", "cursor", Some("sid-new"), None)
+        };
+        let project = SessionRecord {
+            role: "orchestrator".into(),
+            cdamux_id: Some("a-proj".into()),
+            updated_ts: 99,
+            ..rec("c-proj", "cursor", Some("sid-p"), None)
+        };
+        session_registry::record(&old).unwrap();
+        session_registry::record(&newest).unwrap();
+        session_registry::record(&project).unwrap();
+        state_set(
+            StateKind::Agents,
+            "a-old",
+            &serde_json::json!({"id":"a-old","role":"orchestrator","scope":"global","status":"error","host":""}),
+        )
+        .unwrap();
+        state_set(
+            StateKind::Agents,
+            "a-new",
+            &serde_json::json!({"id":"a-new","role":"orchestrator","scope":"global","status":"working","host":"c-global"}),
+        )
+        .unwrap();
+        state_set(
+            StateKind::Agents,
+            "a-proj",
+            &serde_json::json!({"id":"a-proj","role":"orchestrator","status":"error","host":""}),
+        )
+        .unwrap();
+        let got = last_global_orch_record().expect("global orch");
+        assert_eq!(got.name, "c-global");
+        assert_eq!(got.cdamux_id.as_deref(), Some("a-new"));
         std::env::remove_var("CDAMUX_HOME");
     }
 }

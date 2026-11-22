@@ -43,6 +43,12 @@ Amends ADR-004.
    (`c-proj-2`), so a dormant snapshot is never overwritten.
 6. **Fail-open**: a registry write error never fails a spawn; the status line says the
    session was not recorded.
+7. **Reboot (amended 2026-11-22):** tmux starting still does not restore by itself.
+   A dedicated CLI `cdamux restore --last-orch` prunes unrestorable `done`/`error`
+   stubs then restores the newest recorded `scope=global` orchestrator and its
+   resumable (non-`done`) workers using registry `agent_session_id`. A user systemd
+   oneshot may invoke that command (explicit CLI, not implicit tmux-continuum).
+   `cdamux restore --all` stays an operator action and still skips `done`.
 
 ## Alternatives considered
 
@@ -57,9 +63,9 @@ Amends ADR-004.
 
 - **Positive**: a dead session can be restored on its conversation; survives reboots;
   hook writers (JS) and cdamux share a plain JSON file.
-- **Negative**: files of sessions killed outside cdamux accumulate until restored or
-  forgotten (R4 adds a forget key); a configured `claude` command that does not accept
-  `--session-id` (a wrapper script) breaks at spawn.
+- **Negative**: files of sessions killed outside cdamux accumulate until restored,
+  forgotten, or pruned (`cdamux state gc --unrestorable`); a configured `claude`
+  command that does not accept `--session-id` (a wrapper script) breaks at spawn.
 - **Constraint**: tests that write the registry point `XDG_STATE_HOME` at a temp dir;
   tmux tests use a throwaway server (`cdamux/AGENTS.md`).
 

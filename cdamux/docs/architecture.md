@@ -68,11 +68,13 @@ missing foam is a skip entry and refresh still exits 0.
 Writers use `cdamux state set|get|append` and `cdamux msg send|read` (private JSON).
 `cdamux state gc` archives then removes `done`/`error` agents and finished runs
 (`ok`/`blocked`/`done`/`error`) with no live host whose file mtime is older than
-`[state].retention_days` (default 14, must be ≥ 1) in `config.toml`. Aborts when
+`[state].retention_days` (default 14) in `config.toml`. `--unrestorable` (or
+`--retention-days 0`) archives eligible records immediately. Aborts when
 tmux cannot be probed (fail closed). An archived agent's `inbox/<id>.jsonl` and
 `.cursor` move to `archive/inbox/`; an existing archive of the same name is kept and
 the new one gets a `.<unix_secs>` suffix. Dormant resumable agents (session restore
-registry, ADR-009) are never GC'd. Manual only (no timer in v0).
+registry, ADR-009) are never GC'd. Idle / working / live hosts are never GC'd.
+Manual only (no timer in v0). See [restore.md](restore.md).
 
 Fleet permanent kill (`x`) finalizes agents with that host and live runs with that
 `session` (`status=error`, `ended_at`, clear host) so recreating the same tmux name
@@ -410,7 +412,7 @@ Operator curl examples: [tailnet-api.md](tailnet-api.md).
   `agent`: product client or `shell`; `role`: `agent` | `shell` | `orchestrator` |
   `worker`; `layout`: `single` | `horizontal` | `vertical`; `agent_session_id`,
   `cdamux_id` and `parent` may be `null`; timestamps are Unix seconds.
-- **Restore** (`cdamux restore <name>` / `--all`, `cdamux_core::restore`): recreates a
+- **Restore** (`cdamux restore <name>` / `--all` / `--last-orch`, `cdamux_core::restore`): recreates a
   recorded session that has no live tmux session of that name, through the spawn path
   (same name, cwd, layout, `@cdamux_agent` / `@cdamux_role` / `@cdamux_parent`), never
   switching the client. The primary pane runs the agent's `resume` template
@@ -422,12 +424,13 @@ Operator curl examples: [tailnet-api.md](tailnet-api.md).
   record keeps its id and `created_ts`. Live sessions are skipped; a missing cwd is an
   error and the record is kept. `--all` restores parents before children and skips
   records whose agent reported `done` (`skipped (agent done; …)`; restore it by name to
-  revive it). Restoring an
+  revive it). `--last-orch` prunes unrestorable `done`/`error` then restores the newest
+  recorded `scope=global` orchestrator and its non-done workers (reboot oneshot). Restoring an
   **orchestrator** by name also restores its workers (registry `parent` host links and
   agent-state `parent` ids), minus `done` workers, parents first — same per-session status lines and exit 1 if
   any fail. One line per session (`restored`, `fresh (no id)`, `fresh (no resume command)`,
   `skipped (live)`, `error: …`). API: `restore_one`, `restore_targets`, `restore_subtree`,
-  `resume_command`, `parents_first`, `dormant(records, &live_names)`.
+  `last_global_orch_record`, `resume_command`, `parents_first`, `dormant(records, &live_names)`.
 - **Dormant rows** (Fleet): the dashboard caches the registry in `StatusCache`
   (`refresh_registry`: re-read only when the `sessions/` dir mtime moves, no tmux call
   per row). Records with no live tmux session (home excluded) render as dimmed `◌ name

@@ -91,6 +91,7 @@ PR, else the issue, in the browser.
 - [ ] `cdamux send <session> --key C-c --json` interrupts a running command and prints `"outcome":"ok"`; `--key Foo` exits 2
 - [ ] Spawn a claude session, `tmux kill-session` it, `cdamux restore --all` brings it back on the same conversation (`--resume <id>`)
 - [ ] Spawn `cdamux orch new` + a worker, kill both hosts, `cdamux restore <orch>` brings orch then workers back (resume ids + `@cdamux_parent` kept)
+- [ ] `cdamux restore --last-orch` after killing the global orch restores it on `--resume=` / `--resume {id}` and `cdamux state gc --unrestorable` drops error stubs with empty host
 - [ ] The killed session shows as a dimmed `◌ … dormant` row in the Fleet; `Enter` restores it, `x` `x` forgets it
 - [ ] Kill residual (#335): Fleet `x` on an orch session with a live run → recreate same name → no foreign live graph under it. Same after raw `tmux kill-session` (orphan may sit at project root until sweep). For existing dogfood orphans: `cdamux state gc --sweep-orphans --dry-run` then without `--dry-run` (rebuild/`PATH` if still on a pre-#307 binary)
 - [ ] `cdamux restart --all` from a shell pane of an agent session: other idle agents restart first, a `running` one is skipped, the current one restarts last (see `restart.log`)

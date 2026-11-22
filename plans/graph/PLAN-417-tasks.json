@@ -1,0 +1,63 @@
+{
+  "issue": 417,
+  "tasks": [
+    {
+      "id": "kiss-off",
+      "paths": [
+        "skills/quality/cda-kiss/hooks/activate.js",
+        "skills/quality/cda-kiss/hooks/test.sh"
+      ],
+      "tier": "small",
+      "prompt": "PLAN-417 task kiss-off (audit findings 1 and 8). PR https://github.com/chatondearu/ai-dev-kit/pull/419 already limits CDA_ROLE=orchestrator to ORCH_ROUTING: no KISS ruleset, no level persist, no repo map. The hook test requires 'cdamux orchestrator' and forbids 'KISS MODE ACTIVE'. While that PR is open or merged, do not edit these files and do not open a second PR. If it was closed without merge, implement that guard and open one PR. Do not Closes #417. Report the PR URL."
+    },
+    {
+      "id": "stop-hook",
+      "paths": [
+        "cdamux/hooks/status.js",
+        "cdamux/hooks/ledger.js",
+        "cdamux/hooks/test.sh",
+        "cdamux/crates/cdamux-core/src/events.rs"
+      ],
+      "tier": "large",
+      "prompt": "PLAN-417 tasks reply-trace and stop-drain. One worker because both ride Cursor stop and cdamux/hooks/test.sh. (1) Tool-only orchestrator stop: record_reply today returns false when last_assistant_message is empty and the transcript has no assistant text, and ledger.js swallows the 1s timeout. Append one visible reply that says the turn had no assistant prose, and do not leave a timeout as an empty journal. Hook test: orchestrator stop, empty last_assistant_message, no transcript, and the test greps a journal line or a non-zero log line. (2) Wake-up is decided: drain on Cursor stop, no timer, no postToolUse paste. Inbox lines written during the turn are already on disk (unreadDigest reads them at stop). On Cursor stop, set the pane idle and run drainSay even when worker mail is unread, then surface one followup line (📨 N messages — cdamux msg read --ack) for unread done/ask/error/report. That followup may mark the turn working again after the drain. Do not paste from postToolUse, and do not paste while the turn is still working. The hook test that forbids msg drain on a Cursor followup and requires status working with no drain is the bug: a queued say must drain on that stop. postToolUse stays lift-idle-only. Do not edit the orchestrator skill or msg.rs. Do not Closes #417. Run bash cdamux/hooks/test.sh and the events.rs record_reply tests."
+    },
+    {
+      "id": "reap-comm",
+      "paths": [
+        "cdamux/crates/cdamux-core/src/tmux.rs",
+        "cdamux/crates/cdamux-core/src/restore.rs"
+      ],
+      "tier": "medium",
+      "prompt": "PLAN-417 task reap-comm (audit finding 4, ADR-009). pane_is_dead_agent treats the pane as live while has_agent_process is true. That flag follows #{pane_current_command}, which can stay cursor-agent after the CLI has exited into fish. Read /proc/<pane_pid>/comm. fish, mise, or direnv means dead even when the tmux command string says cursor-agent. Existing reap then sets error and inboxes the parent after DEAD_AGENT_PANE_SECS (10). No watcher daemon. Keep the pure parser free of real /proc so fixture lines still parse; apply comm when listing live panes. A real cursor-agent comm is not reaped. Do not change the registry 'skipped (shell session)' rule. Do not edit worker.rs. Do not Closes #417. cargo test the tmux and restore pane tests on a throwaway tmux server only (TMUX_TMPDIR + tmux -L)."
+    },
+    {
+      "id": "cap-hint",
+      "paths": [
+        "cdamux/crates/cdamux-core/src/worker.rs",
+        "cdamux/crates/cdamux-cli/src/main.rs",
+        "cdamux/crates/cdamux-cli/tests/worker_cli.rs"
+      ],
+      "tier": "medium",
+      "prompt": "PLAN-417 task cap-hint (audit finding 5, ADR-015). count_live_workers currently counts every live worker that is not done or error, including idle. After DEFAULT_NUDGE_QUIET_SECS (10), an idle host with no pending ask does not count. A live done host already does not count; keep that. working, blocked, and idle-with-a-pending-ask still count. Missing status still counts. worker ls prints one reap hint line: tmux kill-session -t <host> and the worktree path. Do not kill the session. Do not delete the worktree. Do not change --here or git worktree add (here-disk owns spawn.rs and worktree.rs). Build the hint where the row is built so the unit test can see it; main.rs only prints it. Extend count_live_workers_filters_status_and_dead_hosts. Do not Closes #417."
+    },
+    {
+      "id": "relay-inbox",
+      "paths": [
+        "cdamux/crates/cdamux-core/src/msg.rs",
+        "skills/core/cda-orchestrator/SKILL.md"
+      ],
+      "tier": "small",
+      "prompt": "PLAN-417 task relay-inbox (audit findings 6 and 13). delivery_word prints inbox when a worker line was not pasted. queued stays the orchestrator say-queue word in say.rs; do not edit say.rs. Update delivery_word_names_outcome. In skills/core/cda-orchestrator/SKILL.md add two short sentences. PR #418 owns skill cda-orch-improve; do not recreate that skill. If the Session retro pointer is missing, add one line that names it; if it is present, keep it. The two sentences: inbox means the worker line was not pasted, so peek it, the worker will not start a turn; a working turn does not see inbox mail until Cursor stop, and that is expected. Do not edit status.js. Do not Closes #417."
+    },
+    {
+      "id": "here-disk",
+      "paths": [
+        "cdamux/crates/cdamux-core/src/worktree.rs",
+        "cdamux/crates/cdamux-core/src/spawn.rs",
+        "cdamux/crates/cdamux-core/tests/orch_tmux.rs"
+      ],
+      "tier": "medium",
+      "prompt": "PLAN-417 task here-disk (audit findings 7 and 12). Refuse worker spawn --here when the checkout branch is main or master, or git status --porcelain is non-empty. One error line, no tmux session. Put the check on the worker role path inside spawn (spawn_tmux_session_ex already receives the cwd). A new worktree branch worker/<run>/<name> that is clean still spawns. Orchestrator role on main still spawns. Do not edit worker.rs (cap-hint owns it); worker.rs already calls spawn_tmux_session_ex. Bound git worktree add in worktree_add_new_branch: on timeout or ENOSPC / 'No space left on device', return one line and do not hang. The nested-worker test in orch_tmux.rs uses here: true on a fresh git init (default branch would now be refused): keep one clean non-main --here success and add the refusal case. Do not delete worktrees. Do not Closes #417. Throwaway tmux only (TMUX_TMPDIR + tmux -L)."
+    }
+  ]
+}

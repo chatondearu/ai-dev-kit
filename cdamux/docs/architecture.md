@@ -426,8 +426,9 @@ Operator curl examples: [tailnet-api.md](tailnet-api.md).
   record keeps its id and `created_ts`. Live sessions are skipped; a missing cwd is an
   error and the record is kept. `--all` restores parents before children and skips
   records whose agent reported `done` (`skipped (agent done; …)`; restore it by name to
-  revive it). `--last-orch` prunes unrestorable `done`/`error` then restores the newest
-  recorded `scope=global` orchestrator and its non-done workers (reboot oneshot). Restoring an
+  revive it). `--last-orch` prunes unrestorable agent stubs (not `runs/`) then restores a
+  live `scope=global` orch if one is up, else the newest recorded global orch and its
+  non-done workers (reboot oneshot). Restoring an
   **orchestrator** by name also restores its workers (registry `parent` host links and
   agent-state `parent` ids), minus `done` workers, parents first — same per-session status lines and exit 1 if
   any fail. One line per session (`restored`, `fresh (no id)`, `fresh (no resume command)`,

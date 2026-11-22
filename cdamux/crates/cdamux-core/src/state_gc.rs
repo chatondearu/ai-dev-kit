@@ -224,6 +224,24 @@ pub fn run_gc(
     now: SystemTime,
     host_alive: &dyn Fn(&str) -> bool,
 ) -> io::Result<GcReport> {
+    run_gc_ex(retention_days, now, host_alive, true)
+}
+
+/// Like [`run_gc`] but never archives `runs/` (reboot `--last-orch`: agent stubs only).
+pub fn run_gc_agents_only(
+    retention_days: u32,
+    now: SystemTime,
+    host_alive: &dyn Fn(&str) -> bool,
+) -> io::Result<GcReport> {
+    run_gc_ex(retention_days, now, host_alive, false)
+}
+
+fn run_gc_ex(
+    retention_days: u32,
+    now: SystemTime,
+    host_alive: &dyn Fn(&str) -> bool,
+    archive_runs: bool,
+) -> io::Result<GcReport> {
     let days = retention_days;
     let registry = session_registry::load_all();
     let mut report = GcReport::default();
@@ -242,12 +260,14 @@ pub fn run_gc(
         report.archived_agents.push(id);
     }
 
-    for (id, path, value) in state_list(StateKind::Runs) {
-        if !run_eligible(&value, &path, now, days, host_alive) {
-            continue;
+    if archive_runs {
+        for (id, path, value) in state_list(StateKind::Runs) {
+            if !run_eligible(&value, &path, now, days, host_alive) {
+                continue;
+            }
+            archive_run(&id)?;
+            report.archived_runs.push(id);
         }
-        archive_run(&id)?;
-        report.archived_runs.push(id);
     }
 
     report.archived_agents.sort();
@@ -484,6 +504,29 @@ mod tests {
             assert!(home.join("agents/a-live-orch.json").is_file());
             assert!(home.join("agents/a-idle.json").is_file());
             assert!(home.join("agents/a-keep.json").is_file());
+        });
+    }
+
+    #[test]
+    fn run_gc_agents_only_keeps_finished_runs() {
+        with_temp_home(|home| {
+            let alive = |_h: &str| false;
+            set_aged_agent(
+                "a-err",
+                serde_json::json!({"id":"a-err","status":"error","host":""}),
+                0,
+            );
+            set_aged_run(
+                "r-fin",
+                serde_json::json!({"id":"r-fin","status":"ok","session":""}),
+                0,
+            );
+            let now = SystemTime::now();
+            let report = run_gc_agents_only(0, now, &alive).unwrap();
+            assert_eq!(report.archived_agents, vec!["a-err"]);
+            assert!(report.archived_runs.is_empty());
+            assert!(home.join("runs/r-fin.json").is_file());
+            assert!(!home.join("agents/a-err.json").exists());
         });
     }
 

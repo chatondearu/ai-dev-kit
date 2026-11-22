@@ -4,7 +4,7 @@
 use crate::agent_status::load_reported_status;
 use crate::client_name::normalize_client_name;
 use crate::msg::{msg_send, DEFAULT_NUDGE_QUIET_SECS};
-use crate::orch::ORCH_SCOPE_GLOBAL;
+use crate::orch::{find_live_global_orchestrator, ORCH_SCOPE_GLOBAL};
 use crate::send::tmux_has_session;
 use crate::session::SessionState;
 use crate::session_manage::{is_home_session, is_nav_session};
@@ -265,7 +265,26 @@ pub fn is_done_record(rec: &SessionRecord) -> bool {
 
 /// Registry record of the most recently updated `scope=global` orchestrator, if any.
 /// Reboot path (`cdamux restore --last-orch`): restore this host and its resumable workers.
+/// Prefers a live global host (ADR-015) over a newer dormant record.
 pub fn last_global_orch_record() -> Option<SessionRecord> {
+    let live = find_live_global_orchestrator().map(|(_, host)| host);
+    pick_global_orch_record(live.as_deref())
+}
+
+/// `live_host`: tmux session of a live `scope=global` orch, when one exists.
+/// Live host wins even if another global record has a newer `updated_ts`.
+pub fn pick_global_orch_record(live_host: Option<&str>) -> Option<SessionRecord> {
+    if let Some(host) = live_host.filter(|h| !h.is_empty()) {
+        return session_registry::load(host).or_else(|| {
+            session_registry::load_all()
+                .into_iter()
+                .find(|r| r.name == host)
+        });
+    }
+    newest_recorded_global_orch()
+}
+
+fn newest_recorded_global_orch() -> Option<SessionRecord> {
     session_registry::load_all()
         .into_iter()
         .filter(|r| r.role == "orchestrator" && record_scope_is_global(r))
@@ -935,9 +954,16 @@ mod tests {
             &serde_json::json!({"id":"a-proj","role":"orchestrator","status":"error","host":""}),
         )
         .unwrap();
-        let got = last_global_orch_record().expect("global orch");
+        let got = pick_global_orch_record(None).expect("global orch");
         assert_eq!(got.name, "c-global");
         assert_eq!(got.cdamux_id.as_deref(), Some("a-new"));
+        let live = pick_global_orch_record(Some("c-old-global")).expect("live wins");
+        assert_eq!(live.name, "c-old-global");
+        assert_eq!(live.cdamux_id.as_deref(), Some("a-old"));
+        assert!(
+            pick_global_orch_record(Some("c-missing-live")).is_none(),
+            "live host with no registry must not fall back to a newer dormant"
+        );
         std::env::remove_var("CDAMUX_HOME");
     }
 

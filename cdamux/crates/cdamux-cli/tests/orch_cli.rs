@@ -40,6 +40,18 @@ fn restore_last_orch_prunes_unrestorable_error_stub() {
         r#"{"id":"a-stale","role":"orchestrator","scope":"global","status":"error","host":""}"#,
     ]);
     assert!(set.status.success(), "{}", String::from_utf8_lossy(&set.stderr));
+    let set_run = run(&[
+        "state",
+        "set",
+        "runs",
+        "r-fin",
+        r#"{"id":"r-fin","status":"ok","session":""}"#,
+    ]);
+    assert!(
+        set_run.status.success(),
+        "{}",
+        String::from_utf8_lossy(&set_run.stderr)
+    );
 
     let restore = run(&["restore", "--last-orch"]);
     let stdout = String::from_utf8_lossy(&restore.stdout);
@@ -58,4 +70,8 @@ fn restore_last_orch_prunes_unrestorable_error_stub() {
     );
     assert!(!home.join("agents/a-stale.json").exists());
     assert!(home.join("archive/agents/a-stale.json").is_file());
+    assert!(
+        home.join("runs/r-fin.json").is_file(),
+        "last-orch must not archive finished runs"
+    );
 }

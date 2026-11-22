@@ -45,9 +45,11 @@ Amends ADR-004.
    session was not recorded.
 7. **Reboot (amended 2026-11-22):** tmux starting still does not restore by itself.
    A dedicated CLI `cdamux restore --last-orch` prunes unrestorable `done`/`error`
-   stubs then restores the newest recorded `scope=global` orchestrator and its
-   resumable (non-`done`) workers using registry `agent_session_id`. A user systemd
-   oneshot may invoke that command (explicit CLI, not implicit tmux-continuum).
+   **agent** stubs (not finished `runs/`) then restores a live `scope=global`
+   orchestrator if one exists (ADR-015: one live global), else the newest recorded
+   global orch and its resumable (non-`done`) workers using registry
+   `agent_session_id`. A user systemd oneshot may invoke that command (explicit
+   CLI, not implicit tmux-continuum).
    `cdamux restore --all` stays an operator action and still skips `done`.
 8. **Dead CLI, live tmux (amended 2026-11-22):** a recorded non-shell session whose
    pane command is a shell / `mise` / `direnv` is not treated as healthy `working`.

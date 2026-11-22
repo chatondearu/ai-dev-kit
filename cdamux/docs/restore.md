@@ -45,9 +45,11 @@ an **explicit** CLI:
 cdamux restore --last-orch
 ```
 
-That brings back the newest recorded `scope=global` orchestrator and its resumable
-workers. Point `cdamux-restore-dormant` at `--last-orch` rather than `--all`
-(`--all` would respawn every idle recorded worker).
+That prunes unrestorable **agent** stubs (not `runs/`), then restores a live
+`scope=global` orchestrator if one is already up (ADR-015), else the newest
+recorded global orch and its resumable workers. Point `cdamux-restore-dormant`
+at `--last-orch` rather than `--all` (`--all` would respawn every idle recorded
+worker).
 
 A stub with empty `host` and no `sessions/*.json` cannot come back — prune it.
 

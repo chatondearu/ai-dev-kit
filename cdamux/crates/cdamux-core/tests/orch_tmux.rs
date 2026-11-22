@@ -265,7 +265,7 @@ fn orch_new_child_under_global_then_worker_msg() {
     let proj = tmp.path().join("proj");
     std::fs::create_dir(&proj).unwrap();
     assert!(Command::new("git")
-        .args(["-C", proj.to_str().unwrap(), "init"])
+        .args(["-C", proj.to_str().unwrap(), "init", "-b", "feature"])
         .status()
         .unwrap()
         .success());

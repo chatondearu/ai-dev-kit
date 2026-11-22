@@ -132,6 +132,7 @@ fn worker_paste_and_orch_nudge() {
     .unwrap();
     assert_eq!(queued.delivery, DeliveryMode::WorkerPaste);
     assert!(!queued.pasted);
+    assert_eq!(queued.delivery_word(), "inbox");
     let pane = wait_for_pane("c-worker", "busy-worker-msg");
     assert!(!pane.contains("busy-worker-msg"), "busy worker got a paste: {pane}");
     assert_eq!(unread_count("a-wmsg1").unwrap(), 1);

@@ -29,6 +29,7 @@ use cdamux_core::{
     is_done_record, last_global_orch_record, restore_one, restore_targets, reap_dead_agent_panes, restart_plan, session_registry, resolve_note_path, send_input,
     find_live_global_orchestrator, run_gc_agents_only,
     session_name_for_path, spawn_orchestrator, spawn_tmux_session_with_layout, spawn_worker,
+    worker_ls_line,
     agent_cwd, clear_links, parse_link_ref, refresh_links, resolve_agent_id, set_link_override,
     state_append, state_get, state_set, run_gc, sweep_orphans, tmux_has_session, unique_session_name,
     valid_kind,
@@ -855,12 +856,7 @@ fn cmd_worker_ls() -> ExitCode {
     match list_workers(&caller_id) {
         Ok(rows) => {
             for r in rows {
-                let status = r.status.as_deref().unwrap_or("-");
-                let run = r.run.as_deref().unwrap_or("-");
-                println!(
-                    "{}\t{}\t{}\t{}\t{}\t{}",
-                    r.name, r.id, r.host, r.client, run, status
-                );
+                println!("{}", worker_ls_line(&r));
             }
             ExitCode::SUCCESS
         }

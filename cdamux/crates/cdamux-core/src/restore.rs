@@ -385,9 +385,15 @@ pub fn restart_plan(
 pub const DEAD_AGENT_PANE_SECS: u32 = 10;
 
 fn pane_is_dead_agent(info: &SessionPaneInfo) -> bool {
-    info.saw_pane_command
-        && !info.has_agent_process
-        && info.idle_seconds.is_some_and(|s| s >= DEAD_AGENT_PANE_SECS)
+    // Foreground comm of fish/mise/direnv is dead even when tmux still reports
+    // `cursor-agent` (`has_agent_process` is then already false). The shell that
+    // owns `pane_pid` stays `fish` for the whole session, so that comm is not the signal.
+    let proc_dead = info
+        .proc_comm
+        .as_deref()
+        .is_some_and(crate::tmux::is_dead_pane_comm);
+    let cmd_dead = info.saw_pane_command && !info.has_agent_process;
+    (proc_dead || cmd_dead) && info.idle_seconds.is_some_and(|s| s >= DEAD_AGENT_PANE_SECS)
 }
 
 /// Recorded agent/worker/orch whose tmux host is live but the pane is only a

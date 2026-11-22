@@ -314,4 +314,39 @@ await event({ event: { type: "session.idle", properties: { sessionID: "ses_main"
 ' "$PWD/opencode-subagent.js" || fail "opencode plugin threw"
 [ "$(jq -r .status "$AF")" = idle ] || fail "opencode idle not written after busy"
 
+# A 1s events-reply timeout must retry once (no transcript) and still exit 0.
+# The first reply sleeps; node kills it. Today, with the retry removed, only one call is logged.
+printf '{"id":"a-hook1","status":"idle","role":"orchestrator"}\n' > "$AF"
+: > "$CDAMUX_LOG"
+cat > "$tmp/bin/cdamux" <<CD
+#!/usr/bin/env node
+const fs = require('fs');
+const log = process.env.CDAMUX_LOG;
+const dir = process.env.REPLY_DIR;
+fs.appendFileSync(log, process.argv.slice(2).join(' ') + '\n');
+if (process.argv[2] !== 'events' || process.argv[3] !== 'reply') process.exit(0);
+const nfile = dir + '/n';
+let n = 0;
+try { n = Number(fs.readFileSync(nfile, 'utf8')); } catch (e) { /* first */ }
+n += 1;
+fs.writeFileSync(nfile, String(n));
+const chunks = [];
+process.stdin.on('data', (c) => chunks.push(c));
+process.stdin.on('end', () => {
+  fs.writeFileSync(dir + '/stdin-' + n, Buffer.concat(chunks));
+  if (n === 1) setTimeout(() => process.exit(0), 5000);
+  else process.exit(0);
+});
+CD
+chmod +x "$tmp/bin/cdamux"
+export REPLY_DIR="$tmp/reply-slow"
+mkdir -p "$REPLY_DIR"
+out="$(run_status '{"hook_event_name":"stop","generation_id":"g-slow","last_assistant_message":"","transcript_path":"/slow.jsonl","loop_count":1}')"
+[ "$out" = '{}' ] || fail "timed-out stop must still print {}, got: $out"
+[ "$(cat "$REPLY_DIR/n")" = 2 ] || fail "timeout must retry events reply once, got: $(cat "$REPLY_DIR/n" 2>/dev/null || echo 0)"
+jq -e '.transcript_path == "/slow.jsonl" and .generation_id == "g-slow"' "$REPLY_DIR/stdin-1" >/dev/null \
+  || fail "first events reply dropped the payload"
+jq -e '.generation_id == "g-slow" and (has("transcript_path") | not)' "$REPLY_DIR/stdin-2" >/dev/null \
+  || fail "timeout retry must drop transcript_path, got: $(cat "$REPLY_DIR/stdin-2")"
+
 echo "ok: cdamux sub-agent + session id + status adapters"

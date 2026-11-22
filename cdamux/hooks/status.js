@@ -2,7 +2,8 @@
 // cdamux — status adapter for Claude / Cursor / Codex hooks (ADR-011 §3 + §4).
 // Maps lifecycle events → `cdamux state append agents <id> {"status":…}`.
 // Turn-end / prompt-submit inject an unread inbox digest where the client allows it.
-// Turn end of an orchestrator also records its reply in the events feed (docs/events.md)
+// Turn end of an orchestrator also records its reply in the events feed (docs/events.md),
+// including a tool-only stop that has no assistant prose,
 // and pastes the next queued `cdamux say` prompt (docs/say.md).
 // Fail-open, local, fast; no-op without CDAMUX_AGENT_ID / @cdamux_id or without
 // `cdamux` on PATH. Stickiness: done/error/blocked stay until the next `working`.

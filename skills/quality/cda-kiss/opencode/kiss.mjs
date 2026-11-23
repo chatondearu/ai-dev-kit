@@ -36,6 +36,7 @@ function writeMode(mode) {
 }
 // Bare /kiss turns it on (or keeps the level); /kiss <level|off> sets it.
 function persistMode(args) {
+  if (process.env.CDA_ROLE === 'orchestrator') return; // orchestrator never owns the flag
   const wanted = String(args == null ? '' : args).trim().toLowerCase();
   if (!wanted && readMode() !== 'off') return;
   const mode = wanted ? normalizeMode(wanted) : DEFAULT_MODE;

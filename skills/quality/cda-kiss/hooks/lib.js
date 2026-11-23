@@ -92,9 +92,20 @@ function getInstructions(mode) {
 // Dir names come from the opened repo and land in hidden context: keep only
 // path-like names (no spaces, quotes, control or non-ASCII chars; git quotes the
 // latter) so a planted folder can't read as a sentence. From ponytail 5c5ad8a.
-// shortcut: an underscore-joined sentence still passes; cap is 100 chars, tighten if one shows up.
 const SAFE_PATH = /^[\w.@+$()[\]\/-]+$/;
 const MAX_DIR_CHARS = 100;
+// Path-like names can still read as orders: "ignore … instructions", role tags
+// ([SYSTEM], [INST]), @agent mentions, "run without asking". Legit names like
+// app/[id] or lib/system pass.
+// shortcut: keyword list, not a classifier; extend it when a new phrasing shows up.
+const INSTRUCTION_LIKE = new RegExp([
+  '(ignore|disregard|forget|override|bypass).*(instruction|previous|prior|prompt|rule|above|guard)',
+  'system.?(prompt|notice|message|override)',
+  '\\[(system|assistant|user|inst|developer|admin)\\]',
+  '(^|/)@(claude|anthropic|assistant|system|codex|cursor|copilot|gpt|openai|gemini|ai)\\b',
+  '(without|no).?(asking|confirm|approval|permission)',
+].join('|'), 'i');
+const UPPER_TAG = /\[[A-Z0-9_-]{2,}\]/; // [SYSTEM], [INST]; case-sensitive so app/[id] stays
 
 // Cheap repo map so "reuse first" costs no search: unique git-tracked dirs
 // (depth ≤ 2, first-seen order), char-budgeted. Root-level files are skipped.
@@ -107,7 +118,7 @@ function buildMap(cwd = process.cwd()) {
       stdio: ['ignore', 'pipe', 'ignore'],
     }).split('\n').filter((f) => f.includes('/'))
       .map((f) => f.split('/').slice(0, -1).slice(0, 2).join('/'))
-      .filter((d) => d.length <= MAX_DIR_CHARS && SAFE_PATH.test(d)))];
+      .filter((d) => d.length <= MAX_DIR_CHARS && SAFE_PATH.test(d) && !INSTRUCTION_LIKE.test(d) && !UPPER_TAG.test(d)))];
     if (!dirs.length) return '';
     let out = 'Repo map (reuse what already exists before writing):\n';
     for (const d of dirs) {

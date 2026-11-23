@@ -543,7 +543,7 @@ pub fn alert_long_blocked(now: u64) -> Vec<String> {
             "worker {who} ({id}) blocked for {} min: its ask is unanswered. Answer it (cdamux msg send --to {id} --kind answer …) or escalate to the maintainer.",
             now.saturating_sub(since) / 60
         );
-        let _ = msg_send(&id, parent, "report", &text, None, DEFAULT_NUDGE_QUIET_SECS, None);
+        let _ = msg_send(&id, parent, "report", &text, None, None);
         out.push(id);
     }
     out

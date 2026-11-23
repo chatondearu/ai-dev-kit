@@ -185,48 +185,15 @@ function drainSay(env) {
   }
 }
 
-/// Fire-and-forget `cdamux state tick` (blocked-worker reminder, throttled in cdamux):
-/// hooks are the only periodic signal while no Fleet is open. Never waits, fail-open.
-function kickTick(env) {
-  try {
-    spawn('cdamux', ['state', 'tick'], { env, detached: true, stdio: 'ignore' })
-      .on('error', () => {})
-      .unref();
-  } catch (e) {
-    /* fail-open */
-  }
-}
-
 function stickyOk(current, next) {
   // A pending ask (`blocked`) must survive the asker's own turn-end hook.
   if (current === 'done' || current === 'error' || current === 'blocked') return next === 'working';
   return true;
 }
 
-/// Write status via `cdamux state append` (ADR-011 single write path). No-op without
-/// agent id or without `cdamux` on PATH. Fail-open.
+/// Status only (opencode plugin): same write path as [`setAgentState`].
 function setAgentStatus(env, status) {
-  const id = resolveAgentId(env);
-  if (!id || !status) return;
-  const current = readAgentStatus(env, id);
-  if (!stickyOk(current, status)) return;
-  kickTick(env);
-  const args = ['state', 'append', 'agents', id, JSON.stringify({ status })];
-  // 40 ms used to kill the write while it waited on the record / journal locks.
-  const opts = { env, timeout: 500, stdio: 'ignore' };
-  try {
-    // `--sticky` re-checks stickiness under the record lock (no read-then-write race).
-    execFileSync('cdamux', [...args, '--sticky'], opts);
-  } catch (e) {
-    // An older binary without `--sticky` exits 2: fall back to the plain append.
-    if (e && e.status === 2) {
-      try {
-        execFileSync('cdamux', args, opts);
-      } catch (e2) {
-        /* fail-open */
-      }
-    }
-  }
+  if (status) setAgentState(env, status);
 }
 
 /// Fire-and-forget `cdamux state tick` (blocked-worker reminder, throttled in cdamux):

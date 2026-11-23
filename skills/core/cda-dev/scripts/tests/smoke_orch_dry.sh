@@ -381,15 +381,26 @@ EOS
 chmod +x "$STUB_BIN/$MARK"
 # orch runs in its own session/process group, so `kill 0` in its trap can only reach the stub.
 # SIGINT is reset to default because async jobs (and nohup) start with it ignored, and a signal
-# ignored on entry cannot be trapped. perl does both portably (no setsid / GNU env on macOS).
+# ignored on entry cannot be trapped. perl does both portably (no setsid / GNU env on macOS);
+# minimal Linux shells without perl use setsid + GNU env --default-signal instead.
 PIDF="$TMP/orch30.pid"
-if ! command -v perl >/dev/null 2>&1; then
-  echo "SKIP Ctrl-C process-group case (perl not installed: needed for setsid + default SIGINT)"
-else
+launched=1
+orch30=(env ORCH_VERIFY=true GH_STUB_NO_PR=1 bash "$SCRIPTS/orch.sh" --repo "$TMP" --mode ready-pickup
+  --issue 30 --agent "$STUB_BIN/$MARK")
+if command -v perl >/dev/null 2>&1; then
   perl -MPOSIX -e 'POSIX::setsid() or die "setsid: $!"; $SIG{INT} = "DEFAULT";
     open my $f, ">", shift or die; print $f "$$\n"; close $f; exec @ARGV or die "exec: $!"' "$PIDF" \
-    env ORCH_VERIFY=true GH_STUB_NO_PR=1 bash "$SCRIPTS/orch.sh" --repo "$TMP" --mode ready-pickup --issue 30 \
-    --agent "$STUB_BIN/$MARK" >/dev/null 2>&1 &
+    "${orch30[@]}" >/dev/null 2>&1 &
+elif command -v setsid >/dev/null 2>&1 && env --default-signal=INT true 2>/dev/null; then
+  set -m
+  setsid bash -c 'echo $$ >"$1"; shift; exec "$@"' _ "$PIDF" \
+    env --default-signal=INT "${orch30[@]}" >/dev/null 2>&1 &
+  set +m
+else
+  launched=0
+  echo "SKIP Ctrl-C process-group case (needs perl, or setsid + GNU env --default-signal)"
+fi
+if [ "$launched" = 1 ]; then
   for _ in $(seq 100); do [ -s "$PIDF" ] && pgrep -f "$MARK" >/dev/null && break; sleep 0.1; done
   orch_pid="$(cat "$PIDF" 2>/dev/null || true)"
   if [ -n "$orch_pid" ] && [ "$(ps -o pgid= -p "$orch_pid" | tr -d ' ')" = "$orch_pid" ] && pgrep -f "$MARK" >/dev/null; then

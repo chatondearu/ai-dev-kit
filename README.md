@@ -161,5 +161,5 @@ Claude receives the same content in `claude/CLAUDE.md` (assembled).
 ## Requirements
 
 - **Portable path**: `bash`, `coreutils`. Kanban and foam skills need `gh` and `jq`.
-- **orch-auto**: also `flock` (see [`doc/configuration.md`](doc/configuration.md)).
+- **orch-auto**: `flock` optional (mkdir lock fallback; see [`doc/configuration.md`](doc/configuration.md)).
 - **Nix path**: flakes enabled; `nix-maid` as flake input.

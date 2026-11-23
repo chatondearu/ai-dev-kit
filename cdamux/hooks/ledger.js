@@ -185,6 +185,18 @@ function drainSay(env) {
   }
 }
 
+/// Fire-and-forget `cdamux state tick` (blocked-worker reminder, throttled in cdamux):
+/// hooks are the only periodic signal while no Fleet is open. Never waits, fail-open.
+function kickTick(env) {
+  try {
+    spawn('cdamux', ['state', 'tick'], { env, detached: true, stdio: 'ignore' })
+      .on('error', () => {})
+      .unref();
+  } catch (e) {
+    /* fail-open */
+  }
+}
+
 function stickyOk(current, next) {
   // A pending ask (`blocked`) must survive the asker's own turn-end hook.
   if (current === 'done' || current === 'error' || current === 'blocked') return next === 'working';
@@ -198,6 +210,7 @@ function setAgentStatus(env, status) {
   if (!id || !status) return;
   const current = readAgentStatus(env, id);
   if (!stickyOk(current, status)) return;
+  kickTick(env);
   const args = ['state', 'append', 'agents', id, JSON.stringify({ status })];
   // 40 ms used to kill the write while it waited on the record / journal locks.
   const opts = { env, timeout: 500, stdio: 'ignore' };

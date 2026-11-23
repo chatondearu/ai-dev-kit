@@ -142,6 +142,10 @@ fn home_propagation_cap_and_permanent_kill() {
 
     // Permanent kill of an own worker: session gone, finalized, never restored.
     assert!(matches!(kill_worker(Some("a-orch2"), "w1", false), Err(WorkerError::NotFound(_))), "not its worker");
+    // Q23: an orchestrator only kills a finished worker (done / idle / error).
+    assert!(kill_worker(Some("a-orch2"), "w3", false).is_err(), "no status yet: refused");
+    assert!(has_session(&w3.host));
+    cdamux_core::state_append(StateKind::Agents, &w3.agent_id, &serde_json::json!({"status": "idle"})).unwrap();
     let killed = kill_worker(Some("a-orch2"), "w3", false).unwrap();
     assert_eq!(killed.len(), 1);
     assert!(!has_session(&w3.host));
@@ -149,12 +153,32 @@ fn home_propagation_cap_and_permanent_kill() {
     assert_eq!((rec["status"].as_str(), rec["host"].as_str()), (Some("error"), Some("")));
     assert!(session_registry::load(&w3.host).is_none());
     assert!(restore_targets(&w3.host).is_none(), "restore must not respawn a killed worker");
-    let kill_items = read_events(0)
-        .unwrap()
-        .into_iter()
-        .filter(|v| v["type"] == "lifecycle" && v["event"] == "kill")
-        .count();
-    assert_eq!(kill_items, 1);
+    let count = |event: &str, agent: &str| {
+        read_events(0)
+            .unwrap()
+            .into_iter()
+            .filter(|v| v["type"] == "lifecycle" && v["event"] == event && v["agent"] == agent)
+            .count()
+    };
+    assert_eq!((count("finalize", &w3.agent_id), count("kill", &w3.agent_id)), (1, 1));
+
+    // A ghost record whose host is now another agent's live session: finalized only,
+    // the live session survives (a-yi5om on c-global).
+    state_set(
+        StateKind::Agents,
+        "a-ghost",
+        &serde_json::json!({"id": "a-ghost", "role": "orchestrator", "host": "c-orch2", "status": "needs_input"}),
+    )
+    .unwrap();
+    assert!(tmux(&["set-option", "-t", "c-orch2", "@cdamux_id", "a-orch2"]).0);
+    kill_worker(None, "a-ghost", false).unwrap();
+    assert!(has_session("c-orch2"), "the live orchestrator's session must survive");
+    let ghost = state_get(StateKind::Agents, "a-ghost").unwrap().unwrap();
+    assert_eq!((ghost["status"].as_str(), ghost["host"].as_str()), (Some("error"), Some("")));
+    assert_eq!(state_get(StateKind::Agents, "a-orch2").unwrap().unwrap()["host"], "c-orch2");
+    // Two records on one host: a human kill by host name is refused.
+    state_set(StateKind::Agents, "a-dup", &serde_json::json!({"id": "a-dup", "host": "c-orch2"})).unwrap();
+    assert!(kill_worker(None, "c-orch2", false).is_err());
 
     // A human kills the dead orchestrator's whole subtree.
     let killed = kill_worker(None, "a-orch1", true).unwrap();

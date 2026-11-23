@@ -388,6 +388,9 @@ enum StateCommands {
         #[arg(long)]
         apply: bool,
     },
+    /// Periodic maintenance hooks call on each status write: remind an orchestrator of a
+    /// worker blocked 15 min. Throttled to one pass a minute; always exits 0.
+    Tick,
     /// Archive then remove done/error agents and finished runs past retention.
     Gc {
         /// Override `[state].retention_days` from config (`0` = archive eligible now).
@@ -609,6 +612,10 @@ fn main() -> ExitCode {
                 cmd_state_append(&kind, &id, &json, sticky)
             }
             StateCommands::MigrateHome { apply } => cmd_state_migrate_home(apply),
+            StateCommands::Tick => {
+                cdamux_core::tick_long_blocked();
+                ExitCode::SUCCESS
+            }
             StateCommands::Gc {
                 retention_days,
                 unrestorable,
@@ -863,8 +870,17 @@ fn orch_new_gc(retention_days: u32) {
 }
 
 /// The state home every spawned pane inherits (#391), as printed by spawn commands.
+/// Without an explicit `CDAMUX_HOME` nothing is propagated: say so, loudly.
 fn home_display() -> String {
-    cdamux_core::cdamux_home().map_or_else(|| "-".into(), |h| h.display().to_string())
+    match cdamux_core::explicit_cdamux_home() {
+        Some(h) => h.display().to_string(),
+        None => {
+            eprintln!("warning: CDAMUX_HOME is unset; panes resolve their own home (export it, #391)");
+            let fallback = cdamux_core::cdamux_home()
+                .map_or_else(|| "-".into(), |h| h.display().to_string());
+            format!("{fallback} (fallback, not propagated)")
+        }
+    }
 }
 
 fn resolve_caller_agent_id(cmd: &str) -> Result<String, ExitCode> {

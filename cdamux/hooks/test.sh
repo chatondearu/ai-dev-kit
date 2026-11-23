@@ -177,8 +177,8 @@ fs.writeFileSync(f, JSON.stringify(o));
 JS
 cat > "$tmp/bin/cdamux" <<CD
 #!/bin/sh
-# kickTick runs detached: logging it would race the log checks below.
-[ "\$1 \$2" = "state tick" ] && exit 0
+# The detached state tick lands whenever it likes: keep it out of the asserted log.
+[ "\$1 \$2" = "state tick" ] && { echo tick >> "\$CDAMUX_LOG.tick"; exit 0; }
 echo "\$@" >> "\$CDAMUX_LOG"
 if [ "\$1 \$2 \$3" = "msg read --ack" ]; then
   # Stub of the Rust reader: print unread lines, move the cursor to the end.
@@ -217,7 +217,9 @@ out="$(run_status '{"hook_event_name":"beforeSubmitPrompt"}')"
 [ "$out" = '{"continue":true}' ] || fail "cursor beforeSubmitPrompt output, got: $out"
 grep -q 'state append agents a-hook1 {"status":"working","turn":"running"}' "$CDAMUX_LOG" || fail "working not written"
 [ "$(jq -r .status "$AF")" = working ] || fail "agent file status not working"
-grep -q 'state append agents a-hook1 {"status":"working"} --sticky' "$CDAMUX_LOG" || fail "status write must pass --sticky"
+grep -q 'state append agents a-hook1 {"status":"working","turn":"running"} --sticky' "$CDAMUX_LOG" || fail "status write must pass --sticky"
+for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$CDAMUX_LOG.tick" ] && break; sleep 0.1; done
+[ -s "$CDAMUX_LOG.tick" ] || fail "status write must kick cdamux state tick"
 # An older cdamux without --sticky exits 2: the hook retries the plain append.
 cp "$tmp/bin/cdamux" "$tmp/bin/cdamux.new"
 cat > "$tmp/bin/cdamux" <<CD

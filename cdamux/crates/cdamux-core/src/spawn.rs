@@ -1,7 +1,7 @@
 //! Spawn tmux sessions with configured agent commands.
 
 use crate::client_name::normalize_client_name;
-use crate::paths::cdamux_home;
+use crate::paths::explicit_cdamux_home;
 use crate::session_manage::is_home_session;
 use crate::session_registry::{self, now_secs, SessionRecord};
 use crate::state::{
@@ -254,8 +254,8 @@ fn create_tmux_session(
     let mut new_session = Command::new("tmux");
     new_session.args(["new-session", "-d", "-s", session_name, "-c", &path.to_string_lossy()]);
     // One state home for every pane (#391): the shell, its hooks and later panes all
-    // inherit the spawner's resolved home instead of whatever the tmux server had.
-    if let Some(home) = cdamux_home() {
+    // inherit the spawner's explicit home instead of whatever the tmux server had.
+    if let Some(home) = explicit_cdamux_home() {
         new_session.arg("-e").arg(format!("CDAMUX_HOME={}", home.display()));
     }
     let status = new_session
@@ -307,7 +307,7 @@ fn create_tmux_session(
 /// `set-environment` or its rc files reset the env.
 fn with_agent_id_env(command: &str, cdamux_id: Option<&str>, role: Option<&str>) -> String {
     let mut prefix = String::new();
-    if let Some(home) = cdamux_id.filter(|s| !s.is_empty()).and(cdamux_home()) {
+    if let Some(home) = cdamux_id.filter(|s| !s.is_empty()).and(explicit_cdamux_home()) {
         prefix.push_str("CDAMUX_HOME=");
         prefix.push_str(&crate::worker::shell_single_quote(&home.to_string_lossy()));
         prefix.push(' ');
@@ -569,7 +569,9 @@ mod tests {
             "CDA_ROLE=orchestrator claude"
         );
         assert_eq!(with_agent_id_env("claude", None, Some("worker")), "claude");
+        // The XDG fallback is never propagated.
         std::env::remove_var("CDAMUX_HOME");
+        assert_eq!(with_agent_id_env("claude", Some("a-x"), None), "CDAMUX_AGENT_ID=a-x claude");
     }
 
     #[test]

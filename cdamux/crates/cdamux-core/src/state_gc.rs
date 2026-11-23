@@ -275,7 +275,9 @@ fn run_gc_ex(
     }
 
     if archive_runs {
-        report.archived_inboxes = gc_orphan_inboxes(now, days)?;
+        // Never "now" for inboxes: `--unrestorable` (0) still waits the default period.
+        let inbox_days = if days == 0 { DEFAULT_RETENTION_DAYS } else { days };
+        report.archived_inboxes = gc_orphan_inboxes(now, inbox_days)?;
     }
     report.archived_agents.sort();
     report.archived_runs.sort();
@@ -304,7 +306,7 @@ fn gc_orphan_inboxes(now: SystemTime, retention_days: u32) -> io::Result<Vec<Str
         if !matches!(ext, "jsonl" | "cursor")
             || !valid_state_id(stem)
             || agents.join(format!("{stem}.json")).exists()
-            || !(retention_days == 0 || older_than_retention(&path, now, retention_days))
+            || !older_than_retention(&path, now, retention_days)
         {
             continue;
         }

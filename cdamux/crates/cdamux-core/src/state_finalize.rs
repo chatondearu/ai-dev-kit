@@ -133,21 +133,7 @@ pub fn finalize_session_host(session: &str) -> io::Result<FinalizeReport> {
         if host_field(&value) != Some(session) {
             continue;
         }
-        // Re-check under the entity lock: a hook may have rewritten it since the scan.
-        // Always clear host (name reuse); set error when not already terminal.
-        let wrote = state_update(StateKind::Agents, &id, |cur| {
-            let cur = cur.filter(|v| host_field(v) == Some(session))?;
-            Some(if agent_already_terminal(&cur) {
-                let mut v = cur;
-                if let Some(obj) = v.as_object_mut() {
-                    obj.insert("host".into(), Value::String(String::new()));
-                }
-                v
-            } else {
-                finalize_agent_value(cur)
-            })
-        })?;
-        if wrote {
+        if finalize_record(&id, Some(session))? {
             report.agents.push(id);
         }
     }
@@ -167,6 +153,31 @@ pub fn finalize_session_host(session: &str) -> io::Result<FinalizeReport> {
     report.agents.sort();
     report.runs.sort();
     Ok(report)
+}
+
+/// Clear the agent's host (name reuse) and set `error` unless already terminal, under
+/// its lock; with `only_host`, only while the record still names that session (a hook
+/// may have rewritten it since the scan). Emits `finalize` when it turned `error`.
+fn finalize_record(id: &str, only_host: Option<&str>) -> io::Result<bool> {
+    let mut finalized = None;
+    let wrote = state_update(StateKind::Agents, id, |cur| {
+        let cur = cur.filter(|v| only_host.is_none_or(|h| host_field(v) == Some(h)))?;
+        Some(if agent_already_terminal(&cur) {
+            let mut v = cur;
+            if let Some(obj) = v.as_object_mut() {
+                obj.insert("host".into(), Value::String(String::new()));
+            }
+            v
+        } else {
+            let next = finalize_agent_value(cur);
+            finalized = Some(next.clone());
+            next
+        })
+    })?;
+    if let Some(rec) = &finalized {
+        crate::events::emit_lifecycle("finalize", id, Some(rec));
+    }
+    Ok(wrote)
 }
 
 /// Finalize one agent under its lock unless it already turned terminal; emits `finalize`.
@@ -213,20 +224,25 @@ pub fn kill_permanent(session: &str) -> io::Result<FinalizeReport> {
     Ok(report)
 }
 
-/// [`kill_permanent`] for one agent id; an agent with no host (its pane already
-/// reaped) is still finalized, forgotten by `restore` and gets its `kill` item.
+/// [`kill_permanent`] for one agent id. The tmux session is killed only when it is
+/// this agent's (its `@cdamux_id` is the id, or unset): a stale record whose host was
+/// reused by another agent (ghost orchestrator on `c-global`) is only finalized,
+/// forgotten by `restore` and gets its `kill` item, like an agent with no host.
 pub fn kill_agent_permanent(id: &str) -> io::Result<FinalizeReport> {
     let value = state_get(StateKind::Agents, id)?
         .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("agent '{id}' not found")))?;
     if let Some(host) = host_field(&value) {
-        return kill_permanent(host);
+        let owner = crate::tmux::tmux_user_option(host, "@cdamux_id").unwrap_or_default();
+        if owner.is_empty() || owner == id {
+            return kill_permanent(host);
+        }
     }
     for rec in session_registry::load_all() {
         if rec.cdamux_id.as_deref() == Some(id) {
             session_registry::remove(&rec.name)?;
         }
     }
-    finalize_agent(id, "finalize")?;
+    finalize_record(id, None)?;
     crate::events::emit_lifecycle("kill", id, Some(&value));
     Ok(FinalizeReport { agents: vec![id.to_string()], runs: Vec::new() })
 }
@@ -592,6 +608,7 @@ mod tests {
             assert_eq!(
                 lifecycle_events(),
                 [
+                    ("finalize".to_string(), "a-w".to_string()),
                     ("finalize".to_string(), "a-d".to_string()),
                     ("dismiss".to_string(), "a-d".to_string()),
                     ("archive".to_string(), "a-d".to_string())

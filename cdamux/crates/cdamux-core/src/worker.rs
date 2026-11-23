@@ -326,36 +326,56 @@ pub struct KilledAgent {
 
 /// `cdamux worker kill`: permanent kill of a worker (by name, id or host) and, with
 /// `subtree`, of every agent below it. `caller` limits the target to its own workers
-/// (an orchestrator); `None` (a human outside any agent) may name any agent.
+/// (an orchestrator) and, per Q23, to finished ones (`done` / `idle` / `error`: the
+/// maintainer kills a working one); `None` (a human outside any agent) may name any
+/// agent. A name or host matching several records is refused: names are unique per
+/// orchestrator only, and a ghost record can share a live host.
 pub fn kill_worker(
     caller: Option<&str>,
     key: &str,
     subtree: bool,
 ) -> Result<Vec<KilledAgent>, WorkerError> {
-    let (id, _) = find_worker_doc(key, caller)?;
-    if caller.is_none() {
-        // Names are unique per orchestrator only: a human must not hit the wrong `api`.
-        let hits: Vec<String> = state_list(StateKind::Agents)
-            .into_iter()
-            .filter(|(aid, _, v)| {
-                aid == key
-                    || v.get("name").and_then(Value::as_str) == Some(key)
-                    || v.get("host").and_then(Value::as_str) == Some(key)
-            })
-            .map(|(aid, _, _)| aid)
-            .collect();
-        if hits.len() > 1 {
+    let hits: Vec<(String, Value)> = state_list(StateKind::Agents)
+        .into_iter()
+        .filter(|(aid, _, v)| {
+            caller.is_none_or(|c| {
+                v.get("role").and_then(Value::as_str) == Some("worker")
+                    && v.get("parent").and_then(Value::as_str) == Some(c)
+            }) && (aid == key
+                || v.get("name").and_then(Value::as_str) == Some(key)
+                || v.get("host").and_then(Value::as_str) == Some(key))
+        })
+        .map(|(aid, _, v)| (aid, v))
+        .collect();
+    let id = match hits.iter().find(|(aid, _)| aid == key) {
+        Some((aid, _)) => aid.clone(),
+        None if hits.len() == 1 => hits[0].0.clone(),
+        None if hits.is_empty() => return Err(WorkerError::NotFound(key.to_string())),
+        None => {
+            let ids: Vec<&str> = hits.iter().map(|(aid, _)| aid.as_str()).collect();
             return Err(WorkerError::Other(format!(
                 "'{key}' is ambiguous ({}); pass the agent id",
-                hits.join(", ")
+                ids.join(", ")
             )));
         }
-    }
+    };
     let targets = if subtree {
         crate::state_finalize::agent_subtree(&id)
     } else {
         vec![id]
     };
+    if caller.is_some() {
+        for t in &targets {
+            let status = state_get(StateKind::Agents, t)?
+                .and_then(|v| v.get("status")?.as_str().map(str::to_string))
+                .unwrap_or_default();
+            if !matches!(status.as_str(), "done" | "idle" | "error") {
+                return Err(WorkerError::Other(format!(
+                    "refuse to kill {t}: status '{status}' (only done/idle/error; ask the maintainer)"
+                )));
+            }
+        }
+    }
     let mut out = Vec::new();
     for t in targets {
         let host = state_get(StateKind::Agents, &t)?
@@ -672,7 +692,14 @@ pub fn spawn_worker(req: WorkerSpawnRequest<'_>) -> Result<WorkerSpawnResult, Wo
     ) {
         Ok(o) => o,
         Err(e) => {
-            // M10: no orphan worktree + branch, so the same name can be retried.
+            // M10: a session created before the failure (send-keys, split) goes first,
+            // so no pane keeps the worktree open; then no orphan worktree + branch, so
+            // the same name can be retried.
+            if crate::send::tmux_has_session(&host).unwrap_or(false) {
+                let _ = Command::new("tmux")
+                    .args(["kill-session", "-t", &format!("={host}")])
+                    .status();
+            }
             if let Some((repo, dest, branch)) = &new_worktree {
                 crate::worktree::remove_new_worktree(repo, dest, branch);
             }

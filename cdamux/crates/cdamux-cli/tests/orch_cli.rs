@@ -24,10 +24,27 @@ fn restore_last_orch_prunes_unrestorable_error_stub() {
     let tmp = tempfile::tempdir().unwrap();
     let home = tmp.path().join("home");
     let bin = env!("CARGO_BIN_EXE_cdamux");
+    // Throwaway tmux server: the prune needs a reachable server, never the live one.
+    let tmux = |args: &[&str]| {
+        Command::new("tmux")
+            .args(args)
+            .env("TMUX_TMPDIR", tmp.path())
+            .env_remove("TMUX")
+            .output()
+    };
+    match tmux(&["new-session", "-d", "-s", "keep", "sleep", "60"]) {
+        Ok(o) if o.status.success() => {}
+        _ => {
+            eprintln!("tmux unavailable: skipped");
+            return;
+        }
+    }
     let run = |args: &[&str]| {
         Command::new(bin)
             .args(args)
             .env("CDAMUX_HOME", &home)
+            .env("TMUX_TMPDIR", tmp.path())
+            .env_remove("TMUX")
             .output()
             .expect("spawn cdamux")
     };
@@ -74,6 +91,10 @@ fn restore_last_orch_prunes_unrestorable_error_stub() {
         home.join("runs/r-fin.json").is_file(),
         "last-orch must not archive finished runs"
     );
+    let sock = tmux(&["display-message", "-p", "#{socket_path}"]).unwrap();
+    let sock = String::from_utf8_lossy(&sock.stdout);
+    assert!(sock.contains(tmp.path().to_str().unwrap_or("___")), "refusing kill-server: {sock}");
+    let _ = tmux(&["kill-server"]);
 }
 
 /// Reboot path: no tmux server yet. The prune is skipped, the restore still runs, and

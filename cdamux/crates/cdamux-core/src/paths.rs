@@ -15,6 +15,14 @@ pub fn cdamux_home() -> Option<PathBuf> {
     Some(base.join("cdamux"))
 }
 
+/// `$CDAMUX_HOME` when the process has it set (non-empty). Only an explicit home is
+/// propagated into spawned panes: the XDG fallback is what #391 is leaving behind.
+pub fn explicit_cdamux_home() -> Option<PathBuf> {
+    std::env::var_os("CDAMUX_HOME")
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
+}
+
 /// `$CDAMUX_HOME/<sub>` (sessions, agents, runs, …).
 pub fn cdamux_state_dir(sub: &str) -> Option<PathBuf> {
     Some(cdamux_home()?.join(sub))

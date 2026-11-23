@@ -117,7 +117,7 @@ pub use client_name::{is_product_client, normalize_client_name};
 pub use home_migrate::{
     apply_home_migration, legacy_home, plan_home_migration, HomeMigration,
 };
-pub use paths::{cdamux_home, cdamux_state_dir, env_lock};
+pub use paths::{cdamux_home, explicit_cdamux_home, cdamux_state_dir, env_lock};
 pub use orch::{
     agent_scope_is_global, find_live_global_orchestrator, global_orch_cwd, orch_boot_prompt,
     orch_boot_prompt_for, orch_boot_prompt_global, spawn_orchestrator, OrchError, OrchNewRequest,
@@ -141,7 +141,7 @@ pub use state_gc::{
 };
 pub use restore::{
     dormant, is_busy_state, is_done_record, last_global_orch_record, parents_first,
-    pick_global_orch_record, reap_dead_agent_panes, alert_long_blocked, BLOCKED_ALERT_SECS, restart_plan, restore_one, restore_subtree,
+    pick_global_orch_record, reap_dead_agent_panes, alert_long_blocked, tick_long_blocked, BLOCKED_ALERT_SECS, restart_plan, restore_one, restore_subtree,
     restore_targets, resume_command, RestoreError, RestoreOutcome, DEAD_AGENT_PANE_SECS,
 };
 pub use msg::{

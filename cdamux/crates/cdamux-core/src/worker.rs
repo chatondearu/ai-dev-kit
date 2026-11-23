@@ -328,12 +328,14 @@ pub struct KilledAgent {
 /// `subtree`, of every agent below it. `caller` limits the target to its own workers
 /// (an orchestrator) and, per Q23, to finished ones (`done` / `idle` / `error`: the
 /// maintainer kills a working one); `None` (a human outside any agent) may name any
-/// agent. A name or host matching several records is refused: names are unique per
-/// orchestrator only, and a ghost record can share a live host.
+/// agent, but an orchestrator only with `allow_orchestrator` (`--orchestrator`). A name
+/// or host matching several records is refused: names are unique per orchestrator
+/// only, and a ghost record can share a live host.
 pub fn kill_worker(
     caller: Option<&str>,
     key: &str,
     subtree: bool,
+    allow_orchestrator: bool,
 ) -> Result<Vec<KilledAgent>, WorkerError> {
     let hits: Vec<(String, Value)> = state_list(StateKind::Agents)
         .into_iter()
@@ -364,6 +366,17 @@ pub fn kill_worker(
     } else {
         vec![id]
     };
+    if caller.is_none() && !allow_orchestrator {
+        for t in &targets {
+            let role = state_get(StateKind::Agents, t)?
+                .and_then(|v| v.get("role")?.as_str().map(str::to_string));
+            if role.as_deref() == Some("orchestrator") {
+                return Err(WorkerError::Other(format!(
+                    "refuse to kill orchestrator {t} without --orchestrator"
+                )));
+            }
+        }
+    }
     if caller.is_some() {
         for t in &targets {
             let status = state_get(StateKind::Agents, t)?
@@ -808,7 +821,7 @@ mod tests {
         for id in ["a-api1", "a-api2"] {
             state_set(StateKind::Agents, id, &json!({"id": id, "role": "worker", "name": "api"})).unwrap();
         }
-        let err = kill_worker(None, "api", false).unwrap_err().to_string();
+        let err = kill_worker(None, "api", false, false).unwrap_err().to_string();
         std::env::remove_var("CDAMUX_HOME");
         assert!(err.contains("ambiguous"), "{err}");
     }

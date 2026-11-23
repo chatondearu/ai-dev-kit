@@ -224,17 +224,30 @@ pub fn kill_permanent(session: &str) -> io::Result<FinalizeReport> {
     Ok(report)
 }
 
-/// [`kill_permanent`] for one agent id. The tmux session is killed only when it is
-/// this agent's (its `@cdamux_id` is the id, or unset): a stale record whose host was
-/// reused by another agent (ghost orchestrator on `c-global`) is only finalized,
-/// forgotten by `restore` and gets its `kill` item, like an agent with no host.
+/// Permanent kill of one agent (`cdamux worker kill`). Its tmux session is killed only
+/// when it is this agent's (`@cdamux_id` is the id, or unset), and only this record is
+/// finalized, never the other records naming the host: a stale record whose host was
+/// reused by another agent (ghost orchestrator on `c-global`) is finalized alone and the
+/// live session survives. Forgotten by `restore`; one `kill` item (after `finalize`).
 pub fn kill_agent_permanent(id: &str) -> io::Result<FinalizeReport> {
+    use crate::send::SendError;
     let value = state_get(StateKind::Agents, id)?
         .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("agent '{id}' not found")))?;
+    let mut report = FinalizeReport { agents: vec![id.to_string()], runs: Vec::new() };
     if let Some(host) = host_field(&value) {
         let owner = crate::tmux::tmux_user_option(host, "@cdamux_id").unwrap_or_default();
         if owner.is_empty() || owner == id {
-            return kill_permanent(host);
+            match crate::session_manage::kill_tmux_session(host) {
+                Ok(()) | Err(SendError::SessionNotFound(_)) => {}
+                Err(e) => return Err(io::Error::other(e.to_string())),
+            }
+            session_registry::remove(host)?;
+            let ended = utc_now_iso();
+            for (rid, _, run) in state_list(StateKind::Runs) {
+                if session_field(&run) == Some(host) && run_is_live_doc(&run) && finalize_run(&rid, &ended)? {
+                    report.runs.push(rid);
+                }
+            }
         }
     }
     for rec in session_registry::load_all() {
@@ -244,7 +257,7 @@ pub fn kill_agent_permanent(id: &str) -> io::Result<FinalizeReport> {
     }
     finalize_record(id, None)?;
     crate::events::emit_lifecycle("kill", id, Some(&value));
-    Ok(FinalizeReport { agents: vec![id.to_string()], runs: Vec::new() })
+    Ok(report)
 }
 
 /// `id` and every agent below it (`parent` chain), deepest first, `id` last.

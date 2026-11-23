@@ -228,23 +228,29 @@ pub fn kill_permanent(session: &str) -> io::Result<FinalizeReport> {
 /// when it is this agent's (`@cdamux_id` is the id, or unset), and only this record is
 /// finalized, never the other records naming the host: a stale record whose host was
 /// reused by another agent (ghost orchestrator on `c-global`) is finalized alone and the
-/// live session survives. Forgotten by `restore`; one `kill` item (after `finalize`).
-pub fn kill_agent_permanent(id: &str) -> io::Result<FinalizeReport> {
+/// live session survives. A tmux error reading the owner also spares the session.
+/// Forgotten by `restore`; one `kill` item (after `finalize`). The returned flag says
+/// whether the session was killed (the `kill` item names a host only then).
+pub fn kill_agent_permanent(id: &str) -> io::Result<(FinalizeReport, bool)> {
     use crate::send::SendError;
-    let value = state_get(StateKind::Agents, id)?
+    let mut value = state_get(StateKind::Agents, id)?
         .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("agent '{id}' not found")))?;
     let mut report = FinalizeReport { agents: vec![id.to_string()], runs: Vec::new() };
-    if let Some(host) = host_field(&value) {
-        let owner = crate::tmux::tmux_user_option(host, "@cdamux_id").unwrap_or_default();
-        if owner.is_empty() || owner == id {
-            match crate::session_manage::kill_tmux_session(host) {
+    let mut killed = false;
+    if let Some(host) = host_field(&value).map(str::to_string) {
+        if matches!(crate::tmux::session_owner(&host), Ok(Some(o)) if o.is_empty() || o == id) {
+            match crate::session_manage::kill_tmux_session(&host) {
                 Ok(()) | Err(SendError::SessionNotFound(_)) => {}
                 Err(e) => return Err(io::Error::other(e.to_string())),
             }
-            session_registry::remove(host)?;
+            killed = true;
+            session_registry::remove(&host)?;
             let ended = utc_now_iso();
             for (rid, _, run) in state_list(StateKind::Runs) {
-                if session_field(&run) == Some(host) && run_is_live_doc(&run) && finalize_run(&rid, &ended)? {
+                if session_field(&run) == Some(host.as_str())
+                    && run_is_live_doc(&run)
+                    && finalize_run(&rid, &ended)?
+                {
                     report.runs.push(rid);
                 }
             }
@@ -256,8 +262,11 @@ pub fn kill_agent_permanent(id: &str) -> io::Result<FinalizeReport> {
         }
     }
     finalize_record(id, None)?;
+    if !killed {
+        value.as_object_mut().map(|m| m.remove("host"));
+    }
     crate::events::emit_lifecycle("kill", id, Some(&value));
-    Ok(report)
+    Ok((report, killed))
 }
 
 /// `id` and every agent below it (`parent` chain), deepest first, `id` last.
@@ -647,7 +656,8 @@ mod tests {
                 updated_ts: 1,
             })
             .unwrap();
-            let report = kill_agent_permanent("a-k").unwrap();
+            let (report, killed) = kill_agent_permanent("a-k").unwrap();
+            assert!(!killed);
             assert_eq!(report.agents, ["a-k"]);
             assert_eq!(state_get(StateKind::Agents, "a-k").unwrap().unwrap()["status"], "error");
             assert!(session_registry::load("c-k").is_none(), "restore must not respawn it");
@@ -656,6 +666,31 @@ mod tests {
                 [("finalize".to_string(), "a-k".to_string()), ("kill".to_string(), "a-k".to_string())]
             );
             assert!(kill_agent_permanent("a-missing").is_err());
+        });
+    }
+
+    #[test]
+    fn kill_abstains_from_the_session_when_tmux_cannot_answer() {
+        with_temp_home(|home| {
+            state_set(StateKind::Agents, "a-t", &json!({"id":"a-t","host":"c-t","status":"idle"})).unwrap();
+            // No tmux binary: the owner is unknown, so the session is spared.
+            let path = std::env::var_os("PATH");
+            std::env::set_var("PATH", home);
+            let res = kill_agent_permanent("a-t");
+            match path {
+                Some(p) => std::env::set_var("PATH", p),
+                None => std::env::remove_var("PATH"),
+            }
+            let (_, killed) = res.unwrap();
+            assert!(!killed);
+            let rec = state_get(StateKind::Agents, "a-t").unwrap().unwrap();
+            assert_eq!((rec["status"].as_str(), rec["host"].as_str()), (Some("error"), Some("")));
+            let kill = crate::events::read_events(0)
+                .unwrap()
+                .into_iter()
+                .find(|v| v["type"] == "lifecycle" && v["event"] == "kill")
+                .unwrap();
+            assert!(kill.get("host").is_none(), "spared session: no host in the kill item");
         });
     }
 

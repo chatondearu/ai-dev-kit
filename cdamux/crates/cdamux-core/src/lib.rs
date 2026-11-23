@@ -189,7 +189,7 @@ pub use worktree_clean::{
 pub use tmux::{
     capture_pane_text, classify_pane_heuristics, is_hidden_fleet_session, list_panes_all,
     list_tmux_sessions, list_tmux_sessions_strict, parse_list_panes_all, parse_list_sessions, send_line_to_session,
-    tmux_user_option,
+    session_owner, tmux_user_option,
     SessionPaneInfo, HOME_SESSION_NAME, NAV_SESSION_NAME, TmuxError, TmuxSession,
 };
 

@@ -4,6 +4,39 @@ use std::fs;
 use std::process::Command;
 use std::time::{Duration, SystemTime};
 
+/// Private tmux server under the test's temp dir (gc now needs a reachable server and
+/// must never read the live one). `None` when tmux is missing: the test is skipped.
+struct PrivateTmux(std::path::PathBuf);
+
+impl PrivateTmux {
+    fn start(dir: &std::path::Path) -> Option<Self> {
+        let ok = Command::new("tmux")
+            .args(["new-session", "-d", "-s", "keep", "sleep", "120"])
+            .env("TMUX_TMPDIR", dir)
+            .env_remove("TMUX")
+            .status()
+            .is_ok_and(|s| s.success());
+        if !ok {
+            eprintln!("tmux unavailable: skipped");
+        }
+        ok.then(|| Self(dir.to_path_buf()))
+    }
+}
+
+impl Drop for PrivateTmux {
+    fn drop(&mut self) {
+        let tmux = |args: &[&str]| {
+            Command::new("tmux").args(args).env("TMUX_TMPDIR", &self.0).env_remove("TMUX").output()
+        };
+        let sock = tmux(&["display-message", "-p", "#{socket_path}"])
+            .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+            .unwrap_or_default();
+        if sock.contains(self.0.to_str().unwrap_or("___")) {
+            let _ = tmux(&["kill-server"]);
+        }
+    }
+}
+
 #[test]
 fn state_set_get_append_round_trip() {
     let tmp = tempfile::tempdir().unwrap();
@@ -54,6 +87,9 @@ fn state_set_get_append_round_trip() {
 #[test]
 fn state_gc_archives_old_done_agent() {
     let tmp = tempfile::tempdir().unwrap();
+    let Some(_tmux) = PrivateTmux::start(tmp.path()) else {
+        return;
+    };
     let home = tmp.path().join("home");
     let cfg = tmp.path().join("config.toml");
     fs::write(
@@ -67,6 +103,8 @@ fn state_gc_archives_old_done_agent() {
         Command::new(bin)
             .args(args)
             .env("CDAMUX_HOME", &home)
+            .env("TMUX_TMPDIR", tmp.path())
+            .env_remove("TMUX")
             .env("CDAMUX_CONFIG", &cfg)
             .output()
             .expect("spawn cdamux")
@@ -103,12 +141,17 @@ fn state_gc_archives_old_done_agent() {
 #[test]
 fn state_gc_unrestorable_archives_fresh_error_keeps_live() {
     let tmp = tempfile::tempdir().unwrap();
+    let Some(_tmux) = PrivateTmux::start(tmp.path()) else {
+        return;
+    };
     let home = tmp.path().join("home");
     let bin = env!("CARGO_BIN_EXE_cdamux");
     let run = |args: &[&str]| {
         Command::new(bin)
             .args(args)
             .env("CDAMUX_HOME", &home)
+            .env("TMUX_TMPDIR", tmp.path())
+            .env_remove("TMUX")
             .output()
             .expect("spawn cdamux")
     };
@@ -143,6 +186,9 @@ fn state_gc_unrestorable_archives_fresh_error_keeps_live() {
 #[test]
 fn state_gc_sweep_orphans_dry_run_then_finalize() {
     let tmp = tempfile::tempdir().unwrap();
+    let Some(_tmux) = PrivateTmux::start(tmp.path()) else {
+        return;
+    };
     let home = tmp.path().join("home");
     let bin = env!("CARGO_BIN_EXE_cdamux");
 
@@ -150,6 +196,8 @@ fn state_gc_sweep_orphans_dry_run_then_finalize() {
         Command::new(bin)
             .args(args)
             .env("CDAMUX_HOME", &home)
+            .env("TMUX_TMPDIR", tmp.path())
+            .env_remove("TMUX")
             .output()
             .expect("spawn cdamux")
     };

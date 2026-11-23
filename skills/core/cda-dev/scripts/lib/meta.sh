@@ -115,36 +115,41 @@ orch_merge_pr() {
     return 1
   }
   orch_merge_lock_acquire \
-    || { _orch_merge_fail "$pr" "merge lock $ORCH_REPO/.orch/merge.lock still held after ${ORCH_MERGE_LOCK_WAIT:-900}s"; return 1; }
+    || { _orch_merge_fail "$pr" "merge lock $ORCH_REPO/.orch/merge.lock still held (ORCH_MERGE_LOCK_WAIT)"; return 1; }
   _orch_merge_pr_locked "$pr" "$wt" "$branch" "$def" || rc=1
   orch_merge_lock_release
   return "$rc"
 }
 
+# Commands here close fd 9: a daemon started by verify must not keep the flock (Linux).
 _orch_merge_pr_locked() {
   local pr="$1" wt="$2" branch="$3" def="$4" old head st m err
-  git -C "$wt" fetch -q origin "$def" \
+  git -C "$wt" fetch -q origin "$def" 9>&- \
     || { _orch_merge_fail "$pr" "git fetch origin $def failed"; return 1; }
   if ! git -C "$wt" merge-base --is-ancestor "origin/$def" HEAD; then
     printf 'merge: PR #%s is behind origin/%s; rebasing and re-running verify\n' "$pr" "$def" >&2
     old="$(git -C "$wt" rev-parse HEAD)"
+    if [ -n "$(git -C "$wt" status --porcelain --untracked-files=no)" ]; then
+      _orch_merge_fail "$pr" "worktree has uncommitted changes; cannot rebase on origin/$def"
+      return 1
+    fi
     if ! git -C "$wt" rebase -q "origin/$def" >&2; then
       git -C "$wt" rebase --abort 2>/dev/null || true
       _orch_merge_fail "$pr" "rebase on origin/$def conflicts; rebase by hand"
       return 1
     fi
     mkdir -p "$wt/.orch"
-    orch_run_verify "$wt" >"$wt/.orch/merge-verify.log" 2>&1 \
+    orch_run_verify "$wt" >"$wt/.orch/merge-verify.log" 2>&1 9>&- \
       || { _orch_merge_fail "$pr" "verify failed after rebase on origin/$def (see $wt/.orch/merge-verify.log)"; return 1; }
-    git -C "$wt" push -q --force-with-lease="$branch:$old" origin "HEAD:$branch" \
+    git -C "$wt" push -q --force-with-lease="$branch:$old" origin "HEAD:$branch" 9>&- \
       || { _orch_merge_fail "$pr" "push of the rebased $branch failed"; return 1; }
-    st="$(orch_pr_checks_watch "$pr")" \
+    st="$(orch_pr_checks_watch "$pr" 9>&-)" \
       || { _orch_merge_fail "$pr" "checks ${st:-unknown} after rebase"; return 1; }
   fi
-  m="$(orch_pr_mergeable "$pr")" \
+  m="$(orch_pr_mergeable "$pr" 9>&-)" \
     || { _orch_merge_fail "$pr" "not mergeable (mergeable=${m:-UNKNOWN})"; return 1; }
   head="$(git -C "$wt" rev-parse HEAD)" || return 1
-  if ! err="$(GH_PROMPT_DISABLED=1 gh pr merge "$pr" --rebase --match-head-commit "$head" </dev/null 2>&1)"; then
+  if ! err="$(GH_PROMPT_DISABLED=1 gh pr merge "$pr" --rebase --match-head-commit "$head" </dev/null 2>&1 9>&-)"; then
     _orch_merge_fail "$pr" "gh pr merge --rebase failed: $(printf '%s' "$err" | tail -n 1)"
     return 1
   fi

@@ -115,12 +115,12 @@ Do not invent product decisions. Do not merge yourself. Do not start another chi
 
 - If this child shares paths with another open PR, treat that as a **stack**: base
   on the dependency branch (or wait until it merges), do not race the same files
-  from stale `main`.
-- Before opening or updating the PR, `git fetch origin main` and rebase (or
+  from a stale `{{DEFAULT_BRANCH}}`.
+- Before opening or updating the PR, `git fetch origin {{DEFAULT_BRANCH}}` and rebase (or
   merge) onto the current base. If `gh pr view` reports `CONFLICTING` /
   `DIRTY`, rebase onto the updated base, resolve, and
   `git push --force-with-lease` on **this feature branch only**.
-- Prefer reporting `blocked` with reason `needs rebase onto main / stack base`
+- Prefer reporting `blocked` with reason `needs rebase onto {{DEFAULT_BRANCH}} / stack base`
   over leaving a dirty PR for the human to discover at merge time.
 
 ## Forbidden

@@ -19,7 +19,7 @@ render() { # issue body
   orch_resolve_context "$REPO" "$1" "$2"
   orch_render_prompt "$TPL" "$TMP/out.md" "ISSUE=$1" "BRANCH=feat/$1-issue-$1" "WORKTREE=$TMP" "REPO_ROOT=$REPO" \
     "TITLE=t" "PLAN_PATH=none" "BRIEF_PATH=none" "LANE=full" \
-    "PRD_PATH=$ORCH_PRD_PATH" "EPIC=$ORCH_EPIC" "CONSTRAINTS=$ORCH_CONSTRAINTS"
+    "PRD_PATH=$ORCH_PRD_PATH" "EPIC=$ORCH_EPIC" "CONSTRAINTS=$ORCH_CONSTRAINTS" "DEFAULT_BRANCH=develop"
   cat "$TMP/out.md"
 }
 

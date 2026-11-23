@@ -35,6 +35,7 @@ mod state_finalize;
 mod state_gc;
 mod subagent_ledger;
 mod worktree;
+mod worktree_clean;
 mod worker;
 mod tailnet_api;
 mod tmux;
@@ -122,7 +123,7 @@ pub use orch::{list_orchestrators, orch_scope_of_agent, OrchEntry, ORCH_SCOPE_PR
 pub use capture::{capture_session, CaptureError, PaneCapture, CAPTURE_MAX_LINES};
 pub use state::{
     agent_state_path, generate_agent_id, generate_run_id, initial_agent_value, state_append,
-    state_get, state_set, valid_state_id, StateKind,
+    state_get, state_list, state_set, valid_state_id, StateKind,
 };
 pub use state_finalize::{
     apply_dismiss, finalize_session_host, orphan_agent_eligible, orphan_run_eligible,
@@ -172,6 +173,10 @@ pub use worker::{
 pub use worktree::{
     current_branch, git_toplevel, list_local_branches, list_worktrees, resolve_worktree_dest,
     worktree_add_new_branch, WorktreeEntry, WorktreeError,
+};
+pub use worktree_clean::{
+    check_free_space, clean_verdict, clean_worktrees, format_bytes, CleanItem, PrState,
+    Verdict, WorktreeSession, DEFAULT_DISPOSABLE, DEFAULT_MIN_FREE_GIB,
 };
 pub use tmux::{
     capture_pane_text, classify_pane_heuristics, is_hidden_fleet_session, list_panes_all,
@@ -271,16 +276,52 @@ impl Default for StateConfig {
     }
 }
 
-/// Optional parent directory for spawn-time `git worktree add` (ADR-003: not orch-auto).
+/// Optional parent directory for spawn-time `git worktree add` (ADR-003: not orch-auto),
+/// plus build-cache cleanup and the spawn disk guard (ADR-017).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorktreesConfig {
     #[serde(default)]
     pub root: Option<PathBuf>,
+    /// Git-ignored dirs `cdamux worker clean` may delete in finished worktrees.
+    #[serde(
+        default = "default_disposable",
+        deserialize_with = "deserialize_disposable"
+    )]
+    pub disposable: Vec<String>,
+    /// `worker spawn` refuses below this free space on the worktree filesystem (`0` = off).
+    #[serde(default = "default_min_free_gib")]
+    pub min_free_gib: u64,
+}
+
+fn default_disposable() -> Vec<String> {
+    worktree_clean::DEFAULT_DISPOSABLE
+        .iter()
+        .map(|s| s.to_string())
+        .collect()
+}
+
+fn default_min_free_gib() -> u64 {
+    worktree_clean::DEFAULT_MIN_FREE_GIB
+}
+
+fn deserialize_disposable<'de, D>(d: D) -> Result<Vec<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let v = Vec::<String>::deserialize(d)?;
+    for e in &v {
+        worktree_clean::validate_disposable(e).map_err(serde::de::Error::custom)?;
+    }
+    Ok(v)
 }
 
 impl Default for WorktreesConfig {
     fn default() -> Self {
-        Self { root: None }
+        Self {
+            root: None,
+            disposable: default_disposable(),
+            min_free_gib: default_min_free_gib(),
+        }
     }
 }
 
@@ -724,6 +765,28 @@ max_workers = 0
 "#;
         let cfg: Config = toml::from_str(raw).unwrap();
         assert_eq!(cfg.orchestrator.max_workers, 0);
+    }
+
+    #[test]
+    fn config_parses_worktrees_disposable_and_guard() {
+        let cfg: Config = toml::from_str("schema_version = 1\n").unwrap();
+        assert_eq!(cfg.worktrees.disposable, vec!["target", "node_modules", ".nuxt", ".output"]);
+        assert_eq!(cfg.worktrees.min_free_gib, 40);
+
+        let raw = r#"
+schema_version = 1
+[worktrees]
+disposable = ["cdamux/target", "dist"]
+min_free_gib = 0
+"#;
+        let cfg: Config = toml::from_str(raw).unwrap();
+        assert_eq!(cfg.worktrees.disposable, vec!["cdamux/target", "dist"]);
+        assert_eq!(cfg.worktrees.min_free_gib, 0);
+
+        for bad in ["/tmp", "../up", "a/../b", ""] {
+            let raw = format!("schema_version = 1\n[worktrees]\ndisposable = [\"{bad}\"]\n");
+            assert!(toml::from_str::<Config>(&raw).is_err(), "{bad:?}");
+        }
     }
 
     #[test]

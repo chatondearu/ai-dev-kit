@@ -49,6 +49,7 @@ Index: [[decisions/index|All ADRs]]
 - [[decisions/ADR-014-cdamux-dedicated-navigator-session|ADR-014 — cdamux dedicated navigator session]]
 - [[decisions/ADR-015-global-and-nested-orchestrators|ADR-015 — Global and nested cdamux orchestrators]]
 - [[decisions/ADR-016-foam-first-kanban|ADR-016 — Foam-first kanban (proposed)]]
+- [[decisions/ADR-017-worktree-build-cache-cleanup|ADR-017 — Worktree build-cache cleanup and spawn disk guard]]
 - [[board/README|Foam board]] (execution status; ADR-016)
 - [[graph/README|Foam machine graph + orch overlay]]
 

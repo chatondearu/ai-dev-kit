@@ -199,6 +199,18 @@ Requires `$CDAMUX_AGENT_ID` (caller must be an orchestrator session).
   `--prompt`; other clients get a pane paste after launch.
 - `cdamux worker ls` — one line per worker whose `parent` is the caller: tmux session name
   and worktree path, so a human can `tmux kill-session`. Does not delete worktrees.
+- `cdamux worker clean [--dry-run] [--root DIR]...` — frees `[worktrees].disposable`
+  build dirs (default `target`, `node_modules`, `.nuxt`, `.output`) in finished worktrees
+  under `<root>` (`<root>/<name>` or `<root>/<run>/<name>`). Finished = PR merged or
+  closed (`gh pr list --head`), or no PR, no live session and `HEAD` already in the
+  default branch. Keeps: a live tmux session rooted in the worktree whose agent is not
+  `done`, an open PR, or an unreadable PR state. Removes only git-ignored directories
+  resolved inside the worktree (no symlinks); never the worktree or its branch. Prints
+  `freed <size>` per worktree and a total; `--dry-run` deletes nothing. Needs no
+  `$CDAMUX_AGENT_ID`. A successful `worker spawn` starts it in the background at most
+  every 30 min (`$CDAMUX_HOME/logs/worker-clean.log`). Spawn refuses when the worktree
+  filesystem has less than `[worktrees].min_free_gib` free (default 40, `0` = off)
+  (ADR-017).
 - `cdamux worker peek <name> [--lines N]` — last N pane lines.
 
 ### Read-only inspection (#388)

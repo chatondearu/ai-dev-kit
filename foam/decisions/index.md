@@ -22,6 +22,7 @@ Status values: `proposed` | `accepted` | `deprecated` | `superseded`.
 | [[ADR-014-cdamux-dedicated-navigator-session|ADR-014]] | cdamux dedicated navigator session (replaces join-pane sidebar) | accepted | #architecture #tooling #cdamux |
 | [[ADR-015-global-and-nested-orchestrators|ADR-015]] | Global and nested cdamux orchestrators | accepted | #architecture #tooling #cdamux #autonomy |
 | [[ADR-016-foam-first-kanban|ADR-016]] | Foam-first kanban, optional GH issues, worker meta auto-merge | proposed | #architecture #tooling #autonomy #foam |
+| [[ADR-017-worktree-build-cache-cleanup|ADR-017]] | Free build caches of finished worktrees; disk guard at spawn | accepted | #tooling #cdamux #disk |
 
 ## Template
 

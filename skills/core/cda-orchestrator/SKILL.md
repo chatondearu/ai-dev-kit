@@ -72,6 +72,8 @@ bash "$CDA_DEV/scripts/orch.sh" --mode ready-pickup --repo <path> --issue 12 --i
 Several issues of one repo → one `orch.sh --repo` call (background). Exit 75 →
 spawn fallback as in hard rules, still with `--repo`. Respect
 `[orchestrator].max_workers`: on the cap error, wait or report — no retry loop.
+On the `low disk` error, run `cdamux worker clean` (finished worktrees only) and retry
+once; still low → report to the owner.
 Report per project (repo → workers → PRs); refs, not pasted transcripts.
 
 ## Route the work

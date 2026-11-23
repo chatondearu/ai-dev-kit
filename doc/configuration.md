@@ -57,6 +57,7 @@ binaries (`all_compile = false` in `mise.toml`).
 | `ORCH_VERIFY` | unset | Override verify command (allowlisted under pr-fix) |
 | `ORCH_FRONTIER` | `auto` | `0` disables Blocked-by gating |
 | `ORCH_FORCE_CLEAN` | off | Remove worktrees after success |
+| `ORCH_MIN_FREE_GIB` | `40` | Refuse to create a worktree below this free space on `.orch/`'s filesystem; `0` = off. At the end of a run orch.sh frees build dirs of finished `.orch/worktrees` with `cdamux worker clean` when cdamux is on PATH ([ADR-017](../foam/decisions/ADR-017-worktree-build-cache-cleanup.md)) |
 | `ORCH_REPO` | cwd / `--repo` | Target git tree (required in systemd env) |
 | `ORCH_FOAM_BOARD` | discovered | Path to `foam-board.sh` for orch-auto Ready listing |
 | `ORCH_GH_BOARD` | discovered | Legacy alias for `ORCH_FOAM_BOARD` |
@@ -107,7 +108,14 @@ any discovered project from outside a git cwd; default first message includes th
 worker preamble for `cdamux msg`). Spawn refuses when live workers already meet
 `[orchestrator].max_workers` (default 6, `0` = no cap; count = `role=worker` +
 live tmux host, excluding only status `done`/`error` — missing status and `idle`
-count; dormant hosts are dead so never count; all projects). `cdamux restore <orch>` rebuilds the
+count; dormant hosts are dead so never count; all projects). Spawn also refuses below
+`[worktrees].min_free_gib` free on the worktree filesystem (default 40, `0` = off).
+`cdamux worker clean [--dry-run] [--root DIR]` deletes `[worktrees].disposable` build
+dirs (default `target`, `node_modules`, `.nuxt`, `.output`; git-ignored only) in
+worktrees whose PR is merged or closed, or whose session is gone and branch merged —
+never with an open PR or a live unfinished session; each spawn also runs it in the
+background at most every 30 min (log `$CDAMUX_HOME/logs/worker-clean.log`, ADR-017).
+`cdamux restore <orch>` rebuilds the
 orchestrator host and its workers (resume by id when recorded). Retention:
 `cdamux state gc` (optional `--retention-days N`, or `--unrestorable` for N = 0)
 archives then removes done/error agents and finished runs with no live host older

@@ -61,7 +61,7 @@ case "$1 $2" in
     esac ;;
   "pr create") echo "https://github.com/o/r/pull/99" ;;
   "pr checks") echo "[]" ;;
-  "pr view") echo '{"mergeable":"MERGEABLE","state":"OPEN"}' ;;
+  "pr view") case "$*" in *headRefName*) board_branch ;; *) echo '{"mergeable":"MERGEABLE","state":"OPEN"}' ;; esac ;;
   "pr diff")
     case "$*" in *--name-only*) git -C "$ORIGIN" diff --name-only main "$(board_branch)" ;;
       *) git -C "$ORIGIN" diff main "$(board_branch)" ;; esac ;;

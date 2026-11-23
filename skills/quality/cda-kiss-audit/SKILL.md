@@ -5,7 +5,8 @@ description: >
   load, risky code with no test, slow paths, and what to delete / merge / split.
   Each finding explained plainly with a concrete case. One-shot report, changes
   nothing. Use for "audit this codebase", "review the whole repo", "find bloat",
-  "what can I delete", /cda-kiss-audit.
+  "what can I delete", /cda-kiss-audit. `/cda-kiss-audit debt` lists the
+  `shortcut:` markers as a ranked debt ledger.
 license: MIT
 ---
 
@@ -66,3 +67,19 @@ End with:
 - `Not checked:` the parts you didn't read or couldn't run.
 
 Nothing found → `What this repo does:`, then `Healthy. Nothing to fix.` and one line on what you checked. One-shot report; it changes no code.
+
+## 5. Shortcut debt ledger
+
+`cda-kiss` marks each deliberate shortcut with `shortcut: <the limit>, <when to upgrade>`. Collect them so a deferral can't quietly become permanent. `/cda-kiss-audit debt` (or "list the shortcuts") → this ledger only. A full audit ends with one line: `Shortcut debt: <N> markers, <M> with no trigger, <K> past their limit.`
+
+> Adapted from ponytail's `ponytail-debt` (MIT, upstream `84740e3`).
+
+- **Scan** tracked files only (skips `.git` and ignored build output): `git grep -nE '(#|//|/[*]|--|<!--) ?shortcut:'`. Outside git: `grep -rnE --exclude-dir=.git` with the same pattern. Add a comment prefix if the stack uses another one. The prefix keeps prose that only mentions the convention (docs, this file) out of the ledger; skip hits that are not a deferral (a keyboard shortcut).
+- **Parse** each hit: the limit is the text before the first comma, the upgrade trigger the rest. No trigger, or a vague one ("later", "if needed") → tag `no-trigger`.
+- **Rank** into three groups, most urgent first, at most about 5 rows shown per group (say how many more):
+  1. **Past its limit** — the expected load (from § 1) or the code around it already crosses the named limit. These are findings: also list them under **Must fix** / **Should fix** with a concrete case.
+  2. **No trigger** — nobody will know when to revisit; these rot silently.
+  3. **Waiting** — limit and trigger named, not reached yet. Order by how close the trigger is.
+- **Row:** `<file>:<line> — <what was simplified>. limit: <…>. upgrade: <…>.` Want an owner? `git blame -L<line>,<line> -- <file>`.
+
+End with `<N> markers, <M> with no trigger, <K> past their limit.` Nothing found → `No shortcut debt.` Reads only; to keep the ledger, the user asks and it is written to a file.

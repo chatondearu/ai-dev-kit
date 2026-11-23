@@ -89,16 +89,25 @@ function getInstructions(mode) {
   }
 }
 
+// Dir names come from the opened repo and land in hidden context: keep only
+// path-like names (no spaces, quotes, control or non-ASCII chars; git quotes the
+// latter) so a planted folder can't read as a sentence. From ponytail 5c5ad8a.
+// shortcut: an underscore-joined sentence still passes; cap is 100 chars, tighten if one shows up.
+const SAFE_PATH = /^[\w.@+$()[\]\/-]+$/;
+const MAX_DIR_CHARS = 100;
+
 // Cheap repo map so "reuse first" costs no search: unique git-tracked dirs
 // (depth ≤ 2, first-seen order), char-budgeted. Root-level files are skipped.
 function buildMap(cwd = process.cwd()) {
   const budget = Number(process.env.KISS_MAP_CHARS || 2000);
   try {
+    // 64 MiB: big repos overflowed 4 MiB and lost the map (ponytail f7bfbb9).
     const dirs = [...new Set(execFileSync('git', ['ls-files'], {
-      cwd, encoding: 'utf8', timeout: 3000, maxBuffer: 4 * 1024 * 1024,
+      cwd, encoding: 'utf8', timeout: 3000, maxBuffer: 64 * 1024 * 1024,
       stdio: ['ignore', 'pipe', 'ignore'],
     }).split('\n').filter((f) => f.includes('/'))
-      .map((f) => f.split('/').slice(0, -1).slice(0, 2).join('/')))];
+      .map((f) => f.split('/').slice(0, -1).slice(0, 2).join('/'))
+      .filter((d) => d.length <= MAX_DIR_CHARS && SAFE_PATH.test(d)))];
     if (!dirs.length) return '';
     let out = 'Repo map (reuse what already exists before writing):\n';
     for (const d of dirs) {

@@ -24,7 +24,7 @@ contributed.
 | Upstream | License | Adapted into |
 | -------- | ------- | ------------ |
 | [mattpocock/skills](https://github.com/mattpocock/skills) | MIT | `cda-tdd`, `cda-diagnose`, `cda-grill`, `cda-prototype`, `cda-retro`, `cda-wizard`, `cda-writing`, `cda-codebase`, `cda-architecture`, `cda-standards`; pipeline ideas in `cda-explore`, `cda-triage`, `cda-dev`, `cda-foam` |
-| [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail) | MIT | `cda-kiss` (+ hooks), `cda-kiss-audit`, and the leanness lens in `cda-review` / `cda-dev` |
+| [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail) | MIT | `cda-kiss` (+ hooks), `cda-kiss-audit` (+ shortcut debt ledger from `ponytail-debt`), and the leanness lens in `cda-review` / `cda-dev`. Base v5.2.0 (`2961b52`); later ports: `5c5ad8a` (map name filter), `f7bfbb9` (map buffer), `ebd8654` (UTF-8 stdin), `67a1601` (Cursor `additional_context` evidence) |
 | [ayghri/i-have-adhd](https://github.com/ayghri/i-have-adhd) | MIT | `rules/02-adhd-output.md` (reply shape, always-on via `CLAUDE.md` or pasted into Cursor Rules for AI) |
 | [Citability/claude-code-adhd-skills](https://github.com/Citability/claude-code-adhd-skills) | MIT | `cda-standing` (extended to every project) |
 | [onion-42/nadja-public-claude-skills](https://github.com/onion-42/nadja-public-claude-skills) | MIT | `cda-goal`, `cda-reflect`, `cda-nopanic`; the anti-loop rule in `cda-kiss` (from `step-back`) |

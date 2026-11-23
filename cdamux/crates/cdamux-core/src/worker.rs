@@ -392,13 +392,12 @@ where
     I: IntoIterator<Item = &'a Value>,
 {
     let agents: Vec<&Value> = agents.into_iter().collect();
-    let host_of = |id: &str| {
-        agents
-            .iter()
-            .find(|v| v.get("id").and_then(Value::as_str) == Some(id))
-            .and_then(|v| v.get("host")?.as_str())
-            .filter(|h| !h.is_empty())
-    };
+    let hosts: HashMap<&str, &str> = agents
+        .iter()
+        .filter_map(|v| Some((v.get("id")?.as_str()?, v.get("host")?.as_str()?)))
+        .filter(|(_, h)| !h.is_empty())
+        .collect();
+    let host_of = |id: &str| hosts.get(id).copied();
     agents
         .iter()
         .filter(|v| {

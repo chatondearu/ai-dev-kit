@@ -2,8 +2,9 @@
 //! workers of a dead orchestrator free the cap, `worker kill [--subtree]` is permanent.
 
 use cdamux_core::{
-    env_lock, kill_worker, read_events, restore_targets, session_registry, spawn_worker,
-    state_get, state_set, AgentEntry, AgentsConfig, StateKind, WorkerError, WorkerSpawnRequest,
+    env_lock, kill_worker, list_orchestrators, read_events, restore_targets, session_registry,
+    spawn_orchestrator, spawn_worker, state_get, state_set, AgentEntry, AgentsConfig, OrchError,
+    OrchNewRequest, StateKind, WorkerError, WorkerSpawnRequest,
 };
 use std::path::Path;
 use std::process::Command;
@@ -161,6 +162,80 @@ fn home_propagation_cap_and_permanent_kill() {
     assert_eq!(ids.len(), 3, "{ids:?}");
     assert_eq!(ids.last(), Some(&"a-orch1"));
     assert!(!has_session(&w1.host) && !has_session(&w2.host));
+
+    let (_, sock) = tmux(&["display-message", "-p", "#{socket_path}"]);
+    assert!(
+        sock.contains(tmp.path().to_str().unwrap_or("___")),
+        "refusing kill-server: socket {sock} not under temp"
+    );
+    let _ = Command::new("tmux").args(["kill-server"]).status();
+    std::env::remove_var("CDAMUX_HOME");
+    std::env::remove_var("TMUX_TMPDIR");
+}
+
+#[test]
+fn orch_new_refuses_a_second_live_orchestrator_and_clears_stale_host_claims() {
+    let Some(real_tmux) = which("tmux") else {
+        eprintln!("tmux not on PATH: skipped");
+        return;
+    };
+    let tmp = tempfile::tempdir().unwrap();
+    let bin = tmp.path().join("bin");
+    std::fs::create_dir(&bin).unwrap();
+    let wrapper = bin.join("tmux");
+    std::fs::write(&wrapper, format!("#!/bin/sh\nexec {real_tmux} -L {SOCKET}-orch -f /dev/null \"$@\"\n")).unwrap();
+    let stub = bin.join("claude");
+    std::fs::write(&stub, "#!/bin/sh\nexec sleep 60\n").unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    for f in [&wrapper, &stub] {
+        std::fs::set_permissions(f, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let proj = tmp.path().join("proj");
+    std::fs::create_dir(&proj).unwrap();
+
+    let _env = env_lock();
+    let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default());
+    std::env::set_var("PATH", &path);
+    std::env::set_var("TMUX_TMPDIR", tmp.path());
+    std::env::set_var("CDAMUX_HOME", tmp.path().join("cdamux"));
+    std::env::remove_var("TMUX");
+    // Keep a server up so has-session answers.
+    assert!(tmux(&["new-session", "-d", "-s", "keep", "sleep", "60"]).0);
+
+    // A stale record still naming the session the new orchestrator will get.
+    state_set(
+        StateKind::Agents,
+        "a-ghost",
+        &serde_json::json!({"id": "a-ghost", "role": "orchestrator", "host": "c-proj", "status": "needs_input"}),
+    )
+    .unwrap();
+
+    let agents = AgentsConfig {
+        default: "claude".into(),
+        claude: Some(AgentEntry { command: "claude".into(), resume: None }),
+        cursor: None,
+        opencode: None,
+        pi: None,
+    };
+    let req = OrchNewRequest {
+        path: &proj,
+        agent: None,
+        agents: &agents,
+        switch_to_session: false,
+        global: false,
+        parent_agent_id: None,
+    };
+    let first = spawn_orchestrator(req.clone()).expect("first orchestrator");
+    assert_eq!(first.host, "c-proj");
+    let ghost = state_get(StateKind::Agents, "a-ghost").unwrap().unwrap();
+    assert_eq!((ghost["status"].as_str(), ghost["host"].as_str()), (Some("error"), Some("")));
+    let live: Vec<String> = list_orchestrators().into_iter().filter(|e| e.live).map(|e| e.id).collect();
+    assert_eq!(live, [first.agent_id.clone()], "only the new orchestrator is live on c-proj");
+
+    match spawn_orchestrator(req) {
+        Err(OrchError::Exists { id, host, .. }) => assert_eq!((id, host), (first.agent_id, first.host)),
+        other => panic!("second orchestrator for the same project must be refused: {other:?}"),
+    }
 
     let (_, sock) = tmux(&["display-message", "-p", "#{socket_path}"]);
     assert!(

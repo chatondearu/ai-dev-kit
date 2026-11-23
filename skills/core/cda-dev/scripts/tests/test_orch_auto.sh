@@ -15,14 +15,6 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# No flock on the host (macOS): stub it so the dry-run filters still run; the
-# lock-contention case below needs the real one and is skipped.
-HAVE_FLOCK=1
-if ! command -v flock >/dev/null 2>&1; then
-  HAVE_FLOCK=0
-  printf '#!/usr/bin/env bash\nexit 0\n' >"$STUB_BIN/flock"
-  chmod +x "$STUB_BIN/flock"
-fi
 if ! command -v jq >/dev/null 2>&1; then
   echo "SKIP test_orch_auto.sh (jq not installed)"
   exit 0
@@ -157,23 +149,25 @@ n_logs="$(find "$TMP/.orch/auto" -name '*.log' | wc -l | tr -d ' ')"
 assert_file "$TMP/.orch/auto/old-60.log" "newest old log kept"
 [ ! -e "$TMP/.orch/auto/old-01.log" ] && PASSES=$((PASSES + 1)) || { FAILS=$((FAILS + 1)); echo "FAIL oldest log not pruned" >&2; }
 
-if [ "$HAVE_FLOCK" = 0 ]; then
-  echo "SKIP flock contention case (flock not installed)"
-  summary
-  exit $?
-fi
-
-echo "# orch-auto flock second run exits 75 (EX_TEMPFAIL)"
+echo "# orch-auto second run exits 75 (EX_TEMPFAIL) while the lock is held"
 mkdir -p "$TMP/.orch"
 (
-  exec 9>"$TMP/.orch/auto.lock"
-  flock -n 9
+  # Hold the lock the way orch_acquire_lock takes it on this host (flock, else mkdir + live pid).
+  if command -v flock >/dev/null 2>&1; then
+    exec 9>"$TMP/.orch/auto.lock"
+    flock -n 9
+  else
+    mkdir "$TMP/.orch/auto.lock.d"
+    echo "$$" >"$TMP/.orch/auto.lock.d/pid"
+  fi
   set +e
   out2="$(bash "$SCRIPTS/orch-auto.sh" --repo "$TMP" --dry-run 2>&1)"
   rc2=$?
   set -e
   assert_eq "$rc2" "75" "second run exits 75 when lock held"
   assert_contains "$out2" "another run holds" "reports lock contention"
-)
+  # Counters do not leave the subshell: report failures through its status.
+  [ "$FAILS" -eq 0 ]
+) || FAILS=$((FAILS + 1))
 
 summary

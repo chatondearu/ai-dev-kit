@@ -6,7 +6,7 @@
 | ---- | ------- |
 | Agent CLI (`agent`, `cursor-agent`, `claude`, `opencode`, `codex`) | `orch.sh`, `headless.sh` |
 | `gh`, `git` | Kanban / CI modes of orch |
-| `jq`, `flock` | `orch-auto.sh`, `orch.sh` (ready-pickup / pr-fix) |
+| `jq`, `flock` (optional: mkdir lock fallback) | `orch-auto.sh`, `orch.sh` (ready-pickup / pr-fix) |
 | `bwrap` (required for `--sandbox`) | `--sandbox` exits if missing (no unsandboxed fallback) |
 | Optional `mise` | Pins Node/Rust from root `mise.toml` (ADR-013); not required |
 
@@ -151,7 +151,7 @@ Under foam / `CDA_FOAM_HOME`, commit `architecture.json`, `descriptions/`, and t
 | `$CDAMUX_HOME/runs/<run_id>.json` | Live orchestration graph (via `cdamux state`; Fleet / API) |
 | `.orch/integrator-report.md` | Post-run synthesis (multi-worker) |
 | `.orch/headless/` | Headless prompt copy |
-| `.orch/auto.lock` | orch-auto mutex |
+| `.orch/auto.lock` | orch-auto mutex (same `flock` / `.d/` fallback as `orch.lock`) |
 | `.orch/orch.lock` | orch ready-pickup / pr-fix mutex. Without `flock` it is the dir `.orch/orch.lock.d/` holding the owner `pid`; a dead pid is taken over |
 | `.orch/worktrees/` | Per-issue worktrees (prune with `orch-cleanup.sh`) |
 | `.orch/auto/*.log` | orch-auto run logs (newest 50 kept) |

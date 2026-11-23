@@ -157,7 +157,7 @@ bash "$SKILL/scripts/orch-auto.sh" --repo /path/to/repo
 Board listing uses `cda-kanban` `foam-board.sh list-ready`. Override path with
 `ORCH_FOAM_BOARD` (or legacy `ORCH_GH_BOARD`) if needed (tests / custom layout).
 
-One run at a time: flock on `<repo>/.orch/auto.lock`. Logs under
+One run at a time: lock on `<repo>/.orch/auto.lock` (`flock`, else the dir `auto.lock.d/`). Logs under
 `<repo>/.orch/auto/` (newest 50 kept). A second run exits 75 (EX_TEMPFAIL) when the lock is held, so a timer sees it did not run.
 
 ### Systemd (opt-in)

@@ -25,10 +25,10 @@ fn home_pane(format: &str) -> String {
     String::from_utf8_lossy(&out.stdout).trim().to_string()
 }
 
-fn wait_home_command(want: &str) -> bool {
+fn wait_home(format: &str, want: impl Fn(&str) -> bool) -> bool {
     let start = Instant::now();
     loop {
-        if home_pane("#{pane_current_command}") == want {
+        if want(&home_pane(format)) {
             return true;
         }
         if start.elapsed() > Duration::from_secs(3) {
@@ -38,14 +38,13 @@ fn wait_home_command(want: &str) -> bool {
     }
 }
 
+/// macOS `/bin/sh` runs bash, and tmux there names the executable, not argv[0].
+fn is_sh(cmd: &str) -> bool {
+    matches!(cmd, "sh" | "bash")
+}
+
 #[test]
 fn home_shell_pane_is_respawned_other_commands_kept() {
-    // macOS tmux reports the executable (`/bin/sh` is bash), not argv[0]: the names below
-    // only hold where tmux reads /proc.
-    if !cfg!(target_os = "linux") {
-        eprintln!("pane_current_command from argv[0] needs Linux: skipped");
-        return;
-    }
     let Some(real_tmux) = which("tmux") else {
         eprintln!("tmux not on PATH: skipped");
         return;
@@ -60,11 +59,10 @@ fn home_shell_pane_is_respawned_other_commands_kept() {
         format!("#!/bin/sh\nexec {real_tmux} -L {SOCKET} -f /dev/null \"$@\"\n"),
     )
     .unwrap();
-    // Fake dashboard. tmux reads `pane_current_command` from argv[0] (`/proc/<pgrp>/cmdline`
-    // on Linux), so a plain `#!/bin/sh` script would show up as `sh`. bash, not sleep, takes
-    // the renamed argv[0]: a multicall coreutils rejects `cdamux`; `; :` keeps bash alive.
+    // Fake dashboard. The respawn is asserted on `pane_start_command`: `pane_current_command`
+    // is argv[0] on Linux but the executable name on macOS, so it cannot name `cdamux` on both.
     let fake = bin.join("cdamux");
-    std::fs::write(&fake, "#!/usr/bin/env bash\nexec -a cdamux bash -c 'sleep 30; :'\n").unwrap();
+    std::fs::write(&fake, "#!/bin/sh\nexec sleep 30\n").unwrap();
     use std::os::unix::fs::PermissionsExt;
     for f in [&wrapper, &fake] {
         std::fs::set_permissions(f, std::fs::Permissions::from_mode(0o755)).unwrap();
@@ -90,11 +88,20 @@ fn home_shell_pane_is_respawned_other_commands_kept() {
             .status
             .success()
     );
-    assert!(wait_home_command("sh"), "home pane never ran sh");
+    assert!(
+        wait_home("#{pane_current_command}", is_sh),
+        "home pane never ran sh: {}",
+        home_pane("#{pane_current_command}")
+    );
     ensure_home_session().expect("ensure home (shell)");
     assert!(
-        wait_home_command("cdamux"),
+        wait_home("#{pane_start_command}", |c| c.trim_matches('"') == "cdamux"),
         "shell home pane not respawned: {}",
+        home_pane("#{pane_start_command}")
+    );
+    assert!(
+        wait_home("#{pane_current_command}", |c| c == "sleep"),
+        "respawned home pane does not run the fake cdamux: {}",
         home_pane("#{pane_current_command}")
     );
 
@@ -104,7 +111,10 @@ fn home_shell_pane_is_respawned_other_commands_kept() {
             .status
             .success()
     );
-    assert!(wait_home_command("sleep"), "home pane never ran sleep");
+    assert!(
+        wait_home("#{pane_current_command}", |c| c == "sleep"),
+        "home pane never ran sleep"
+    );
     let pid = home_pane("#{pane_pid}");
     ensure_home_session().expect("ensure home (busy)");
     std::thread::sleep(Duration::from_millis(300));

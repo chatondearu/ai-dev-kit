@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 # Source-only library (no main). ADR-016 allowlist predicate + optional gh pr merge.
+# orch_merge_pr is callable outside orch.sh (e.g. foam-board.sh reconcile): source
+# lib/worktree.sh, lib/lock.sh, lib/verify.sh, lib/ci.sh and this file; ORCH_REPO and
+# ORCH_DEFAULT_BRANCH are derived from the worktree when unset.
 # Never --admin, never force-push. Empty diffs fail closed.
 
 # True when $1 is an ADR-016 allowlist path (prefix rules). Fail closed otherwise.
@@ -102,7 +105,8 @@ _orch_merge_fail() {
 # branch is behind, rebase it, re-run verify, push (lease on the old head) and re-watch
 # checks; refuse mergeable=UNKNOWN; merge pinned to the verified HEAD. 0 = merged.
 orch_merge_pr() {
-  local pr="$1" wt="$2" branch="$3" def allowed rc=0
+  local pr="$1" wt="$2" branch="$3" def allowed head_ref rc=0
+  local ORCH_REPO="${ORCH_REPO:-$(orch_repo_root "$wt")}"
   ORCH_MERGE_ERROR=""
   def="${ORCH_DEFAULT_BRANCH:-}"
   [ -n "$def" ] || def="$(orch_default_branch "$wt")" \
@@ -112,6 +116,12 @@ orch_merge_pr() {
   allowed="$(gh repo view --json rebaseMergeAllowed -q .rebaseMergeAllowed 2>/dev/null)" || allowed=""
   [ "$allowed" = true ] || {
     _orch_merge_fail "$pr" "the repo does not allow rebase merges (rebaseMergeAllowed=${allowed:-unreadable}); enable it or merge by hand"
+    return 1
+  }
+  # The leased push below rewrites $branch: it must be this PR's head, not a guess.
+  head_ref="$(gh pr view "$pr" --json headRefName -q .headRefName 2>/dev/null)" || head_ref=""
+  [ "$head_ref" = "$branch" ] || {
+    _orch_merge_fail "$pr" "PR head is '${head_ref:-unreadable}', not $branch"
     return 1
   }
   orch_merge_lock_acquire \
@@ -128,13 +138,13 @@ _orch_merge_pr_locked() {
     || { _orch_merge_fail "$pr" "git fetch origin $def failed"; return 1; }
   if ! git -C "$wt" merge-base --is-ancestor "origin/$def" HEAD; then
     printf 'merge: PR #%s is behind origin/%s; rebasing and re-running verify\n' "$pr" "$def" >&2
-    old="$(git -C "$wt" rev-parse HEAD)"
+    old="$(git -C "$wt" rev-parse HEAD)" || { _orch_merge_fail "$pr" "cannot read HEAD in $wt"; return 1; }
     if [ -n "$(git -C "$wt" status --porcelain --untracked-files=no)" ]; then
       _orch_merge_fail "$pr" "worktree has uncommitted changes; cannot rebase on origin/$def"
       return 1
     fi
-    if ! git -C "$wt" rebase -q "origin/$def" >&2; then
-      git -C "$wt" rebase --abort 2>/dev/null || true
+    if ! git -C "$wt" rebase -q "origin/$def" >&2 9>&-; then
+      git -C "$wt" rebase --abort 2>/dev/null 9>&- || true
       _orch_merge_fail "$pr" "rebase on origin/$def conflicts; rebase by hand"
       return 1
     fi
@@ -148,7 +158,7 @@ _orch_merge_pr_locked() {
   fi
   m="$(orch_pr_mergeable "$pr" 9>&-)" \
     || { _orch_merge_fail "$pr" "not mergeable (mergeable=${m:-UNKNOWN})"; return 1; }
-  head="$(git -C "$wt" rev-parse HEAD)" || return 1
+  head="$(git -C "$wt" rev-parse HEAD)" || { _orch_merge_fail "$pr" "cannot read HEAD in $wt"; return 1; }
   if ! err="$(GH_PROMPT_DISABLED=1 gh pr merge "$pr" --rebase --match-head-commit "$head" </dev/null 2>&1 9>&-)"; then
     _orch_merge_fail "$pr" "gh pr merge --rebase failed: $(printf '%s' "$err" | tail -n 1)"
     return 1

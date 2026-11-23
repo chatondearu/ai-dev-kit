@@ -56,6 +56,7 @@ echo "\$*" >>"$STUB/gh.log"
 case "\$*" in
   *rebaseMergeAllowed*) echo true ;;
   *"pr checks"*) echo '[{"name":"ci","state":"SUCCESS","bucket":"pass"}]' ;;
+  *"pr view"*headRefName*) cat "$STUB/pr-\$3" 2>/dev/null | sed "s|.*|\${GH_STUB_HEAD:-&}|" ;;
   *"pr view"*) echo '{"mergeable":"MERGEABLE","state":"OPEN"}' ;;
   *"pr merge"*)
     set -e
@@ -154,6 +155,7 @@ assert_contains "$ORCH_MERGE_ERROR" "conflicts" "conflict reason"
 
 echo "# dirty worktree: its own reason, not a conflict"
 WT_G="$(new_branch 7 feat/g g.txt)"
+echo feat/g >"$STUB/pr-507"
 sibling_push g2.txt g2
 echo dirty >>"$WT_G/g.txt"
 set +e
@@ -201,17 +203,66 @@ if command -v flock >/dev/null 2>&1; then
 fi
 
 echo "# merge lock held elsewhere: bounded wait, then a clear error"
-mkdir -p "$R/.orch/merge.lock.d"
-sleep 30 & holder=$!
-echo "$holder" >"$R/.orch/merge.lock.d/pid"
-_ORCH_FLOCK_HIDDEN="$(orch_test_path_without "$TMP" flock)"
+# Holder takes flock(2) on the file, like both lock paths (flock(1) and the perl helper).
+hold_lock() {
+  perl -MFcntl=:flock -e 'open(my $f, ">>", $ARGV[0]) or die; flock($f, LOCK_EX) or die; print "held\n"; $| = 1; sleep 30' \
+    "$R/.orch/merge.lock" >"$TMP/held" &
+  holder=$!
+  until [ -s "$TMP/held" ]; do sleep 0.1; done
+  rm -f "$TMP/held"
+}
+hold_lock
 set +e
-PATH="$_ORCH_FLOCK_HIDDEN" ORCH_MERGE_LOCK_WAIT=1 ORCH_VERIFY=true orch_merge_pr 504 "$WT_D" feat/d 2>/dev/null
+ORCH_MERGE_LOCK_WAIT=1 ORCH_VERIFY=true orch_merge_pr 504 "$WT_D" feat/d 2>/dev/null
 rc=$?
 set -e
-kill "$holder" 2>/dev/null || true
-rm -rf "$R/.orch/merge.lock.d"
 assert_eq "$rc" "1" "held merge lock times out"
 assert_contains "$ORCH_MERGE_ERROR" "merge lock" "lock reason"
+set +e
+ORCH_MERGE_LOCK_WAIT=1 bash "$TROOT/../merge-lock.sh" --repo "$R" -- touch "$TMP/ran" 2>/dev/null
+rc=$?
+set -e
+assert_eq "$rc" "75" "merge-lock.sh: held lock → 75, command not run"
+[ ! -e "$TMP/ran" ] && PASSES=$((PASSES + 1)) || { FAILS=$((FAILS + 1)); echo "FAIL ran under a held lock" >&2; }
+
+echo "# a holder killed with SIGKILL leaves no stale lock (kernel releases flock)"
+kill -9 "$holder"; wait "$holder" 2>/dev/null || true
+set +e
+ORCH_MERGE_LOCK_WAIT=2 bash "$TROOT/../merge-lock.sh" --repo "$R" -- sh -c 'exit 7'
+rc=$?
+set -e
+assert_eq "$rc" "7" "merge-lock.sh runs the command after a dead holder and keeps its status"
+
+echo "# the lock is released when its shell dies mid-merge"
+bash -c 'source "$1/lib/worktree.sh"; source "$1/lib/lock.sh"; ORCH_REPO="$2"; orch_merge_lock_acquire && echo got && kill -9 $$' \
+  _ "$TROOT/.." "$R" >"$TMP/got" 2>/dev/null || true
+assert_eq "$(cat "$TMP/got")" "got" "first shell took the lock"
+set +e
+ORCH_MERGE_LOCK_WAIT=5 bash "$TROOT/../merge-lock.sh" --repo "$R" -- true
+rc=$?
+set -e
+assert_eq "$rc" "0" "lock free again after its holder shell was killed"
+
+echo "# PR head must be the branch the leased push rewrites"
+set +e
+GH_STUB_HEAD=someone-else ORCH_VERIFY=true orch_merge_pr 504 "$WT_D" feat/d 2>/dev/null
+rc=$?
+set -e
+assert_eq "$rc" "1" "head mismatch refuses the merge"
+assert_contains "$ORCH_MERGE_ERROR" "PR head is 'someone-else', not feat/d" "head mismatch reason"
+
+echo "# callable standalone (W5 foam-board reconcile): no ORCH_REPO, no ORCH_DEFAULT_BRANCH"
+WT_H="$(new_branch 8 feat/h h.txt)"
+echo feat/h >"$STUB/pr-508"
+set +e
+env -u ORCH_REPO -u ORCH_DEFAULT_BRANCH -u ORCH_BASE ORCH_VERIFY=true bash -c '
+  for l in worktree lock verify ci meta; do source "$1/lib/$l.sh"; done
+  orch_merge_pr 508 "$2" feat/h' _ "$TROOT/.." "$WT_H" 2>"$TMP/sa.err"
+rc=$?
+set -e
+assert_eq "$rc" "0" "orch_merge_pr works from a fresh shell sourcing the libs"
+git -C "$R" fetch -q origin develop
+git -C "$R" cat-file -e origin/develop:h.txt && PASSES=$((PASSES + 1)) \
+  || { FAILS=$((FAILS + 1)); echo "FAIL standalone merge did not land: $(cat "$TMP/sa.err")" >&2; }
 
 summary

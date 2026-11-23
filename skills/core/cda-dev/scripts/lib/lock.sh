@@ -49,16 +49,21 @@ orch_acquire_lock() {
   trap _orch_release_lock EXIT
 }
 
-# Per-repo merge lock (Q4): sibling workers of one run and other runs merge one at a
-# time, so each merge re-checks freshness after the previous one landed. Blocks up to
-# ORCH_MERGE_LOCK_WAIT seconds (default: ORCH_CI_TIMEOUT + 900, longer than one holder's
-# post-rebase CI watch). Release with orch_merge_lock_release.
-_ORCH_MERGE_LOCK_MODE=""
+# Per-repo merge lock (Q4): sibling workers of one run, other runs and manual merges
+# (scripts/merge-lock.sh) merge one at a time, so each merge re-checks freshness after
+# the previous one landed. flock(2) on .orch/merge.lock: the kernel drops it when the
+# holder dies, so there is no pid file, no stale lock and no takeover race. flock(1)
+# when present; else (stock macOS) a perl helper holds flock(2) for this shell and
+# exits on release or when this shell dies. Blocks up to ORCH_MERGE_LOCK_WAIT seconds
+# (default ORCH_CI_TIMEOUT + 900, longer than one holder's post-rebase CI watch).
+# Needs ORCH_REPO. Release with orch_merge_lock_release.
+_ORCH_MERGE_LOCK_MODE="" _ORCH_MERGE_LOCK_PID=""
 orch_merge_lock_acquire() {
-  local lock="$ORCH_REPO/.orch/merge.lock" wait="${ORCH_MERGE_LOCK_WAIT:-$(( ${ORCH_CI_TIMEOUT:-1800} + 900 ))}" start=$SECONDS owner
+  local lock="$ORCH_REPO/.orch/merge.lock" wait="${ORCH_MERGE_LOCK_WAIT:-$(( ${ORCH_CI_TIMEOUT:-1800} + 900 ))}"
+  local lfd line=""
   mkdir -p "$ORCH_REPO/.orch"
   if command -v flock >/dev/null 2>&1; then
-    exec 9>"$lock"
+    exec 9>>"$lock"
     if flock -w "$wait" 9; then
       _ORCH_MERGE_LOCK_MODE=flock
       return 0
@@ -66,24 +71,43 @@ orch_merge_lock_acquire() {
     exec 9>&-
     return 1
   fi
-  while ! mkdir "$lock.d" 2>/dev/null; do
-    owner="$(cat "$lock.d/pid" 2>/dev/null || true)"
-    # Empty pid = owner between mkdir and pid write: held. Dead pid = stale.
-    if [ -n "$owner" ] && ! kill -0 "$owner" 2>/dev/null; then
-      rm -rf "$lock.d"
-      continue
-    fi
-    (( SECONDS - start < wait )) || return 1
-    sleep 1
-  done
-  printf '%s\n' "$BASHPID" >"$lock.d/pid"
-  _ORCH_MERGE_LOCK_MODE=mkdir
+  if ! command -v perl >/dev/null 2>&1; then
+    printf 'orch: the merge lock needs flock(1) or perl\n' >&2
+    return 1
+  fi
+  coproc perl -MFcntl=:flock -e '
+    my ($lock, $wait) = @ARGV;
+    my $parent = getppid();
+    open(my $fh, ">>", $lock) or exit 2;
+    my $end = time + $wait;
+    until (flock($fh, LOCK_EX | LOCK_NB)) { exit 1 if time >= $end; sleep 1; }
+    $| = 1;
+    print "locked\n";
+    sleep 1 while getppid() == $parent;
+  ' "$lock" "$wait" 8>&- 9>&-
+  _ORCH_MERGE_LOCK_PID="$COPROC_PID"
+  # Dup the read end now: bash unsets COPROC as soon as the helper exits.
+  # (A bare `exec … 2>/dev/null` would silence this shell's stderr for good.)
+  if { exec {lfd}<&"${COPROC[0]}"; } 2>/dev/null; then
+    read -r line <&"$lfd" || line=""
+    exec {lfd}<&-
+  fi
+  if [ "$line" = locked ]; then
+    _ORCH_MERGE_LOCK_MODE=perl
+    return 0
+  fi
+  wait "$_ORCH_MERGE_LOCK_PID" 2>/dev/null || true
+  _ORCH_MERGE_LOCK_PID=""
+  return 1
 }
 
 orch_merge_lock_release() {
   case "$_ORCH_MERGE_LOCK_MODE" in
     flock) exec 9>&- ;;
-    mkdir) rm -rf "$ORCH_REPO/.orch/merge.lock.d" ;;
+    perl)
+      kill "$_ORCH_MERGE_LOCK_PID" 2>/dev/null || true
+      wait "$_ORCH_MERGE_LOCK_PID" 2>/dev/null || true
+      ;;
   esac
-  _ORCH_MERGE_LOCK_MODE=""
+  _ORCH_MERGE_LOCK_MODE="" _ORCH_MERGE_LOCK_PID=""
 }

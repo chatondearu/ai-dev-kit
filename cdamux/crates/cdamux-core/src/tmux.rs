@@ -95,6 +95,18 @@ pub fn list_tmux_sessions() -> Result<Vec<TmuxSession>, TmuxError> {
         .collect())
 }
 
+/// Like [`list_tmux_sessions`], but `None` whenever tmux cannot be listed (no server,
+/// another socket, missing binary): callers that delete must then treat all as live.
+pub fn list_tmux_sessions_strict() -> Option<Vec<TmuxSession>> {
+    let out = Command::new("tmux")
+        .args(["list-sessions", "-F", LIST_SESSIONS_FORMAT])
+        .output()
+        .ok()?;
+    out.status
+        .success()
+        .then(|| parse_list_sessions(&String::from_utf8_lossy(&out.stdout)))
+}
+
 /// Per-session snapshot from one `tmux list-panes -a` call (idle + hook user options).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SessionPaneInfo {

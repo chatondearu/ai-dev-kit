@@ -326,6 +326,16 @@ enum WorkerCommands {
     },
     /// List workers whose `parent` is `$CDAMUX_AGENT_ID`.
     Ls,
+    /// Free `[worktrees].disposable` build dirs in finished worktrees (PR merged/closed, or
+    /// session gone and branch merged). Never the worktree itself (ADR-017).
+    Clean {
+        /// Print what would be freed and how much; delete nothing.
+        #[arg(long)]
+        dry_run: bool,
+        /// Worktree parent to scan (repeatable); default `[worktrees].root` or `$CDAMUX_HOME/worktrees`.
+        #[arg(long)]
+        root: Vec<PathBuf>,
+    },
     /// Show the last N lines of a worker pane.
     Peek {
         name: String,
@@ -616,6 +626,7 @@ fn main() -> ExitCode {
                 repo.as_deref(),
             ),
             WorkerCommands::Ls => cmd_worker_ls(),
+            WorkerCommands::Clean { dry_run, root } => cmd_worker_clean(dry_run, root),
             WorkerCommands::Peek { name, lines } => cmd_worker_peek(&name, lines),
         },
         Some(Commands::Orch { command }) => match command {
@@ -827,9 +838,11 @@ fn cmd_worker_spawn(
         agents: &cfg.agents,
         cwd: &cwd,
         max_workers: cfg.orchestrator.max_workers,
+        min_free_gib: cfg.worktrees.min_free_gib,
     };
     match spawn_worker(req) {
         Ok(r) => {
+            kick_background_clean();
             println!(
                 "spawned worker '{}' id={} host={} run={} path={}{}",
                 r.name,
@@ -845,6 +858,145 @@ fn cmd_worker_spawn(
             eprintln!("worker spawn: {e}");
             ExitCode::from(1)
         }
+    }
+}
+
+/// Background `worker clean` after a spawn; its exclusive lock makes a second one a no-op.
+fn kick_background_clean() {
+    use std::os::unix::process::CommandExt;
+    let Some(dir) = cdamux_core::cdamux_state_dir("logs") else {
+        return;
+    };
+    let log = dir.join("worker-clean.log");
+    if std::fs::create_dir_all(&dir).is_err() {
+        return;
+    }
+    let (Ok(exe), Ok(out)) = (
+        std::env::current_exe(),
+        std::fs::OpenOptions::new().create(true).append(true).open(&log),
+    ) else {
+        return;
+    };
+    let Ok(err) = out.try_clone() else {
+        return;
+    };
+    // Own process group: the caller's shell may kill its group when the command returns.
+    let _ = std::process::Command::new(exe)
+        .args(["worker", "clean"])
+        .stdin(std::process::Stdio::null())
+        .stdout(out)
+        .stderr(err)
+        .process_group(0)
+        .spawn();
+}
+
+fn cmd_worker_clean(dry_run: bool, roots: Vec<PathBuf>) -> ExitCode {
+    // One pass at a time (background kicks, orch.sh, manual): concurrent removals race.
+    let lock = cdamux_core::cdamux_state_dir("logs").and_then(|d| {
+        std::fs::create_dir_all(&d).ok()?;
+        std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(d.join("worker-clean.lock"))
+            .ok()
+    });
+    if let Some(f) = &lock {
+        if f.try_lock().is_err() {
+            println!("worker clean: another pass is running; skipped");
+            return ExitCode::SUCCESS;
+        }
+    }
+    let cfg = match load_config() {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("worker clean: {e}");
+            return ExitCode::from(1);
+        }
+    };
+    let roots = if roots.is_empty() {
+        match cfg
+            .worktrees
+            .root
+            .clone()
+            .or_else(|| cdamux_core::cdamux_state_dir("worktrees"))
+        {
+            Some(r) => vec![r],
+            None => {
+                eprintln!("worker clean: worktree root unset ([worktrees].root or $CDAMUX_HOME/worktrees)");
+                return ExitCode::from(1);
+            }
+        }
+    } else {
+        roots
+    };
+    // Fail closed: when tmux cannot be listed (no server, another socket), keep everything.
+    let sessions: Option<Vec<(String, PathBuf)>> = cdamux_core::list_tmux_sessions_strict()
+        .map(|v| v.into_iter().map(|s| (s.name, PathBuf::from(s.path))).collect());
+    if sessions.is_none() {
+        eprintln!("worker clean: cannot list tmux sessions; keeping every worktree");
+    }
+    let status: std::collections::HashMap<String, String> =
+        cdamux_core::state_list(StateKind::Agents)
+            .into_iter()
+            .filter_map(|(_, _, v)| {
+                Some((
+                    v.get("host")?.as_str()?.to_string(),
+                    v.get("status")?.as_str()?.to_string(),
+                ))
+            })
+            .collect();
+    let items = cdamux_core::clean_worktrees(
+        &roots,
+        &cfg.worktrees.disposable,
+        dry_run,
+        sessions.as_deref(),
+        &|h| status.get(h).cloned(),
+        &cdamux_core::gh_pr_state,
+    );
+    let (mut total, mut count, mut failed) = (0u64, 0usize, false);
+    for it in &items {
+        let dirs: Vec<String> = it
+            .dirs
+            .iter()
+            .map(|(d, _)| {
+                d.strip_prefix(&it.worktree)
+                    .unwrap_or(d)
+                    .display()
+                    .to_string()
+            })
+            .collect();
+        let size = cdamux_core::format_bytes(it.bytes());
+        match it.verdict {
+            cdamux_core::Verdict::Clean(why) => {
+                let verb = if dry_run { "would free" } else { "freed" };
+                println!(
+                    "{verb} {size}\t{}\t({why}: {})",
+                    it.worktree.display(),
+                    dirs.join(", ")
+                );
+                total += it.bytes();
+                count += 1;
+            }
+            cdamux_core::Verdict::Keep(why) => {
+                println!("keep {size}\t{}\t({why})", it.worktree.display());
+            }
+        }
+        for e in &it.errors {
+            eprintln!("worker clean: {e}");
+            failed = true;
+        }
+    }
+    println!(
+        "worker clean: {} {} in {count} worktree(s){}",
+        if dry_run { "would free" } else { "freed" },
+        cdamux_core::format_bytes(total),
+        if dry_run { " (dry-run)" } else { "" }
+    );
+    if failed {
+        ExitCode::from(1)
+    } else {
+        ExitCode::SUCCESS
     }
 }
 

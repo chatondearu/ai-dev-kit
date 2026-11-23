@@ -248,6 +248,11 @@ orch_ready_pickup_one() {
   fi
 
   orch_progress_set "$id" worktree "creating ${path##*/}"
+  if ! orch_disk_guard "$ORCH_REPO/.orch"; then
+    orch_progress_set "$id" error "low disk"
+    echo 1 >"$rc_file"
+    return 1
+  fi
   if ! orch_worktree_add "$ORCH_REPO" "$id" "$slug" "$branch" HEAD; then
     orch_progress_set "$id" error "worktree create failed"
     if ! orch_progress_enabled; then
@@ -525,6 +530,7 @@ orch_cleanup_done() {
     fi
   done
   [ "${#names[@]}" -eq 0 ] || bash "$ROOT/orch-cleanup.sh" --repo "$REPO" --apply "${names[@]}" || true
+  orch_free_build_dirs "$REPO"
 }
 
 case "$MODE" in
@@ -760,6 +766,7 @@ case "$MODE" in
 
       path="$(orch_worktree_path "$REPO" "pr-$num" "fix")"
       if [ ! -e "$path" ]; then
+        orch_disk_guard "$REPO/.orch" || exit 1
         mkdir -p "$(dirname "$path")"
         checked_out=0
         if command -v gh >/dev/null 2>&1; then
@@ -822,6 +829,7 @@ case "$MODE" in
       if [ "$FORCE_CLEAN" = 1 ]; then
         orch_worktree_remove "$REPO" "$path"
       fi
+      orch_free_build_dirs "$REPO"
     fi
     ;;
   intake)

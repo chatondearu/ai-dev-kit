@@ -338,6 +338,7 @@ fn orch_new_child_under_global_then_worker_msg() {
         agents: &agents,
         cwd: &proj,
         max_workers: 0,
+        min_free_gib: 0,
     })
     .expect("worker under child");
     let wdoc = state_get(StateKind::Agents, &worker.agent_id).unwrap().unwrap();

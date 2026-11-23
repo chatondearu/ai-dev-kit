@@ -77,6 +77,8 @@ pub struct WorkerSpawnRequest<'a> {
     pub cwd: &'a Path,
     /// From `[orchestrator].max_workers` (`0` = no cap).
     pub max_workers: u32,
+    /// From `[worktrees].min_free_gib` (`0` = no disk guard).
+    pub min_free_gib: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -527,17 +529,25 @@ pub fn spawn_worker(req: WorkerSpawnRequest<'_>) -> Result<WorkerSpawnResult, Wo
     if req.here {
         refuse_here_checkout(&base_cwd)?;
     }
+    let worktree_root = req
+        .worktree_root
+        .map(Path::to_path_buf)
+        .or_else(|| cdamux_state_dir("worktrees"));
+    let guard_path = if req.here {
+        Some(base_cwd.clone())
+    } else {
+        worktree_root.clone()
+    };
+    if let Some(p) = guard_path {
+        crate::worktree_clean::check_free_space(&p, req.min_free_gib).map_err(WorkerError::Other)?;
+    }
     let run = ensure_orch_run(req.caller_id, &caller, &caller_cwd)?;
 
     let target_repo = git_toplevel(&base_cwd);
     let spawn_path = if req.here {
         base_cwd.clone()
     } else {
-        let root = req
-            .worktree_root
-            .map(Path::to_path_buf)
-            .or_else(|| cdamux_state_dir("worktrees"))
-            .ok_or(WorkerError::NoWorktreeRoot)?;
+        let root = worktree_root.ok_or(WorkerError::NoWorktreeRoot)?;
         let repo = target_repo.clone().ok_or(WorkerError::NotGit)?;
         let base_branch = current_branch(&repo).unwrap_or_else(|| "HEAD".into());
         let branch = format!("worker/{run}/{name}");
@@ -803,6 +813,7 @@ mod tests {
             agents: &agents,
             cwd: &repo,
             max_workers: 0,
+            min_free_gib: 0,
         });
         std::env::remove_var("TMUX_TMPDIR");
         std::env::remove_var("CDAMUX_HOME");
@@ -837,6 +848,7 @@ mod tests {
             agents: &agents,
             cwd: &dirty,
             max_workers: 0,
+            min_free_gib: 0,
         });
         std::env::remove_var("TMUX_TMPDIR");
         std::env::remove_var("CDAMUX_HOME");

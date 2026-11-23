@@ -69,6 +69,15 @@ preview_max_lines = 80
 # When unset, `worker spawn` uses `$CDAMUX_HOME/worktrees`. Not wired to orch-auto (ADR-003).
 # [worktrees]
 # root = "/home/you/.local/share/cdamux/worktrees"
+# Build-cache dirs `cdamux worker clean` may delete in finished cdamux/orch worktrees (PR
+# merged or closed, or session gone and own commits merged). A name without `/` matches at any depth
+# (`cdamux/target`, `packages/web/node_modules`); with `/`, the exact relative path.
+# Only git-ignored dirs inside the worktree are ever removed; absolute paths and `..`
+# are refused. `[]` disables cleanup. Default below (ADR-017).
+# disposable = ["target", "node_modules", ".nuxt", ".output"]
+# `cdamux worker spawn` refuses below this free space on the worktree filesystem.
+# 0 = off (small hosts / CI). Default 40.
+# min_free_gib = 40
 
 # Machine-wide cap on live workers (role=worker, live tmux host; excludes done/error only).
 # Checked at `cdamux worker spawn` across all projects. 0 = no cap. Default 6.

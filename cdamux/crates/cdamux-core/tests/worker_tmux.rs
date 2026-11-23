@@ -161,6 +161,7 @@ fn spawn_ls_peek_and_msg_by_name() {
         agents: &agents,
         cwd: &repo,
         max_workers: 0,
+        min_free_gib: 0,
     })
     .expect("spawn worker");
     assert!(!out.agent_id.is_empty(), "missing agent id");
@@ -355,6 +356,7 @@ fn spawn_repo_from_non_git_caller_cwd() {
         agents: &agents,
         cwd: &outside,
         max_workers: 0,
+        min_free_gib: 0,
     })
     .expect("spawn into --repo from non-git cwd");
 

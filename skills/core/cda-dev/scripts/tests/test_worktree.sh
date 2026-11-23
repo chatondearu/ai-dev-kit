@@ -76,4 +76,16 @@ orch_worktree_add "$TMP" 42 auth-fix "feat/42-auth-fix" main 2>/dev/null
 assert_file "$wt/f" "worktree re-added after its dir was deleted"
 assert_eq "$(git -C "$wt" branch --show-current)" "feat/42-auth-fix" "re-added worktree on the branch"
 
+# Disk guard (ADR-017): 0 = off; an impossible threshold refuses; missing dir walks up.
+ORCH_MIN_FREE_GIB=0 orch_disk_guard "$TMP/nope/deeper"
+assert_eq "$?" "0" "disk guard off with ORCH_MIN_FREE_GIB=0"
+if ORCH_MIN_FREE_GIB=999999999 orch_disk_guard "$TMP/nope" 2>"$TMP/guard.err"; then
+  FAILS=$((FAILS + 1))
+  printf 'FAIL disk guard must refuse below the threshold\n' >&2
+else
+  PASSES=$((PASSES + 1))
+  printf 'ok   disk guard refuses below the threshold\n'
+fi
+assert_contains "$(cat "$TMP/guard.err")" "cdamux worker clean" "guard names the clean command"
+
 summary

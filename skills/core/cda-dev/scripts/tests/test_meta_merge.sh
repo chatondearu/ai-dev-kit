@@ -131,6 +131,7 @@ case "\$*" in
     exit 0
     ;;
   *rebaseMergeAllowed*) echo "\${GH_STUB_REBASE:-true}" ;;
+  *headRefName*) echo "\${GH_STUB_HEAD:-feat-allow}" ;;
   *"pr view"*) echo "{\"mergeable\":\"\${GH_STUB_MERGEABLE:-MERGEABLE}\",\"state\":\"OPEN\"}" ;;
   *"pr merge"*)
     [ -z "\${GH_STUB_MERGE_FAIL:-}" ] || { echo "\$GH_STUB_MERGE_FAIL" >&2; exit 1; }
@@ -238,7 +239,7 @@ prompt="$(cat)"
 mkdir -p .orch
 case "$prompt" in
   *"Verifier (grounding node)"*) touch .orch/verifier-ok; exit 0 ;;
-  *"Reviewer prompt"*) echo approved >.orch/review-verdict; exit 0 ;;
+  *"Reviewer prompt"*) echo approved >"$(printf '%s\n' "$prompt" | sed -n 's/^Verdict file: //p' | head -n 1)"; exit 0 ;;
 esac
 if [ "${STUB_COMMIT_META:-0}" = "1" ]; then
   mkdir -p prd
@@ -289,6 +290,9 @@ case "\$*" in
   *"pr checks"*)
     echo '[{"name":"ci","state":"SUCCESS","bucket":"pass"}]'
     ;;
+  *"pr view"*headRefName*)
+    echo "feat/\${GH_STUB_ISSUE}-issue-\${GH_STUB_ISSUE}"
+    ;;
   *"pr view"*)
     echo '{"mergeable":"MERGEABLE","state":"OPEN","headRefName":"main"}'
     ;;
@@ -312,7 +316,7 @@ export ORCH_TMUX=0
 
 : >"$MERGE_LOG"
 set +e
-out_meta="$(STUB_COMMIT_META=1 GH_STUB_PR_NUM=301 \
+out_meta="$(STUB_COMMIT_META=1 GH_STUB_PR_NUM=301 GH_STUB_ISSUE=21 \
   bash "$SCRIPTS/orch.sh" --repo "$TMP" --mode ready-pickup --issue 21 --agent "$STUB_BIN/stub-agent" 2>&1)"
 rc_meta=$?
 set -e
@@ -326,7 +330,7 @@ git -C "$TMP" branch -D feat/21-issue-21 >/dev/null 2>&1 || true
 echo "# orch.sh: a failed merge is an error, never done (Q4, H1)"
 : >"$MERGE_LOG"
 set +e
-out_mf="$(STUB_COMMIT_META=1 GH_STUB_PR_NUM=303 GH_STUB_MERGE_FAIL="merge refused" \
+out_mf="$(STUB_COMMIT_META=1 GH_STUB_PR_NUM=303 GH_STUB_ISSUE=23 GH_STUB_MERGE_FAIL="merge refused" \
   bash "$SCRIPTS/orch.sh" --repo "$TMP" --mode ready-pickup --issue 23 --agent "$STUB_BIN/stub-agent" 2>&1)"
 rc_mf=$?
 set -e
@@ -345,7 +349,7 @@ git -C "$UP/c" -c user.email=u@t -c user.name=u commit -qm "plan 24"
 git -C "$UP/c" push -q origin main
 rm -rf "$UP"
 set +e
-out_h6="$(STUB_COMMIT_META=1 GH_STUB_PR_NUM=304 GH_STUB_NO_BRIEF=1 \
+out_h6="$(STUB_COMMIT_META=1 GH_STUB_PR_NUM=304 GH_STUB_ISSUE=24 GH_STUB_NO_BRIEF=1 \
   bash "$SCRIPTS/orch.sh" --repo "$TMP" --mode ready-pickup --issue 24 --agent "$STUB_BIN/stub-agent" 2>&1)"
 rc_h6=$?
 set -e
@@ -360,7 +364,7 @@ orch_worktree_remove "$TMP" "$(orch_worktree_path "$TMP" 24 issue-24)" 2>/dev/nu
 
 : >"$MERGE_LOG"
 set +e
-out_sk="$(STUB_COMMIT_SKILLS=1 GH_STUB_PR_NUM=302 \
+out_sk="$(STUB_COMMIT_SKILLS=1 GH_STUB_PR_NUM=302 GH_STUB_ISSUE=22 \
   bash "$SCRIPTS/orch.sh" --repo "$TMP" --mode ready-pickup --issue 22 --agent "$STUB_BIN/stub-agent" 2>&1)"
 rc_sk=$?
 set -e

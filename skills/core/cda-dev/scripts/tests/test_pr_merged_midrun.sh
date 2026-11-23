@@ -120,7 +120,7 @@ prompt="\$(cat)"
 mkdir -p .orch
 case "\$prompt" in
   *"Verifier (grounding node)"*) touch .orch/verifier-ok ;;
-  *"Reviewer prompt"*) mkdir -p .orch; echo approved >.orch/review-verdict ;;
+  *"Reviewer prompt"*) echo approved >"\$(printf '%s\n' "\$prompt" | sed -n 's/^Verdict file: //p' | head -n 1)" ;;
   *"Commit all changes"*) touch "$OPENED_MARKER" ;;
 esac
 exit 0

@@ -37,10 +37,11 @@ export ORCH_RUN_ID="prfix-finish-1"
 
 cat >"$STUB_BIN/stub-agent" <<EOF
 #!/usr/bin/env bash
-case "\$(cat)" in
+prompt="\$(cat)"
+case "\$prompt" in
   *"Reviewer prompt"*)
-    mkdir -p .orch
-    echo "\${STUB_REVIEW:-approved}" >.orch/review-verdict
+    echo "\${STUB_REVIEW:-approved}" >"\$(printf '%s\n' "\$prompt" | sed -n 's/^Verdict file: //p' | head -n 1)"
+    ls .orch/reviewer-prompt-* >>"$TMP/prompt-in-wt" 2>/dev/null || true
     echo x >>"$TMP/reviews"
     ;;
   *) touch "$TMP/agent-ran" ;;
@@ -93,6 +94,8 @@ else
 fi
 assert_contains "$out" "done: PR 77" "success message"
 assert_eq "$(wc -l <"$TMP/reviews" | tr -d ' ')" "1" "pr-fix runs the independent review gate (M12)"
+assert_eq "$(cat "$TMP/prompt-in-wt" 2>/dev/null)" "" "reviewer prompt (naming the verdict file) is not in the worktree"
+assert_eq "$(ls "$R/.orch/run"/reviewer-* 2>/dev/null)" "" "reviewer prompt removed after the review"
 
 echo "# pr-fix: two changes_requested reviews block the PR (M12)"
 rm -f "$TMP/reviews"

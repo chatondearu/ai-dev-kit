@@ -59,7 +59,7 @@ Epic table: [templates/epic-breakdown.md](templates/epic-breakdown.md).
    `foam/board/**`, `prd/`, `plans/`, `foam/decisions/`, or other foam that
    does not change product status (`foam/features/**` fail closed). Then
    **orch.sh** `gh pr merge --rebase --match-head-commit` after verify +
-   independent review (`.orch/review-verdict` = `approved`) + checks
+   independent review (nonce verdict file = `approved`) + checks
    green-or-none, under the per-repo merge lock, after fetching the default
    branch (rebase + re-verify when behind; `mergeable=UNKNOWN` refused; a repo
    without rebase merges or a failed merge is an `error`).

@@ -104,6 +104,10 @@ opencode can wake an idle session.
   `text`, optional `ref` (path to `worker-result.json` or a log). Never raw output. Ack is
   the reader's `<agent-id>.cursor`. Written with `cdamux msg send`, read with
   `cdamux msg read [--ack]`.
+- **Delivery superseded by [[ADR-018-message-delivery-wake-line|ADR-018]]** (2026-11-23):
+  no body is typed into any pane; hooks hand bodies over, cdamux types only a
+  `📨 N messages` wake line into an agent whose turn ended. The two bullets below are
+  the original design.
 - **Orchestrator → worker**: `cdamux msg send --to <worker>` pastes into the worker pane
   (`send_to_session`; Claude Code queues input mid-turn) and logs it in the worker inbox.
 - **Worker → orchestrator**: append to the orchestrator inbox, delivered three ways:

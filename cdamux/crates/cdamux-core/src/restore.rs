@@ -3,7 +3,7 @@
 
 use crate::agent_status::load_reported_status;
 use crate::client_name::normalize_client_name;
-use crate::msg::{msg_send, DEFAULT_NUDGE_QUIET_SECS};
+use crate::msg::msg_send;
 use crate::orch::{find_live_global_orchestrator, ORCH_SCOPE_GLOBAL};
 use crate::send::tmux_has_session;
 use crate::session::SessionState;
@@ -447,7 +447,6 @@ pub fn reap_dead_agent_panes(panes: &HashMap<String, SessionPaneInfo>) -> usize 
                 "error",
                 &text,
                 None,
-                DEFAULT_NUDGE_QUIET_SECS,
                 None,
             );
         }

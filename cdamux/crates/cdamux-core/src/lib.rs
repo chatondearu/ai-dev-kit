@@ -140,10 +140,11 @@ pub use restore::{
     restore_targets, resume_command, RestoreError, RestoreOutcome, DEAD_AGENT_PANE_SECS,
 };
 pub use msg::{
-    agent_parent_id, append_message, ask_answered, find_message, delivery_mode_for_role, format_unread_digest, generate_msg_id,
-    has_pending_ask, inbox_badges, msg_send, nudge_text, read_inbox_all, read_messages, reply_to_ask,
-    resolve_agent_id, should_nudge, unread_count, valid_kind, DeliveryMode, Message, MsgError,
-    SendOutcome, DEFAULT_NUDGE_QUIET_SECS, MAX_MSG_BYTES,
+    agent_parent_id, append_message, ask_answered, enable_background_waker, find_message,
+    format_unread_digest, generate_msg_id, has_pending_ask, inbox_badges, msg_send,
+    read_inbox_all, read_messages, reply_to_ask, resolve_agent_id, run_waker, unread_count,
+    valid_kind, wake_once, wake_plan, wake_quiet_secs, wake_text, Delivery, Message, MsgError,
+    SendOutcome, WakePlan, DEFAULT_NUDGE_QUIET_SECS, DEFAULT_WAKE_QUIET_SECS, MAX_MSG_BYTES,
 };
 pub use say::{answer_ask, say, say_drain, AnswerResult, SayOutcome, SayResult};
 pub use sidebar::{

@@ -2,7 +2,7 @@
 
 use cdamux_core::{
     env_lock, list_workers, msg_send, peek_worker, spawn_worker, state_get, state_set, AgentsConfig,
-    AgentEntry, StateKind, WorkerSpawnRequest, DEFAULT_NUDGE_QUIET_SECS,
+    AgentEntry, StateKind, WorkerSpawnRequest, DEFAULT_WAKE_QUIET_SECS,
 };
 use std::process::Command;
 use std::time::{Duration, Instant};
@@ -213,23 +213,21 @@ fn spawn_ls_peek_and_msg_by_name() {
         "peek missing first message: {peek}"
     );
 
-    let pasted = msg_send(
+    let woken = msg_send(
         "a-orch1",
         "api",
         "relay",
         "hello-by-name",
         None,
-        DEFAULT_NUDGE_QUIET_SECS,
-        // Freshly spawned pane: inject a quiet window so the paste is allowed.
-        Some(Some(DEFAULT_NUDGE_QUIET_SECS)),
+        // Freshly spawned pane: inject a quiet window so the wake line is allowed.
+        Some(Some(DEFAULT_WAKE_QUIET_SECS)),
     )
     .unwrap();
-    assert!(pasted.pasted);
-    let pane = wait_for_pane(&out.host, "hello-by-name");
-    assert!(
-        pane.contains("hello-by-name"),
-        "worker pane missing paste: {pane}"
-    );
+    assert_eq!(woken.delivery_word(), "woken");
+    // Only the wake line reaches the pane, never the body (no turn hooks in this stub).
+    let pane = wait_for_pane(&out.host, "📨 1 message — cdamux msg read --ack");
+    assert!(pane.contains("📨 1 message — cdamux msg read --ack"), "worker pane missing wake line: {pane}");
+    assert!(!pane.contains("hello-by-name"), "body typed into the worker pane: {pane}");
 
     let sock = tmux(&["display-message", "-p", "#{socket_path}"]);
     assert!(

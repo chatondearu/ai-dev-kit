@@ -386,7 +386,9 @@ enum StateCommands {
 
 #[derive(Subcommand)]
 enum MsgCommands {
-    /// Append a message to the target inbox (and deliver: paste worker / nudge orch).
+    /// Append a message to the target inbox, then wake the target: a mid-turn agent gets
+    /// it from its `Stop` hook, one at rest only a `📨 N messages` line. Prints
+    /// `<msg-id> woken|scheduled|turn-end|inbox`. See `docs/architecture.md`.
     Send {
         /// Target agent id (`a-xxxxx`) or tmux session / host name.
         #[arg(long)]
@@ -421,6 +423,13 @@ enum MsgCommands {
     #[command(hide = true)]
     Drain {
         /// Orchestrator agent id; no-op unless it reports `idle`.
+        agent: String,
+    },
+    /// Background waker started by `msg send`: types the wake line once the agent at rest
+    /// has a quiet pane (`CDAMUX_WAKE_QUIET_SECS`, default 60 s).
+    #[command(hide = true)]
+    Wake {
+        /// Agent id.
         agent: String,
     },
     /// Print unread inbox lines for an agent; `--ack` advances the cursor.
@@ -507,6 +516,7 @@ fn main() -> ExitCode {
         .init();
 
     let cli = Cli::parse();
+    cdamux_core::enable_background_waker();
 
     if cli.pick {
         return cmd_pick();
@@ -594,6 +604,15 @@ fn main() -> ExitCode {
                 // Fail-open hook path: nothing to report, never a failing exit.
                 let _ = cdamux_core::say_drain(&agent);
                 ExitCode::SUCCESS
+            }
+            MsgCommands::Wake { agent } => {
+                match cdamux_core::run_waker(&agent, cdamux_core::wake_quiet_secs()) {
+                    Ok(()) => ExitCode::SUCCESS,
+                    Err(e) => {
+                        eprintln!("msg wake: {e}");
+                        msg_exit(&e)
+                    }
+                }
             }
             MsgCommands::Read { agent, ack, digest } => {
                 cmd_msg_read(agent.as_deref(), ack, digest)
@@ -1079,22 +1098,14 @@ fn cmd_msg_send(
         Ok(id) => id,
         Err(c) => return c,
     };
-    match msg_send(
-        &from,
-        to,
-        kind,
-        &body,
-        r#ref,
-        DEFAULT_NUDGE_QUIET_SECS,
-        None,
-    ) {
+    match msg_send(&from, to, kind, &body, r#ref, None) {
         Ok(out) => {
             println!("{} {}", out.message.id, out.delivery_word());
             ExitCode::SUCCESS
         }
         Err(e) => {
             eprintln!("msg send: {e}");
-            ExitCode::from(1)
+            msg_exit(&e)
         }
     }
 }

@@ -126,34 +126,50 @@ appends one JSON line to `$CDAMUX_HOME/inbox/<to>.jsonl` (`id`, `ts`, `from`, `t
 `kind`, `text`, optional `ref`). `from` defaults to `$CDAMUX_AGENT_ID`. Target may be
 an agent id, tmux host, or worker `name` (slice 2).
 
-Delivery:
+Delivery ([ADR-018](../../foam/decisions/ADR-018-message-delivery-wake-line.md)), the
+same for workers and orchestrators. A message body is **never typed into a pane**:
 
-- **Worker** (`role=worker`): when its status is `idle`, `done`, `error` or unset (no
-  hooks) and the pane has been quiet ≥ 10 s, also pastes `text` into the worker pane
-  (`send_to_session`) and acks that line when the cursor sat right before it. Otherwise
-  (mid-turn, permission prompt, recent activity) the line stays unread and the status
-  hook's digest delivers it at the next prompt submit or turn end: a paste ends with
-  Enter and would merge with what the user is typing.
-- **Orchestrator / other**: append only; when status is `idle` and the pane has been
-  quiet ≥ 10 s, clears the input line (`C-u`) then types `📨 N messages — cdamux msg
-  read --ack` into the pane (no daemon).
+- **Mid-turn** (agent field `turn: running`, written by the status hook at prompt submit
+  and permission requests): nothing is typed. Claude's `Stop` hook finds the unread
+  lines, acks them (`cdamux msg read --ack`) and blocks the stop with the full bodies as
+  the reason, so the turn goes on with them. Output `turn-end`.
+- **At rest** (`turn: ended`, written at turn end; or, without turn hooks, status `idle`
+  / unset and a pane tail that is not a prompt): once the pane has been quiet for
+  60 s (`CDAMUX_WAKE_QUIET_SECS`), the fixed line `📨 N messages` is typed with Enter,
+  never after `C-u` (a human draft gets the line appended and is submitted with it, never
+  wiped). Claude's `UserPromptSubmit` hook then injects the bodies and acks them. Clients
+  that cannot inject (Cursor, codex, opencode, or no turn hooks) get
+  `📨 N messages — cdamux msg read --ack`. Output `woken`.
+- **At rest, pane not quiet yet**: `msg send` starts a detached `cdamux msg wake <id>`
+  (one per agent; it also polls a mid-turn agent as a backstop for a line that missed
+  the `Stop` hook, stops when the inbox is read, the pane is gone, or after 6 h). Output
+  `scheduled`.
+- **No live pane**, or a sticky `blocked` / `done` / `error` without turn hooks (it may
+  sit on a permission dialog): the line waits in the inbox. Output `inbox`.
 
-Every pane send waits 300 ms between writes (after `C-u`, before `Enter`). Cursor CLI
-reads keys that land in one burst as a paste: `text`+`Enter` becomes a newline (nothing
-submitted) and `C-u`+`text` drops the text.
+`needs_input` is never typed into: with turn hooks it is mid-turn by definition;
+without them the status and the pane heuristic both hold the wake back.
+
+Every pane send waits 300 ms between writes (before `Enter`). Cursor CLI reads keys that
+land in one burst as a paste: `text`+`Enter` becomes a newline (nothing submitted).
 
 Text always reaches the pane as a bracketed paste from a per-call buffer
 (`paste-buffer -p -d`, deleted on failure too), never as `send-keys`; control characters
 other than `\n` / `\t` are stripped so text cannot act as keys (`cdamux send` refuses them).
 
-`msg send` prints the message id and `pasted`, `nudged`, `inbox` (worker line not pasted; no drain), or `queued` (orchestrator `say`, drained on stop).
+`msg send` prints `<msg-id> woken|scheduled|turn-end|inbox`. Message ids are
+`m-` + 6 base36 chars of the second + 5 random ones (collide only within one second, 1 in
+60 M per pair). Text holding control characters other than `\n` / `\t`, or over 2 KB,
+is refused (exit 2).
 
 `cdamux msg read [--agent id] [--ack] [--digest]` prints unread lines after the
 ack cursor; `--ack` advances `inbox/<id>.cursor` to the end of the last complete line
 read (a line still being written stays unread). Each line is appended with a single
 `write(2)`, so concurrent senders do not interleave. `kind=ask` sets the sender
 `blocked`; `kind=done` / `kind=error` set the sender `done` / `error` (a sticky status
-is kept); `kind=answer` clears the recipient to `idle`.
+is kept, except that a blocked agent's own `done` replaces `blocked`; orch.sh reports its
+blocked workers as `error`, which keeps it); `kind=answer` or `kind=relay` to a blocked
+agent lifts it to `idle` and answers its ask (Fleet `?`).
 
 A human talks to an orchestrator with `cdamux say` (prompt pasted when idle, else queued
 until a turn end) and answers a worker's ask with `cdamux msg answer`: see

@@ -9,8 +9,9 @@ function activate(source) {
   const live = readMode();
   const mode = live || (source === 'compact' ? 'off' : DEFAULT_MODE);
   // Routing is not part of the KISS level: "stop kiss" keeps it.
+  // Orchestrator is a dispatcher: ORCH_ROUTING only, never the KISS skill.
   let out = buildRouting();
-  if (mode !== 'off') {
+  if (mode !== 'off' && process.env.CDA_ROLE !== 'orchestrator') {
     setMode(mode);
     out = [out, getInstructions(mode)].filter(Boolean).join('\n\n');
     if (process.env.KISS_MAP !== '0') {

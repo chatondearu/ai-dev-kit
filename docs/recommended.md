@@ -25,7 +25,7 @@ first of `agent`, `cursor-agent`, `claude`, `opencode` on `PATH` (override with
 | OpenCode (`opencode`) | Alternative coding CLI |
 | Codex (`codex`) | Runs as `codex exec`; picked when it launched the run or via `ORCH_AGENT*` |
 | `gh`, `git` | Required for Kanban / CI modes of `orch.sh` |
-| `flock`, `jq` | Required for `orch-auto.sh` (Ready poller) |
+| `jq` (and optional `flock`) | Required for `orch-auto.sh` (Ready poller); without `flock` it falls back to a mkdir lock |
 
 Optional: `bwrap` for `--sandbox`, `llama-swap` for local models (point
 `ORCH_AGENT` at a harness that talks to your local endpoint).

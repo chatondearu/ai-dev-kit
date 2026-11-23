@@ -110,7 +110,7 @@ On `blocked`, `reason` is a short English sentence; `pr_url` may be null.
 ## Exit criteria
 
 A worker is **done** only when its PR is open, the **independent review**
-wrote `approved` to its nonce verdict file, **and** `gh pr checks` reports green
+wrote `approved` to its verdict file, **and** `gh pr checks` reports green
 (or the run is **blocked** with a documented reason). Then **merge only** if
 every path in the GitHub PR diff **and** the worktree merge-base…HEAD diff is
 the ADR-016 allowlist (`foam/board/**`, `prd/`, `plans/`, `foam/decisions/`,
@@ -120,8 +120,8 @@ rebases + re-runs verify + pushes the feature branch (lease on the old head)
 when it is behind, refuses `mergeable=UNKNOWN`, and runs
 `gh pr merge --rebase --match-head-commit <verified HEAD>`. A repo without
 rebase merges or any failed step is an `error`, not `done`. Merges by hand go
-through `scripts/merge-lock.sh --repo <repo> -- gh pr merge <N> --rebase` (same
-lock). Otherwise leave the PR open for the maintainer. Never force-push to the default branch.
+through `scripts/merge-lock.sh --repo <repo> merge <N>` (same lock, fetch,
+behind → refused, `--rebase --match-head-commit`). Otherwise leave the PR open for the maintainer. Never force-push to the default branch.
 
 In cdamux state (ADR-011 §3), `orch.sh` reports a wait (held by a dependency, no verify
 command, tier ceiling, no CI checks, not mergeable) as `blocked` and a failure (worktree,
@@ -137,10 +137,11 @@ agent loop, review fix, missing PR, red CI, no worker status) as `error`.
 3. **PR must exist** on the branch, else `blocked`.
 4. **Independent review gate** (also run by `pr-fix`): `prompts/reviewer.md`
    rendered into a fresh prompt and run in a fresh agent call at the reviewer
-   tier (default `large`). The verdict is read only from a nonce file the
-   prompt names (`.orch/review-verdict-<nonce>`; the prompt itself lives outside
-   the worktree and goes to the agent on stdin), `approved` or
-   `changes_requested`; missing = changes_requested; never from stdout.
+   tier (default `large`). Prompt and verdict live in a `mktemp -d` dir outside
+   the worktree and `.orch/` (path passed through the environment, hidden from
+   the agent's own environment, removed after). The verdict is read only from
+   that file, `approved` or `changes_requested`; missing = changes_requested;
+   never from stdout.
    `changes_requested` → **one** fix iteration whose prompt carries the findings
    (`.orch/worker-prompt-review-fix.md`) → one re-review → still
    `changes_requested` → `blocked`, reason `review: changes_requested`.

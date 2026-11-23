@@ -209,9 +209,12 @@ right before you say it:
    repo disallows rebase merges, say so instead of offering another method.
 5. One merge at a time per repo: after the maintainer merges one PR, re-check
    2–3 for every other PR of that repo before calling it ready. A merge by hand
-   takes the same lock orch.sh holds for its own merges:
-   `bash "$CDA_DEV/scripts/merge-lock.sh" --repo <repo> -- gh pr merge <N> --rebase`
-   (exit 75 = lock still held; wait, then re-check 2–3).
+   goes through `bash "$CDA_DEV/scripts/merge-lock.sh" --repo <repo> merge <N>`:
+   under the lock orch.sh holds for its own merges it fetches, refuses a PR
+   behind `origin/<base>` (the worker rebases, re-runs verify, pushes), refuses
+   repos without rebase merges and non-`MERGEABLE` PRs, then runs
+   `gh pr merge --rebase --match-head-commit <fetched head>`. Exit 75 = lock
+   still held: wait, then retry.
 
 **From an `orch.sh` worker**: its PR already passed verify, the review gate and
 CI. If orch.sh already merged it (ADR-016 allowlist), report merged. A merge

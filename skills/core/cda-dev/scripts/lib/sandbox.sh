@@ -37,5 +37,9 @@ orch_sandbox_wrap() {
     args+=(--ro-bind "$tiers" "$tiers")
   fi
   args+=(--dev /dev --proc /proc --tmpfs /tmp)
+  # The review dir (mktemp, often under /tmp) is bound after the /tmp tmpfs.
+  if [ -n "${ORCH_REVIEW_DIR:-}" ] && [ -d "$ORCH_REVIEW_DIR" ]; then
+    args+=(--bind "$ORCH_REVIEW_DIR" "$ORCH_REVIEW_DIR")
+  fi
   bwrap "${args[@]}" "$@"
 }

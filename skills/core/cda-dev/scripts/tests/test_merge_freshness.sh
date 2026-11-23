@@ -53,9 +53,11 @@ sibling_push() { # file content
 cat >"$STUB/gh" <<EOF
 #!/usr/bin/env bash
 echo "\$*" >>"$STUB/gh.log"
+echo "[\${GH_REPO:-}] \$(pwd -P)" >>"$STUB/gh.env"
 case "\$*" in
   *rebaseMergeAllowed*) echo true ;;
   *"pr checks"*) echo '[{"name":"ci","state":"SUCCESS","bucket":"pass"}]' ;;
+  *"pr view"*baseRefName*) echo develop ;;
   *"pr view"*headRefName*) cat "$STUB/pr-\$3" 2>/dev/null | sed "s|.*|\${GH_STUB_HEAD:-&}|" ;;
   *"pr view"*) echo '{"mergeable":"MERGEABLE","state":"OPEN"}' ;;
   *"pr merge"*)
@@ -251,16 +253,45 @@ set -e
 assert_eq "$rc" "1" "head mismatch refuses the merge"
 assert_contains "$ORCH_MERGE_ERROR" "PR head is 'someone-else', not feat/d" "head mismatch reason"
 
+echo "# merge-lock.sh merge: fresh PR merged with --rebase pinned to the fetched head"
+WT_M="$(new_branch 9 feat/m m.txt)"
+echo feat/m >"$STUB/pr-509"
+: >"$STUB/gh.log"
+set +e
+(cd /tmp && bash "$TROOT/../merge-lock.sh" --repo "$R" merge 509 2>/dev/null)
+rc=$?
+set -e
+assert_eq "$rc" "0" "merge-lock.sh merge: fresh PR merged"
+assert_contains "$(cat "$STUB/gh.log")" "pr merge 509 --rebase --match-head-commit $(git -C "$WT_M" rev-parse HEAD)" "manual merge pinned to the fetched head"
+
+echo "# merge-lock.sh merge: behind PR refused, no merge"
+WT_N="$(new_branch 10 feat/n n.txt)"
+echo feat/n >"$STUB/pr-510"
+sibling_push n2.txt n2
+: >"$STUB/gh.log"
+set +e
+out_n="$(bash "$TROOT/../merge-lock.sh" --repo "$R" merge 510 2>&1)"
+rc=$?
+set -e
+assert_eq "$rc" "1" "behind PR refused"
+assert_contains "$out_n" "behind origin/develop" "behind reason"
+grep -q "pr merge" "$STUB/gh.log" && { FAILS=$((FAILS + 1)); echo "FAIL merged a behind PR" >&2; } || PASSES=$((PASSES + 1))
+
+echo "# merge-lock.sh -- CMD runs in --repo"
+assert_eq "$(cd /tmp && bash "$TROOT/../merge-lock.sh" --repo "$WT_N" -- pwd -P)" "$(cd "$R" && pwd -P)" "command runs in the repo root"
+
 echo "# callable standalone (W5 foam-board reconcile): no ORCH_REPO, no ORCH_DEFAULT_BRANCH"
 WT_H="$(new_branch 8 feat/h h.txt)"
 echo feat/h >"$STUB/pr-508"
 set +e
-env -u ORCH_REPO -u ORCH_DEFAULT_BRANCH -u ORCH_BASE ORCH_VERIFY=true bash -c '
+rm -f "$STUB/gh.env"
+env -u ORCH_REPO -u ORCH_DEFAULT_BRANCH -u ORCH_BASE GH_REPO=elsewhere/repo ORCH_VERIFY=true bash -c '
   for l in worktree lock verify ci meta; do source "$1/lib/$l.sh"; done
   orch_merge_pr 508 "$2" feat/h' _ "$TROOT/.." "$WT_H" 2>"$TMP/sa.err"
 rc=$?
 set -e
 assert_eq "$rc" "0" "orch_merge_pr works from a fresh shell sourcing the libs"
+assert_eq "$(sort -u "$STUB/gh.env")" "[] $(cd "$WT_H" && pwd -P)" "every gh call runs in the worktree, inherited GH_REPO ignored"
 git -C "$R" fetch -q origin develop
 git -C "$R" cat-file -e origin/develop:h.txt && PASSES=$((PASSES + 1)) \
   || { FAILS=$((FAILS + 1)); echo "FAIL standalone merge did not land: $(cat "$TMP/sa.err")" >&2; }

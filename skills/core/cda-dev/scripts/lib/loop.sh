@@ -82,15 +82,18 @@ orch_loop_worker() { orch_graph_worker "$@"; }
 
 # Independent review gate (ADR-006): run an already rendered reviewer.md prompt in a
 # fresh agent call at the reviewer tier (default large, never the worker's escalated
-# tier), log to RLOG. The verdict is read only from VERDICT_FILE (`approved` |
-# `changes_requested`; a nonce path named in the prompt), never from stdout, where the
-# reviewed diff itself can print a verdict line (M14). No file, or a reviewer that
-# exited non-zero (M11), → 1 (fail closed).
+# tier), log to RLOG. Prompt and verdict live in ORCH_REVIEW_DIR (prompt.md, verdict:
+# a mktemp dir outside the worktree, passed through the environment and hidden from
+# the agent's own environment). The verdict (`approved` | `changes_requested`) is read
+# only from that file, never from stdout, where the reviewed diff itself can print a
+# verdict line (M14). No file, or a reviewer that exited non-zero (M11), → 1.
 orch_review_run() {
-  local wt="$1" rprompt="$2" rlog="$3" vfile="${4:-}" verdict rc
-  [ -n "$vfile" ] || { printf 'orch review: no verdict file given; failing closed\n' >&2; return 1; }
+  local wt="$1" rlog="$2" dir="${ORCH_REVIEW_DIR:-}" vfile verdict rc
+  [ -n "$dir" ] && [ -f "$dir/prompt.md" ] \
+    || { printf 'orch review: no review dir (ORCH_REVIEW_DIR); failing closed\n' >&2; return 1; }
+  vfile="$dir/verdict"
   rm -f "$vfile" 2>/dev/null || true
-  ORCH_TIER= ORCH_ROLE=reviewer orch_agent_run "$wt" "$rprompt" 2>&1 | tee "$rlog" >&2
+  ORCH_REVIEW_DIR= ORCH_TIER= ORCH_ROLE=reviewer orch_agent_run "$wt" "$dir/prompt.md" 2>&1 | tee "$rlog" >&2
   rc="${PIPESTATUS[0]}"
   if [ "$rc" -ne 0 ]; then
     printf 'orch review: reviewer exited %s; treating as changes_requested\n' "$rc" >&2
@@ -100,7 +103,7 @@ orch_review_run() {
   case "$verdict" in
     approved) return 0 ;;
     changes_requested) return 1 ;;
-    *) printf 'orch review: no verdict in %s; treating as changes_requested\n' "$vfile" >&2; return 1 ;;
+    *) printf 'orch review: no verdict written; treating as changes_requested\n' >&2; return 1 ;;
   esac
 }
 

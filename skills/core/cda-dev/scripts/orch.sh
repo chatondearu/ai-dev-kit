@@ -234,27 +234,29 @@ orch_review_gate() {
   local path="$1" worker_prompt="$2" worker_env="$3"
   shift 3
   local round review_prompt review_log fix_prompt loop_rc label="${ORCH_WORKER_ID:-review}" def
-  local nonce verdict review_rc
+  local review_dir review_rc
   def="$(orch_base_branch_name)"
   ORCH_REVIEW_FAIL=""
   for round in 1 2; do
     if [ -n "${ORCH_WORKER_BRANCH:-}" ] && [ "$(orch_pr_state "$ORCH_WORKER_BRANCH")" = "MERGED" ]; then
       return 2
     fi
-    # Code under review runs in the worktree: it must not find the verdict file name.
-    # The name carries a fresh nonce and the prompt naming it lives outside the
-    # worktree (handed to the agent on stdin), removed once the review is read.
-    nonce="$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')"
-    verdict="$path/.orch/review-verdict-$nonce"
-    review_prompt="$ORCH_REPO/.orch/run/reviewer-${label}-${round}.md"
+    # Code under review runs in the worktree: it must not find or guess the verdict
+    # file. Prompt and verdict live in a fresh mktemp dir outside the worktree and
+    # outside .orch; its path reaches orch_review_run through the environment (never
+    # argv) and is removed once the review is read.
+    review_dir="$(mktemp -d "${TMPDIR:-/tmp}/orch-review.XXXXXXXX")" || {
+      ORCH_REVIEW_FAIL="review: cannot create a review dir"
+      return 1
+    }
     review_log="$path/.orch/review-${round}.log"
-    orch_render_prompt "$ORCH_ROOT/../prompts/reviewer.md" "$review_prompt" \
-      "WORKTREE=$path" "REPO_ROOT=$ORCH_REPO" "DEFAULT_BRANCH=$def" "VERDICT_FILE=$verdict" "$@"
-    chmod 600 "$review_prompt"
+    orch_render_prompt "$ORCH_ROOT/../prompts/reviewer.md" "$review_dir/prompt.md" \
+      "WORKTREE=$path" "REPO_ROOT=$ORCH_REPO" "DEFAULT_BRANCH=$def" "VERDICT_FILE=$review_dir/verdict" "$@"
     [ -z "${ORCH_WORKER_ID:-}" ] || orch_progress_set "$label" review "reviewer round ${round}${ORCH_REVIEW_PR:+ (PR #$ORCH_REVIEW_PR)}"
     review_rc=0
-    orch_sandbox_wrap bash -c "$worker_env orch_review_run \"$path\" \"$review_prompt\" \"$review_log\" \"$verdict\"" || review_rc=$?
-    rm -f "$review_prompt" "$verdict"
+    ORCH_REVIEW_DIR="$review_dir" orch_sandbox_wrap bash -c "$worker_env orch_review_run \"$path\" \"$review_log\"" \
+      || review_rc=$?
+    rm -rf "$review_dir"
     [ "$review_rc" -ne 0 ] || return 0
     if [ "$round" -eq 2 ]; then
       ORCH_REVIEW_FAIL="review: changes_requested (see $review_log)"

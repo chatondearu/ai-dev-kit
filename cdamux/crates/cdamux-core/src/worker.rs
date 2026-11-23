@@ -315,6 +315,20 @@ pub fn peek_worker(caller_id: &str, key: &str, lines: i32) -> Result<String, Wor
     capture_pane_text(host, lines.max(1), false).map_err(|e| WorkerError::Other(e.to_string()))
 }
 
+/// After a failed spawn: the session named `host` is ours when it carries no
+/// `@cdamux_id` yet (it failed before the options were set) or the id of the worker
+/// record this spawn wrote (`name` under `caller`). Unknown (tmux error) → not ours.
+fn spawn_session_is_ours(host: &str, caller: &str, name: &str) -> bool {
+    match crate::tmux::session_owner(host) {
+        Ok(Some(o)) if o.is_empty() => true,
+        Ok(Some(o)) => state_get(StateKind::Agents, &o).ok().flatten().is_some_and(|v| {
+            v.get("parent").and_then(Value::as_str) == Some(caller)
+                && v.get("name").and_then(Value::as_str) == Some(name)
+        }),
+        _ => false,
+    }
+}
+
 /// One agent removed by [`kill_worker`].
 #[derive(Debug, Clone)]
 pub struct KilledAgent {
@@ -394,7 +408,9 @@ pub fn kill_worker(
         let host = state_get(StateKind::Agents, &t)?
             .and_then(|v| v.get("host")?.as_str().map(str::to_string))
             .unwrap_or_default();
-        let report = crate::state_finalize::kill_agent_permanent(&t)?;
+        let (report, killed) = crate::state_finalize::kill_agent_permanent(&t)?;
+        // A spared session (another agent's, or tmux could not say) is not "killed".
+        let host = if killed { host } else { String::new() };
         out.push(KilledAgent { id: t, host, report });
     }
     Ok(out)
@@ -708,7 +724,7 @@ pub fn spawn_worker(req: WorkerSpawnRequest<'_>) -> Result<WorkerSpawnResult, Wo
             // M10: a session created before the failure (send-keys, split) goes first,
             // so no pane keeps the worktree open; then no orphan worktree + branch, so
             // the same name can be retried.
-            if crate::send::tmux_has_session(&host).unwrap_or(false) {
+            if spawn_session_is_ours(&host, req.caller_id, &name) {
                 let _ = Command::new("tmux")
                     .args(["kill-session", "-t", &format!("={host}")])
                     .status();

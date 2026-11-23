@@ -182,7 +182,8 @@ fn home_propagation_cap_and_permanent_kill() {
     // A human must opt in to kill an orchestrator record.
     assert!(kill_worker(None, "a-yi5om", false, false).is_err());
     assert!(has_session("c-global"));
-    kill_worker(None, "a-yi5om", false, true).unwrap();
+    let k = kill_worker(None, "a-yi5om", false, true).unwrap();
+    assert_eq!(k[0].host, "", "session not killed: no host reported");
     assert!(has_session("c-global"), "the live orchestrator's session must survive");
     let ghost = state_get(StateKind::Agents, "a-yi5om").unwrap().unwrap();
     assert_eq!((ghost["status"].as_str(), ghost["host"].as_str()), (Some("error"), Some("")));

@@ -279,6 +279,23 @@ pub(crate) fn pane_target(session_name: &str) -> String {
     format!("={session_name}:")
 }
 
+/// `@cdamux_id` of `session`: `Ok(None)` when no such session runs, `Ok(Some(""))`
+/// when it runs without an id, `Err(())` when tmux could not answer. Killers must
+/// abstain on `Err`, never read it as "no owner".
+pub fn session_owner(session: &str) -> Result<Option<String>, ()> {
+    if !crate::send::tmux_has_session(session).map_err(|_| ())? {
+        return Ok(None);
+    }
+    let out = Command::new("tmux")
+        .args(["display-message", "-p", "-t", &pane_target(session), "#{@cdamux_id}"])
+        .output()
+        .map_err(|_| ())?;
+    if !out.status.success() {
+        return Err(());
+    }
+    Ok(Some(String::from_utf8_lossy(&out.stdout).trim().to_string()))
+}
+
 /// Read a tmux user option (e.g. `@cdamux_state`) for a session.
 pub fn tmux_user_option(session_name: &str, option: &str) -> Option<String> {
     let format = user_option_display_format(option);

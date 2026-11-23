@@ -84,6 +84,9 @@ pub struct BoardCard {
     pub github_issue: Option<u64>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub blocked_by: Vec<String>,
+    /// Frontmatter `updated` (YYYY-MM-DD): a PR merged before it is not this card's.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub updated: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -105,6 +108,9 @@ pub struct BoardDrift {
 struct MergedPr {
     number: u32,
     head: String,
+    /// `mergedAt` day (YYYY-MM-DD).
+    merged: String,
+    /// Issues it closes in this repository only.
     closes: Vec<u64>,
 }
 
@@ -210,9 +216,10 @@ fn scan_project(project: &Project, remotes: &[String], opts: &RefreshOptions) ->
     row
 }
 
-/// Same rule as `foam-board.sh reconcile`: an in-progress|in-review card whose PR is merged.
-/// A card's PR: head `feat/<id>-issue-<id>` (id = github_issue, else slug), or a PR that
-/// closes its github_issue.
+/// Same rule as `foam-board.sh reconcile`: an in-progress|in-review card with a PR merged
+/// into the default branch (`merged` holds only those) on or after its `updated` day,
+/// whose head is `feat/<id>-issue-<id>` (id = github_issue, else slug) or which closes
+/// its github_issue in this repository.
 fn board_drift(cards: &[BoardCard], merged: &[MergedPr]) -> Vec<BoardDrift> {
     cards
         .iter()
@@ -221,7 +228,8 @@ fn board_drift(cards: &[BoardCard], merged: &[MergedPr]) -> Vec<BoardDrift> {
             let id = c.github_issue.map_or_else(|| c.slug.clone(), |n| n.to_string());
             let branch = format!("feat/{id}-issue-{id}");
             let pr = merged.iter().find(|p| {
-                p.head == branch || c.github_issue.is_some_and(|n| p.closes.contains(&n))
+                p.merged.as_str() >= c.updated.as_str()
+                    && (p.head == branch || c.github_issue.is_some_and(|n| p.closes.contains(&n)))
             })?;
             Some(BoardDrift {
                 slug: c.slug.clone(),
@@ -303,6 +311,7 @@ fn parse_card_file(path: &Path) -> Option<BoardCard> {
         priority: parsed.priority,
         github_issue: parsed.github_issue,
         blocked_by: parsed.blocked_by,
+        updated: parsed.updated,
     })
 }
 
@@ -312,6 +321,7 @@ struct Frontmatter {
     priority: String,
     github_issue: Option<u64>,
     blocked_by: Vec<String>,
+    updated: String,
 }
 
 fn parse_frontmatter(raw: &str) -> Option<Frontmatter> {
@@ -366,13 +376,13 @@ fn parse_frontmatter(raw: &str) -> Option<Frontmatter> {
     let status = status.filter(|s| is_status(s))?;
     let priority = priority.filter(|p| is_priority(p))?;
     let updated = updated.filter(|u| is_updated(u))?;
-    let _ = updated;
     Some(Frontmatter {
         title,
         status,
         priority,
         github_issue,
         blocked_by,
+        updated,
     })
 }
 
@@ -462,19 +472,34 @@ fn parse_open_prs(json: &str) -> Vec<OpenPr> {
     out
 }
 
-fn parse_merged_prs(json: &str) -> Vec<MergedPr> {
+/// PRs merged into `default` (base filter) from `gh pr list` JSON; closing issues kept
+/// only when they live in `slug` (owner/name, case-insensitive).
+fn parse_merged_prs(json: &str, default: &str, slug: &str) -> Vec<MergedPr> {
     let Ok(serde_json::Value::Array(arr)) = serde_json::from_str::<serde_json::Value>(json) else {
         return Vec::new();
     };
+    let same_repo = |i: &serde_json::Value| {
+        let r = i.get("repository");
+        let owner = r.and_then(|r| r.pointer("/owner/login")).and_then(|v| v.as_str());
+        let name = r.and_then(|r| r.get("name")).and_then(|v| v.as_str());
+        matches!((owner, name), (Some(o), Some(n)) if format!("{o}/{n}").eq_ignore_ascii_case(slug))
+    };
     arr.iter()
+        .filter(|pr| pr.get("baseRefName").and_then(|b| b.as_str()) == Some(default))
         .filter_map(|pr| {
             Some(MergedPr {
                 number: u32::try_from(pr.get("number")?.as_u64()?).ok()?,
                 head: pr.get("headRefName")?.as_str()?.to_string(),
+                merged: pr.get("mergedAt")?.as_str()?.get(..10)?.to_string(),
                 closes: pr
                     .get("closingIssuesReferences")
                     .and_then(|v| v.as_array())
-                    .map(|a| a.iter().filter_map(|i| i.get("number")?.as_u64()).collect())
+                    .map(|a| {
+                        a.iter()
+                            .filter(|i| same_repo(i))
+                            .filter_map(|i| i.get("number")?.as_u64())
+                            .collect()
+                    })
                     .unwrap_or_default(),
             })
         })
@@ -553,27 +578,48 @@ fn gh_open_prs(repo: &Path) -> Vec<OpenPr> {
     parse_open_prs(&String::from_utf8_lossy(&out.stdout))
 }
 
-/// Best-effort; a failure means no drift is reported (never a write).
-fn gh_merged_prs(repo: &Path) -> Vec<MergedPr> {
+fn gh_json(repo: &Path, args: &[&str]) -> Option<String> {
     let out = Command::new("gh")
         .current_dir(repo)
-        .args([
-            "pr",
-            "list",
-            "--state",
-            "merged",
-            "--limit",
-            "200",
-            "--json",
-            "number,headRefName,closingIssuesReferences",
-        ])
+        .args(args)
         .env("GH_PROMPT_DISABLED", "1")
         .stdin(Stdio::null())
-        .output();
-    match out {
-        Ok(o) if o.status.success() => parse_merged_prs(&String::from_utf8_lossy(&o.stdout)),
-        _ => Vec::new(),
-    }
+        .output()
+        .ok()?;
+    out.status
+        .success()
+        .then(|| String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+/// Best-effort; a failure means no drift is reported (never a write).
+fn gh_merged_prs(repo: &Path) -> Vec<MergedPr> {
+    let Some(meta) = gh_json(repo, &["repo", "view", "--json", "nameWithOwner,defaultBranchRef"]) else {
+        return Vec::new();
+    };
+    let Ok(meta) = serde_json::from_str::<serde_json::Value>(&meta) else {
+        return Vec::new();
+    };
+    let (Some(slug), Some(default)) = (
+        meta.get("nameWithOwner").and_then(|v| v.as_str()),
+        meta.pointer("/defaultBranchRef/name").and_then(|v| v.as_str()),
+    ) else {
+        return Vec::new();
+    };
+    let args = [
+        "pr",
+        "list",
+        "--state",
+        "merged",
+        "--base",
+        default,
+        "--limit",
+        "200",
+        "--json",
+        "number,headRefName,baseRefName,mergedAt,closingIssuesReferences",
+    ];
+    gh_json(repo, &args)
+        .map(|j| parse_merged_prs(&j, default, slug))
+        .unwrap_or_default()
 }
 
 fn now_secs() -> u64 {
@@ -653,18 +699,28 @@ mod tests {
             priority: "P1".into(),
             github_issue: gi,
             blocked_by: Vec::new(),
+            updated: "2026-11-10".into(),
         };
         let merged = parse_merged_prs(
-            r#"[{"number":7,"headRefName":"worker/r/x","closingIssuesReferences":[{"number":50}]},
-                {"number":8,"headRefName":"feat/foam-only-issue-foam-only","closingIssuesReferences":[]},
-                {"number":9,"headRefName":"feat/77-issue-77"},
+            r#"[{"number":7,"headRefName":"worker/r/x","baseRefName":"main","mergedAt":"2026-11-12T10:00:00Z",
+                 "closingIssuesReferences":[{"number":50,"repository":{"name":"r","owner":{"login":"O"}}}]},
+                {"number":8,"headRefName":"feat/foam-only-issue-foam-only","baseRefName":"main","mergedAt":"2026-11-10T09:00:00Z","closingIssuesReferences":[]},
+                {"number":9,"headRefName":"feat/77-issue-77","baseRefName":"main","mergedAt":"2026-11-12T10:00:00Z"},
+                {"number":10,"headRefName":"worker/r/y","baseRefName":"main","mergedAt":"2026-11-12T10:00:00Z",
+                 "closingIssuesReferences":[{"number":60,"repository":{"name":"repo","owner":{"login":"other"}}}]},
+                {"number":11,"headRefName":"feat/61-issue-61","baseRefName":"main","mergedAt":"2026-11-01T10:00:00Z"},
+                {"number":12,"headRefName":"feat/62-issue-62","baseRefName":"release","mergedAt":"2026-11-12T10:00:00Z"},
                 {"oops":1}]"#,
+            "main",
+            "o/r",
         );
-        assert_eq!(merged.len(), 3);
+        assert_eq!(merged.len(), 5, "release base and junk dropped");
         let cards = vec![
             card("50-closed", "in-review", Some(50)),
             card("foam-only", "in-progress", None),
-            card("60-open", "in-review", Some(60)),
+            card("60-other-repo", "in-review", Some(60)),
+            card("61-old-pr", "in-progress", Some(61)),
+            card("62-release", "in-review", Some(62)),
             card("77-ready", "ready", Some(77)),
             card("78-done", "done", Some(78)),
         ];
@@ -676,7 +732,7 @@ mod tests {
             got,
             vec![("50-closed".to_string(), 7), ("foam-only".to_string(), 8)]
         );
-        assert!(parse_merged_prs("not json").is_empty());
+        assert!(parse_merged_prs("not json", "main", "o/r").is_empty());
     }
 
     #[test]

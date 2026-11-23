@@ -119,8 +119,8 @@ frees a slot for good (never respawned by `restore`). Spawn also refuses below
 it is about to create (default 40, `0` = off), and when `df` cannot be read.
 `cdamux worker clean [--dry-run] [--root DIR]` deletes `[worktrees].disposable` build
 dirs (default `target`, `node_modules`, `.nuxt`, `.output`; git-ignored only) in
-worktrees an agent of the cdamux registry ran in (its `cwd`/`repo`; never a hand-made
-worktree) whose PR is merged or closed, or whose session is gone and own
+worktrees cdamux or orch.sh created (a `cdamux-managed` marker in the worktree's git
+dir, or a registry agent's `cwd`; never a hand-made worktree) whose PR is merged or closed, or whose session is gone and own
 commits are in the default branch — never with an open PR, a live unfinished session,
 or when tmux cannot be listed; each spawn also runs it in the background (one pass at a
 time, log `$CDAMUX_HOME/logs/worker-clean.log`, ADR-017). Small hosts: set

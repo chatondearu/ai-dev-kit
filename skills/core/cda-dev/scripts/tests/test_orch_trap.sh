@@ -97,6 +97,32 @@ else
   PASSES=$((PASSES + 1)); printf 'ok   run lock released\n'
 fi
 
+echo "# SIGTERM mid ready-pickup: the open worker is error in the registry (B5)"
+export ORCH_RUN_ID="trap-rp-1"
+mkdir -p "$R/plans"
+printf '# PLAN-30\n' >"$R/plans/PLAN-30-trap.md"
+git -C "$R" add plans && git -C "$R" commit -qm plan
+rm -f "$TMP/agent-started"
+set -m
+ORCH_FRONTIER=0 bash "$SCRIPTS/orch.sh" --repo "$R" --mode ready-pickup --issue 30 \
+  --agent "$STUB_BIN/$MARK" >"$TMP/rp.log" 2>&1 &
+orch_pid=$!
+set +m
+for _ in $(seq 100); do [ -f "$TMP/agent-started" ] && break; sleep 0.1; done
+assert_file "$TMP/agent-started" "ready-pickup agent started"
+kill -TERM -- "-$orch_pid"
+for _ in $(seq 100); do kill -0 "$orch_pid" 2>/dev/null || break; sleep 0.1; done
+wait "$orch_pid" 2>/dev/null || true
+orch_pid=""
+aid="$(cat "$R/.orch/run/30.agent_id" 2>/dev/null || true)"
+assert_eq "$(jq -r .status "$CDAMUX_HOME/agents/${aid}.json" 2>/dev/null)" "error" "in-flight worker agent marked error"
+assert_contains "$(cat "$R/.orch/run/30.status")" "run interrupted by SIGTERM" "board status names the interruption"
+assert_eq "$(jq -r .status "$CDAMUX_HOME/runs/trap-rp-1.json")" "blocked" "ready-pickup run blocked"
+gd="$(git -C "$(orch_worktree_path "$R" 30 issue-30)" rev-parse --absolute-git-dir)"
+assert_file "$gd/cdamux-managed" "orch worktree carries the managed marker"
+gd="$(git -C "$(orch_worktree_path "$R" pr-77 fix)" rev-parse --absolute-git-dir)"
+assert_file "$gd/cdamux-managed" "pr-fix worktree carries the managed marker"
+
 echo "# crash (set -e) after the lock"
 export ORCH_RUN_ID="trap-crash-1"
 git -C "$R" worktree remove --force "$(orch_worktree_path "$R" pr-77 fix)" 2>/dev/null || true

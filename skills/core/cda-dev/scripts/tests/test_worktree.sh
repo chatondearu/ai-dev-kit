@@ -36,6 +36,23 @@ else
 fi
 ORCH_COPY_ENV=1 orch_worktree_bootstrap "$TMP" "$TMP/.orch/worktrees/42-auth-fix"
 assert_file "$TMP/.orch/worktrees/42-auth-fix/.env" "env copied with ORCH_COPY_ENV=1"
+gd="$(git -C "$TMP/.orch/worktrees/42-auth-fix" rev-parse --absolute-git-dir)"
+assert_file "$gd/cdamux-managed" "bootstrap marks the worktree as orch-created (worker clean)"
+assert_eq "$(git -C "$TMP/.orch/worktrees/42-auth-fix" status --porcelain -- . ':!.env')" "" "marker invisible to git status"
+orch_worktree_mark "$TMP"
+assert_eq "$([ -e "$TMP/.git/cdamux-managed" ] && echo marked || echo no)" "no" "main checkout never marked"
+
+# orch_free_build_dirs adopts pre-existing worktrees under .orch/worktrees, then cleans.
+rm -f "$gd/cdamux-managed"
+CBIN="$(mktemp -d)"
+printf '#!/bin/sh
+echo "$*" >>"%s/cdamux.log"
+' "$CBIN" >"$CBIN/cdamux"
+chmod +x "$CBIN/cdamux"
+PATH="$CBIN:$PATH" orch_free_build_dirs "$TMP"
+assert_file "$gd/cdamux-managed" "free_build_dirs adopts an unmarked orch worktree"
+assert_eq "$(cat "$CBIN/cdamux.log")" "worker clean --root $TMP/.orch/worktrees" "free_build_dirs runs worker clean on .orch/worktrees"
+rm -rf "$CBIN"
 
 # Reuse existing worktree on retry
 set +e

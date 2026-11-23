@@ -695,6 +695,8 @@ pub fn spawn_worker(req: WorkerSpawnRequest<'_>) -> Result<WorkerSpawnResult, Wo
             }
             return Err(e.into());
         }
+        // `worker clean` candidate even after this agent's state is GC'd (ADR-017).
+        let _ = crate::worktree_clean::mark_managed(&dest);
         (dest.clone(), Some((repo, dest, branch)))
     };
 

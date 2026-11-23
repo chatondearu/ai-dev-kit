@@ -42,9 +42,21 @@ orch_disk_guard() {
 # Free build dirs of finished orch worktrees (PR merged/closed) via `cdamux worker clean`.
 # No-op without cdamux on PATH; never fails the run (ADR-017).
 orch_free_build_dirs() {
-  local root="$1/.orch/worktrees"
+  local root="$1/.orch/worktrees" wt
   [ -d "$root" ] && command -v cdamux >/dev/null 2>&1 || return 0
+  # Only orch.sh creates worktrees here: adopt ones made before the marker existed.
+  for wt in "$root"/*; do orch_worktree_mark "$wt"; done
   cdamux worker clean --root "$root" || true
+}
+
+# Mark linked worktree $1 as orch-created: `cdamux worker clean` only frees build dirs
+# of marked or registry-known worktrees (ADR-017). The marker lives in the worktree's
+# own git dir, so it never shows in `git status` and goes away with the worktree.
+orch_worktree_mark() {
+  local d
+  [ -f "$1/.git" ] || return 0
+  d="$(git -C "$1" rev-parse --absolute-git-dir 2>/dev/null)" && [ -d "$d" ] || return 0
+  : >"$d/cdamux-managed" 2>/dev/null || true
 }
 
 # Default branch of DIR's origin (main, dev, develop…), never assumed (Q4):
@@ -133,6 +145,7 @@ orch_worktree_add() {
 
 orch_worktree_bootstrap() {
   local repo="$1" wt="$2"
+  orch_worktree_mark "$wt"
   # Secrets: copy only when explicitly requested (ORCH_COPY_ENV=1).
   if [ "${ORCH_COPY_ENV:-0}" = "1" ] && [ -f "$repo/.env" ] && [ ! -e "$wt/.env" ]; then
     cp "$repo/.env" "$wt/.env"

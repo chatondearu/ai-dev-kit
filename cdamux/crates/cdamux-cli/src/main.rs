@@ -1050,8 +1050,13 @@ fn cmd_worker_clean(dry_run: bool, roots: Vec<PathBuf>) -> ExitCode {
             ))
         })
         .collect();
-    // Only worktrees an agent of the registry ran in (Q13): never branch-name guesses.
-    let registry = cdamux_core::registry_paths(agents.iter());
+    // Marked worktrees, or ones a registry agent ran in (Q13): never branch-name guesses.
+    let spawn_root = cfg
+        .worktrees
+        .root
+        .clone()
+        .or_else(|| cdamux_core::cdamux_state_dir("worktrees"));
+    let registry = cdamux_core::registry_paths(agents.iter(), spawn_root.as_deref());
     let items = cdamux_core::clean_worktrees(
         &roots,
         &cfg.worktrees.disposable,

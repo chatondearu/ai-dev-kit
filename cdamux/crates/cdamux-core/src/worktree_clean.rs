@@ -1,8 +1,9 @@
 //! Free build caches in finished worktrees (`cdamux worker clean`) and the spawn disk guard.
 //!
 //! Only git-ignored directories named in `[worktrees].disposable` are removed, and only
-//! in worktrees the cdamux registry knows (an agent's `cwd`/`repo`); the worktree, its
-//! branch and tracked or untracked work stay (ADR-017).
+//! in worktrees cdamux or orch.sh created (a [`MANAGED_MARKER`] in the worktree's git dir,
+//! or a registry agent ran there); the worktree, its branch and tracked or untracked work
+//! stay (ADR-017).
 
 use serde_json::Value;
 use std::fs;
@@ -282,16 +283,47 @@ fn branch_name(wt: &Path) -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
-/// Agent `cwd` / `repo` paths of the cdamux registry (agent state docs).
-pub fn registry_paths<'a>(docs: impl IntoIterator<Item = &'a Value>) -> Vec<PathBuf> {
-    docs.into_iter()
-        .flat_map(|v| {
-            ["cwd", "repo"]
-                .into_iter()
-                .filter_map(move |k| v.get(k)?.as_str())
-        })
-        .map(PathBuf::from)
-        .collect()
+/// File in a linked worktree's own git dir (`.git/worktrees/<name>/`) written by
+/// `worker spawn` and orch.sh when they create it. It outlives agent GC and goes away
+/// with the worktree; nothing else makes a worktree a clean candidate without an agent.
+pub const MANAGED_MARKER: &str = "cdamux-managed";
+
+fn own_git_dir(wt: &Path) -> Option<PathBuf> {
+    git_out(wt, &["rev-parse", "--absolute-git-dir"])
+        .map(|s| PathBuf::from(s.trim()))
+        .filter(|p| p.is_dir())
+}
+
+/// Mark `wt` as created by cdamux / orch.sh (see [`MANAGED_MARKER`]).
+pub fn mark_managed(wt: &Path) -> std::io::Result<()> {
+    let dir = own_git_dir(wt)
+        .ok_or_else(|| std::io::Error::other(format!("{}: no git dir", wt.display())))?;
+    fs::write(dir.join(MANAGED_MARKER), "")
+}
+
+fn is_marked(wt: &Path) -> bool {
+    own_git_dir(wt).is_some_and(|d| d.join(MANAGED_MARKER).is_file())
+}
+
+/// Worktrees the registry knows: each agent's `cwd`, and for an agent with `run` + `name`
+/// the `<worktree_root>/<run>/<name>` path `worker spawn` creates (agents spawned before
+/// `cwd` was recorded). `repo` never counts: spawn writes it even with `--here`.
+pub fn registry_paths<'a>(
+    docs: impl IntoIterator<Item = &'a Value>,
+    worktree_root: Option<&Path>,
+) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    for v in docs {
+        if let Some(cwd) = v.get("cwd").and_then(|c| c.as_str()) {
+            out.push(PathBuf::from(cwd));
+        }
+        let run = v.get("run").and_then(|r| r.as_str());
+        let name = v.get("name").and_then(|n| n.as_str());
+        if let (Some(root), Some(run), Some(name)) = (worktree_root, run, name) {
+            out.push(crate::worktree::resolve_worktree_dest(&root.join(run), name));
+        }
+    }
+    out
 }
 
 fn canonical(p: &Path) -> PathBuf {
@@ -408,9 +440,10 @@ impl CleanItem {
 }
 
 /// Scan `roots`, decide per worktree, remove disposable dirs of finished ones (unless `dry_run`).
-/// Only linked worktrees on a branch and [`registered`] in `registry` (see [`registry_paths`]);
-/// those with nothing to free are skipped without calling `pr_lookup`. `sessions` is `None`
-/// when tmux could not be listed: then every worktree is kept.
+/// Only linked worktrees on a branch that carry the [`MANAGED_MARKER`] or are [`registered`]
+/// in `registry` (see [`registry_paths`]; a registered one gets the marker, so it stays a
+/// candidate after agent GC). Those with nothing to free are skipped without calling
+/// `pr_lookup`. `sessions` is `None` when tmux could not be listed: then every worktree is kept.
 #[allow(clippy::too_many_arguments)]
 pub fn clean_worktrees(
     roots: &[PathBuf],
@@ -424,8 +457,15 @@ pub fn clean_worktrees(
     let registry: Vec<PathBuf> = registry.iter().map(|p| canonical(p)).collect();
     let mut items = Vec::new();
     for wt in roots.iter().flat_map(|r| find_worktrees(r)) {
-        if !is_linked_worktree(&wt) || !registered(&wt, &registry) {
+        if !is_linked_worktree(&wt) {
             continue;
+        }
+        if !is_marked(&wt) {
+            if !registered(&wt, &registry) {
+                continue;
+            }
+            // Best effort: a failed write only means the registry must still know it next time.
+            let _ = mark_managed(&wt);
         }
         let Some(branch) = branch_name(&wt) else {
             continue;
@@ -770,10 +810,13 @@ mod tests {
     }
 
     #[test]
-    fn only_registered_linked_worktrees() {
+    fn only_marked_or_registered_linked_worktrees() {
         let tmp = tempfile::tempdir().unwrap();
         let (main, hand) = repo_with_worktree(tmp.path(), "hand", "worker/r-1/hand");
         let (_, agent) = repo_with_worktree(tmp.path(), "agent", "my-branch");
+        let (_, marked) = repo_with_worktree(tmp.path(), "marked", "pr-head");
+        let (_, legacy) = repo_with_worktree(tmp.path(), "legacy", "worker/run/legacy");
+        mark_managed(&marked).unwrap();
         // Submodule shape: `.git` file, but git dir == common dir.
         let sub = tmp.path().join("root").join("run").join("sub");
         git(
@@ -795,20 +838,21 @@ mod tests {
             &["worktree", "add", "-q", "--detach", det.to_str().unwrap()],
         );
         fs::create_dir_all(det.join("target")).unwrap();
+        mark_managed(&det).unwrap();
         assert!(sub.join(".git").is_file() && !is_linked_worktree(&sub));
-        assert!(is_linked_worktree(&hand));
 
-        // Registry: an agent ran inside `agent` (subdir cwd), plus the main repo, `sub`
-        // and `det`. `hand` sits on a cdamux-looking branch but no agent knows it.
+        // `agent`: an agent ran inside it (subdir cwd). `legacy`: a pre-`cwd` worker doc
+        // (run + name). `hand` sits on a cdamux-looking branch and only a `repo` (what
+        // `--here` writes) points there: never a candidate.
+        fs::create_dir_all(agent.join("src")).unwrap();
         let docs = [
             serde_json::json!({ "cwd": agent.join("src").display().to_string() }),
-            serde_json::json!({ "repo": main.display().to_string() }),
-            serde_json::json!({ "repo": sub.display().to_string(), "cwd": det.display().to_string() }),
+            serde_json::json!({ "repo": hand.display().to_string() }),
+            serde_json::json!({ "run": "run", "name": "legacy", "repo": main.display().to_string() }),
+            serde_json::json!({ "cwd": sub.display().to_string() }),
             serde_json::json!({ "role": "orchestrator" }),
         ];
-        let reg = registry_paths(docs.iter());
-        assert_eq!(reg.len(), 4);
-        fs::create_dir_all(agent.join("src")).unwrap();
+        let reg = registry_paths(docs.iter(), Some(&tmp.path().join("root")));
         let pats = vec!["target".to_string()];
         let none: &[(String, PathBuf)] = &[];
         let items = clean_worktrees(
@@ -820,14 +864,28 @@ mod tests {
             &|_| None,
             &|_, _| PrState::Merged,
         );
-        let cleaned: Vec<_> = items.iter().map(|i| i.worktree.clone()).collect();
-        assert_eq!(cleaned, vec![agent.clone()], "{items:?}");
-        assert!(!agent.join("target").exists());
+        let mut cleaned: Vec<_> = items.iter().map(|i| i.worktree.clone()).collect();
+        cleaned.sort();
+        assert_eq!(cleaned, vec![agent.clone(), legacy.clone(), marked.clone()], "{items:?}");
+        assert!(!agent.join("target").exists() && !marked.join("target").exists());
         assert!(
             hand.join("target").exists()
                 && sub.join("target").exists()
                 && det.join("target").exists()
         );
+        // Registered ones are now marked: still candidates once their agent is GC'd.
+        assert!(is_marked(&agent) && is_marked(&legacy) && !is_marked(&hand));
+        fs::create_dir_all(agent.join("target")).unwrap();
+        let items = clean_worktrees(
+            &roots(tmp.path()),
+            &pats,
+            true,
+            &[],
+            Some(none),
+            &|_| None,
+            &|_, _| PrState::Merged,
+        );
+        assert!(items.iter().any(|i| i.worktree == agent), "{items:?}");
     }
 
     #[test]

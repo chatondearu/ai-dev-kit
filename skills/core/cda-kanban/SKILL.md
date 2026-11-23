@@ -85,7 +85,7 @@ Pipeline context: `cda-plan` § End-to-end feature pipeline.
 6. Implement; commit with Conventional Commits; `Closes #N` only when `github_issue` is set
 7. Open PR (use `new-branch-and-pr` or `review-and-ship`)
 8. `foam-board.sh set-status <id> in-review` and commit the card
-9. After merge → `foam-board.sh reconcile --pr` moves every in-progress/in-review card whose PR merged to `done` on a foam-only PR that self-merges (ADR-016 §3b) and closes its `github_issue` if still open. orch.sh runs it after its merges and at run end; run it by hand after a maintainer merge.
+9. After merge → `foam-board.sh reconcile --pr` moves every in-progress/in-review card whose PR merged into the default branch (on or after the card's `updated` day) to `done` on a foam-only PR that self-merges (ADR-016 §3b), then closes its `github_issue` if still open. orch.sh runs it after its merges and at run end; run it by hand after a maintainer merge.
 
 ### C — Multi-agent coordination
 

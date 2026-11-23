@@ -12,10 +12,11 @@
 #   ./foam-board.sh path <id> [--root DIR]
 #   ./foam-board.sh reconcile [--write | --pr] [--root DIR]
 #
-# reconcile: an in-progress|in-review card whose PR is merged is drift.
-# Default prints it; --write marks those cards done in the working tree;
-# --pr does it on a branch off origin/<default>, opens a foam-only PR and
-# self-merges it per ADR-016 (never commits on the default branch).
+# reconcile: an in-progress|in-review card whose PR merged into the default
+# branch on or after the card's `updated` day is drift. Default prints it;
+# --write marks those cards done in the working tree; --pr does it on a branch
+# off origin/<default>, opens a foam-only PR, tries once to rebase-merge it
+# (ADR-016 §3b) and closes the cards' issues after that merge.
 #
 # Requires: bash. jq only for --json and reconcile. gh only for claim comments,
 # reconcile, and blocked_by numbers that do not match a foam card.
@@ -259,55 +260,77 @@ cmd_claim() {
   printf '%s\n' "$card"
 }
 
-# Merged PRs as TSV: number<TAB>headRefName<TAB>,closing,issue,numbers,
-# Fails (no output) on any gh/jq error so reconcile never acts on a partial list.
+# Default branch and owner/name of this repo (one gh call) into RC_DEFAULT / RC_SLUG.
+reconcile_repo_meta() {
+  local out
+  need gh
+  out="$(GH_PROMPT_DISABLED=1 gh repo view --json nameWithOwner,defaultBranchRef \
+    -q '.nameWithOwner + " " + .defaultBranchRef.name' </dev/null)" || return 1
+  RC_SLUG="${out%% *}"
+  RC_DEFAULT="${out#* }"
+  [ -n "$RC_SLUG" ] && [ -n "$RC_DEFAULT" ] && [ "$RC_SLUG" != "$out" ]
+}
+
+# PRs merged into default branch $1 as TSV:
+# number<TAB>headRefName<TAB>merged YYYY-MM-DD<TAB>,closing,issue,numbers,
+# Closing issues count only when they live in repo $2 (owner/name). Fails on any
+# gh/jq error so reconcile never acts on a partial list.
 merged_prs_tsv() {
-  local json
+  local def="$1" slug="$2" json
   need gh
   need jq
-  json="$(GH_PROMPT_DISABLED=1 gh pr list --state merged --limit "${FOAM_BOARD_PR_LIMIT:-200}" \
-    --json number,headRefName,closingIssuesReferences </dev/null)" || return 1
-  printf '%s' "$json" | jq -r '.[] | [(.number | tostring), .headRefName,
-    ("," + ([.closingIssuesReferences[]?.number | tostring] | join(",")) + ",")] | @tsv'
+  json="$(GH_PROMPT_DISABLED=1 gh pr list --state merged --base "$def" --limit "${FOAM_BOARD_PR_LIMIT:-200}" \
+    --json number,headRefName,baseRefName,mergedAt,closingIssuesReferences </dev/null)" || return 1
+  printf '%s' "$json" | jq -r --arg def "$def" --arg slug "$slug" '
+    ($slug | ascii_downcase) as $s
+    | .[] | select(.baseRefName == $def and (.mergedAt // "") != "")
+    | [(.number | tostring), .headRefName, .mergedAt[0:10],
+       ("," + ([.closingIssuesReferences[]?
+                | select(((.repository.owner.login // "") + "/" + (.repository.name // "")
+                          | ascii_downcase) == $s)
+                | .number | tostring] | join(",")) + ",")] | @tsv'
 }
 
 # Drift rows (card<TAB>id<TAB>status<TAB>pr) for in-progress|in-review cards whose PR,
-# listed in TSV file $1, is merged. A card's PR: head branch feat/<id>-issue-<id>
-# (orch.sh), or a PR that closes the card's github_issue.
+# listed in TSV file $1, merged on or after the card's `updated` day (the claim or
+# in-review move; a PR merged before it is old work). A card's PR: head branch
+# feat/<id>-issue-<id> (orch.sh), or a PR that closes the card's github_issue.
 reconcile_drift() {
-  local prs="$1" f st id gi pr
+  local prs="$1" f st id gi upd pr
   while IFS= read -r f; do
     [ -n "$f" ] || continue
     st="$(fm_get "$f" status)"
     case "$st" in in-progress|in-review) ;; *) continue ;; esac
     id="$(card_id "$f")"
     gi="$(fm_get "$f" github_issue)"
-    pr="$(awk -F'\t' -v b="feat/${id}-issue-${id}" -v gi="$gi" \
-      '$2 == b || (gi != "" && index($3, "," gi ",")) { print $1; exit }' "$prs")"
+    upd="$(fm_get "$f" updated)"
+    pr="$(awk -F'\t' -v b="feat/${id}-issue-${id}" -v gi="$gi" -v upd="$upd" \
+      '$3 >= upd && ($2 == b || (gi != "" && index($4, "," gi ","))) { print $1; exit }' "$prs")"
     [ -n "$pr" ] || continue
     printf '%s\t%s\t%s\t%s\n' "$f" "$id" "$st" "$pr"
   done < <(card_files)
 }
 
-# True when the working tree of $1 differs from $2 only in foam/board status/updated lines.
+# True when the index of $1 (after `git add`) differs from $2 only in foam/board
+# status/updated lines. The index, not the work tree: a new untracked card shows up.
 reconcile_diff_is_status_only() {
   local wt="$1" base="$2" paths lines
-  paths="$(git -C "$wt" diff --name-only --no-renames "$base")" || return 1
+  paths="$(git -C "$wt" diff --cached --name-only --no-renames "$base")" || return 1
   [ -n "$paths" ] || return 1
   [ -z "$(grep -v '^foam/board/' <<<"$paths" || true)" ] || return 1
-  lines="$(git -C "$wt" diff -U0 --no-renames "$base")" || return 1
+  lines="$(git -C "$wt" diff --cached -U0 --no-renames "$base")" || return 1
   lines="$(grep -E '^[+-]' <<<"$lines" | grep -Ev '^(\+\+\+|---) ' || true)"
   [ -z "$(grep -Ev '^[+-](status|updated): ' <<<"$lines" || true)" ]
 }
 
-# cda-dev lib dir (ci.sh, meta.sh): sibling skill in the kit, else an installed copy.
+# cda-dev lib dir: sibling skill in the kit, else an installed copy.
 cda_dev_lib() {
   local self d
   self="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
   for d in "$self/../../cda-dev/scripts/lib" \
     "${HOME}/.claude/skills/cda-dev/scripts/lib" \
     "${HOME}/.cursor/skills/cda-dev/scripts/lib"; do
-    if [ -f "$d/meta.sh" ] && [ -f "$d/ci.sh" ]; then
+    if [ -f "$d/meta.sh" ]; then
       printf '%s\n' "$d"
       return 0
     fi
@@ -315,99 +338,147 @@ cda_dev_lib() {
   return 1
 }
 
-# Apply drift in worktree $2 (branch $3 off origin/$4), open the PR, close done
-# issues, self-merge per ADR-016. Subshell: `die` aborts only this step.
-reconcile_pr_in() (
-  local repo="$1" wt="$2" branch="$3" default="$4" prs="$5"
-  local drift card id st pr gi body issues="" url num lib checks pair
+# What orch_merge_pr needs: default branch (worktree.sh), merge lock (lock.sh),
+# verify (verify.sh), checks/mergeable (ci.sh), ADR-016 allowlist (meta.sh).
+reconcile_load_merge_libs() {
+  local lib f
+  lib="$(cda_dev_lib)" || return 1
+  for f in worktree.sh lock.sh verify.sh ci.sh meta.sh; do
+    [ -f "$lib/$f" ] || return 1
+    # shellcheck source=/dev/null
+    source "$lib/$f" || return 1
+  done
+}
+
+# One reconcile per repo. A dead owner pid, or a pid-less dir older than a minute (owner
+# died between mkdir and the pid write), is stale and taken over.
+reconcile_lock() {
+  local lock="$1" owner
+  if ! mkdir "$lock" 2>/dev/null; then
+    owner="$(cat "$lock/pid" 2>/dev/null || true)"
+    if [ -n "$owner" ]; then
+      kill -0 "$owner" 2>/dev/null && return 1
+    elif [ -z "$(find "$lock" -maxdepth 0 -mmin +1 2>/dev/null)" ]; then
+      return 1
+    fi
+    rm -rf "$lock"
+    mkdir "$lock" 2>/dev/null || return 1
+  fi
+  printf '%s\n' "$$" >"$lock/pid"
+}
+
+# Try once to land reconcile PR $4, checked out in $2 on branch $3. No CI wait: callers
+# hold no run lock or pool slot on it; a PR left open is retried by the next reconcile.
+# 0 = merged (then the done cards' open issues are closed), 3 = behind origin/$5 (the
+# caller closes it and regenerates), 1 = left open.
+reconcile_land() {
+  local repo="$1" wt="$2" branch="$3" num="$4" def="$5" checks rc=0 f gi
+  git -C "$wt" merge-base --is-ancestor "origin/$def" HEAD || return 3
+  if grep -Eiq '^[[:space:]]*orch:[[:space:]]*allow-no-checks\b' "$wt/AGENTS.md" 2>/dev/null; then
+    export ORCH_ALLOW_NO_CHECKS=1
+  fi
+  checks="$(orch_pr_checks_watch "$num" 0 2>/dev/null)" || true
+  if [ "$checks" != green ]; then
+    printf 'board: reconcile PR #%s checks %s; left open for the next reconcile\n' "$num" "${checks:-unknown}"
+    return 1
+  fi
+  # ORCH_VERIFY=true: the diff is proven status/updated lines only; a repo verify adds
+  # nothing. ORCH_CI_TIMEOUT=0: if a race makes it behind, fail now rather than watch CI.
+  ORCH_DEFAULT_BRANCH="$def" ORCH_VERIFY=true ORCH_CI_TIMEOUT=0 \
+    ORCH_MERGEABLE_WAIT="${FOAM_BOARD_MERGEABLE_WAIT:-20}" \
+    ORCH_MERGE_LOCK_WAIT="${FOAM_BOARD_MERGE_LOCK_WAIT:-30}" \
+    orch_meta_try_merge "$num" "$wt" "$branch" || rc=$?
+  case "$rc" in
+    0) printf 'board: merged reconcile PR #%s\n' "$num" ;;
+    1) printf 'board: reconcile PR #%s outside the ADR-016 allowlist; left open\n' "$num"; return 1 ;;
+    *) printf 'board: reconcile PR #%s not merged (%s); left open\n' "$num" "${ORCH_MERGE_ERROR:-unknown}"; return 1 ;;
+  esac
+  # Issues close only once the board says done on the default branch.
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    gi="$(fm_get "$wt/$f" github_issue)"
+    [ -n "$gi" ] && [ "$(fm_get "$wt/$f" status)" = done ] || continue
+    [ "$(GH_PROMPT_DISABLED=1 gh issue view "$gi" --json state -q .state </dev/null 2>/dev/null)" = OPEN ] || continue
+    if GH_PROMPT_DISABLED=1 gh issue close "$gi" --comment "Done: card moved to done by board reconcile PR #$num." </dev/null >/dev/null; then
+      printf 'board: closed issue #%s\n' "$gi"
+    else
+      err "could not close issue #$gi"
+    fi
+  done < <(git -C "$wt" diff --name-only "origin/$def" HEAD -- foam/board)
+}
+
+# Under the reconcile lock: land (or replace when behind) an open reconcile PR, else
+# open one for the current drift. Subshell: `die` aborts only this pass.
+reconcile_pr_locked() (
+  local repo="$1" wt="$2/board" prs="$3" def="$4" open num head rc branch drift card id st pr body url
+  git -C "$repo" fetch -q origin "$def" || die "git fetch origin $def failed"
+  # Checked under the lock, so two reconciles never open duplicate PRs.
+  open="$(GH_PROMPT_DISABLED=1 gh pr list --state open --limit 200 --json number,headRefName \
+    -q '[.[] | select(.headRefName | startswith("board/reconcile-"))][0] // empty | "\(.number) \(.headRefName)"' \
+    </dev/null)" || die "cannot list open PRs (gh)"
+  if [ -n "$open" ]; then
+    num="${open%% *}"
+    head="${open#* }"
+    git -C "$repo" fetch -q origin "+refs/heads/$head:refs/remotes/origin/$head" \
+      && git -C "$repo" worktree add -q -B "$head" "$wt" "origin/$head" \
+      || die "cannot check out reconcile PR #$num ($head)"
+    rc=0
+    reconcile_land "$repo" "$wt" "$head" "$num" "$def" || rc=$?
+    [ "$rc" = 3 ] || exit 0
+    git -C "$repo" worktree remove --force "$wt" || exit 1
+    GH_PROMPT_DISABLED=1 gh pr close "$num" --delete-branch \
+      --comment "Superseded: behind $def; the board reconcile regenerates it." </dev/null >/dev/null \
+      || die "cannot close stale reconcile PR #$num"
+    printf 'board: closed stale reconcile PR #%s (behind %s)\n' "$num" "$def"
+  fi
+  branch="board/reconcile-$(date -u +%Y%m%dT%H%M%SZ)-$$"
+  git -C "$repo" worktree add -q -b "$branch" "$wt" "origin/$def" || die "cannot branch off origin/$def"
   OVR_ROOT="$wt"
   drift="$(reconcile_drift "$prs")"
   if [ -z "$drift" ]; then
     printf 'board: no drift\n'
     exit 0
   fi
-  body="Cards whose PR is merged, moved to \`done\` by \`foam-board.sh reconcile --pr\` (ADR-016)."$'\n\n'
+  body="Cards whose PR is merged, moved to \`done\` by \`foam-board.sh reconcile --pr\` (ADR-016 §3b). Their GitHub issues close after this PR merges."$'\n\n'
   while IFS=$'\t' read -r card id st pr; do
     cmd_set_status "$card" done >/dev/null || exit 1
     printf 'drift %s %s -> done (PR #%s merged)\n' "$id" "$st" "$pr"
     body+="- \`${card#"$wt"/}\`: $st → done (#$pr)"$'\n'
-    gi="$(fm_get "$card" github_issue)"
-    [ -z "$gi" ] || issues+="$gi:$pr "
   done <<<"$drift"
-  reconcile_diff_is_status_only "$wt" "origin/$default" \
-    || die "reconcile diff is not limited to foam/board status/updated lines; nothing pushed"
   git -C "$wt" add -A foam/board || exit 1
+  reconcile_diff_is_status_only "$wt" "origin/$def" \
+    || die "reconcile diff is not limited to foam/board status/updated lines; nothing pushed"
   git -C "$wt" commit -q -m "chore(foam): reconcile board with merged PRs" || exit 1
   git -C "$wt" push -q -u origin "$branch" || die "git push origin $branch failed"
-  url="$(GH_PROMPT_DISABLED=1 gh pr create --base "$default" --head "$branch" \
+  url="$(GH_PROMPT_DISABLED=1 gh pr create --base "$def" --head "$branch" \
     --title "chore(foam): reconcile board with merged PRs" --body "$body" </dev/null)" \
     || die "gh pr create failed for $branch"
   num="${url##*/}"
   printf 'board: opened PR #%s %s\n' "$num" "$url"
-  for pair in $issues; do
-    gi="${pair%%:*}"
-    [ "$(GH_PROMPT_DISABLED=1 gh issue view "$gi" --json state -q .state </dev/null 2>/dev/null)" = OPEN ] || continue
-    GH_PROMPT_DISABLED=1 gh issue close "$gi" --comment "Done: PR #${pair#*:} merged (board reconcile #$num)." </dev/null >/dev/null \
-      && printf 'board: closed issue #%s\n' "$gi" || err "could not close issue #$gi"
-  done
-  lib="$(cda_dev_lib)" || { err "cda-dev lib not found; PR #$num left open for the maintainer"; exit 0; }
-  # shellcheck source=/dev/null
-  source "$lib/ci.sh"
-  # shellcheck source=/dev/null
-  source "$lib/meta.sh"
-  if grep -Eiq '^[[:space:]]*orch:[[:space:]]*allow-no-checks\b' "$wt/AGENTS.md" 2>/dev/null; then
-    export ORCH_ALLOW_NO_CHECKS=1
-  fi
-  checks="$(orch_pr_checks_watch "$num" "${FOAM_BOARD_CHECKS_TIMEOUT:-600}")" || true
-  if [ "$checks" != green ]; then
-    err "PR #$num checks ${checks:-unknown}; left open for the maintainer"
-    exit 0
-  fi
-  orch_meta_try_merge "$num" "$wt" || err "PR #$num left open for the maintainer"
+  reconcile_land "$repo" "$wt" "$branch" "$num" "$def" || true
 )
 
-# Branch off a fresh origin/<default> in a throwaway worktree; the caller's
-# checkout and the default branch are never written. One reconcile at a time.
+# Throwaway worktrees off origin/<default>: the caller's checkout and the default
+# branch are never written.
 reconcile_pr() {
-  local prs="$1" repo default num common lock owner tmp wt branch rc=0
+  local prs="$1" def="$2" repo common lock tmp b rc=0
   need git
   repo="$(repo_root)"
-  default="$(git -C "$repo" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null || true)"
-  default="${default#origin/}"
-  [ -n "$default" ] || default="$(GH_PROMPT_DISABLED=1 gh repo view --json defaultBranchRef \
-    -q .defaultBranchRef.name </dev/null 2>/dev/null || true)"
-  [ -n "$default" ] || die "cannot resolve the default branch of $repo"
-  num="$(GH_PROMPT_DISABLED=1 gh pr list --state open --limit 200 --json number,headRefName \
-    -q '[.[] | select(.headRefName | startswith("board/reconcile-"))][0].number // empty' </dev/null)" \
-    || die "cannot list open PRs (gh)"
-  if [ -n "$num" ]; then
-    printf 'board: reconcile PR #%s already open; skipped\n' "$num"
-    return 0
-  fi
+  reconcile_load_merge_libs || die "cda-dev scripts/lib not found (install the cda-dev skill)"
+  export ORCH_REPO="$repo"
   common="$(cd "$repo" && cd "$(git rev-parse --git-common-dir)" && pwd)"
   lock="$common/foam-board-reconcile.lock"
-  if ! mkdir "$lock" 2>/dev/null; then
-    owner="$(cat "$lock/pid" 2>/dev/null || true)"
-    if [ -z "$owner" ] || kill -0 "$owner" 2>/dev/null; then
-      printf 'board: another reconcile holds %s; skipped\n' "$lock"
-      return 0
-    fi
-    rm -rf "$lock"
-    mkdir "$lock" 2>/dev/null || { printf 'board: another reconcile holds %s; skipped\n' "$lock"; return 0; }
+  if ! reconcile_lock "$lock"; then
+    printf 'board: another reconcile holds %s; skipped\n' "$lock"
+    return 0
   fi
-  printf '%s\n' "$$" >"$lock/pid"
   tmp="$(mktemp -d)"
-  wt="$tmp/board"
-  branch="board/reconcile-$(date -u +%Y%m%dT%H%M%SZ)-$$"
-  if git -C "$repo" fetch -q origin "$default" \
-    && git -C "$repo" worktree add -q -b "$branch" "$wt" "origin/$default"; then
-    reconcile_pr_in "$repo" "$wt" "$branch" "$default" "$prs" || rc=$?
-    git -C "$repo" worktree remove --force "$wt" 2>/dev/null || true
-    git -C "$repo" branch -q -D "$branch" 2>/dev/null || true
-  else
-    err "cannot branch off origin/$default"
-    rc=1
-  fi
+  reconcile_pr_locked "$repo" "$tmp" "$prs" "$def" || rc=$?
+  git -C "$repo" worktree remove --force "$tmp/board" 2>/dev/null || true
+  git -C "$repo" worktree prune 2>/dev/null || true
+  for b in $(git -C "$repo" for-each-ref --format='%(refname:short)' refs/heads/board/); do
+    case "$b" in board/reconcile-*) git -C "$repo" branch -q -D "$b" 2>/dev/null || true ;; esac
+  done
   rm -rf "$tmp" "$lock"
   return "$rc"
 }
@@ -415,13 +486,14 @@ reconcile_pr() {
 # report (default) | write | pr
 cmd_reconcile() {
   local mode="${1:-report}" prs drift card id st pr rc=0
+  reconcile_repo_meta || die "cannot read the default branch (gh repo view); board unchanged"
   prs="$(mktemp)"
-  if ! merged_prs_tsv >"$prs"; then
+  if ! merged_prs_tsv "$RC_DEFAULT" "$RC_SLUG" >"$prs"; then
     rm -f "$prs"
     die "cannot list merged PRs (gh); board unchanged"
   fi
   if [ "$mode" = pr ]; then
-    reconcile_pr "$prs" || rc=$?
+    reconcile_pr "$prs" "$RC_DEFAULT" || rc=$?
     rm -f "$prs"
     return "$rc"
   fi
@@ -442,7 +514,7 @@ cmd_reconcile() {
 main() {
   case "${1:-}" in
     -h|--help)
-      sed -n '2,21p' "$0"
+      sed -n '2,22p' "$0"
       exit 0
       ;;
   esac
@@ -460,7 +532,7 @@ main() {
       --write) reconcile_mode=write; shift;;
       --pr) reconcile_mode=pr; shift;;
       --help|-h)
-        sed -n '2,21p' "$0"
+        sed -n '2,22p' "$0"
         exit 0
         ;;
       *) positional+=("$1"); shift;;

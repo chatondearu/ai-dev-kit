@@ -195,6 +195,15 @@ fn spawn_ls_peek_and_msg_by_name() {
         worker["cwd"].as_str().map(std::path::Path::new),
         Some(out.path.as_path())
     );
+    let git_dir = Command::new("git")
+        .args(["-C", out.path.to_str().unwrap(), "rev-parse", "--absolute-git-dir"])
+        .output()
+        .unwrap();
+    let git_dir = std::path::PathBuf::from(String::from_utf8_lossy(&git_dir.stdout).trim());
+    assert!(
+        git_dir.join(cdamux_core::MANAGED_MARKER).is_file(),
+        "spawned worktree carries the managed marker"
+    );
 
     let rows = list_workers("a-orch1").unwrap();
     assert_eq!(rows.len(), 1);

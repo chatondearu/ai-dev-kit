@@ -126,12 +126,15 @@ orch_graph_locked_jq() {
 
 # Mark run finished (ok|blocked); status lives under CDAMUX_HOME (no archive move).
 # Always attempts parent run-end msg when CDAMUX_AGENT_ID is set (ADR-011 §5 / #253).
+# `interrupted [reason]` (crash / Ctrl-C): run blocked, parent msg kind error.
 orch_graph_finish() {
-  local outcome="${1:-ok}" status
+  local outcome="${1:-ok}" reason="${2:-}" status kind=report
   case "$outcome" in
     ok|done|success) status="ok";;
+    interrupted) status="blocked"; kind=error;;
     *) status="blocked";;
   esac
+  ORCH_RUN_FINISHED=1
   if orch_graph_writable && [ -n "${ORCH_RUN_ID:-}" ]; then
     orch_graph_locked_jq \
       --arg status "$status" \
@@ -139,7 +142,7 @@ orch_graph_finish() {
       --arg updated "$(orch_graph_now)" \
       '.status = $status | .ended_at = $ended | .updated_at = $updated'
   fi
-  orch_cdamux_parent_msg_run_end "$status"
+  orch_cdamux_parent_msg_run_end "$status" "$kind" "$reason"
 }
 
 # Warn when worker-result.json is missing or lacks required fields (issue/status/checks).

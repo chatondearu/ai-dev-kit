@@ -91,6 +91,29 @@ maintainer merge. No GitHub ruleset, merge queue, or automerge app.
 This **narrows** ADR-002's "no auto-merge" and the cda-dev hard rule to
 product/`doc/` diffs. Review-gate (ADR-006) is unchanged.
 
+### 3b. Board reconcile (amendment 2026-11-23, owner decision Q10)
+
+Nobody is left to move a card to `done` after a merge (the worker is gone; a
+maintainer merge runs nothing). `foam-board.sh reconcile --pr` closes that gap:
+
+- **Drift**: a card `in-progress` or `in-review` whose PR is merged — head
+  branch `feat/<id>-issue-<id>`, or a merged PR that closes the card's
+  `github_issue`. It moves to `done`; the `github_issue`, if any and still
+  open, is closed. Cards without `github_issue` touch no GitHub issue.
+- **Never on the default branch**: a throwaway worktree off a fresh
+  `origin/<default>`, branch `board/reconcile-<stamp>`, one foam-only PR.
+- **Self-merge**: same allowlist, `--match-head-commit` and checks
+  green-or-none rule as section 3. No agent review: the script refuses to
+  push unless the diff is only `status:`/`updated:` lines under
+  `foam/board/`. Anything else, or red/pending checks, leaves the PR open.
+- **Callers**: orch.sh after a successful ADR-016 merge and at the end of
+  every run (`ORCH_BOARD_RECONCILE=0` turns it off); one reconcile at a time
+  (lock in the git common dir; an open `board/reconcile-*` PR skips).
+- **`cdamux board refresh` stays read-only**: it reports drift in the index
+  (`drift`) and on stderr, never commits or opens a PR. Refresh runs on every
+  orchestrator turn and across many projects; writes there would race the
+  orch.sh reconcile and open PRs on repos nobody is working in.
+
 ### 4. Global resume index (cache, not SoT)
 
 - Path: **`$CDAMUX_HOME/board-index.json`** (ADR-011 state root). Readable

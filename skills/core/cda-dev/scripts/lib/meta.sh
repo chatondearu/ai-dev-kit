@@ -184,3 +184,32 @@ _orch_merge_pr_locked() {
     return 1
   fi
 }
+
+# foam-board.sh of the cda-kanban skill: ORCH_FOAM_BOARD, the kit sibling, else an installed copy.
+orch_foam_board_path() {
+  local c
+  for c in "${ORCH_FOAM_BOARD:-}" \
+    "${ORCH_ROOT:-}/../../cda-kanban/scripts/foam-board.sh" \
+    "${HOME}/.claude/skills/cda-kanban/scripts/foam-board.sh" \
+    "${HOME}/.cursor/skills/cda-kanban/scripts/foam-board.sh"; do
+    if [ -n "$c" ] && [ -f "$c" ]; then
+      printf '%s\n' "$c"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Board truth (ADR-016): cards whose PR merged → done through a foam-only PR that
+# self-merges (`foam-board.sh reconcile --pr`). Never fails the run. Off with
+# ORCH_BOARD_RECONCILE=0 or when the repo has no foam/board.
+orch_board_reconcile() {
+  local repo="$1" fb
+  [ "${ORCH_BOARD_RECONCILE:-1}" != 0 ] && [ -d "$repo/foam/board" ] || return 0
+  if ! fb="$(orch_foam_board_path)"; then
+    printf 'orch: board reconcile skipped (foam-board.sh not found)\n' >&2
+    return 0
+  fi
+  (cd "$repo" && bash "$fb" reconcile --pr) >&2 \
+    || printf 'orch: board reconcile failed; run `foam-board.sh reconcile --pr` in %s\n' "$repo" >&2
+}

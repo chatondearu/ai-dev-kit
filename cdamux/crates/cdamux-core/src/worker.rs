@@ -654,17 +654,22 @@ pub fn spawn_worker(req: WorkerSpawnRequest<'_>) -> Result<WorkerSpawnResult, Wo
         .worktree_root
         .map(Path::to_path_buf)
         .or_else(|| cdamux_state_dir("worktrees"));
-    let guard_path = if req.here {
-        Some(base_cwd.clone())
+    let target_repo = git_toplevel(&base_cwd);
+    // `--here` writes no checkout; a new worktree writes the repo's tracked files.
+    let (guard_path, checkout) = if req.here {
+        (Some(base_cwd.clone()), 0)
     } else {
-        worktree_root.clone()
+        let bytes = target_repo
+            .as_deref()
+            .map_or(0, |r| crate::worktree_clean::checkout_bytes(r, "HEAD"));
+        (worktree_root.clone(), bytes)
     };
     if let Some(p) = guard_path {
-        crate::worktree_clean::check_free_space(&p, req.min_free_gib).map_err(WorkerError::Other)?;
+        crate::worktree_clean::check_free_space(&p, req.min_free_gib, checkout)
+            .map_err(WorkerError::Other)?;
     }
     let run = ensure_orch_run(req.caller_id, &caller, &caller_cwd)?;
 
-    let target_repo = git_toplevel(&base_cwd);
     // Resolve the command before any side effect: an unknown agent leaves nothing behind.
     let base_cmd = resolve_agent_command(req.agents, &client)?;
     let (spawn_path, new_worktree) = if req.here {
@@ -739,11 +744,12 @@ pub fn spawn_worker(req: WorkerSpawnRequest<'_>) -> Result<WorkerSpawnResult, Wo
     let agent_id = resolve_spawned_agent_id(&host);
 
     if let Some(repo) = target_repo {
-        let _ = state_append(
-            StateKind::Agents,
-            &agent_id,
-            &json!({ "repo": repo.display().to_string() }),
-        );
+        // `cwd` = the worktree cdamux created: `worker clean` only touches registered ones.
+        let mut doc = json!({ "repo": repo.display().to_string() });
+        if !req.here {
+            doc["cwd"] = json!(spawn_path.display().to_string());
+        }
+        let _ = state_append(StateKind::Agents, &agent_id, &doc);
     }
 
     if paste_after && !prompt.trim().is_empty() {

@@ -38,6 +38,12 @@ assert_eq "$(test -e "$REPO/.orch/run/status.json" && echo yes || echo no)" "no"
 aid="$(cat "$REPO/.orch/run/42.agent_id")"
 assert_file "$HOME_DIR/agents/${aid}.json" "worker Agent published"
 assert_eq "$(jq -r .role "$HOME_DIR/agents/${aid}.json")" "worker" "agent role"
+assert_eq "$(jq -r '.cwd // "none"' "$HOME_DIR/agents/${aid}.json")" "none" "no cwd before the worktree exists"
+source "$TROOT/../lib/worktree.sh"
+mkdir -p "$(orch_worktree_path "$REPO" 42 issue-42)"
+ORCH_PROGRESS=0 orch_progress_set 42 agent "iter 2" 2>/dev/null
+assert_eq "$(jq -r .cwd "$HOME_DIR/agents/${aid}.json")" "$(orch_worktree_path "$REPO" 42 issue-42)" \
+  "worker Agent records its worktree as cwd (clean registry)"
 assert_eq "$(jq -r .run "$HOME_DIR/agents/${aid}.json")" "run-pub-1" "agent linked to run"
 assert_eq "$(jq -r .parent "$HOME_DIR/agents/${aid}.json")" "null" "worker parent null without orch"
 assert_eq "$(jq -r .status "$HOME_DIR/agents/${aid}.json")" "working" "phase agent → working"

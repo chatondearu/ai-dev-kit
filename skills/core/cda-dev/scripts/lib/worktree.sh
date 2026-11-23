@@ -37,6 +37,44 @@ orch_free_build_dirs() {
   cdamux worker clean --root "$root" || true
 }
 
+# Default branch of DIR's origin (main, dev, develop…), never assumed (Q4):
+# the remote's HEAD, else gh, else the cached origin/HEAD. Fails when unknown.
+orch_default_branch() {
+  local dir="$1" b
+  b="$(git -C "$dir" ls-remote --symref origin HEAD 2>/dev/null \
+    | awk '$1 == "ref:" { sub("^refs/heads/", "", $2); print $2; exit }')"
+  if [ -z "$b" ] && command -v gh >/dev/null 2>&1; then
+    b="$(cd "$dir" && gh repo view --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null)" || b=""
+  fi
+  if [ -z "$b" ]; then
+    b="$(git -C "$dir" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null)" || b=""
+    b="${b#origin/}"
+  fi
+  case "$b" in '' | *[[:space:]{}]*) return 1 ;; esac
+  printf '%s\n' "$b"
+}
+
+# Fetch DIR's default branch and export ORCH_DEFAULT_BRANCH + ORCH_BASE (origin/<default>)
+# so worktrees start from the remote, not a stale local HEAD (Q11, H6). A repo with no
+# origin remote has nothing to fetch: ORCH_BASE=HEAD. Fails closed when origin exists
+# but the branch cannot be resolved or fetched.
+orch_sync_default() {
+  local dir="$1"
+  if ! git -C "$dir" remote get-url origin >/dev/null 2>&1; then
+    export ORCH_DEFAULT_BRANCH="" ORCH_BASE=HEAD
+    return 0
+  fi
+  ORCH_DEFAULT_BRANCH="$(orch_default_branch "$dir")" || {
+    printf 'orch: cannot resolve the default branch of origin in %s\n' "$dir" >&2
+    return 1
+  }
+  if ! git -C "$dir" fetch -q origin "$ORCH_DEFAULT_BRANCH"; then
+    printf 'orch: git fetch origin %s failed; refusing to start from a stale base\n' "$ORCH_DEFAULT_BRANCH" >&2
+    return 1
+  fi
+  export ORCH_DEFAULT_BRANCH ORCH_BASE="origin/$ORCH_DEFAULT_BRANCH"
+}
+
 orch_worktree_path() {
   local repo="$1" id="$2" slug="$3"
   printf '%s/.orch/worktrees/%s-%s\n' "$repo" "$id" "$slug"
@@ -72,7 +110,8 @@ orch_worktree_add() {
   if git -C "$repo" show-ref --verify --quiet "refs/heads/$branch"; then
     git -C "$repo" worktree add "$path" "$branch"
   else
-    git -C "$repo" worktree add -b "$branch" "$path" "$base"
+    # --no-track: a base of origin/<default> must not become the feature branch's upstream.
+    git -C "$repo" worktree add --no-track -b "$branch" "$path" "$base"
   fi
 }
 

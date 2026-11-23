@@ -31,10 +31,11 @@ orch_meta_paths_allowlisted() {
   [ "$any" = 1 ]
 }
 
-# Merge-base of HEAD vs origin/main (then main/master). Empty → caller fail-closed.
+# Merge-base of HEAD vs origin/<default> (then origin/main, main/master). Empty → caller fail-closed.
 orch_meta_merge_base() {
   local wt="$1"
-  git -C "$wt" merge-base HEAD origin/main 2>/dev/null \
+  { [ -n "${ORCH_DEFAULT_BRANCH:-}" ] && git -C "$wt" merge-base HEAD "origin/$ORCH_DEFAULT_BRANCH" 2>/dev/null; } \
+    || git -C "$wt" merge-base HEAD origin/main 2>/dev/null \
     || git -C "$wt" merge-base HEAD origin/master 2>/dev/null \
     || git -C "$wt" merge-base HEAD main 2>/dev/null \
     || git -C "$wt" merge-base HEAD master 2>/dev/null \
@@ -64,12 +65,13 @@ orch_meta_pr_diff_paths() {
   } | sed '/^$/d'
 }
 
-# After verify + REVIEW: approved + checks green-or-none: merge $1 if the
-# GitHub PR (and worktree HEAD) are allowlisted. 0 = merged, 1 = skipped or
-# gh failed (PR left open). --match-head-commit refuses a different remote SHA.
-# Repo default merge method (no --merge/--squash/--rebase/--admin).
+# After verify + review approved + checks green-or-none: merge $1 (worktree $2,
+# branch $3) if the GitHub PR and worktree HEAD are allowlisted (ADR-016).
+# 0 = merged, 1 = skipped (not allowlisted, PR left open), 2 = merge failed
+# (reason in ORCH_MERGE_ERROR and on stderr; the caller reports an error, Q4).
 orch_meta_try_merge() {
-  local pr="$1" wt="$2" pr_paths head
+  local pr="$1" wt="$2" branch="${3:-}" pr_paths
+  ORCH_MERGE_ERROR=""
   [ -n "$pr" ] && [ -n "$wt" ] || return 1
   pr_paths="$(orch_meta_pr_diff_paths "$pr")" || {
     printf 'meta-merge: skip PR #%s (could not list PR files)\n' "$pr" >&2
@@ -83,11 +85,67 @@ orch_meta_try_merge() {
     printf 'meta-merge: skip PR #%s (worktree diff outside ADR-016 allowlist)\n' "$pr" >&2
     return 1
   fi
-  head="$(git -C "$wt" rev-parse HEAD)" || return 1
-  if ! GH_PROMPT_DISABLED=1 gh pr merge "$pr" --match-head-commit "$head" </dev/null; then
-    printf 'meta-merge: gh pr merge failed for PR #%s (PR left open)\n' "$pr" >&2
-    return 1
-  fi
+  [ -n "$branch" ] || branch="$(git -C "$wt" branch --show-current 2>/dev/null)"
+  orch_merge_pr "$pr" "$wt" "$branch" || return 2
   printf 'meta-merge: merged PR #%s (ADR-016 allowlist)\n' "$pr" >&2
   return 0
+}
+
+_orch_merge_fail() {
+  ORCH_MERGE_ERROR="$2"
+  printf 'merge: PR #%s not merged: %s\n' "$1" "$2" >&2
+  return 1
+}
+
+# The one pre-merge rule (Q4/Q5/Q26, shared with skill cda-orchestrator): rebase merges
+# only (no fallback); under the per-repo merge lock fetch origin/<default>; when the
+# branch is behind, rebase it, re-run verify, push (lease on the old head) and re-watch
+# checks; refuse mergeable=UNKNOWN; merge pinned to the verified HEAD. 0 = merged.
+orch_merge_pr() {
+  local pr="$1" wt="$2" branch="$3" def allowed rc=0
+  ORCH_MERGE_ERROR=""
+  def="${ORCH_DEFAULT_BRANCH:-}"
+  [ -n "$def" ] || def="$(orch_default_branch "$wt")" \
+    || { _orch_merge_fail "$pr" "cannot resolve the default branch of origin"; return 1; }
+  [ -n "$branch" ] && [ "$branch" != "$def" ] \
+    || { _orch_merge_fail "$pr" "head branch '${branch}' is empty or the default branch"; return 1; }
+  allowed="$(gh repo view --json rebaseMergeAllowed -q .rebaseMergeAllowed 2>/dev/null)" || allowed=""
+  [ "$allowed" = true ] || {
+    _orch_merge_fail "$pr" "the repo does not allow rebase merges (rebaseMergeAllowed=${allowed:-unreadable}); enable it or merge by hand"
+    return 1
+  }
+  orch_merge_lock_acquire \
+    || { _orch_merge_fail "$pr" "merge lock $ORCH_REPO/.orch/merge.lock still held after ${ORCH_MERGE_LOCK_WAIT:-900}s"; return 1; }
+  _orch_merge_pr_locked "$pr" "$wt" "$branch" "$def" || rc=1
+  orch_merge_lock_release
+  return "$rc"
+}
+
+_orch_merge_pr_locked() {
+  local pr="$1" wt="$2" branch="$3" def="$4" old head st m err
+  git -C "$wt" fetch -q origin "$def" \
+    || { _orch_merge_fail "$pr" "git fetch origin $def failed"; return 1; }
+  if ! git -C "$wt" merge-base --is-ancestor "origin/$def" HEAD; then
+    printf 'merge: PR #%s is behind origin/%s; rebasing and re-running verify\n' "$pr" "$def" >&2
+    old="$(git -C "$wt" rev-parse HEAD)"
+    if ! git -C "$wt" rebase -q "origin/$def" >&2; then
+      git -C "$wt" rebase --abort 2>/dev/null || true
+      _orch_merge_fail "$pr" "rebase on origin/$def conflicts; rebase by hand"
+      return 1
+    fi
+    mkdir -p "$wt/.orch"
+    orch_run_verify "$wt" >"$wt/.orch/merge-verify.log" 2>&1 \
+      || { _orch_merge_fail "$pr" "verify failed after rebase on origin/$def (see $wt/.orch/merge-verify.log)"; return 1; }
+    git -C "$wt" push -q --force-with-lease="$branch:$old" origin "HEAD:$branch" \
+      || { _orch_merge_fail "$pr" "push of the rebased $branch failed"; return 1; }
+    st="$(orch_pr_checks_watch "$pr")" \
+      || { _orch_merge_fail "$pr" "checks ${st:-unknown} after rebase"; return 1; }
+  fi
+  m="$(orch_pr_mergeable "$pr")" \
+    || { _orch_merge_fail "$pr" "not mergeable (mergeable=${m:-UNKNOWN})"; return 1; }
+  head="$(git -C "$wt" rev-parse HEAD)" || return 1
+  if ! err="$(GH_PROMPT_DISABLED=1 gh pr merge "$pr" --rebase --match-head-commit "$head" </dev/null 2>&1)"; then
+    _orch_merge_fail "$pr" "gh pr merge --rebase failed: $(printf '%s' "$err" | tail -n 1)"
+    return 1
+  fi
 }

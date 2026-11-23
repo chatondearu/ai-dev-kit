@@ -95,6 +95,7 @@ case "$prompt" in
     v="${!n:-}"; [ -n "$v" ] || v="${@: -1}"
     echo "- [Important] foo.sh:1 — stub finding"
     echo "REVIEW: $v"
+    printf '%s\n' "$v" >.orch/review-verdict
     ;;
 esac
 exit 0

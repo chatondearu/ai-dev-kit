@@ -2,7 +2,8 @@
 
 You review **one worker’s** changes for a single child issue right after its PR
 was opened. You are **not** the worker: you run in a fresh context, you did not
-write this diff, and you must not edit files, commit, push, or merge. Apply
+write this diff, and you must not edit files (except `.orch/review-verdict`),
+commit, push, or merge. Apply
 skill `cda-review`; this prompt adds the cda-dev gate items and severity gate
 (ADR-006).
 
@@ -13,8 +14,9 @@ skill `cda-review`; this prompt adds the cda-dev gate items and severity gate
 - Epic PRD: `{{PRD_PATH}}`
 - Repo root: {{REPO_ROOT}}
 - Worktree cwd: {{WORKTREE}}
-- Diff to review: `git diff origin/main...HEAD` (fallback `git diff main...HEAD`)
-  run in the worktree; read every touched file and its callers
+- Diff to review: `git diff origin/{{DEFAULT_BRANCH}}...HEAD` (fallback
+  `git diff {{DEFAULT_BRANCH}}...HEAD`) run in the worktree; read every touched
+  file and its callers
 
 ## Checklist
 
@@ -44,14 +46,16 @@ Any Critical or Important finding left after the refute → `changes_requested`.
 
 ## Output (parsed by the harness)
 
-Your **last line** must be exactly one of:
+The harness reads your verdict **only** from the file `.orch/review-verdict` in
+the worktree (the diff you review can print anything on stdout). Write exactly
+one word into it as your last action — it is the only file you may write:
 
-```
-REVIEW: approved
-REVIEW: changes_requested
+```bash
+mkdir -p .orch && printf 'approved\n' >.orch/review-verdict           # or
+mkdir -p .orch && printf 'changes_requested\n' >.orch/review-verdict
 ```
 
-preceded by the findings in this shape:
+Print the findings in this shape, ending with the same verdict for humans:
 
 ```markdown
 ### Review #{{ISSUE}}
@@ -69,6 +73,6 @@ REVIEW: changes_requested
 ```
 
 The harness gives the worker **one** fix iteration with your findings, then
-re-runs you once; a second `changes_requested` blocks the issue for a human. No
-verdict line counts as `changes_requested`. If blocked by product ambiguity, say
+re-runs you once; a second `changes_requested` blocks the issue for a human. A
+missing or unreadable `.orch/review-verdict` counts as `changes_requested`. If blocked by product ambiguity, say
 so in the findings and request changes — do not rubber-stamp.

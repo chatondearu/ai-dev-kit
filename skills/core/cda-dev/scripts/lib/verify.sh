@@ -8,11 +8,12 @@ _orch_extract_agents_verify() {
   local match
   # 0. fenced block under a "Verify" heading (`## … Verify …` or `**Verify …**`)
   #    wins over a trailing `verify:` line (ADR-006): the block is the real suite.
+  #    Comment lines are dropped so the pr-fix allowlist matches the command (#381).
   match="$(awk '
     /^(#+ |\*\*).*Verify/ { seen = 1; next }
     seen && /^```/ { if (in_fence) exit; in_fence = 1; next }
     in_fence { print }
-  ' "$file" | sed -e '/^[[:space:]]*$/d' || true)"
+  ' "$file" | sed -e '/^[[:space:]]*$/d' -e '/^[[:space:]]*#/d' || true)"
   if [ -n "$match" ]; then
     printf '%s\n' "$match"
     return 0

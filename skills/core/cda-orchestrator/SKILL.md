@@ -70,7 +70,7 @@ bash "$CDA_DEV/scripts/orch.sh" --mode ready-pickup --repo <path> --issue 12 --i
 ```
 
 Several issues of one repo → one `orch.sh --repo` call (background). Exit 75 →
-spawn fallback as in hard rules, still with `--repo`. Respect
+report `lock held by run <id>`, never spawn (below). Respect
 `[orchestrator].max_workers`: on the cap error, wait or report — no retry loop.
 On the `low disk` error, run `cdamux worker clean` (finished worktrees only) and retry
 once; still low → report to the owner.
@@ -80,7 +80,7 @@ Report per project (repo → workers → PRs); refs, not pasted transcripts.
 
 | Work | How |
 | ---- | --- |
-| Kanban issue with a plan or agent brief | `orch.sh` sub-run (below); exit 75 → spawn fallback |
+| Kanban issue with a plan or agent brief | `orch.sh` sub-run (below); exit 75 → report, never spawn |
 | Feature or fix in chat, no issue yet | One question round + GO here → **planner worker** (or fast-lane brief for small work, ADR-002) → then dispatch |
 | Research, spike, or trivial fix | `cdamux worker spawn` with a spec (below) |
 | A quick lookup or answer | Do it yourself; no worker |
@@ -108,13 +108,10 @@ kills its workers if cut off. `CDA_DEV` is the `cda-dev` skill folder
 bash "$CDA_DEV/scripts/orch.sh" --mode ready-pickup --repo <repo> --issue 12 --issue 15
 ```
 
-Exit **75** (per-repo lock held): do not wait. For each issue, spawn with the
-plan (or brief) as `--prompt-file`; the worker preamble already does verify /
-review / PR.
-
-```bash
-cdamux worker spawn <issue> --prompt-file <plan-or-brief.md>
-```
+Exit **75** (per-repo lock held): another run is already working that repo,
+maybe on the same issues. Report `lock held by run <id>` (orch.sh prints the id
+on stderr) to the maintainer and stop there. Never spawn workers for those
+issues as a fallback: two workers on one issue race each other's PRs.
 
 One message per worker (`done` / `blocked` / `error`) and one at run end reach
 your inbox.
@@ -195,8 +192,27 @@ spec covers → relay the answer; anything else → escalate to the maintainer.
 
 ## Done → ready to merge
 
+**Pre-merge rule** — the same one `orch.sh` applies before its own merges
+(`orch_merge_pr`). A PR is "ready to merge" only when all of these hold, checked
+right before you say it:
+
+1. Resolve the repo's **default branch** — never assume `main`:
+   `gh repo view --json defaultBranchRef -q .defaultBranchRef.name`.
+2. `git fetch origin <default>`. If the PR head does not contain
+   `origin/<default>` (`git merge-base --is-ancestor origin/<default> <head>`
+   fails, or `gh pr view --json mergeStateStatus` says `BEHIND`), the PR is
+   **not** ready: ask its worker to rebase on `origin/<default>`, re-run the
+   repo verify and push. A sibling merge makes every other open PR behind.
+3. `gh pr view --json mergeable`: `MERGEABLE` only. `UNKNOWN` → wait and ask
+   again; never report `UNKNOWN` as ready.
+4. Merge method is **rebase** (`gh pr merge --rebase`), no fallback: if the
+   repo disallows rebase merges, say so instead of offering another method.
+5. One merge at a time per repo: after the maintainer merges one PR, re-check
+   2–3 for every other PR of that repo before calling it ready.
+
 **From an `orch.sh` worker**: its PR already passed verify, the review gate and
-CI. If orch.sh already merged it (ADR-016 allowlist), report merged. Otherwise
+CI. If orch.sh already merged it (ADR-016 allowlist), report merged. A merge
+failure is an `error`, never `done`. Otherwise apply the pre-merge rule, then
 report it ready to merge. `blocked` / `error` → read the `ref`, then
 `orch.sh --mode pr-fix --pr <N>` (background) or escalate.
 
@@ -210,8 +226,9 @@ report it ready to merge. `blocked` / `error` → read the `ref`, then
    `gh pr checkout` it: the branch is already checked out there.
    Critical/Important → relay them once; still failing after the fix →
    escalate to the maintainer.
-3. If orch.sh already merged (ADR-016 allowlist), report that. Otherwise tell
-   the maintainer the PR is ready to merge. Never merge from this session
+3. If orch.sh already merged (ADR-016 allowlist), report that. Otherwise apply
+   the pre-merge rule above, then tell the maintainer the PR is ready to merge
+   (`gh pr merge --rebase`). Never merge from this session
    (writer self-review is not the ADR-006 gate).
 4. After the merge, offer to remove the worktree; never remove one with
    unpushed commits.

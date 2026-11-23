@@ -109,14 +109,18 @@ On `blocked`, `reason` is a short English sentence; `pr_url` may be null.
 
 ## Exit criteria
 
-A worker is **done** only when its PR is open, the **independent review** said
-`REVIEW: approved`, **and** `gh pr checks` reports green (or the run is
-**blocked** with a documented reason). Then **merge only** if every path in
-the GitHub PR diff **and** the worktree merge-base…HEAD diff is the ADR-016
-allowlist (`foam/board/**`, `prd/`, `plans/`, `foam/decisions/`, other foam
-except `foam/features/**`), pinning `gh pr merge --match-head-commit` to
-worktree HEAD. Otherwise leave the PR open for the maintainer. Never
-force-push to main.
+A worker is **done** only when its PR is open, the **independent review**
+wrote `approved` to `.orch/review-verdict`, **and** `gh pr checks` reports green
+(or the run is **blocked** with a documented reason). Then **merge only** if
+every path in the GitHub PR diff **and** the worktree merge-base…HEAD diff is
+the ADR-016 allowlist (`foam/board/**`, `prd/`, `plans/`, `foam/decisions/`,
+other foam except `foam/features/**`). The merge (`orch_merge_pr`) holds
+`.orch/merge.lock`, fetches `origin/<default>` (resolved, never assumed `main`),
+rebases + re-runs verify + pushes the feature branch (lease on the old head)
+when it is behind, refuses `mergeable=UNKNOWN`, and runs
+`gh pr merge --rebase --match-head-commit <verified HEAD>`. A repo without
+rebase merges or any failed step is an `error`, not `done`. Otherwise leave the
+PR open for the maintainer. Never force-push to the default branch.
 
 In cdamux state (ADR-011 §3), `orch.sh` reports a wait (held by a dependency, no verify
 command, tier ceiling, no CI checks, not mergeable) as `blocked` and a failure (worktree,
@@ -130,14 +134,17 @@ agent loop, review fix, missing PR, red CI, no worker status) as `error`.
    output (`## Previous verify output (failed)`), never the same prompt blind.
    The grounding verifier (`prompts/verifier.md`) runs after a green verify.
 3. **PR must exist** on the branch, else `blocked`.
-4. **Independent review gate**: `prompts/reviewer.md` rendered into a fresh
-   prompt and run in a fresh agent call. The last line must be `REVIEW: approved`
-   or `REVIEW: changes_requested` (no verdict = changes_requested).
+4. **Independent review gate** (also run by `pr-fix`): `prompts/reviewer.md`
+   rendered into a fresh prompt and run in a fresh agent call at the reviewer
+   tier (default `large`). The verdict is read only from `.orch/review-verdict`
+   (`approved` or `changes_requested`; missing = changes_requested), never from
+   stdout.
    `changes_requested` → **one** fix iteration whose prompt carries the findings
    (`.orch/worker-prompt-review-fix.md`) → one re-review → still
    `changes_requested` → `blocked`, reason `review: changes_requested`.
-5. CI checks + mergeable → if ADR-016 allowlist, `gh pr merge` then `done`;
-   else `done` with the PR left open.
+5. CI checks (`ORCH_CI_TIMEOUT`, default 1800 s; a timeout is reported apart
+   from a red check) + `MERGEABLE` → if ADR-016 allowlist, the pre-merge rule
+   above then `done`; else `done` with the PR left open.
 
 ## Verify resolution
 

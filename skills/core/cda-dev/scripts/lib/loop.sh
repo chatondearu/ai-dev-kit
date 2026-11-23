@@ -81,15 +81,19 @@ orch_export_functions() {
 orch_loop_worker() { orch_graph_worker "$@"; }
 
 # Independent review gate (ADR-006): run an already rendered reviewer.md prompt in a
-# fresh agent call, log to RLOG. Returns 0 only on `REVIEW: approved`;
-# `REVIEW: changes_requested` or no verdict → 1 (fail closed).
+# fresh agent call at the reviewer tier (default large, never the worker's escalated
+# tier), log to RLOG. The verdict is read only from the sentinel file
+# .orch/review-verdict (`approved` | `changes_requested`), never from stdout, where the
+# reviewed diff itself can print a verdict line (M14). No file → 1 (fail closed).
 orch_review_run() {
-  local wt="$1" rprompt="$2" rlog="$3"
-  ORCH_ROLE=reviewer orch_agent_run "$wt" "$rprompt" 2>&1 | tee "$rlog" >&2 || true
-  case "$(grep -oE 'REVIEW: *(approved|changes_requested)' "$rlog" | tail -n 1)" in
-    *approved) return 0 ;;
-    *changes_requested) return 1 ;;
-    *) printf 'orch review: no REVIEW verdict in output; treating as changes_requested\n' >&2; return 1 ;;
+  local wt="$1" rprompt="$2" rlog="$3" verdict
+  rm -f "$wt/.orch/review-verdict" 2>/dev/null || true
+  ORCH_TIER= ORCH_ROLE=reviewer orch_agent_run "$wt" "$rprompt" 2>&1 | tee "$rlog" >&2 || true
+  verdict="$(tr -d '[:space:]' <"$wt/.orch/review-verdict" 2>/dev/null || true)"
+  case "$verdict" in
+    approved) return 0 ;;
+    changes_requested) return 1 ;;
+    *) printf 'orch review: no verdict in .orch/review-verdict; treating as changes_requested\n' >&2; return 1 ;;
   esac
 }
 

@@ -225,6 +225,44 @@ orch_ready_done_merged() {
   echo 0 >"$rc_file"
 }
 
+# Independent review gate (ADR-006) shared by ready-pickup and pr-fix: reviewer.md in a
+# fresh agent context; changes_requested → exactly one fix iteration, one re-review.
+# Args: worktree, worker prompt, worker env (for the fix iteration), then KEY=VALUE pairs
+# for reviewer.md. 0 = approved, 1 = blocked (reason in ORCH_REVIEW_FAIL), 2 = the PR
+# was merged by the maintainer mid-review (ready-pickup only).
+orch_review_gate() {
+  local path="$1" worker_prompt="$2" worker_env="$3"
+  shift 3
+  local round review_prompt review_log fix_prompt loop_rc label="${ORCH_WORKER_ID:-review}" def
+  def="${ORCH_DEFAULT_BRANCH:-$(git -C "$ORCH_REPO" branch --show-current 2>/dev/null)}"
+  ORCH_REVIEW_FAIL=""
+  for round in 1 2; do
+    if [ -n "${ORCH_WORKER_BRANCH:-}" ] && [ "$(orch_pr_state "$ORCH_WORKER_BRANCH")" = "MERGED" ]; then
+      return 2
+    fi
+    review_prompt="$path/.orch/reviewer-prompt-${round}.md"
+    review_log="$path/.orch/review-${round}.log"
+    orch_render_prompt "$ORCH_ROOT/../prompts/reviewer.md" "$review_prompt" \
+      "WORKTREE=$path" "REPO_ROOT=$ORCH_REPO" "DEFAULT_BRANCH=$def" "$@"
+    [ -z "${ORCH_WORKER_ID:-}" ] || orch_progress_set "$label" review "reviewer round ${round}${ORCH_REVIEW_PR:+ (PR #$ORCH_REVIEW_PR)}"
+    if orch_sandbox_wrap bash -c "$worker_env orch_review_run \"$path\" \"$review_prompt\" \"$review_log\""; then
+      return 0
+    fi
+    if [ "$round" -eq 2 ]; then
+      ORCH_REVIEW_FAIL="review: changes_requested (see $review_log)"
+      return 1
+    fi
+    fix_prompt="$(orch_review_fix_prompt "$worker_prompt" "$path" "$review_log")"
+    [ -z "${ORCH_WORKER_ID:-}" ] || orch_progress_set "$label" agent "review fix iteration"
+    loop_rc=0
+    orch_sandbox_wrap bash -c "$worker_env ORCH_MAX_ITER=1 orch_loop_worker \"$path\" \"$fix_prompt\"" || loop_rc=$?
+    if [ "$loop_rc" -ne 0 ]; then
+      ORCH_REVIEW_FAIL="review fix iteration failed"
+      return 1
+    fi
+  done
+}
+
 # Run one ready-pickup worker end-to-end. Writes $ORCH_REPO/.orch/run/<id>.rc (0|1).
 orch_ready_pickup_one() {
   local id="$1"
@@ -253,7 +291,8 @@ orch_ready_pickup_one() {
     echo 1 >"$rc_file"
     return 1
   fi
-  if ! orch_worktree_add "$ORCH_REPO" "$id" "$slug" "$branch" HEAD; then
+  # ORCH_BASE = origin/<default>, fetched once at run start (Q11, H6).
+  if ! orch_worktree_add "$ORCH_REPO" "$id" "$slug" "$branch" "${ORCH_BASE:-HEAD}"; then
     orch_progress_set "$id" error "worktree create failed"
     if ! orch_progress_enabled; then
       printf 'blocked: failed to create worktree for issue %s\n' "$id" >&2
@@ -285,10 +324,11 @@ orch_ready_pickup_one() {
   orch_resolve_context "$ORCH_REPO" "$id" "$body"
   [ -z "$title" ] && title="N/A"
 
+  # Worktree first: it holds the fetched default branch; the local checkout may be stale (H6).
   plan_path="N/A"
   for p in \
-    "$ORCH_REPO"/plans/PLAN-"$id"-*.md \
-    "$path"/plans/PLAN-"$id"-*.md
+    "$path"/plans/PLAN-"$id"-*.md \
+    "$ORCH_REPO"/plans/PLAN-"$id"-*.md
   do
     if [ -f "$p" ]; then
       case "$p" in
@@ -427,69 +467,48 @@ EOF
 
   orch_cdamux_publish_links "$id" "$id" "$pr_json"
 
-  # Independent review gate (ADR-006): reviewer.md in a fresh agent context.
-  # changes_requested → exactly one fix iteration, one re-review, then blocked.
-  local round
-  for round in 1 2; do
-    if [ "$(orch_pr_state "$branch")" = "MERGED" ]; then
-      orch_ready_done_merged "$id" "$path" "$rc_file"
-      return 0
+  local gate_rc=0
+  ORCH_REVIEW_PR="$pr_num" orch_review_gate "$path" "$worker_prompt" "$worker_env" \
+    "ISSUE=$id" "TITLE=$title" "PLAN_PATH=$plan_path" "BRIEF_PATH=$brief_path" \
+    "PRD_PATH=$ORCH_PRD_PATH" || gate_rc=$?
+  if [ "$gate_rc" -eq 2 ]; then
+    orch_ready_done_merged "$id" "$path" "$rc_file"
+    return 0
+  fi
+  if [ "$gate_rc" -ne 0 ]; then
+    orch_progress_set "$id" error "$ORCH_REVIEW_FAIL"
+    if ! orch_progress_enabled; then
+      printf 'blocked: issue %s %s\n' "$id" "$ORCH_REVIEW_FAIL" >&2
     fi
-    review_prompt="$path/.orch/reviewer-prompt-${round}.md"
-    review_log="$path/.orch/review-${round}.log"
-    orch_render_prompt "$ORCH_ROOT/../prompts/reviewer.md" "$review_prompt" \
-      "ISSUE=$id" \
-      "WORKTREE=$path" \
-      "REPO_ROOT=$ORCH_REPO" \
-      "TITLE=$title" \
-      "PLAN_PATH=$plan_path" \
-      "BRIEF_PATH=$brief_path" \
-      "PRD_PATH=$ORCH_PRD_PATH"
-    orch_progress_set "$id" review "reviewer round ${round} (PR #${pr_num})"
-    if orch_sandbox_wrap bash -c "$worker_env orch_review_run \"$path\" \"$review_prompt\" \"$review_log\""; then
-      break
-    fi
-    if [ "$round" -eq 2 ]; then
-      orch_progress_set "$id" error "review: changes_requested"
-      if ! orch_progress_enabled; then
-        printf 'blocked: issue %s review: changes_requested (see %s)\n' "$id" "$review_log" >&2
-      fi
-      echo 1 >"$rc_file"
-      return 1
-    fi
-    fix_prompt="$(orch_review_fix_prompt "$worker_prompt" "$path" "$review_log")"
-    orch_progress_set "$id" agent "review fix iteration"
-    loop_rc=0
-    orch_sandbox_wrap bash -c "$worker_env ORCH_MAX_ITER=1 orch_loop_worker \"$path\" \"$fix_prompt\"" || loop_rc=$?
-    if [ "$loop_rc" -ne 0 ]; then
-      orch_progress_set "$id" error "review fix iteration failed"
-      if ! orch_progress_enabled; then
-        printf 'blocked: review fix iteration failed for issue %s\n' "$id" >&2
-      fi
-      echo 1 >"$rc_file"
-      return 1
-    fi
-  done
+    echo 1 >"$rc_file"
+    return 1
+  fi
 
   orch_progress_set "$id" ci "PR #${pr_num} checks"
   local ci_status=""
-  ci_status="$(orch_pr_checks_watch "$pr_num" 600)" || {
+  ci_status="$(orch_pr_checks_watch "$pr_num")" || {
     if [ "$ci_status" = "none" ]; then
       orch_progress_set "$id" blocked "no checks on PR #${pr_num} (set orch: allow-no-checks)"
       if ! orch_progress_enabled; then
         printf 'blocked: PR %s has no checks (issue %s); set ORCH_ALLOW_NO_CHECKS=1 or AGENTS.md `orch: allow-no-checks`\n' \
           "$pr_num" "$id" >&2
       fi
-    else
-      orch_progress_set "$id" error "CI failed/timeout PR #${pr_num}"
+    elif [ "$ci_status" = "timeout" ]; then
+      orch_progress_set "$id" error "CI timeout after ${ORCH_CI_TIMEOUT:-1800}s PR #${pr_num}"
       if ! orch_progress_enabled; then
-        printf 'blocked: CI checks failed or pending timeout for PR %s (issue %s)\n' "$pr_num" "$id" >&2
+        printf 'blocked: CI checks still pending after %ss for PR %s (issue %s; ORCH_CI_TIMEOUT)\n' \
+          "${ORCH_CI_TIMEOUT:-1800}" "$pr_num" "$id" >&2
+      fi
+    else
+      orch_progress_set "$id" error "CI failed PR #${pr_num}"
+      if ! orch_progress_enabled; then
+        printf 'blocked: CI checks failed for PR %s (issue %s)\n' "$pr_num" "$id" >&2
       fi
     fi
     echo 1 >"$rc_file"
     return 1
   }
-  if ! m="$(orch_pr_mergeable "$pr_num")" || { [ "$m" != "MERGEABLE" ] && [ "$m" != "UNKNOWN" ]; }; then
+  if ! m="$(orch_pr_mergeable "$pr_num")"; then
     orch_progress_set "$id" blocked "not mergeable (${m:-UNKNOWN})"
     if ! orch_progress_enabled; then
       printf 'blocked: PR %s is not mergeable (mergeable=%s)\n' "$pr_num" "${m:-UNKNOWN}" >&2
@@ -499,17 +518,31 @@ EOF
   fi
   # ADR-016: self-merge only when the committed diff is the meta allowlist.
   # Product / doc / skills diffs stay open for the maintainer. Never force-push.
-  if orch_meta_try_merge "$pr_num" "$path"; then
-    orch_progress_set "$id" done "PR #${pr_num} merged (ADR-016 allowlist)"
-    if ! orch_progress_enabled; then
-      printf 'done: issue %s (PR %s merged, ADR-016 allowlist)\n' "$id" "$pr_num"
-    fi
-  else
-    orch_progress_set "$id" done "PR #${pr_num} green (${m})"
-    if ! orch_progress_enabled; then
-      printf 'done: issue %s (PR %s checks green, mergeable=%s)\n' "$id" "$pr_num" "$m"
-    fi
-  fi
+  # A failed merge is an error, never done (Q4, H1).
+  local merge_rc=0
+  orch_meta_try_merge "$pr_num" "$path" "$branch" || merge_rc=$?
+  case "$merge_rc" in
+    0)
+      orch_progress_set "$id" done "PR #${pr_num} merged (ADR-016 allowlist)"
+      if ! orch_progress_enabled; then
+        printf 'done: issue %s (PR %s merged, ADR-016 allowlist)\n' "$id" "$pr_num"
+      fi
+      ;;
+    1)
+      orch_progress_set "$id" done "PR #${pr_num} green (${m})"
+      if ! orch_progress_enabled; then
+        printf 'done: issue %s (PR %s checks green, mergeable=%s)\n' "$id" "$pr_num" "$m"
+      fi
+      ;;
+    *)
+      orch_progress_set "$id" error "merge failed PR #${pr_num}: ${ORCH_MERGE_ERROR}"
+      if ! orch_progress_enabled; then
+        printf 'error: issue %s (PR %s merge failed: %s)\n' "$id" "$pr_num" "$ORCH_MERGE_ERROR" >&2
+      fi
+      echo 1 >"$rc_file"
+      return 1
+      ;;
+  esac
 
   if [ "${ORCH_FORCE_CLEAN:-0}" = "1" ]; then
     orch_worktree_remove "$ORCH_REPO" "$path"
@@ -538,6 +571,7 @@ case "$MODE" in
     [ "${#ISSUES[@]}" -gt 0 ] || { echo "need --issue"; exit 2; }
     if [ "$DRY" != 1 ]; then
       orch_acquire_lock
+      orch_sync_default "$REPO" || exit 1
     fi
     any_blocked=0
     HELD_IDS=(); HELD_REASON=()
@@ -722,6 +756,7 @@ case "$MODE" in
     echo "pr-fix pr=$PR dry=$DRY"
     if [ "$DRY" = 0 ]; then
       orch_acquire_lock
+      orch_sync_default "$REPO" || exit 1
       export ORCH_VERIFY_TRUST=untrusted
       pr_clean="${PR%/}"
       while [ "${pr_clean%/}" != "$pr_clean" ]; do
@@ -808,17 +843,28 @@ case "$MODE" in
         exit 1
       fi
 
-      ci_status="$(orch_pr_checks_watch "$num" 600)" || {
+      # Same independent review gate as ready-pickup (M12): pr-fix output is reviewed too.
+      pr_title="$(gh pr view "$num" --json title -q .title 2>/dev/null || echo "N/A")"
+      if ! orch_review_gate "$path" "$prompt_file" "ORCH_WT=\"$path\" ORCH_ROLE=pr-fix" \
+        "ISSUE=pr-$num" "TITLE=$pr_title" "PLAN_PATH=N/A" "BRIEF_PATH=N/A" "PRD_PATH=none"; then
+        orch_graph_finish blocked
+        printf 'blocked: PR %s %s\n' "$num" "${ORCH_REVIEW_FAIL:-review gate failed}" >&2
+        exit 1
+      fi
+
+      ci_status="$(orch_pr_checks_watch "$num")" || {
         orch_graph_finish blocked
         if [ "$ci_status" = "none" ]; then
           printf 'blocked: PR %s has no checks; set ORCH_ALLOW_NO_CHECKS=1 or AGENTS.md `orch: allow-no-checks`\n' "$num" >&2
+        elif [ "$ci_status" = "timeout" ]; then
+          printf 'blocked: CI checks still pending after %ss for PR %s (ORCH_CI_TIMEOUT)\n' "${ORCH_CI_TIMEOUT:-1800}" "$num" >&2
         else
-          printf 'blocked: CI checks failed or pending timeout for PR %s\n' "$num" >&2
+          printf 'blocked: CI checks failed for PR %s\n' "$num" >&2
         fi
         exit 1
       }
       m=""
-      if ! m="$(orch_pr_mergeable "$num")" || { [ "$m" != "MERGEABLE" ] && [ "$m" != "UNKNOWN" ]; }; then
+      if ! m="$(orch_pr_mergeable "$num")"; then
         orch_graph_finish blocked
         printf 'blocked: PR %s is not mergeable (mergeable=%s)\n' "$num" "${m:-UNKNOWN}" >&2
         exit 1

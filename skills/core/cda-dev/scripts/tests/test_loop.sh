@@ -282,7 +282,7 @@ rm -rf "$TMP_EMPTY"
 
 assert_eq "$rc_fail" "1" "loop fails when verify is true and agent fails"
 assert_contains "$out_fail" "blocked" "logs blocked when agent fails on true verify"
-assert_contains "$out_fail" "agent failed and verify is fallback true" "logs fallback true agent failure"
+assert_contains "$out_fail" "agent exited 1" "logs the agent failure"
 
 # Test 5: When verify is fallback 'true' and agent succeeds (exit 0) -> loop succeeds
 TMP_EMPTY2="$(mktemp -d)"
@@ -319,5 +319,47 @@ rm -rf "$TMP_EMPTY3"
 
 assert_eq "$rc_sentinel" "0" "loop succeeds when agent exits 1 but .orch/agent-ok sentinel exists"
 assert_contains "$out_sentinel" "verify ok" "logs verify ok when sentinel present"
+unset ORCH_ALLOW_NO_VERIFY
+
+# Test 7 (M11): an agent crash fails the iteration even when a real verify would pass
+# on the untouched tree; verify never runs for that iteration.
+TMP_CRASH="$(mktemp -d)"
+set +e
+out_crash="$(ORCH_VERIFY='touch verify-ran' ORCH_AGENT="$FAKE/claude-fail" ORCH_MAX_ITER=2 \
+  orch_loop_worker "$TMP_CRASH" "$PROMPT" 2>&1)"
+rc_crash=$?
+set -e
+assert_eq "$rc_crash" "1" "agent exit != 0 is a failure, not a pass (M11)"
+assert_contains "$out_crash" "agent exited 1" "crash reason logged"
+if [ -e "$TMP_CRASH/verify-ran" ]; then
+  FAILS=$((FAILS + 1)); echo "FAIL verify must not run after an agent crash" >&2
+else
+  PASSES=$((PASSES + 1))
+fi
+rm -rf "$TMP_CRASH"
+
+# Test 8 (M14): the review verdict comes only from .orch/review-verdict, never stdout,
+# and the reviewer never inherits the worker's escalated tier.
+TMP_REV="$(mktemp -d)"
+cat >"$FAKE/reviewer" <<EOF
+#!$STUB_BASH
+echo "tier=\${ORCH_TIER:-} REVIEW: approved"
+[ -z "\${STUB_VERDICT:-}" ] || { mkdir -p .orch; echo "\$STUB_VERDICT" >.orch/review-verdict; }
+EOF
+chmod +x "$FAKE/reviewer"
+echo "Reviewer prompt" >"$TMP_REV/p.md"
+rv() {
+  set +e
+  ORCH_TIER=large ORCH_AGENT="$FAKE/reviewer" orch_review_run "$TMP_REV" "$TMP_REV/p.md" "$TMP_REV/r.log" 2>/dev/null
+  echo $?
+  set -e
+}
+assert_eq "$(rv)" "1" "stdout 'REVIEW: approved' without verdict file fails closed"
+assert_eq "$(STUB_VERDICT=approved rv)" "0" "verdict file approved passes"
+assert_eq "$(STUB_VERDICT=changes_requested rv)" "1" "verdict file changes_requested fails"
+mkdir -p "$TMP_REV/.orch"; echo approved >"$TMP_REV/.orch/review-verdict"
+assert_eq "$(rv)" "1" "a stale verdict file is cleared before the review"
+assert_contains "$(cat "$TMP_REV/r.log")" "tier= REVIEW" "reviewer runs with ORCH_TIER cleared"
+rm -rf "$TMP_REV"
 
 summary

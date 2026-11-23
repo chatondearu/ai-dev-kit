@@ -60,11 +60,11 @@ assert_contains "$(cat "$TMP/err")" "taking over stale lock" "logs the takeover"
 
 echo "# live pid -> exit 75, lock untouched"
 sleep 30 & live=$!
-mkdir -p "$LOCKD"; echo "$live" >"$LOCKD/pid"
+mkdir -p "$LOCKD"; echo "$live" >"$LOCKD/pid"; echo 20261123T000000Z >"$LOCKD/run"
 set +e; out="$(acquire)"; rc=$?; set -e
 kill "$live" 2>/dev/null || true
 assert_eq "$rc" "75" "live owner -> 75"
-assert_contains "$(cat "$TMP/err")" "another run holds" "reports contention"
+assert_contains "$(cat "$TMP/err")" "lock held by run 20261123T000000Z" "reports the run holding the lock (Q11)"
 assert_eq "$(cat "$LOCKD/pid")" "$live" "live owner's pid file kept"
 rm -rf "$LOCKD"
 

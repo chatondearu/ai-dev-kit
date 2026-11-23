@@ -58,8 +58,11 @@ Epic table: [templates/epic-breakdown.md](templates/epic-breakdown.md).
    worktree `git diff --name-only --no-renames` merge-base…HEAD is
    `foam/board/**`, `prd/`, `plans/`, `foam/decisions/`, or other foam that
    does not change product status (`foam/features/**` fail closed). Then
-   **orch.sh** `gh pr merge --match-head-commit` (repo default method) after
-   verify + independent review (`REVIEW: approved`) + checks green-or-none.
+   **orch.sh** `gh pr merge --rebase --match-head-commit` after verify +
+   independent review (`.orch/review-verdict` = `approved`) + checks
+   green-or-none, under the per-repo merge lock, after fetching the default
+   branch (rebase + re-verify when behind; `mergeable=UNKNOWN` refused; a repo
+   without rebase merges or a failed merge is an `error`).
    Workers never merge themselves (ADR-006: writer self-review is not the
    gate). Any other path → leave the PR open. Never force-push to main/master.
 5. Harness uses portable bash / `git` / `gh` only — no proprietary IDE APIs.

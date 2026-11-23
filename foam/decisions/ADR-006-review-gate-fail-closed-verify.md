@@ -100,3 +100,10 @@ lazy worker is caught by nobody before the operator opens the PR.
   caller) and survives a refute pass, in a fresh sub-agent when the host
   can start one; unproven findings are dropped. Levels, the verdict line and
   the one-fix loop are unchanged.
+- **2026-11-23** (orchestration audit M12/M14): the verdict is read only from
+  the sentinel file `.orch/review-verdict` (`approved` | `changes_requested`),
+  cleared before each review; stdout no longer counts, since the reviewed diff
+  can print a verdict line. The reviewer runs at tier `large` by default and
+  never inherits the worker's escalated `ORCH_TIER`. `pr-fix` runs the same
+  gate (one fix iteration, one re-review). Harness test stubs write
+  `.orch/review-verdict` instead of printing `REVIEW: approved`.

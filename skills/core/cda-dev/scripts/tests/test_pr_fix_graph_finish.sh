@@ -37,8 +37,14 @@ export ORCH_RUN_ID="prfix-finish-1"
 
 cat >"$STUB_BIN/stub-agent" <<EOF
 #!/usr/bin/env bash
-cat >/dev/null
-touch "$TMP/agent-ran"
+case "\$(cat)" in
+  *"Reviewer prompt"*)
+    mkdir -p .orch
+    echo "\${STUB_REVIEW:-approved}" >.orch/review-verdict
+    echo x >>"$TMP/reviews"
+    ;;
+  *) touch "$TMP/agent-ran" ;;
+esac
 EOF
 chmod +x "$STUB_BIN/stub-agent"
 
@@ -86,5 +92,17 @@ else
   assert_eq "missing-ended" "has-ended" "pr-fix finish sets ended_at"
 fi
 assert_contains "$out" "done: PR 77" "success message"
+assert_eq "$(wc -l <"$TMP/reviews" | tr -d ' ')" "1" "pr-fix runs the independent review gate (M12)"
+
+echo "# pr-fix: two changes_requested reviews block the PR (M12)"
+rm -f "$TMP/reviews"
+export ORCH_RUN_ID="prfix-finish-2"
+set +e
+out="$(STUB_REVIEW=changes_requested bash "$SCRIPTS/orch.sh" --repo "$R" --mode pr-fix --pr 77 --agent "$STUB_BIN/stub-agent" 2>&1)"
+rc=$?
+set -e
+assert_eq "$rc" "1" "pr-fix blocked after two changes_requested"
+assert_contains "$out" "blocked: PR 77 review: changes_requested" "review block reason"
+assert_eq "$(wc -l <"$TMP/reviews" | tr -d ' ')" "2" "one fix iteration then one re-review"
 
 summary

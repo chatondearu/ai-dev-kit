@@ -17,8 +17,8 @@ Host readiness (checks only, never installs):
 `cdamux orch new [--agent X]` starts one long-lived session you chat with; it
 follows skill `cda-orchestrator`: it never edits or verifies itself. Chat
 requests get one question round + GO, then a planner worker (or fast-lane brief)
-before dispatch. Kanban issues go to an `orch.sh` sub-run (exit 75 →
-`cdamux worker spawn` with the plan as spec); research and small fixes to
+before dispatch. Kanban issues go to an `orch.sh` sub-run (exit 75 → report
+`lock held by run <id>`, never spawn duplicates); research and small fixes to
 interactive workers; results via `cdamux msg`. After dispatch it ends the turn
 and waits for a nudge. The boot prompt is delivered via
 `$CDAMUX_HOME/prompts/<host>.md` on the client command line (same path as
@@ -102,8 +102,18 @@ nothing to fix` with no agent run and no checkout.
 
 Per issue the harness runs: worker loop (agent → verify, retry prompt carries
 the failed verify output or verifier findings) → PR exists → **independent review** (fresh
-`reviewer.md` agent; `REVIEW: changes_requested` gives the worker one fix
-iteration, then re-review once, then `blocked`) → CI green + mergeable → `done`.
+`reviewer.md` agent at tier `large`, verdict read from `.orch/review-verdict`;
+`changes_requested` gives the worker one fix iteration, then re-review once, then
+`blocked`) → CI green + `MERGEABLE` → `done`. `pr-fix` runs the same review gate.
+
+Ready-pickup fetches the repo's default branch (resolved from `origin`, never
+assumed `main`) and cuts every worktree from `origin/<default>`, so a plan merged
+upstream is found even when the local checkout is stale. An agent that exits
+non-zero fails its iteration (no verify on an untouched tree). An ADR-016 merge
+holds `.orch/merge.lock` (sibling workers merge one at a time), fetches again,
+rebases + re-runs verify + pushes when the branch is behind, refuses
+`mergeable=UNKNOWN`, and merges with `gh pr merge --rebase` only; a repo that
+disallows rebase merges, or any failed step, ends the issue `error`.
 Before each graph iteration, before PR lookup, and before each review round it
 checks the branch PR state (`gh pr list --state all`): **MERGED** → `done`
 (`merged by maintainer`), no further pushes. Lookup accepts OPEN or MERGED.

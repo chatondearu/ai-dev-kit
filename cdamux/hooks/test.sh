@@ -21,6 +21,9 @@ if [ "$pid" -lt "$B" ]; then i=0; else i=$((pid - B)); fi
 shift "$i"; echo "$((B + i + 1)) $1"
 PS
 chmod +x "$tmp/bin/tmux" "$tmp/bin/ps"
+# macOS scans a new executable on its first exec; on a loaded host that outlasts the hooks'
+# 1 s tmux/ps timeout and the first ledger line is lost. Warm both stubs (see cdamux below).
+"$tmp/bin/tmux" >/dev/null; "$tmp/bin/ps" >/dev/null 2>&1 || true
 # Run from a cdamux worker, the inherited home/agent would send fixtures into live state.
 unset CDAMUX_HOME CDAMUX_AGENT_ID
 export PATH="$tmp/bin:$PATH" HOME="$tmp/home" XDG_STATE_HOME="$tmp/state" TMUX="/tmp/fake,1,0" TMUX_PANE="%1"

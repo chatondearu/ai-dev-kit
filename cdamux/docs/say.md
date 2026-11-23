@@ -20,12 +20,12 @@ cdamux say c-orch  --from alice --json "stop after this task"
 - The prompt reaches the pane as `[<label>] text`, pasted with Enter. The label is one
   line of at most 64 bytes, without control characters or `[` / `]` (no forged prefix). The text may hold
   `\n` and `\t`; any other control character (`\r`, ESC, …) or more than 2 KB → exit 2.
-- **At rest** — reported status `idle`, a sticky `done` / `error` (a turn end does not
-  lift those to `idle`), or none (no hooks), and a pane quiet for ≥ 10 s —
+- **At rest** — reported status `idle`, a sticky `done` / `error` / `blocked` (a turn
+  end does not lift those to `idle`), or none (no hooks), and a pane quiet for ≥ 10 s —
   → pasted at once, outcome `delivered`. Right after a turn end the pane still counts
   as active, so `say` waits out the rest of the 10 s once (the call blocks up to 10 s).
 - **Anything else** — mid-turn (`working`), a permission prompt (`needs_input`: the
-  paste's Enter would answer it), sticky `blocked`, no pane — → queued, outcome `queued`.
+  paste's Enter would answer it), no pane — → queued, outcome `queued`.
 - The queue is `$CDAMUX_HOME/say/<orch-id>.jsonl`: persistent, FIFO. The next turn end
   of that orchestrator pastes **one** queued prompt; the paste starts a turn, so the
   following prompt waits for the one after. Nothing is pasted during a running turn:

@@ -87,7 +87,7 @@ fn queue_push(orch: &str, q: &Queued) -> Result<(), MsgError> {
 /// and drop it from the queue; returns its id. The lock spans the check, the paste and the
 /// drop, and the drop only follows a successful paste: a hook killed mid-way repeats a
 /// prompt rather than losing it, and two callers never paste twice. A pasted prompt marks
-/// a hooked orchestrator at rest (`idle`, sticky `done` / `error`) `working` under the same
+/// a hooked orchestrator at rest (`idle`, sticky `done` / `error` / `blocked`) `working` under the same
 /// lock, so a concurrent `say` or drain queues until the turn's `Stop` hook reports `idle`.
 fn deliver_next(
     orch: &str,
@@ -114,7 +114,12 @@ fn deliver_next(
         write_atomic(&path, rest.as_bytes())?;
         if matches!(
             load_reported_status(orch),
-            Some(SessionState::Idle | SessionState::Done | SessionState::Error)
+            Some(
+                SessionState::Idle
+                    | SessionState::Done
+                    | SessionState::Error
+                    | SessionState::Blocked
+            )
         ) {
             // Best effort: the prompt is already delivered; an error must not invite a retry.
             let _ = state_append(StateKind::Agents, orch, &json!({ "status": "working" }));
@@ -157,7 +162,7 @@ fn check_text(s: &str) -> Result<(), MsgError> {
 }
 
 /// Deliver `text` to an orchestrator as a human prompt `[from] text`: pasted when it is
-/// at rest (reported `idle`, sticky `done` / `error`, or no status, and a quiet pane), else queued for its next turn
+/// at rest (reported `idle`, sticky `done` / `error` / `blocked`, or no status, and a quiet pane), else queued for its next turn
 /// end ([`say_drain`]). A `needs_input` orchestrator waits on a permission prompt, where
 /// the paste's Enter would answer it, so that is queued too. One `human` event per call.
 ///

@@ -128,12 +128,16 @@ an agent id, tmux host, or worker `name` (slice 2).
 
 Delivery:
 
-- **Worker** (`role=worker`): when its status is `idle`, `done`, `error` or unset (no
-  hooks) and the pane has been quiet ≥ 10 s, also pastes `text` into the worker pane
-  (`send_to_session`) and acks that line when the cursor sat right before it. Otherwise
-  (mid-turn, permission prompt, recent activity) the line stays unread and the status
-  hook's digest delivers it at the next prompt submit or turn end: a paste ends with
-  Enter and would merge with what the user is typing.
+- **Worker** (`role=worker`): when its status is `idle`, `done`, `error`, `blocked` or
+  unset (no hooks) and the pane has been quiet ≥ 10 s, also pastes `text` into the worker
+  pane (`send_to_session`) and acks that line when the cursor sat right before it.
+  Otherwise (mid-turn, permission prompt, recent activity) the line stays unread and the
+  status hook's digest delivers it at the next prompt submit or turn end: a paste ends
+  with Enter and would merge with what the user is typing. A `blocked` worker (it asked
+  and ended its turn) has no turn end left, so only a paste reaches it; any parent line
+  (`relay`, not only `answer`) is pasted and its prompt lifts `blocked` (#402).
+  Delivery never reads the input line: a Claude Code prompt suggestion (grey ghost
+  text) is not a draft, and the paste replaces it.
 - **Orchestrator / other**: append only; when status is `idle` and the pane has been
   quiet ≥ 10 s, clears the input line (`C-u`) then types `📨 N messages — cdamux msg
   read --ack` into the pane (no daemon).

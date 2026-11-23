@@ -232,11 +232,16 @@ pub fn should_nudge(
 }
 
 /// Paste into a worker pane only after a finished turn (`idle`, or sticky `done` /
-/// `error`; no status = no hooks, so the quiet pane alone decides) and the nudge's quiet
-/// window: the paste ends with Enter, so on a busy, a just-active or a permission-prompt
-/// pane it would merge with (and submit) what the user is typing, or answer the prompt.
-/// Otherwise the message stays in the inbox and the status hook's digest delivers it at
-/// the worker's next prompt submit or turn end.
+/// `error` / `blocked`; no status = no hooks, so the quiet pane alone decides) and the
+/// nudge's quiet window: the paste ends with Enter, so on a busy, a just-active or a
+/// permission-prompt pane it would merge with (and submit) what the user is typing, or
+/// answer the prompt. Otherwise the message stays in the inbox and the status hook's
+/// digest delivers it at the worker's next prompt submit or turn end.
+/// A `blocked` agent waits on its parent with no turn left to end: only a paste reaches
+/// it, and the pasted prompt lifts `blocked` to `working` (#402).
+/// shortcut: a sticky status hides a later permission prompt (hooks keep it over
+/// `needs_input`), so a worker that asks or reports done and keeps going can get the
+/// paste on that prompt; upgrade if hooks ever record `needs_input` under a sticky status.
 pub fn should_paste(
     status: Option<SessionState>,
     idle_seconds: Option<u32>,
@@ -244,7 +249,9 @@ pub fn should_paste(
 ) -> bool {
     matches!(
         status,
-        None | Some(SessionState::Idle | SessionState::Done | SessionState::Error)
+        None | Some(
+            SessionState::Idle | SessionState::Done | SessionState::Error | SessionState::Blocked
+        )
     ) && idle_seconds.is_some_and(|s| s >= quiet_secs.max(1))
 }
 
@@ -864,11 +871,16 @@ mod tests {
 
     #[test]
     fn paste_requires_finished_turn_and_quiet() {
-        for s in [SessionState::Idle, SessionState::Done, SessionState::Error] {
+        for s in [
+            SessionState::Idle,
+            SessionState::Done,
+            SessionState::Error,
+            SessionState::Blocked,
+        ] {
             assert!(should_paste(Some(s), Some(10), 10));
             assert!(!should_paste(Some(s), Some(5), 10));
         }
-        for s in [SessionState::Working, SessionState::NeedsInput, SessionState::Blocked] {
+        for s in [SessionState::Working, SessionState::NeedsInput] {
             assert!(!should_paste(Some(s), Some(60), 10));
         }
         assert!(should_paste(None, Some(60), 10));

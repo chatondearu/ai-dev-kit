@@ -107,7 +107,7 @@ fn append_at(live: &Path, mut item: Map<String, Value>, segment_max: u64) -> io:
         obj.append(&mut item);
         // A torn last line (failed write) stays its own unparseable line.
         let sep = if ends_without_newline(live)? { "\n" } else { "" };
-        let mut f = std::fs::OpenOptions::new().create(true).append(true).open(live)?;
+        let mut f = crate::paths::private_file_options().append(true).open(live)?;
         f.write_all(format!("{sep}{}\n", Value::Object(obj)).as_bytes())?;
         Ok(cursor)
     })

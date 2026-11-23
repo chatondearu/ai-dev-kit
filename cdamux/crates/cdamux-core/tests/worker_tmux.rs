@@ -64,7 +64,11 @@ fn spawn_ls_peek_and_msg_by_name() {
     // Stub agent CLI: print its args (the first prompt arrives on the command
     // line) and keep the pane alive so peek / msg paste work.
     let stub = bin.join("claude");
-    std::fs::write(&stub, "#!/bin/sh\nprintf '%s\\n' \"$@\"\nexec sleep 30\n").unwrap();
+    std::fs::write(
+        &stub,
+        "#!/bin/sh\nprintf '%s\\n' \"$@\" | tee \"$0.args\"\nexec sleep 30\n",
+    )
+    .unwrap();
     use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o755)).unwrap();
     std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
@@ -219,6 +223,25 @@ fn spawn_ls_peek_and_msg_by_name() {
         prompt_pane.contains("cdamux msg"),
         "worker preamble missing from pane: {prompt_pane}"
     );
+    // ADR-019: claude workers start in dontAsk with the rendered allowlist + push guard.
+    assert!(tmp.path().join("cdamux/settings/worker-push-guard.mjs").is_file());
+    let settings = tmp.path().join("cdamux/settings").join(format!("{}.json", out.host));
+    let args = std::fs::read_to_string(bin.join("claude.args")).unwrap();
+    assert!(args.starts_with("--permission-mode\ndontAsk\n--settings\n"), "{args}");
+    assert!(args.contains(&settings.display().to_string()), "{args}");
+    let rendered: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&settings).unwrap()).unwrap();
+    assert!(rendered["permissions"]["deny"]
+        .as_array()
+        .unwrap()
+        .contains(&serde_json::json!("Bash(gh pr merge *)")));
+    // No origin → default branch unknown → no push allowed (fail closed).
+    assert!(!rendered.to_string().contains("git push origin"), "{rendered}");
+    // L4: state is owner-only.
+    let mode = |p: &std::path::Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode(&tmp.path().join("cdamux")), 0o700);
+    assert_eq!(mode(&settings), 0o600);
+    assert_eq!(mode(&tmp.path().join("cdamux/prompts").join(format!("{}.md", out.host))), 0o600);
     let peek = peek_worker("a-orch1", "api", 20).unwrap();
     // Pane wrap can split the paste across lines; flatten whitespace for the check.
     let peek_flat: String = peek.chars().filter(|c| !c.is_whitespace()).collect();

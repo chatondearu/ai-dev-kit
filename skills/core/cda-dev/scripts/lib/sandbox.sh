@@ -36,6 +36,10 @@ orch_sandbox_wrap() {
   if [ -n "$tiers" ] && [ -r "$tiers" ]; then
     args+=(--ro-bind "$tiers" "$tiers")
   fi
+  # Worker permission template + push guard (ADR-019), rendered inside the sandbox.
+  if [ -n "${ORCH_SETTINGS_TEMPLATE:-}" ] && [ -r "$ORCH_SETTINGS_TEMPLATE" ]; then
+    args+=(--ro-bind "$(dirname "$ORCH_SETTINGS_TEMPLATE")" "$(dirname "$ORCH_SETTINGS_TEMPLATE")")
+  fi
   args+=(--dev /dev --proc /proc --tmpfs /tmp)
   # The review dir (mktemp, often under /tmp) is bound after the /tmp tmpfs.
   if [ -n "${ORCH_REVIEW_DIR:-}" ] && [ -d "$ORCH_REVIEW_DIR" ]; then

@@ -187,8 +187,10 @@ push a message body with `cdamux send`.
 ## Stuck workers
 
 `working ⚠` (quiet pane) or a worker shown waiting with no `ask` in your inbox:
-`cdamux worker peek <name> --lines 60`. A permission prompt or a question the
-spec covers → relay the answer; anything else → escalate to the maintainer.
+`cdamux worker peek <name> --lines 60`. A question the spec covers → answer it;
+anything else → escalate to the maintainer. A permission prompt or a denied
+command is an escalation to the maintainer; never relay an approval, never run
+it yourself (ADR-019).
 
 ## Done → ready to merge
 

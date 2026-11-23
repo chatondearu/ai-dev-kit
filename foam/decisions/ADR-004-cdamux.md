@@ -94,6 +94,13 @@ truth for what runs; the registry is never read to decide liveness.
 dedicated `cdamux-nav` session (`cdamux nav`); join-pane `cdamux sidebar` (#321) is
 deprecated. Alt-P popup unchanged.
 
+## Amendment 2026-11-23 — token required, send gated
+
+[[ADR-019-worker-permission-boundary|ADR-019]] §7 replaces point 2's "unset ⇒ open API"
+and point 4's "token stays optional": `cdamuxd` never serves without a token
+(`CDAMUX_TAILNET_TOKEN`, else `<config dir>/tailnet-token`, minted 0600 on first start),
+and `send` only reaches sessions with `@cdamux_id` (403 otherwise).
+
 ## References
 
 - PRD: [`prd/PRD-39-cdamux.md`](../../prd/PRD-39-cdamux.md)

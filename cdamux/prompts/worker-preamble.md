@@ -20,3 +20,6 @@ repo's verify command (its `AGENTS.md`), review your diff with skill
 `cda-review` and fix its Critical/Important findings, push your branch and open
 a PR. Never merge. Commits, PR text and code comments in English. Stay inside
 the scope of your spec; anything outside it is an `ask`.
+
+A denied command is an escalation to the maintainer: `--kind ask` and stop;
+never relay an approval, never run it yourself (ADR-019).

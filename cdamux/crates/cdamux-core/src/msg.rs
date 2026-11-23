@@ -297,9 +297,9 @@ pub fn append_message(msg: &Message) -> Result<u64, MsgError> {
     }
     let path = inbox_path(&msg.to)?;
     if let Some(dir) = path.parent() {
-        fs::create_dir_all(dir)?;
+        crate::paths::create_private_dir(dir)?;
     }
-    let mut f = OpenOptions::new().create(true).append(true).open(&path)?;
+    let mut f = crate::paths::private_file_options().append(true).open(&path)?;
     // One write(2) so concurrent O_APPEND senders cannot interleave line and newline.
     f.write_all(format!("{line}\n").as_bytes())?;
     // O_APPEND leaves the fd offset at the end of this write, even with concurrent writers.

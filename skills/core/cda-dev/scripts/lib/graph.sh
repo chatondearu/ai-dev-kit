@@ -423,7 +423,29 @@ orch_graph_verifier_pass() {
   return 1
 }
 
-# Run integrator agent at repo root after parallel workers (OpenClaw-style synthesize).
+# Throwaway checkout the integrator runs in: never the maintainer's checkout (ADR-019).
+orch_integrator_worktree_path() {
+  printf '%s/.orch/worktrees/integrator-%s\n' "$ORCH_REPO" "${ORCH_RUN_ID:-run}"
+}
+
+# Run the integrator on prompt $1 in a detached worktree of HEAD; copy its report and
+# ok marker back to $ORCH_REPO/.orch, then remove the worktree.
+orch_integrator_agent_run() {
+  local wt rc=0 f
+  wt="$(orch_integrator_worktree_path)"
+  git -C "$ORCH_REPO" worktree remove --force "$wt" 2>/dev/null || true
+  mkdir -p "$(dirname "$wt")"
+  git -C "$ORCH_REPO" worktree add -q --detach "$wt" HEAD || return 1
+  export ORCH_WT="$wt"
+  ORCH_ROLE=integrator orch_agent_run "$wt" "$1" || rc=$?
+  for f in integrator-report.md integrator-ok; do
+    [ ! -e "$wt/.orch/$f" ] || cp "$wt/.orch/$f" "$ORCH_REPO/.orch/$f"
+  done
+  git -C "$ORCH_REPO" worktree remove --force "$wt" 2>/dev/null || true
+  return "$rc"
+}
+
+# Run integrator agent after parallel workers (OpenClaw-style synthesize).
 orch_graph_integrator_run() {
   local ids=("$@")
   local gf prompts="$ORCH_PROMPTS_DIR"
@@ -471,7 +493,7 @@ $(cat "$ORCH_REPO/.orch/run/${id}.status")
   fi
 
   orch_render_prompt "$tpl" "$out" \
-    "REPO_ROOT=$ORCH_REPO" \
+    "REPO_ROOT=$(orch_integrator_worktree_path)" \
     "WORKER_SUMMARIES=see below"
 
   {
@@ -479,9 +501,8 @@ $(cat "$ORCH_REPO/.orch/run/${id}.status")
     printf '\n\n## Worker payloads\n%s\n' "$summaries"
   } >"$out"
 
-  export ORCH_WT="$ORCH_REPO"
   export ORCH_WORKER_ID=""
-  if ORCH_ROLE=integrator orch_agent_run "$ORCH_REPO" "$out"; then
+  if orch_integrator_agent_run "$out"; then
     orch_graph_upsert_node integrator integrator synthesize done "synthesis complete" "" agent
     return 0
   fi
@@ -772,9 +793,8 @@ $(cat "$wt/.orch/worker-result.json")
     i=$((i + 1))
   done
   [ -f "$tpl" ] || return 0
-  orch_render_prompt "$tpl" "$out" "REPO_ROOT=$ORCH_REPO" "WORKER_SUMMARIES=see below"
+  orch_render_prompt "$tpl" "$out" "REPO_ROOT=$(orch_integrator_worktree_path)" "WORKER_SUMMARIES=see below"
   { cat "$out"; printf '\n\n## Task payloads\n%s\n' "$summaries"; } >"$out"
-  export ORCH_WT="$ORCH_REPO"
-  ORCH_ROLE=integrator orch_agent_run "$ORCH_REPO" "$out" || return 0
+  orch_integrator_agent_run "$out" || return 0
   orch_graph_upsert_node integrator integrator synthesize done "plan synthesis" "" agent
 }

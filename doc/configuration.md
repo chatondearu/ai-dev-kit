@@ -160,12 +160,31 @@ Under foam / `CDA_FOAM_HOME`, commit `architecture.json`, `descriptions/`, and t
 | `.orch/worktrees/` | Per-issue worktrees |
 | `.orch/run/` | Worker exit codes / per-worker progress artefacts (no `status.json`) |
 | `$CDAMUX_HOME/runs/<run_id>.json` | Live orchestration graph (via `cdamux state`; Fleet / API) |
-| `.orch/integrator-report.md` | Post-run synthesis (multi-worker) |
+| `.orch/integrator-report.md` | Post-run synthesis (multi-worker); the integrator itself runs in a throwaway `.orch/worktrees/integrator-<run>` |
+| `.orch/run/settings-<worktree>.json` | Claude Code permission allowlist rendered for that worktree (`--settings`) |
 | `.orch/headless/` | Headless prompt copy |
 | `.orch/auto.lock` | orch-auto mutex (same `flock` / `.d/` fallback as `orch.lock`) |
 | `.orch/orch.lock` | orch ready-pickup / pr-fix mutex. Without `flock` it is the dir `.orch/orch.lock.d/` holding the owner `pid`; a dead pid is taken over |
 | `.orch/worktrees/` | Per-issue worktrees (prune with `orch-cleanup.sh`) |
 | `.orch/auto/*.log` | orch-auto run logs (newest 50 kept) |
+
+## Worker permissions
+
+Every Claude Code worker (orch.sh roles and `cdamux worker spawn`) runs
+`--permission-mode dontAsk --settings <file>` with the allowlist and `git push`
+guard hook in
+[`templates/worker-settings.json`](../skills/core/cda-dev/templates/worker-settings.json)
+(same file as `cdamux/config/worker-settings.json`): push only to its own branch, no
+merge, no force push, no push to the default branch, no `sudo`, no global install.
+Anything else is denied, headless and interactive alike (no dialog); the worker
+escalates to the maintainer, the orchestrator never relays an approval
+([ADR-019](../foam/decisions/ADR-019-worker-permission-boundary.md)). Your own Claude
+allow rules still add up (a template deny always wins). This stops typed commands, not
+code a worker writes and runs through the repo's tooling: branch protection on the
+default branch is the real guard. `cdamux worker spawn --here` lets the worker edit
+that checkout; prefer a worktree. codex
+runs `exec --sandbox workspace-write`, cursor-agent `-p` without `--force`; their
+allowlists live in their own CLI config.
 
 ## Systemd env file
 

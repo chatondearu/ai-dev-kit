@@ -6,7 +6,9 @@ use crate::orch_graph::{
     load_orch_graph, load_orch_graph_at, OrchGraphError,
 };
 use crate::orch_status::load_orch_run_status;
-use crate::tmux::{capture_pane_text, list_tmux_sessions, send_line_to_session, TmuxSession};
+use crate::tmux::{
+    capture_pane_text, list_tmux_sessions, send_line_to_session, tmux_user_option, TmuxSession,
+};
 use crate::{grouped_for_list_ex, GroupedSessions, ProjectsConfig, SessionsConfig};
 use serde::{Deserialize, Serialize};
 use std::net::IpAddr;
@@ -36,6 +38,7 @@ pub enum TailnetApiError {
     NotFound(String),
     BadRequest(String),
     Unauthorized(String),
+    Forbidden(String),
     Tmux(String),
 }
 
@@ -45,6 +48,7 @@ impl TailnetApiError {
             TailnetApiError::NotFound(_) => "not_found",
             TailnetApiError::BadRequest(_) => "bad_request",
             TailnetApiError::Unauthorized(_) => "unauthorized",
+            TailnetApiError::Forbidden(_) => "forbidden",
             TailnetApiError::Tmux(_) => "tmux_error",
         }
     }
@@ -54,6 +58,7 @@ impl TailnetApiError {
             TailnetApiError::NotFound(m)
             | TailnetApiError::BadRequest(m)
             | TailnetApiError::Unauthorized(m)
+            | TailnetApiError::Forbidden(m)
             | TailnetApiError::Tmux(m) => m.clone(),
         }
     }
@@ -65,6 +70,7 @@ fn status_of(err: &TailnetApiError) -> u16 {
         TailnetApiError::NotFound(_) => 404,
         TailnetApiError::BadRequest(_) => 400,
         TailnetApiError::Unauthorized(_) => 401,
+        TailnetApiError::Forbidden(_) => 403,
         TailnetApiError::Tmux(_) => 502,
     }
 }
@@ -198,15 +204,56 @@ fn tailscale_ip_from_output(
 /// Header carrying the shared secret (`CDAMUX_TAILNET_TOKEN`).
 pub const TAILNET_TOKEN_HEADER: &str = "X-Cdamux-Token";
 
-/// Gate a `/v1/*` request: when `expected` (the env token) is set, `provided` (the header) must
-/// match byte-for-byte; when unset, every request passes. Returns the 401 response on mismatch.
-pub fn check_tailnet_token(
-    expected: Option<&str>,
-    provided: Option<&str>,
-) -> Result<(), TailnetResponse> {
-    let Some(expected) = expected else {
-        return Ok(());
-    };
+/// Token file next to the cdamux config (`<config dir>/tailnet-token`).
+pub fn tailnet_token_path() -> Option<PathBuf> {
+    Some(crate::config_path()?.with_file_name("tailnet-token"))
+}
+
+/// The API token (H4): `env` (`CDAMUX_TAILNET_TOKEN`), else the content of `file`, else a
+/// fresh random token minted into `file` (0600). The API never serves without a token; an
+/// empty or unreadable file is an error, not an open API.
+pub fn resolve_tailnet_token(env: Option<&str>, file: &Path) -> std::io::Result<String> {
+    if let Some(t) = env.map(str::trim).filter(|t| !t.is_empty()) {
+        return Ok(t.to_string());
+    }
+    match std::fs::read_to_string(file) {
+        Ok(t) if !t.trim().is_empty() => return Ok(t.trim().to_string()),
+        Ok(_) => {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("{} is empty", file.display()),
+            ))
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(e),
+    }
+    let mut bytes = [0u8; 32];
+    std::io::Read::read_exact(&mut std::fs::File::open("/dev/urandom")?, &mut bytes)?;
+    let token: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+    if let Some(dir) = file.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    match crate::paths::private_file_options().write(true).create_new(true).open(file) {
+        Ok(mut f) => std::io::Write::write_all(&mut f, token.as_bytes())?,
+        // Another daemon minted it first: use its token.
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+            return resolve_tailnet_token(None, file)
+        }
+        Err(e) => return Err(e),
+    }
+    Ok(token)
+}
+
+/// Warning when the token file exists and is readable by group or others (e.g. 0644).
+pub fn tailnet_token_mode_warning(file: &Path) -> Option<String> {
+    use std::os::unix::fs::PermissionsExt;
+    let mode = std::fs::metadata(file).ok()?.permissions().mode() & 0o777;
+    (mode & 0o077 != 0).then(|| format!("{} is mode {mode:o}; chmod 600 it", file.display()))
+}
+
+/// Gate a `/v1/*` request: `provided` (the header) must match `expected` byte-for-byte.
+/// Returns the 401 response on mismatch.
+pub fn check_tailnet_token(expected: &str, provided: Option<&str>) -> Result<(), TailnetResponse> {
     // Constant-time compare without a new dependency: length check then full byte fold.
     let provided = provided.unwrap_or("").as_bytes();
     let expected = expected.as_bytes();
@@ -292,12 +339,23 @@ impl TailnetApiBackend for LiveTailnetBackend {
 
     fn send_line(&self, session_id: &str, line: &str, enter: bool) -> Result<(), TailnetApiError> {
         session_path(session_id)?;
+        send_gate(tmux_user_option(session_id, "@cdamux_id").as_deref())?;
         send_line_to_session(session_id, line, enter)
             .map_err(|e| TailnetApiError::Tmux(e.to_string()))
     }
 
     fn resolve_orch_repo(&self, repo: &str) -> Result<PathBuf, TailnetApiError> {
         resolve_orch_repo_path(&self.projects, repo)
+    }
+}
+
+/// Remote input only reaches cdamux agent sessions (`@cdamux_id` set), never a plain shell
+/// or the navigator (H4).
+fn send_gate(cdamux_id: Option<&str>) -> Result<(), TailnetApiError> {
+    if cdamux_id.is_some_and(|id| !id.trim().is_empty()) {
+        Ok(())
+    } else {
+        Err(TailnetApiError::Forbidden("session is not a cdamux agent".into()))
     }
 }
 
@@ -949,18 +1007,39 @@ mod tests {
 
     #[test]
     fn token_check_rejects_missing_or_wrong_header() {
-        let missing = check_tailnet_token(Some("s3cret"), None).unwrap_err();
+        let missing = check_tailnet_token("s3cret", None).unwrap_err();
         assert_eq!(missing.status, 401);
         assert!(missing.body.contains("\"code\":\"unauthorized\""));
-        assert_eq!(check_tailnet_token(Some("s3cret"), Some("s3cre")).unwrap_err().status, 401);
-        assert_eq!(check_tailnet_token(Some("s3cret"), Some("s3cretX")).unwrap_err().status, 401);
-        assert_eq!(check_tailnet_token(Some("s3cret"), Some("S3CRET")).unwrap_err().status, 401);
+        assert_eq!(check_tailnet_token("s3cret", Some("s3cre")).unwrap_err().status, 401);
+        assert_eq!(check_tailnet_token("s3cret", Some("s3cretX")).unwrap_err().status, 401);
+        assert_eq!(check_tailnet_token("s3cret", Some("S3CRET")).unwrap_err().status, 401);
+        assert!(check_tailnet_token("s3cret", Some("s3cret")).is_ok());
     }
 
     #[test]
-    fn token_check_passes_when_matching_or_unset() {
-        assert!(check_tailnet_token(Some("s3cret"), Some("s3cret")).is_ok());
-        assert!(check_tailnet_token(None, None).is_ok());
-        assert!(check_tailnet_token(None, Some("anything")).is_ok());
+    fn token_comes_from_env_then_file_else_is_minted_0600() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("cfg/tailnet-token");
+        assert_eq!(resolve_tailnet_token(Some(" env-tok "), &file).unwrap(), "env-tok");
+        assert!(!file.exists(), "env token never writes the file");
+        let minted = resolve_tailnet_token(None, &file).unwrap();
+        assert_eq!(minted.len(), 64);
+        assert_eq!(std::fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o600);
+        assert_eq!(resolve_tailnet_token(Some(""), &file).unwrap(), minted, "file reused");
+        assert_eq!(tailnet_token_mode_warning(&file), None, "minted 0600: no warning");
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(tailnet_token_mode_warning(&file).unwrap().contains("644"));
+        std::fs::write(&file, "  \n").unwrap();
+        assert!(resolve_tailnet_token(None, &file).is_err(), "empty file refuses to serve");
+    }
+
+    #[test]
+    fn send_gate_needs_a_cdamux_id() {
+        assert!(send_gate(Some("a-1")).is_ok());
+        for id in [None, Some(""), Some("  ")] {
+            let e = send_gate(id).unwrap_err();
+            assert_eq!(status_of(&e), 403);
+        }
     }
 }

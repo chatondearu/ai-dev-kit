@@ -205,6 +205,15 @@ orch_agent_run() {
       fi
       ;;
   esac
+  # Exported for the tmux runner. Claude never runs without the rendered allowlist: its
+  # user-scope allows would otherwise be the only rules (ADR-019).
+  ORCH_AGENT_SETTINGS="$(orch_agent_settings "$wt")" || ORCH_AGENT_SETTINGS=""
+  export ORCH_AGENT_SETTINGS
+  if [ -z "$ORCH_AGENT_SETTINGS" ] && [ "$ORCH_AGENT_CLI" = claude ]; then
+    printf 'orch: cannot render worker permission settings (ORCH_REPO, jq, node or %s missing); not running claude\n' \
+      "$ORCH_SETTINGS_TEMPLATE" >&2
+    return 1
+  fi
   aid=""
   if [ -n "${ORCH_WORKER_ID:-}" ] && declare -F orch_cdamux_worker_agent_id >/dev/null; then
     aid="$(orch_cdamux_worker_agent_id "$ORCH_WORKER_ID")"
@@ -214,6 +223,57 @@ orch_agent_run() {
     return
   fi
   _orch_agent_exec_as "$wt" "$prompt_file" "$aid"
+}
+
+# Exported like _ORCH_KIT_TIERS: agents run in `bash -c` / sandboxed / tmux-replayed shells.
+ORCH_SETTINGS_TEMPLATE="${ORCH_SETTINGS_TEMPLATE:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../templates" && pwd)/worker-settings.json}"
+export ORCH_SETTINGS_TEMPLATE
+
+# Default branch of the repo at $1 (origin/HEAD, else gh); empty when unknown.
+orch_default_branch() {
+  local d
+  d="$(git -C "$1" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null || true)"
+  [ -n "$d" ] || d="$(cd "$1" && gh repo view --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null || true)"
+  printf '%s\n' "${d#origin/}"
+}
+
+# Render the worker permission template (ADR-019) for worktree $1 next to the push guard
+# hook: push only to its own branch (ORCH_PUSH_BRANCH, e.g. a pr-fix head ref, else the
+# checked-out branch), never to the default one. Prints the settings file path; fails
+# without ORCH_REPO (the files never go inside the worktree), jq, node or the template.
+orch_agent_settings() {
+  local wt="$1" out dir branch="" default="" tdir
+  [ -n "${ORCH_REPO:-}" ] || return 1
+  command -v jq >/dev/null 2>&1 && command -v node >/dev/null 2>&1 && [ -f "$ORCH_SETTINGS_TEMPLATE" ] || return 1
+  dir="$ORCH_REPO/.orch/run"
+  out="$dir/settings-$(command -p basename "$wt").json"
+  tdir="$(dirname "$ORCH_SETTINGS_TEMPLATE")"
+  mkdir -p "$dir" && cp "$tdir/worker-push-guard.mjs" "$dir/worker-push-guard.mjs" || return 1
+  if git -C "$wt" rev-parse --git-dir >/dev/null 2>&1; then
+    branch="${ORCH_PUSH_BRANCH:-$(git -C "$wt" branch --show-current 2>/dev/null || true)}"
+    default="$(orch_default_branch "$wt")"
+  fi
+  orch_render_settings "$branch" "$default" "$(cd "$wt" && pwd -P)" "$dir/worker-push-guard.mjs" \
+    <"$ORCH_SETTINGS_TEMPLATE" >"$out" || return 1
+  printf '%s\n' "$out"
+}
+
+# Template on stdin → settings on stdout for branch $1, default branch $2, worktree $3 and
+# push guard $4 (same rule as cdamux `worker_settings_json`). A branch or default branch
+# outside [A-Za-z0-9._/@+-] counts as unknown; no push is allowed when either is unknown
+# or they are equal. A path with a quote, paren or `*` is refused.
+orch_render_settings() {
+  local b="$1" d="$2" ref='^[A-Za-z0-9._/@+-]+$'
+  case "$3$4" in *[\'\"\(\)\*]*|'') return 1;; esac
+  [[ "$b" =~ $ref ]] || b=""
+  [[ "$d" =~ $ref ]] || d=""
+  { [ -n "$d" ] && [ "$b" != "$d" ]; } || b=""
+  jq --arg b "$b" --arg d "$d" --arg w "$3" --arg g "$4" '
+    (if $d == "" then .permissions |= map_values(map(select(contains("__DEFAULT__") | not))) else . end)
+    | (if $b == "" then .permissions.allow |= map(select(startswith("Bash(git push") | not)) else . end)
+    | walk(if type == "string"
+           then gsub("__BRANCH__"; $b) | gsub("__DEFAULT__"; $d) | gsub("__WORKTREE__"; $w) | gsub("__GUARD__"; $g)
+           else . end)'
 }
 
 # _orch_agent_exec as agent id $3 (unset when empty), never as orch: the agent's
@@ -233,19 +293,22 @@ _orch_agent_exec() {
   name=$(command -p basename "${bin[0]}")
   case "$name" in
     claude)
-      # Non-interactive print mode; flags may need adjust per claude version
-      (cd "$wt" && "${bin[@]}" -p --dangerously-skip-permissions ${tf[@]+"${tf[@]}"} <"$prompt_file")
+      # ADR-019: dontAsk = only the rendered allowlist runs, anything else is denied
+      # (never a bypass flag); the push guard hook parses git push argv.
+      (cd "$wt" && "${bin[@]}" -p --permission-mode dontAsk --settings "${ORCH_AGENT_SETTINGS:?}" ${tf[@]+"${tf[@]}"} <"$prompt_file")
       ;;
     opencode)
       (cd "$wt" && "${bin[@]}" run ${tf[@]+"${tf[@]}"} <"$prompt_file")
       ;;
     codex)
-      # `exec -` reads the prompt from stdin; like claude above, no approval prompts.
-      (cd "$wt" && "${bin[@]}" exec --dangerously-bypass-approvals-and-sandbox ${tf[@]+"${tf[@]}"} - <"$prompt_file")
+      # `exec -` reads the prompt from stdin; writes confined to the worktree (ADR-019 gap:
+      # no per-command allowlist, the git dir of a linked worktree is outside the sandbox).
+      (cd "$wt" && "${bin[@]}" exec --sandbox workspace-write ${tf[@]+"${tf[@]}"} - <"$prompt_file")
       ;;
     agent|cursor-agent)
-      # --print for scripts; --force avoids interactive approval hangs in headless
-      (cd "$wt" && "${bin[@]}" -p --force ${tf[@]+"${tf[@]}"} "$(cat "$prompt_file")")
+      # --print, no bypass flag: unapproved shell commands are rejected; the allowlist
+      # lives in the user's ~/.cursor/cli-config.json (ADR-019 gap: no per-branch rules).
+      (cd "$wt" && "${bin[@]}" -p ${tf[@]+"${tf[@]}"} "$(cat "$prompt_file")")
       ;;
     *)
       (cd "$wt" && "${bin[@]}" <"$prompt_file")

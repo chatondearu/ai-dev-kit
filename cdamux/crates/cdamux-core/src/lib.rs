@@ -76,6 +76,7 @@ pub use session::{
 };
 pub use tailnet_api::{
     check_tailnet_token, decode_path_segment, dispatch_tailnet_request, resolve_tailnet_bind_ip,
+    resolve_tailnet_token, tailnet_token_mode_warning, tailnet_token_path,
     LiveTailnetBackend, TailnetApiBackend, TailnetIpError, TailnetResponse, TAILNET_TOKEN_HEADER,
 };
 pub use board_index::{

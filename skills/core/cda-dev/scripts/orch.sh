@@ -82,7 +82,7 @@ while [ $# -gt 0 ]; do
   shift
 done
 
-# Ctrl-C / SIGTERM must not orphan agents running with --force / --dangerously-skip-permissions.
+# Ctrl-C / SIGTERM must not orphan headless agents (they would keep editing and pushing).
 # Kills this process group (workers, agents, dashboard). Armed after the libs are sourced, so
 # sourcing them from a test never installs it. Run orch in its own group (`setsid`, or `set -m`)
 # when launching it from a script that must survive an interrupt.
@@ -892,6 +892,8 @@ case "$MODE" in
       fi
 
       export ORCH_WT="$path"
+      # The fallback worktree's branch is orch/pr-N: allow pushing to the PR head ref only.
+      export ORCH_PUSH_BRANCH="$head_ref"
       orch_resolve_agent pr-fix >/dev/null
       # Finish the run graph on every exit path (#236: pr-fix used to leave live runs).
       orch_graph_init "$ORCH_RUN_ID"

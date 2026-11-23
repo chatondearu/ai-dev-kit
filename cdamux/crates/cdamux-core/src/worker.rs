@@ -145,12 +145,90 @@ pub fn with_first_prompt(
     }
 }
 
+/// Claude Code permission template and push guard hook for workers (ADR-019); kept
+/// identical to `skills/core/cda-dev/templates/` (checked by `test_agents.sh`).
+const WORKER_SETTINGS_TEMPLATE: &str =
+    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../config/worker-settings.json"));
+const WORKER_PUSH_GUARD: &str =
+    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../config/worker-push-guard.mjs"));
+
+/// Render the template for a worker on `branch` in a repo whose default branch is
+/// `default`, editing `worktree`, guarded by the hook at `guard`: push only to its own
+/// branch, never to the default one (same rule as orch.sh `orch_render_settings`). A branch
+/// name outside `[A-Za-z0-9._/@+-]` counts as unknown; no push when either is unknown or
+/// they are equal. `None` when a path holds a quote, paren or `*` (rule syntax).
+pub fn worker_settings_json(branch: &str, default: &str, worktree: &str, guard: &str) -> Option<String> {
+    if worktree.is_empty() || guard.is_empty() || format!("{worktree}{guard}").contains(['\'', '"', '(', ')', '*']) {
+        return None;
+    }
+    let safe = |b: &str| {
+        b.chars().all(|c| c.is_ascii_alphanumeric() || "._/@+-".contains(c)).then(|| b.to_string()).unwrap_or_default()
+    };
+    let default = safe(default);
+    let branch = Some(safe(branch)).filter(|b| !default.is_empty() && *b != default).unwrap_or_default();
+    let fill = |r: &str| {
+        r.replace("__BRANCH__", &branch)
+            .replace("__DEFAULT__", &default)
+            .replace("__WORKTREE__", worktree)
+            .replace("__GUARD__", guard)
+    };
+    let mut v: Value = serde_json::from_str(WORKER_SETTINGS_TEMPLATE).expect("embedded template");
+    for key in ["allow", "deny"] {
+        let rules: Vec<Value> = v["permissions"][key]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .filter(|r| !branch.is_empty() || key == "deny" || !r.starts_with("Bash(git push"))
+            .filter(|r| !default.is_empty() || !r.contains("__DEFAULT__"))
+            .map(|r| Value::from(fill(r)))
+            .collect();
+        v["permissions"][key] = Value::Array(rules);
+    }
+    for hook in v["hooks"]["PreToolUse"].as_array_mut().into_iter().flatten() {
+        for h in hook["hooks"].as_array_mut().into_iter().flatten() {
+            if let Some(c) = h["command"].as_str().map(fill) {
+                h["command"] = Value::from(c);
+            }
+        }
+    }
+    serde_json::to_string_pretty(&v).ok()
+}
+
+/// Claude workers: write `$CDAMUX_HOME/settings/<host>.json` (and the push guard next to
+/// it) and append `--permission-mode dontAsk --settings <file>` to `command`. Other
+/// clients keep their own interactive approvals (ADR-019). `None` when the files cannot be
+/// written: the caller refuses to spawn rather than run Claude without the allowlist.
+pub(crate) fn with_worker_permissions(
+    command: &str,
+    client: &str,
+    host: &str,
+    worktree: &Path,
+) -> Option<String> {
+    if normalize_client_name(client) != "claude" {
+        return Some(command.to_string());
+    }
+    let branch = current_branch(worktree).filter(|b| b != "HEAD").unwrap_or_default();
+    let default = crate::worktree::default_branch(worktree).unwrap_or_default();
+    let dir = cdamux_state_dir("settings")?;
+    let guard = dir.join("worker-push-guard.mjs");
+    crate::state::write_atomic(&guard, WORKER_PUSH_GUARD.as_bytes()).ok()?;
+    let wt = worktree.canonicalize().ok()?;
+    let json = worker_settings_json(&branch, &default, &wt.to_string_lossy(), &guard.to_string_lossy())?;
+    let file = dir.join(format!("{host}.json"));
+    crate::state::write_atomic(&file, json.as_bytes()).ok()?;
+    Some(format!(
+        "{command} --permission-mode dontAsk --settings {}",
+        shell_single_quote(&file.to_string_lossy())
+    ))
+}
+
 /// Write the first prompt under `$CDAMUX_HOME/prompts/<host>.md`; `None` when no home.
 pub(crate) fn write_first_prompt(host: &str, prompt: &str) -> Option<PathBuf> {
     let dir = cdamux_state_dir("prompts")?;
-    std::fs::create_dir_all(&dir).ok()?;
+    crate::paths::create_private_dir(&dir).ok()?;
     let file = dir.join(format!("{host}.md"));
-    std::fs::write(&file, prompt.trim()).ok()?;
+    crate::state::write_atomic(&file, prompt.trim().as_bytes()).ok()?;
     Some(file)
 }
 
@@ -550,7 +628,7 @@ fn checkout_branch(path: &Path) -> Option<String> {
 
 fn refuse_here_checkout(path: &Path) -> Result<(), WorkerError> {
     let branch = checkout_branch(path).unwrap_or_default();
-    if branch == "main" || branch == "master" {
+    if here_on_default_branch(&branch, crate::worktree::default_branch(path).as_deref()) {
         return Err(WorkerError::Other(format!(
             "refuse --here on branch {branch}"
         )));
@@ -559,6 +637,15 @@ fn refuse_here_checkout(path: &Path) -> Result<(), WorkerError> {
         return Err(WorkerError::Other("refuse --here on a dirty tree".into()));
     }
     Ok(())
+}
+
+/// `--here` would put a worker on the repo's default branch (`origin/HEAD`, else `gh`);
+/// with no known default, `main` / `master` stand in.
+fn here_on_default_branch(branch: &str, default: Option<&str>) -> bool {
+    match default {
+        Some(d) => branch == d,
+        None => branch == "main" || branch == "master",
+    }
 }
 
 fn git_porcelain_dirty(path: &Path) -> bool {
@@ -706,6 +793,8 @@ pub fn spawn_worker(req: WorkerSpawnRequest<'_>) -> Result<WorkerSpawnResult, Wo
         slug_session(&name)
     };
     let host = unique_session_name(&session_base);
+    let base_cmd = with_worker_permissions(&base_cmd, &client, &host, &spawn_path)
+        .ok_or_else(|| WorkerError::Other("cannot write worker permission settings".into()))?;
     let prompt_file = write_first_prompt(&host, &prompt);
     let (launch_cmd, paste_after) =
         with_first_prompt(&base_cmd, &client, Some(&prompt), prompt_file.as_deref());
@@ -771,6 +860,47 @@ pub fn spawn_worker(req: WorkerSpawnRequest<'_>) -> Result<WorkerSpawnResult, Wo
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn worker_settings_allow_own_branch_and_deny_default() {
+        let render = |b: &str, d: &str| worker_settings_json(b, d, "/w/t", "/g/guard.mjs").unwrap();
+        let v: Value = serde_json::from_str(&render("worker/r1/x", "dev")).unwrap();
+        let has = |key: &str, rule: &str| {
+            v["permissions"][key].as_array().unwrap().contains(&json!(rule))
+        };
+        assert!(has("allow", "Edit(//w/t/**)"));
+        assert!(has("allow", "Bash(git push origin worker/r1/x)"));
+        assert!(has("allow", "Bash(git push origin HEAD:worker/r1/x)"));
+        assert!(has("allow", "Bash(git merge origin/dev)"));
+        assert!(has("deny", "Bash(git push * dev)"));
+        assert!(has("deny", "Bash(gh pr merge *)"));
+        assert_eq!(
+            v["hooks"]["PreToolUse"][0]["hooks"][0]["command"],
+            "node '/g/guard.mjs' 'worker/r1/x' 'dev'"
+        );
+        assert!(!v.to_string().contains("__"), "placeholder left: {v}");
+        for (branch, default) in [("dev", "dev"), ("", "dev"), ("worker/r1/x", ""), ("a'b", "dev")] {
+            let s = render(branch, default);
+            assert!(!s.contains("Bash(git push origin"), "push allowed for {branch:?}/{default:?}");
+            assert!(!s.contains("__"), "placeholder left for {branch:?}/{default:?}");
+            assert!(!s.contains("a'b"), "unsafe branch kept");
+        }
+        assert!(worker_settings_json("b", "dev", "/w/(t)", "/g").is_none(), "unsafe path refused");
+    }
+
+    #[test]
+    fn here_refusal_follows_the_repo_default_branch() {
+        assert!(here_on_default_branch("develop", Some("develop")));
+        assert!(!here_on_default_branch("main", Some("develop")), "main is not special when default is known");
+        assert!(here_on_default_branch("master", None));
+        assert!(!here_on_default_branch("feat/x", None));
+    }
+
+    #[test]
+    fn non_claude_workers_keep_their_command() {
+        let cmd = with_worker_permissions("cursor-agent", "cursor", "c-x", Path::new("/nonexistent"));
+        assert_eq!(cmd.as_deref(), Some("cursor-agent"));
+    }
 
     #[test]
     fn count_live_workers_filters_status_and_dead_hosts() {

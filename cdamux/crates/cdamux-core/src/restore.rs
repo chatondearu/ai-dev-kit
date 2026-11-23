@@ -26,6 +26,8 @@ pub enum RestoreError {
     Spawn(#[from] SpawnError),
     #[error("tmux: cannot check whether the session is live")]
     LiveCheck,
+    #[error("cannot write worker permission settings")]
+    Settings,
 }
 
 /// What `restore_one` did with a record.
@@ -148,7 +150,20 @@ fn restore_plan_run(
     agents: &AgentsConfig,
     live: bool,
 ) -> Result<RestoreOutcome, RestoreError> {
-    Ok(match plan(rec, agents, live)? {
+    // A respawned worker keeps the ADR-019 permission boundary it was spawned with.
+    let guard = |cmd: String| -> Result<String, RestoreError> {
+        if rec.role != "worker" {
+            return Ok(cmd);
+        }
+        crate::worker::with_worker_permissions(&cmd, &rec.agent, &rec.name, &rec.cwd)
+            .ok_or(RestoreError::Settings)
+    };
+    let planned = match plan(rec, agents, live)? {
+        Plan::Resume(cmd) => Plan::Resume(guard(cmd)?),
+        Plan::Fresh { command, reason } => Plan::Fresh { command: guard(command)?, reason },
+        p => p,
+    };
+    Ok(match planned {
         Plan::SkipLive => RestoreOutcome::SkippedLive,
         Plan::Resume(cmd) => RestoreOutcome::Restored(respawn_recorded(rec, &cmd)?),
         Plan::Fresh { command, reason } => {

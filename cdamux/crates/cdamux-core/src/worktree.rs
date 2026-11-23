@@ -53,6 +53,21 @@ pub fn current_branch(repo: &Path) -> Option<String> {
     git_stdout(repo, &["rev-parse", "--abbrev-ref", "HEAD"])
 }
 
+/// Default branch of `repo` (`origin/HEAD`, else `gh repo view`); `None` when unknown.
+pub fn default_branch(repo: &Path) -> Option<String> {
+    git_stdout(repo, &["symbolic-ref", "--short", "refs/remotes/origin/HEAD"])
+        .map(|r| r.trim_start_matches("origin/").to_string())
+        .or_else(|| {
+            let out = Command::new("gh")
+                .args(["repo", "view", "--json", "defaultBranchRef", "-q", ".defaultBranchRef.name"])
+                .current_dir(repo)
+                .output()
+                .ok()?;
+            let b = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            (out.status.success() && !b.is_empty()).then_some(b)
+        })
+}
+
 pub fn list_worktrees(repo: &Path) -> Result<Vec<WorktreeEntry>, WorktreeError> {
     let out = git_output(repo, &["worktree", "list", "--porcelain"])?;
     let mut entries = Vec::new();

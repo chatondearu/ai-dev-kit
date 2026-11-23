@@ -14,17 +14,23 @@ bind exits 1 (retried by the supervisor).
 
 ## Authentication
 
-Set `CDAMUX_TAILNET_TOKEN` in the daemon environment to require every `/v1/*`
-request to carry the header `X-Cdamux-Token: <token>`. Requests without it or
-with a different value get `401 {"error":{"code":"unauthorized",...}}`. The
+Every `/v1/*` request must carry the header `X-Cdamux-Token: <token>`
+([ADR-019](../../foam/decisions/ADR-019-worker-permission-boundary.md)). The token is
+`CDAMUX_TAILNET_TOKEN` from the daemon environment, else the file `tailnet-token`
+next to `config.toml` (`~/.config/cdamux/tailnet-token`), which `cdamuxd` mints
+(0600, 64 hex chars) on first start; an empty or unreadable file stops the daemon.
+Requests without it or with a different value get
+`401 {"error":{"code":"unauthorized",...}}`. The
 comparison is constant-time. Static dashboard assets (`/`, `/app.js`,
 `/session_tree.js`, `/style.css`) stay public; the dashboard reads the token from
 `localStorage.cdamux_token` (set it once in the browser console:
 `localStorage.setItem("cdamux_token", "<token>")`).
 
-When the variable is unset the API stays open to every tailnet peer and the
-daemon logs `tailnet API without token` once at startup. Rotation: change the
-variable and restart `cdamuxd`. The token is checked before the request body is read.
+The API never serves without a token. Rotation: change the variable (or delete
+the file) and restart `cdamuxd`.
+
+`POST /v1/sessions/:id/send` only types into cdamux agent sessions (tmux option
+`@cdamux_id` set); a plain shell or `cdamux-nav` gets `403 {"error":{"code":"forbidden",...}}`. The token is checked before the request body is read.
 
 ## Request rules
 
@@ -86,7 +92,6 @@ curl -sS -X POST "$CDAMUX_API/v1/sessions/c-myapp/send" \
 ## Security
 
 Exposure is limited by binding to the tailnet interface only (never `0.0.0.0`),
-the request rules above, and the optional shared token. `POST /v1/sessions/:id/send` types into
-agent shells: always set `CDAMUX_TAILNET_TOKEN` unless every tailnet peer is
-trusted. `?repo=` paths are canonicalized and must resolve under a configured
+the request rules above, and the required shared token. `POST /v1/sessions/:id/send` types into
+agent sessions only (`@cdamux_id`). `?repo=` paths are canonicalized and must resolve under a configured
 project root; error bodies never echo the requested path.

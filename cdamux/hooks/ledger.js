@@ -197,8 +197,9 @@ function setAgentStatus(env, status) {
 }
 
 /// One `state append` with `status` (when stickiness allows it) and `turn` (`running` /
-/// `ended`, never sticky: msg wake reads it to know a pane is safe to type into, ADR-018).
-/// 1 s budget: a dropped `turn` write would leave a stale value. Fail-open.
+/// `ended` / `exited`, never sticky: msg wake reads it to know a pane is safe to type
+/// into, ADR-018). 2.5 s budget (hooks get 5 s): a dropped `turn` write leaves a stale
+/// value. Fail-open.
 function setAgentState(env, status, turn) {
   const id = resolveAgentId(env);
   if (!id) return;
@@ -209,7 +210,7 @@ function setAgentState(env, status, turn) {
   try {
     execFileSync('cdamux', ['state', 'append', 'agents', id, JSON.stringify(patch)], {
       env,
-      timeout: 1000,
+      timeout: 2500,
       stdio: 'ignore',
     });
   } catch (e) {
@@ -250,13 +251,19 @@ function readUnreadMessages(env, id) {
   }
 }
 
-/// Read and ack the whole unread inbox through `cdamux msg read --ack` (Rust owns the
-/// cursor). Empty on any failure, so a hook never hands over what it could not ack.
+// Inbox JSON handed over per hook call: well under Claude Code's hook output cap; the rest
+// stays unread for the next Stop / prompt.
+const HANDOVER_MAX_BYTES = 8000;
+
+/// Read and ack unread lines (up to HANDOVER_MAX_BYTES) through `cdamux msg read --ack`
+/// (Rust owns the cursor, acks only what it prints). Empty on any failure, so a hook never
+/// hands over what it could not ack.
 function takeUnread(env) {
   const id = resolveAgentId(env);
   if (!id || !readUnreadMessages(env, id).length) return [];
   try {
-    const out = execFileSync('cdamux', ['msg', 'read', '--ack', '--agent', id], {
+    const args = ['msg', 'read', '--ack', '--agent', id, '--max-bytes', String(HANDOVER_MAX_BYTES)];
+    const out = execFileSync('cdamux', args, {
       env,
       encoding: 'utf8',
       timeout: 2000,

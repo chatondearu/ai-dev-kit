@@ -309,6 +309,17 @@ pub fn append_message(msg: &Message) -> Result<u64, MsgError> {
 /// Read unread messages after the ack cursor. When `ack`, advance the cursor past the
 /// last complete line read; a trailing partial line (no newline yet) stays unread.
 pub fn read_messages(agent_id: &str, ack: bool) -> Result<Vec<Message>, MsgError> {
+    read_messages_max(agent_id, ack, None)
+}
+
+/// [`read_messages`] stopping before the line that would pass `max_bytes` of inbox JSON
+/// (always at least one line); `ack` acks only the lines returned. Hooks use it so a hook
+/// output cap never drops a line that was already acked.
+pub fn read_messages_max(
+    agent_id: &str,
+    ack: bool,
+    max_bytes: Option<usize>,
+) -> Result<Vec<Message>, MsgError> {
     if !valid_state_id(agent_id) {
         return Err(MsgError::Invalid(format!("invalid agent id '{agent_id}'")));
     }
@@ -332,7 +343,17 @@ pub fn read_messages(agent_id: &str, ack: bool) -> Result<Vec<Message>, MsgError
     f.seek(SeekFrom::Start(offset))?;
     let mut buf = Vec::new();
     f.read_to_end(&mut buf)?;
-    let consumed = buf.iter().rposition(|&b| b == b'\n').map_or(0, |i| i + 1);
+    let mut consumed = buf.iter().rposition(|&b| b == b'\n').map_or(0, |i| i + 1);
+    if let Some(max) = max_bytes {
+        let mut end = 0;
+        for (i, _) in buf[..consumed].iter().enumerate().filter(|(_, &b)| b == b'\n') {
+            if end > 0 && i + 1 > max {
+                break;
+            }
+            end = i + 1;
+        }
+        consumed = end;
+    }
     let mut out = Vec::new();
     for line in String::from_utf8_lossy(&buf[..consumed]).lines() {
         let line = line.trim();
@@ -477,10 +498,13 @@ fn apply_kind_status(kind: &str, from: &str, to: &str) -> Result<(), MsgError> {
     match kind {
         "ask" => set_status(from, "blocked")?,
         "done" | "error" => {
+            let known = state_get(StateKind::Agents, from)
+                .map_err(|e| MsgError::Io(e.to_string()))?
+                .is_some();
             let cur = agent_status(from)?;
             let next = if kind == "done" { SessionState::Done } else { SessionState::Error };
             let own_done = kind == "done" && cur == Some(SessionState::Blocked);
-            if cur.is_some() && (own_done || may_overwrite(cur, next)) {
+            if known && (own_done || may_overwrite(cur, next)) {
                 set_status(from, kind)?;
             }
         }
@@ -511,13 +535,19 @@ fn spawn_waker(agent_id: &str) {
         return;
     };
     // Own process group, no stdio: it outlives the caller (a hook, a tool call).
-    let _ = std::process::Command::new(exe)
+    let child = std::process::Command::new(exe)
         .args(["msg", "wake", agent_id])
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .process_group(0)
         .spawn();
+    // Reap it in a long-lived caller (TUI); a short CLI exits first, init reaps it then.
+    if let Ok(mut child) = child {
+        std::thread::spawn(move || {
+            let _ = child.wait();
+        });
+    }
 }
 
 /// Validate, append, apply status side effects, then wake the recipient when it is at rest.
@@ -613,13 +643,18 @@ pub enum WakePlan {
     Never,
 }
 
-/// Wake decision (Q21). `turn` is the hook-written field (`running` from prompt submit or
-/// a permission request until `Stop`, then `ended`): when present it is authoritative, so a
-/// pane on a permission dialog (always mid-turn) is never typed into. Without it (no turn
-/// hooks: Cursor/codex/opencode, or older hooks) only `idle` / no status qualifies; a
-/// sticky `blocked` / `done` / `error` may still be mid-turn, so it is left to the inbox.
-/// `pane_input`: the pane tail looks like a prompt waiting for an answer.
+/// Wake decision (Q21). `turn` is the hook-written field: `running` from prompt submit or
+/// a permission request until `Stop`, then `ended`; `exited` after the CLI's session end
+/// (the pane may be a shell now). `claude`: the agent runs Claude Code, whose hooks write
+/// `turn` reliably, so `turn` is authoritative and a pane on a permission dialog (always
+/// mid-turn) is never typed into. A Claude agent with a status but no `turn` yet has not
+/// submitted its first prompt (startup dialogs): wait. Other clients (Cursor runs queued
+/// prompts without a prompt-submit hook; codex, opencode) and Claude without hooks: only
+/// `idle` / no status qualifies, and a sticky `blocked` / `done` / `error` may still be
+/// mid-turn, so it is left to the inbox. `pane_input`: the pane tail looks like a prompt
+/// waiting for an answer.
 pub fn wake_plan(
+    claude: bool,
     turn: Option<&str>,
     status: Option<SessionState>,
     pane_input: bool,
@@ -627,10 +662,12 @@ pub fn wake_plan(
     quiet: u32,
 ) -> WakePlan {
     let quiet = quiet.max(1);
-    let at_rest = match turn {
-        Some("running") => return WakePlan::TurnEnd,
-        Some(_) => status != Some(SessionState::NeedsInput),
-        None => match status {
+    let at_rest = match (claude, turn) {
+        (_, Some("exited")) => return WakePlan::Never,
+        (true, Some("running")) => return WakePlan::TurnEnd,
+        (true, Some(_)) => status != Some(SessionState::NeedsInput),
+        (true, None) if status.is_some() => false,
+        _ => match status {
             None | Some(SessionState::Idle) => true,
             Some(SessionState::Working | SessionState::NeedsInput) => false,
             Some(_) => return WakePlan::Never,
@@ -641,6 +678,13 @@ pub fn wake_plan(
         Some(s) if s >= quiet => WakePlan::Now,
         Some(s) => WakePlan::After(quiet - s),
         None => WakePlan::After(quiet),
+    }
+}
+
+fn inbox_len(agent_id: &str) -> Result<u64, MsgError> {
+    match fs::metadata(inbox_path(agent_id)?) {
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(0),
+        r => Ok(r?.len()),
     }
 }
 
@@ -669,18 +713,19 @@ pub fn wake_once(
         else {
             return Ok(WakePlan::Never);
         };
+        let claude = field("client") == Some("claude");
         let turn = field("turn");
-        if turn == Some("running") {
+        if claude && turn == Some("running") {
             return Ok(WakePlan::TurnEnd);
         }
         let status = field("status").and_then(parse_reported_status);
         let idle = idle_override
             .unwrap_or_else(|| list_panes_all().get(host).and_then(|p| p.idle_seconds));
         let pane_input = pane_tail(host).is_some_and(|t| pane_tail_looks_like_input(&t));
-        let plan = wake_plan(turn, status, pane_input, idle, quiet);
+        let plan = wake_plan(claude, turn, status, pane_input, idle, quiet);
         if plan == WakePlan::Now {
-            // Only Claude's UserPromptSubmit hook injects bodies (Cursor cannot).
-            let injected = turn.is_some() && field("client") == Some("claude");
+            // Only Claude's UserPromptSubmit hook injects bodies (a `turn` proves its hooks).
+            let injected = claude && turn.is_some();
             send_to_session(host, &wake_text(unread, injected), true)
                 .map_err(|e| io::Error::other(e.to_string()))?;
         }
@@ -701,9 +746,10 @@ pub fn run_waker(agent_id: &str, quiet: u32) -> Result<(), MsgError> {
         let Some(held) = try_entity_lock(&lock)? else {
             return Ok(());
         };
+        // Inbox length, not unread count: an ack plus an arrival leave the count unchanged.
         let mut seen = 0;
         while start.elapsed() < WAKER_MAX {
-            seen = unread_count(agent_id)?;
+            seen = inbox_len(agent_id)?;
             match wake_once(agent_id, quiet, None) {
                 Ok(WakePlan::After(s)) => std::thread::sleep(Duration::from_secs(s.into())),
                 Ok(WakePlan::TurnEnd) => std::thread::sleep(Duration::from_secs(quiet.into())),
@@ -711,7 +757,7 @@ pub fn run_waker(agent_id: &str, quiet: u32) -> Result<(), MsgError> {
             }
         }
         drop(held);
-        if start.elapsed() >= WAKER_MAX || unread_count(agent_id)? <= seen {
+        if start.elapsed() >= WAKER_MAX || inbox_len(agent_id)? <= seen {
             return Ok(());
         }
     }
@@ -993,35 +1039,42 @@ mod tests {
     fn wake_plan_truth_table() {
         use SessionState::*;
         use WakePlan::*;
-        type Row = (Option<&'static str>, Option<SessionState>, bool, Option<u32>, WakePlan);
+        type Row = (bool, Option<&'static str>, Option<SessionState>, bool, Option<u32>, WakePlan);
         let q = 60;
         let rows: &[Row] = &[
-            // Hooked agent at rest (turn ended after its Stop hook): quiet window only.
-            (Some("ended"), Some(Idle), false, Some(60), Now),
-            (Some("ended"), Some(Idle), false, Some(4), After(56)), // answer inside the window
-            (Some("ended"), Some(Blocked), false, Some(90), Now), // relay to a blocked worker
-            (Some("ended"), Some(Done), false, Some(90), Now),
-            (Some("ended"), Some(Idle), false, None, After(60)),
-            // Mid-turn: the Stop hook delivers, whatever the status or pane (permission dialog).
-            (Some("running"), Some(Working), false, Some(900), TurnEnd),
-            (Some("running"), Some(NeedsInput), true, Some(900), TurnEnd),
-            (Some("running"), Some(Blocked), false, Some(900), TurnEnd),
-            (Some("ended"), Some(NeedsInput), false, Some(900), After(60)),
-            // No turn hooks: idle / no status and a pane not waiting for an answer.
-            (None, None, false, Some(60), Now),
-            (None, Some(Idle), false, Some(61), Now),
-            (None, None, true, Some(900), After(60)), // pane looks like a prompt
-            (None, Some(Working), false, Some(900), After(60)),
-            (None, Some(NeedsInput), false, Some(900), After(60)),
-            // A sticky status without turn hooks may be mid-turn on a dialog: inbox only.
-            (None, Some(Blocked), false, Some(900), Never),
-            (None, Some(Done), false, Some(900), Never),
-            (None, Some(Error), false, Some(900), Never),
+            // Claude at rest (turn ended after its Stop hook): quiet window only.
+            (true, Some("ended"), Some(Idle), false, Some(60), Now),
+            (true, Some("ended"), Some(Idle), false, Some(4), After(56)), // answer inside the window
+            (true, Some("ended"), Some(Blocked), false, Some(90), Now), // relay to a blocked worker
+            (true, Some("ended"), Some(Done), false, Some(90), Now),
+            (true, Some("ended"), Some(Idle), false, None, After(60)),
+            (true, Some("ended"), Some(NeedsInput), false, Some(900), After(60)),
+            // Claude mid-turn: the Stop hook delivers, whatever the status or pane (dialog).
+            (true, Some("running"), Some(Working), false, Some(900), TurnEnd),
+            (true, Some("running"), Some(NeedsInput), true, Some(900), TurnEnd),
+            (true, Some("running"), Some(Blocked), false, Some(900), TurnEnd),
+            // Claude with hooks but before its first prompt (startup dialogs): wait.
+            (true, None, Some(Idle), false, Some(900), After(60)),
+            // The CLI exited: the pane may be a shell.
+            (true, Some("exited"), Some(Idle), false, Some(900), Never),
+            (false, Some("exited"), Some(Idle), false, Some(900), Never),
+            // No reliable turn signal (Claude without hooks, Cursor, codex, opencode):
+            // idle / no status and a pane not waiting for an answer.
+            (true, None, None, false, Some(60), Now),
+            (false, None, Some(Idle), false, Some(61), Now),
+            (false, Some("ended"), Some(Idle), false, Some(61), Now),
+            (false, Some("ended"), Some(Working), false, Some(900), After(60)), // stale turn ignored
+            (false, None, None, true, Some(900), After(60)), // pane looks like a prompt
+            (false, None, Some(NeedsInput), false, Some(900), After(60)),
+            // A sticky status without a turn signal may be mid-turn on a dialog: inbox only.
+            (false, None, Some(Blocked), false, Some(900), Never),
+            (false, Some("ended"), Some(Done), false, Some(900), Never),
+            (true, None, Some(Error), false, Some(900), After(60)),
         ];
-        for &(turn, status, pane_input, idle, want) in rows {
-            let got = wake_plan(turn, status, pane_input, idle, q);
-            assert_eq!(got, want, "turn={turn:?} status={status:?} input={pane_input} idle={idle:?}");
-        }
+        for &(claude, turn, status, pane_input, idle, want) in rows {
+            let got = wake_plan(claude, turn, status, pane_input, idle, q);
+            assert_eq!(got, want, "claude={claude} turn={turn:?} status={status:?} input={pane_input} idle={idle:?}");
+    }
     }
 
     #[test]
@@ -1062,6 +1115,23 @@ mod tests {
         let ids: std::collections::HashSet<_> = (0..50).filter_map(|_| generate_msg_id()).collect();
         assert_eq!(ids.len(), 50);
         assert!(ids.iter().all(|id| id.len() == 13 && id.starts_with("m-") && valid_state_id(id)));
+    }
+
+    #[test]
+    fn read_max_bytes_acks_only_what_it_returns() {
+        with_temp_home(|_| {
+            let mut ends = vec![];
+            for i in 0..3 {
+                ends.push(append_message(&test_msg(format!("m-mx{i}"), "a-mx")).unwrap() as usize);
+            }
+            // Budget fits the first line only.
+            let got = read_messages_max("a-mx", true, Some(ends[0] + 1)).unwrap();
+            assert_eq!(got.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), ["m-mx0"]);
+            // A budget smaller than one line still returns one (never stuck).
+            assert_eq!(read_messages_max("a-mx", true, Some(1)).unwrap()[0].id, "m-mx1");
+            assert_eq!(read_messages("a-mx", true).unwrap()[0].id, "m-mx2");
+            assert_eq!(unread_count("a-mx").unwrap(), 0);
+        });
     }
 
     #[test]

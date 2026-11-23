@@ -3,9 +3,12 @@
 // conversation id as agent_session_id in the restore record of the tmux session it
 // runs in (ADR-009), so `cdamux restore` resumes the conversation that is live now
 // (after /clear, /resume, a new chat). Only an existing record is updated.
-// Also sets agent status to idle (ADR-011 §3). Fail-open: any error exits 0; local only.
+// Also sets agent status to idle (ADR-011 §3), and `turn: ended` after a resume or /clear
+// (a restored session fires no Stop for the turn that died; ADR-018). Never at startup
+// (the first prompt follows) or compaction (it can run mid-turn).
+// Fail-open: any error exits 0; local only.
 const fs = require('fs');
-const { setAgentSessionId, setAgentStatus } = require('./ledger');
+const { setAgentSessionId, setAgentState } = require('./ledger');
 
 let hookName = '';
 
@@ -15,7 +18,8 @@ function main() {
   // Cursor documents session_id as "same as conversation_id".
   if (hookName === 'SessionStart') setAgentSessionId(process.env, input.session_id);
   else if (hookName === 'sessionStart') setAgentSessionId(process.env, input.session_id || input.conversation_id);
-  setAgentStatus(process.env, 'idle');
+  const ended = hookName === 'SessionStart' && (input.source === 'resume' || input.source === 'clear');
+  setAgentState(process.env, 'idle', ended ? 'ended' : null);
 }
 
 try { main(); } catch (e) { /* fail-open */ }

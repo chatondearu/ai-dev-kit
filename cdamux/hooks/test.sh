@@ -229,6 +229,7 @@ run_status '{"hook_event_name":"Notification","message":"Claude needs your permi
 out="$(run_status '{"hook_event_name":"sessionEnd"}')"
 [ "$out" = '{}' ] || fail "sessionEnd must print {}, got: $out"
 [ "$(jq -r .status "$AF")" = idle ] || fail "sessionEnd did not set idle"
+[ "$(jq -r .turn "$AF")" = exited ] || fail "sessionEnd must mark the turn exited (pane may be a shell)"
 # No agent id → no-op (also drop TMUX so the stub cannot fake @cdamux_id)
 : > "$CDAMUX_LOG"
 ( unset CDAMUX_AGENT_ID TMUX; run_status '{"hook_event_name":"UserPromptSubmit"}' >/dev/null )
@@ -245,7 +246,7 @@ seed_inbox() {
   printf '0\n' > "$INBOX/a-hook1.cursor"
 }
 seed_inbox
-printf '{"id":"a-hook1","status":"working","turn":"running"}\n' > "$AF"; : > "$CDAMUX_LOG"
+printf '{"id":"a-hook1","client":"claude","status":"working","turn":"running"}\n' > "$AF"; : > "$CDAMUX_LOG"
 out="$(run_status '{"hook_event_name":"Stop"}')"
 echo "$out" | jq -e '.decision=="block"
   and (.reason|test("1 message"))
@@ -273,6 +274,22 @@ echo "$out" | jq -e '.hookSpecificOutput.hookEventName=="UserPromptSubmit"
   and (.hookSpecificOutput.additionalContext|test("pr opened\nsecond line"))' >/dev/null \
   || fail "UserPromptSubmit must inject the bodies, got: $out"
 [ "$(cat "$INBOX/a-hook1.cursor")" != 0 ] || fail "UserPromptSubmit hand-over must ack"
+# Other clients on Claude-shaped events (codex): unacked digest, the turn ends normally.
+seed_inbox
+printf '{"id":"a-hook1","client":"codex","status":"working","turn":"running"}\n' > "$AF"
+out="$(run_status '{"hook_event_name":"Stop"}')"
+echo "$out" | jq -e '.hookSpecificOutput.hookEventName=="Stop" and (.hookSpecificOutput.additionalContext|test("1 unread"))' >/dev/null \
+  || fail "codex Stop must get the digest, got: $out"
+out="$(run_status '{"hook_event_name":"UserPromptSubmit"}')"
+echo "$out" | jq -e '.hookSpecificOutput.additionalContext|test("msg read --ack")' >/dev/null \
+  || fail "codex UserPromptSubmit must get the digest, got: $out"
+[ "$(cat "$INBOX/a-hook1.cursor")" = 0 ] || fail "codex hand-over must not ack"
+# A resumed / cleared Claude session fires no Stop for the turn that died: turn ended.
+printf '{"id":"a-hook1","client":"claude","status":"working","turn":"running"}\n' > "$AF"
+start '{"session_id":"c-9","hook_event_name":"SessionStart","source":"compact"}' >/dev/null
+[ "$(jq -r .turn "$AF")" = running ] || fail "compaction must not end the turn"
+start '{"session_id":"c-9","hook_event_name":"SessionStart","source":"resume"}' >/dev/null
+[ "$(jq -r .turn "$AF")" = ended ] || fail "resume must end the turn"
 # Cursor cannot inject: its stop hook keeps the digest followup (agent runs msg read --ack).
 seed_inbox
 out="$(run_status '{"hook_event_name":"stop","loop_count":0}')"

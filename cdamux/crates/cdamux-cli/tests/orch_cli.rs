@@ -75,3 +75,27 @@ fn restore_last_orch_prunes_unrestorable_error_stub() {
         "last-orch must not archive finished runs"
     );
 }
+
+/// Reboot path: no tmux server yet. The prune is skipped, the restore still runs, and
+/// the destructive `state gc` fails closed (M2).
+#[test]
+fn restore_last_orch_without_tmux_server_skips_prune_and_gc_aborts() {
+    let tmp = tempfile::tempdir().unwrap();
+    let bin = env!("CARGO_BIN_EXE_cdamux");
+    let run = |args: &[&str]| {
+        Command::new(bin)
+            .args(args)
+            .env("CDAMUX_HOME", tmp.path().join("home"))
+            .env("TMUX_TMPDIR", tmp.path())
+            .env_remove("TMUX")
+            .output()
+            .expect("spawn cdamux")
+    };
+    let restore = run(&["restore", "--last-orch"]);
+    let stderr = String::from_utf8_lossy(&restore.stderr);
+    assert!(stderr.contains("skipping the unrestorable prune"), "{stderr}");
+    assert!(stderr.contains("no recorded global orchestrator"), "{stderr}");
+    let gc = run(&["state", "gc"]);
+    assert_eq!(gc.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&gc.stderr).contains("aborting"));
+}

@@ -333,6 +333,24 @@ pub fn kill_worker(
     subtree: bool,
 ) -> Result<Vec<KilledAgent>, WorkerError> {
     let (id, _) = find_worker_doc(key, caller)?;
+    if caller.is_none() {
+        // Names are unique per orchestrator only: a human must not hit the wrong `api`.
+        let hits: Vec<String> = state_list(StateKind::Agents)
+            .into_iter()
+            .filter(|(aid, _, v)| {
+                aid == key
+                    || v.get("name").and_then(Value::as_str) == Some(key)
+                    || v.get("host").and_then(Value::as_str) == Some(key)
+            })
+            .map(|(aid, _, _)| aid)
+            .collect();
+        if hits.len() > 1 {
+            return Err(WorkerError::Other(format!(
+                "'{key}' is ambiguous ({}); pass the agent id",
+                hits.join(", ")
+            )));
+        }
+    }
     let targets = if subtree {
         crate::state_finalize::agent_subtree(&id)
     } else {
@@ -616,8 +634,11 @@ pub fn spawn_worker(req: WorkerSpawnRequest<'_>) -> Result<WorkerSpawnResult, Wo
             return Err(WorkerError::Exists(format!("branch {branch}")));
         }
         if let Err(e) = worktree_add_new_branch(&repo, &dest, &branch, &base_branch) {
-            // A failed or timed-out add can leave a half checkout and the branch.
-            crate::worktree::remove_new_worktree(&repo, &dest, &branch);
+            // A failed or timed-out add can leave a half checkout and the branch; an
+            // "already exists" means a concurrent spawn owns them, so leave them alone.
+            if !e.to_string().contains("already exists") {
+                crate::worktree::remove_new_worktree(&repo, &dest, &branch);
+            }
             return Err(e.into());
         }
         (dest.clone(), Some((repo, dest, branch)))
@@ -750,6 +771,19 @@ mod tests {
         ];
         let alive = |h: &str| matches!(h, "c-live" | "w1" | "w2" | "w3");
         assert_eq!(count_live_workers(agents.iter(), &alive, &|_| None), 1);
+    }
+
+    #[test]
+    fn human_kill_refuses_an_ambiguous_name() {
+        let _g = crate::paths::env_lock();
+        let home = tempfile::tempdir().unwrap();
+        std::env::set_var("CDAMUX_HOME", home.path());
+        for id in ["a-api1", "a-api2"] {
+            state_set(StateKind::Agents, id, &json!({"id": id, "role": "worker", "name": "api"})).unwrap();
+        }
+        let err = kill_worker(None, "api", false).unwrap_err().to_string();
+        std::env::remove_var("CDAMUX_HOME");
+        assert!(err.contains("ambiguous"), "{err}");
     }
 
     #[test]

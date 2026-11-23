@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# foam-board.sh reconcile: merged PR → card done; --pr never commits on the default branch.
+# foam-board.sh reconcile: merged PR → card done; --pr never commits on the default
+# branch, lands through orch_merge_pr (rebase merge), closes issues only after the merge.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 FB="$ROOT/foam-board.sh"
@@ -18,131 +19,184 @@ assert_absent() {
   *) printf 'ok   %s\n' "$3" ;; esac
 }
 
-TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
+TMP="$(cd "$(mktemp -d)" && pwd -P)"; trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/bin"
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
+export ORCH_PROGRESS=0 ORCH_TMUX=0
+unset ORCH_REPO ORCH_DEFAULT_BRANCH CDAMUX_AGENT_ID
 
-# Merged PRs: #7 closes issue 50; #8 is the orch.sh branch of the foam-only card.
+# Cards are updated 2026-11-10. Merged PRs:
+#  #7  closes o/r#50, merged 11-12            → drift for card 50
+#  #8  orch branch of foam-only, merged 11-12 → drift
+#  #9  orch branch of 77 (card ready)         → never drift
+#  #10 closes OTHER/repo#60                   → not evidence (other repo)
+#  #11 orch branch of 61, merged 11-01        → older than the claim: not evidence
+#  #12 orch branch of 62, base "release"      → not into the default branch
 cat >"$TMP/merged.json" <<'EOF'
-[{"number":7,"headRefName":"worker/r1/x","closingIssuesReferences":[{"number":50}]},
- {"number":8,"headRefName":"feat/foam-only-issue-foam-only","closingIssuesReferences":[]},
- {"number":9,"headRefName":"feat/77-issue-77","closingIssuesReferences":[]}]
+[{"number":7,"headRefName":"worker/r1/x","baseRefName":"main","mergedAt":"2026-11-12T10:00:00Z",
+  "closingIssuesReferences":[{"number":50,"repository":{"name":"r","owner":{"login":"O"}}}]},
+ {"number":8,"headRefName":"feat/foam-only-issue-foam-only","baseRefName":"main","mergedAt":"2026-11-12T10:00:00Z","closingIssuesReferences":[]},
+ {"number":9,"headRefName":"feat/77-issue-77","baseRefName":"main","mergedAt":"2026-11-12T10:00:00Z","closingIssuesReferences":[]},
+ {"number":10,"headRefName":"worker/r1/y","baseRefName":"main","mergedAt":"2026-11-12T10:00:00Z",
+  "closingIssuesReferences":[{"number":60,"repository":{"name":"repo","owner":{"login":"other"}}}]},
+ {"number":11,"headRefName":"feat/61-issue-61","baseRefName":"main","mergedAt":"2026-11-01T10:00:00Z","closingIssuesReferences":[]},
+ {"number":12,"headRefName":"feat/62-issue-62","baseRefName":"release","mergedAt":"2026-11-12T10:00:00Z","closingIssuesReferences":[]}]
 EOF
 cat >"$TMP/bin/gh" <<'STUB'
 #!/usr/bin/env bash
 echo "$*" >>"$GH_LOG"
+board_branch() { git -C "$ORIGIN" for-each-ref --sort=-committerdate --count=1 --format='%(refname:short)' refs/heads/board/; }
 case "$1 $2" in
+  "repo view") case "$*" in *rebaseMergeAllowed*) echo true ;; *) echo "o/r main" ;; esac ;;
   "pr list")
     case "$*" in
       *"--state merged"*) [ "${GH_FAIL_LIST:-0}" = 1 ] && exit 1; cat "$MERGED_JSON" ;;
-      *"--state open"*) printf '%s\n' "${GH_OPEN_RECONCILE:-}" ;;
+      *"--state open"*) [ -f "$OPEN_PR" ] && cat "$OPEN_PR"; exit 0 ;;
     esac ;;
   "pr create") echo "https://github.com/o/r/pull/99" ;;
   "pr checks") echo "[]" ;;
+  "pr view") echo '{"mergeable":"MERGEABLE","state":"OPEN"}' ;;
   "pr diff")
-    br="$(git -C "$ORIGIN" for-each-ref --format='%(refname:short)' refs/heads/board/ | head -n 1)"
-    case "$*" in *--name-only*) git -C "$ORIGIN" diff --name-only main "$br" ;; *) git -C "$ORIGIN" diff main "$br" ;; esac ;;
-  "pr merge") exit 0 ;;
+    case "$*" in *--name-only*) git -C "$ORIGIN" diff --name-only main "$(board_branch)" ;;
+      *) git -C "$ORIGIN" diff main "$(board_branch)" ;; esac ;;
+  "pr merge")
+    case "$*" in *--rebase*--match-head-commit*) ;; *) echo "stub: merge must be --rebase --match-head-commit" >&2; exit 1 ;; esac
+    [ "${GH_MERGE_FAIL:-0}" = 1 ] && { echo "stub: merge refused" >&2; exit 1; }
+    touch "$MERGED_MARK" ;;
+  "pr close")
+    [ -f "$OPEN_PR" ] && git -C "$ORIGIN" branch -D "$(cut -d' ' -f2 "$OPEN_PR")" >/dev/null
+    rm -f "$OPEN_PR" ;;
   "issue view") echo OPEN ;;
-  "issue close") exit 0 ;;
-  "repo view") echo main ;;
+  "issue close") [ -f "$MERGED_MARK" ] || echo "CLOSED-BEFORE-MERGE $*" >>"$GH_LOG" ;;
   *) echo "stub gh: unexpected $*" >&2; exit 2 ;;
 esac
 STUB
 chmod +x "$TMP/bin/gh"
 export PATH="$TMP/bin:$PATH" GH_LOG="$TMP/gh.log" MERGED_JSON="$TMP/merged.json" ORIGIN="$TMP/origin.git"
+export OPEN_PR="$TMP/open-pr" MERGED_MARK="$TMP/merged"
 
 card() { # file status [github_issue]
   {
-    printf -- '---\ntitle: "t"\nstatus: %s\npriority: P1\nupdated: 2026-11-01\n' "$2"
+    printf -- '---\ntitle: "t"\nstatus: %s\npriority: P1\nupdated: 2026-11-10\n' "$2"
     [ -z "${3:-}" ] || printf 'github_issue: %s\n' "$3"
     printf -- '---\n\nBody line status: in-review stays.\n'
   } >"$1"
 }
 
-# Origin (bare) + a clone: the board lives on origin/main.
 git init -q -b main "$TMP/seed"
 mkdir -p "$TMP/seed/foam/board"
 card "$TMP/seed/foam/board/50-closed-by-pr.md" in-review 50
 card "$TMP/seed/foam/board/foam-only.md" in-progress
-card "$TMP/seed/foam/board/60-open.md" in-review 60
+card "$TMP/seed/foam/board/60-other-repo.md" in-review 60
+card "$TMP/seed/foam/board/61-old-pr.md" in-progress 61
+card "$TMP/seed/foam/board/62-release.md" in-review 62
 card "$TMP/seed/foam/board/77-ready.md" ready 77
 printf 'orch: allow-no-checks\n' >"$TMP/seed/AGENTS.md"
+printf '.orch/\n' >"$TMP/seed/.gitignore"
 git -C "$TMP/seed" add -A && git -C "$TMP/seed" commit -qm init
-git clone -q --bare "$TMP/seed" "$TMP/origin.git"
-git clone -q "$TMP/origin.git" "$TMP/repo"
+git clone -q --bare "$TMP/seed" "$ORIGIN"
+git clone -q "$ORIGIN" "$TMP/repo"
 REPO="$TMP/repo"
 B="$REPO/foam/board"
+st() { awk '/^status:/ { print $2; exit }' "$1"; }
 
-# Report: lists drift, writes nothing.
+echo "# report"
 : >"$GH_LOG"
 out="$(cd "$REPO" && bash "$FB" reconcile)"
-assert_contains "$out" "drift 50 in-review -> done (PR #7 merged)" "report: card closed by a merged PR"
-assert_contains "$out" "drift foam-only in-progress -> done (PR #8 merged)" "report: orch.sh branch feat/<id>-issue-<id>"
-assert_absent "$out" "60" "report: card without a merged PR is not drift"
-assert_absent "$out" "77" "report: ready card is never drift"
+assert_contains "$out" "drift 50 in-review -> done (PR #7 merged)" "closing PR in the same repo is evidence"
+assert_contains "$out" "drift foam-only in-progress -> done (PR #8 merged)" "orch branch feat/<id>-issue-<id> is evidence"
+assert_absent "$out" "drift 60" "closing ref to another repo is not evidence"
+assert_absent "$out" "drift 61" "PR merged before the card's updated day is not evidence"
+assert_absent "$out" "drift 62" "PR into a non-default base is not evidence"
+assert_absent "$out" "drift 77" "ready card is never drift"
+assert_contains "$(cat "$GH_LOG")" "pr list --state merged --base main" "merged list filtered on the default branch"
 assert_eq "$(git -C "$REPO" status --porcelain)" "" "report: working tree untouched"
 
-# gh failure: fail closed.
-if (cd "$REPO" && GH_FAIL_LIST=1 bash "$FB" reconcile --write) 2>"$TMP/err"; then
+echo "# gh failure fails closed"
+if (cd "$REPO" && GH_FAIL_LIST=1 bash "$FB" reconcile --write) 2>/dev/null; then
   printf 'FAIL reconcile must fail when gh cannot list merged PRs\n' >&2; FAILS=$((FAILS + 1))
 else
   assert_eq "$(git -C "$REPO" status --porcelain)" "" "gh failure: board unchanged"
 fi
 
-# --write: only drifted cards move, body untouched.
+echo "# --write"
 (cd "$REPO" && bash "$FB" reconcile --write >/dev/null)
-st() { awk '/^status:/ { print $2; exit }' "$1"; }
-assert_eq "$(st "$B/50-closed-by-pr.md")" "done" "write: 50 → done"
-assert_eq "$(st "$B/foam-only.md")" "done" "write: foam-only → done"
-assert_eq "$(st "$B/60-open.md")" "in-review" "write: 60 unchanged"
-assert_eq "$(st "$B/77-ready.md")" "ready" "write: 77 unchanged"
+assert_eq "$(st "$B/50-closed-by-pr.md")/$(st "$B/foam-only.md")" "done/done" "write: drifted cards → done"
+assert_eq "$(st "$B/60-other-repo.md")/$(st "$B/61-old-pr.md")/$(st "$B/62-release.md")" "in-review/in-progress/in-review" "write: others unchanged"
 assert_contains "$(cat "$B/50-closed-by-pr.md")" "Body line status: in-review stays." "write: body kept"
 
-# Status-only guard: a body edit is refused.
+echo "# status-only guard reads the index (untracked files included)"
 # shellcheck source=../foam-board.sh
 source "$FB"
-if reconcile_diff_is_status_only "$REPO" HEAD; then
-  printf 'ok   guard accepts status/updated-only diff\n'
-else
-  printf 'FAIL guard refused a status-only diff\n' >&2; FAILS=$((FAILS + 1))
-fi
-printf 'extra\n' >>"$B/60-open.md"
-if reconcile_diff_is_status_only "$REPO" HEAD; then
-  printf 'FAIL guard accepted a body edit\n' >&2; FAILS=$((FAILS + 1))
-else
-  printf 'ok   guard refuses a body edit\n'
-fi
-git -C "$REPO" checkout -q -- .
+git -C "$REPO" add -A foam/board
+if reconcile_diff_is_status_only "$REPO" HEAD; then printf 'ok   guard accepts status/updated-only index\n'
+else printf 'FAIL guard refused a status-only diff\n' >&2; FAILS=$((FAILS + 1)); fi
+card "$B/new-card.md" done
+git -C "$REPO" add -A foam/board
+if reconcile_diff_is_status_only "$REPO" HEAD; then printf 'FAIL guard accepted a new untracked card\n' >&2; FAILS=$((FAILS + 1))
+else printf 'ok   guard refuses a new (untracked) card\n'; fi
+git -C "$REPO" reset -q --hard && git -C "$REPO" clean -qfd foam
 
-# --pr with a reconcile PR already open: skipped, nothing pushed.
-: >"$GH_LOG"
-out="$(cd "$REPO" && GH_OPEN_RECONCILE=41 bash "$FB" reconcile --pr)"
-assert_contains "$out" "reconcile PR #41 already open; skipped" "pr: open reconcile PR → skip"
-assert_eq "$(git -C "$TMP/origin.git" branch --list 'board/*')" "" "pr: skip pushes nothing"
+echo "# reconcile lock: live pid and fresh pid-less dir hold, old pid-less dir expires"
+L="$TMP/lock"
+mkdir "$L"
+if reconcile_lock "$L"; then printf 'FAIL fresh pid-less lock was taken\n' >&2; FAILS=$((FAILS + 1)); else printf 'ok   fresh pid-less lock holds\n'; fi
+touch -t 202001010000 "$L"
+if reconcile_lock "$L"; then printf 'ok   old pid-less lock expires\n'; else printf 'FAIL old pid-less lock never expires\n' >&2; FAILS=$((FAILS + 1)); fi
+if reconcile_lock "$L"; then printf 'FAIL lock held by a live pid was taken\n' >&2; FAILS=$((FAILS + 1)); else printf 'ok   live pid holds\n'; fi
+rm -rf "$L"
 
-# --pr: branch off origin/main, PR, issue close, ADR-016 self-merge; default branch untouched.
-main_before="$(git -C "$TMP/origin.git" rev-parse main)"
+echo "# --pr: branch off origin/main, rebase merge, issues closed after the merge"
+main_before="$(git -C "$ORIGIN" rev-parse main)"
 local_before="$(git -C "$REPO" rev-parse HEAD)"
 : >"$GH_LOG"
-out="$(cd "$REPO" && FOAM_BOARD_CHECKS_TIMEOUT=5 bash "$FB" reconcile --pr 2>"$TMP/pr.err")"
-pushed="$(git -C "$TMP/origin.git" for-each-ref --format='%(refname:short)' 'refs/heads/board/')"
+out="$(cd "$REPO" && bash "$FB" reconcile --pr 2>"$TMP/pr.err")"
+pushed="$(git -C "$ORIGIN" for-each-ref --format='%(refname:short)' refs/heads/board/)"
 assert_contains "$pushed" "board/reconcile-" "pr: reconcile branch pushed"
-assert_eq "$(git -C "$TMP/origin.git" rev-parse main)" "$main_before" "pr: origin main never committed"
+assert_eq "$(git -C "$ORIGIN" rev-parse main)" "$main_before" "pr: origin main never committed"
 assert_eq "$(git -C "$REPO" rev-parse HEAD)" "$local_before" "pr: local checkout never committed"
 assert_eq "$(git -C "$REPO" status --porcelain)" "" "pr: local working tree clean"
 assert_eq "$(git -C "$REPO" worktree list | wc -l | tr -d ' ')" "1" "pr: throwaway worktree removed"
-if [ -n "$pushed" ]; then
-  files="$(git -C "$TMP/origin.git" diff --name-only main "$pushed")"
-  assert_eq "$files" "$(printf 'foam/board/50-closed-by-pr.md\nfoam/board/foam-only.md')" "pr: commit touches drifted cards only"
-fi
+assert_eq "$(git -C "$REPO" for-each-ref refs/heads/board/)" "" "pr: local reconcile branch removed"
+assert_eq "$(git -C "$ORIGIN" diff --name-only main "$pushed")" \
+  "$(printf 'foam/board/50-closed-by-pr.md\nfoam/board/foam-only.md')" "pr: commit touches drifted cards only"
 log="$(cat "$GH_LOG")"
 assert_contains "$log" "pr create --base main --head board/reconcile-" "pr: PR opened against the default branch"
+assert_contains "$log" "pr merge 99 --rebase --match-head-commit" "pr: landed with a rebase merge pinned to the head"
 assert_contains "$log" "issue close 50" "pr: github_issue closed"
-assert_absent "$log" "issue close 60" "pr: issue of a card still in review stays open"
-assert_contains "$log" "pr merge 99 --match-head-commit" "pr: ADR-016 self-merge pinned to the pushed head"
-assert_contains "$out" "drift 50 in-review -> done (PR #7 merged)" "pr: drift reported"
+assert_absent "$log" "CLOSED-BEFORE-MERGE" "pr: issue closed only after the board PR merged"
+assert_absent "$log" "issue close 60" "pr: card still in review keeps its issue open"
+
+echo "# --pr: merge refused → PR left open, no issue closed"
+git -C "$ORIGIN" branch -D "$pushed" >/dev/null
+rm -f "$MERGED_MARK"
+: >"$GH_LOG"
+out="$(cd "$REPO" && GH_MERGE_FAIL=1 bash "$FB" reconcile --pr 2>&1)"
+assert_contains "$out" "not merged" "merge failure reported"
+assert_absent "$(cat "$GH_LOG")" "issue close" "no issue closed when the board PR did not merge"
+pending="$(git -C "$ORIGIN" for-each-ref --format='%(refname:short)' refs/heads/board/)"
+
+echo "# --pr with that PR still open: lands it, opens no duplicate"
+printf '41 %s\n' "$pending" >"$OPEN_PR"
+: >"$GH_LOG"
+out="$(cd "$REPO" && bash "$FB" reconcile --pr 2>&1)"
+log="$(cat "$GH_LOG")"
+assert_contains "$log" "pr merge 41 --rebase" "open reconcile PR is landed by the next reconcile"
+assert_absent "$log" "pr create" "no duplicate reconcile PR"
+assert_contains "$log" "issue close 50" "issues close once that PR merged"
+
+echo "# --pr with an open PR behind main: closed and regenerated"
+rm -f "$MERGED_MARK"
+git -C "$TMP/seed" commit -q --allow-empty -m "main moves"
+git -C "$TMP/seed" push -q "$ORIGIN" main
+printf '41 %s\n' "$pending" >"$OPEN_PR"
+: >"$GH_LOG"
+out="$(cd "$REPO" && bash "$FB" reconcile --pr 2>&1)"
+log="$(cat "$GH_LOG")"
+assert_contains "$out" "closed stale reconcile PR #41" "behind PR closed"
+assert_contains "$log" "pr close 41 --delete-branch" "stale branch deleted"
+assert_contains "$log" "pr create --base main" "fresh reconcile PR opened"
 
 if [ "$FAILS" -ne 0 ]; then printf '%s failed\n' "$FAILS" >&2; cat "$TMP/pr.err" >&2; exit 1; fi
 printf 'all ok\n'

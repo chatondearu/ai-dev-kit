@@ -23,13 +23,17 @@ maintainer's disk twice in one week. Node projects pile up `node_modules`, `.nux
    per-project list is not needed yet.
 2. **Only git-ignored dirs** — candidates come from `git ls-files --others --ignored
    --exclude-standard --directory`; each must resolve inside the worktree and not be a
-   symlink. Only worktrees the cdamux registry knows are scanned: linked (git dir ≠
+   symlink. Only worktrees cdamux or orch.sh created are scanned: linked (git dir ≠
    common dir, so never a main checkout or a submodule), on a branch (never a detached
-   HEAD), and an agent's `cwd` or `repo` is the worktree or a path inside it.
-   `cdamux worker spawn` records the worktree it creates as the agent `cwd`; orch.sh
-   records `.orch/worktrees/<id>-issue-<id>` the same way. A hand-made worktree is never
-   a candidate, whatever its branch name. Tracked or untracked work, the worktree and
-   its branch are never removed.
+   HEAD), and either carrying the `cdamux-managed` marker in the worktree's own git dir
+   (`.git/worktrees/<name>/`) or known to the registry — an agent's `cwd` is the
+   worktree or inside it, or an agent's `run` + `name` give `<worktree root>/<run>/<name>`
+   (spawned before `cwd` was recorded). `repo` never counts (`--here` writes it). Spawn
+   and orch.sh (issue, graph and pr-fix worktrees) write the marker at creation; a clean
+   pass marks registry-known ones, so they stay candidates after state GC; orch.sh
+   adopts pre-existing worktrees under its own `.orch/worktrees/`, where only it creates
+   them. A hand-made worktree is never a candidate, whatever its branch name. Tracked or
+   untracked work, the worktree and its branch are never removed.
 3. **Finished for good** (pure `clean_verdict`): PR merged or closed (`gh pr list
    --head <branch> --state all`), or no PR, no live session and at least one commit of
    the branch's own (after its reflog creation point) already in the default branch —
@@ -48,7 +52,8 @@ maintainer's disk twice in one week. Node projects pile up `node_modules`, `.nux
    the same check before creating a worktree (`ORCH_MIN_FREE_GIB`). Both fail closed,
    with a message naming the `0` bypass, when `df` cannot be read.
 6. **Crash / Ctrl-C** — orch.sh's exit handler, after a run started and before it
-   finished, marks the run `blocked`, sends the parent a `kind=error` message, runs
+   finished, marks its in-flight workers `error` (board and registry), the run
+   `blocked`, sends the parent a `kind=error` message, runs
    `orch_free_build_dirs` (finished worktrees only: an interrupted worktree keeps its
    build dir for the retry) and releases the run lock.
 

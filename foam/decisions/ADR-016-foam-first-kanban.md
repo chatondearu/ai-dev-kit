@@ -96,19 +96,27 @@ product/`doc/` diffs. Review-gate (ADR-006) is unchanged.
 Nobody is left to move a card to `done` after a merge (the worker is gone; a
 maintainer merge runs nothing). `foam-board.sh reconcile --pr` closes that gap:
 
-- **Drift**: a card `in-progress` or `in-review` whose PR is merged — head
-  branch `feat/<id>-issue-<id>`, or a merged PR that closes the card's
-  `github_issue`. It moves to `done`; the `github_issue`, if any and still
-  open, is closed. Cards without `github_issue` touch no GitHub issue.
+- **Drift**: a card `in-progress` or `in-review` with a PR merged into the
+  default branch on or after the card's `updated` day (its claim / in-review
+  move), whose head is `feat/<id>-issue-<id>` or which closes the card's
+  `github_issue` **in this repository**. It moves to `done`.
 - **Never on the default branch**: a throwaway worktree off a fresh
   `origin/<default>`, branch `board/reconcile-<stamp>`, one foam-only PR.
-- **Self-merge**: same allowlist, `--match-head-commit` and checks
-  green-or-none rule as section 3. No agent review: the script refuses to
-  push unless the diff is only `status:`/`updated:` lines under
-  `foam/board/`. Anything else, or red/pending checks, leaves the PR open.
+- **Self-merge**: through `orch_merge_pr` (rebase merge, merge lock,
+  `--match-head-commit`), ADR-016 allowlist, checks green or allowed-none.
+  No agent review and no repo verify: the script refuses to push unless the
+  staged diff is only `status:`/`updated:` lines of existing `foam/board/`
+  cards.
+- **Issues**: a card's `github_issue`, if still open, is closed only after
+  the board PR merged. Cards without `github_issue` touch no issue.
+- **No waiting**: one try to land, no CI watch, so no run lock or pool slot
+  is held on it. A PR left open (pending checks, merge lock busy) is landed
+  by the next reconcile; one behind the default branch is closed and
+  regenerated; red checks leave it for the maintainer.
 - **Callers**: orch.sh after a successful ADR-016 merge and at the end of
-  every run (`ORCH_BOARD_RECONCILE=0` turns it off); one reconcile at a time
-  (lock in the git common dir; an open `board/reconcile-*` PR skips).
+  every run (`ORCH_BOARD_RECONCILE=0` turns it off). One reconcile per repo
+  (mkdir lock in the git common dir; dead pid, or no pid after a minute, is
+  stale); the open-PR check runs under that lock, so no duplicate PRs.
 - **`cdamux board refresh` stays read-only**: it reports drift in the index
   (`drift`) and on stderr, never commits or opens a PR. Refresh runs on every
   orchestrator turn and across many projects; writes there would race the

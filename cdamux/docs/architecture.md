@@ -253,8 +253,9 @@ Requires `$CDAMUX_AGENT_ID` (caller must be an orchestrator session).
   under `<root>` (`<root>/<name>` or `<root>/<run>/<name>`). Finished = PR merged or
   closed (`gh pr list --head`), or no PR, no live session and at least one own commit
   of the branch already in the default branch. Scans only linked worktrees on a branch
-  that the registry knows: an agent's `cwd` or `repo` is the worktree or inside it
-  (`worker spawn` records its worktree as `cwd`; orch.sh does the same). Keeps: a live
+  that cdamux or orch.sh created: the `cdamux-managed` marker in the worktree's git dir
+  (written by `worker spawn` and orch.sh), or a registry agent whose `cwd` is the
+  worktree (or, for older workers, `<root>/<run>/<name>`); `repo` never counts. Keeps: a live
   tmux session rooted in the worktree whose agent is not `done`, an open PR, an
   unreadable PR state, or every worktree when tmux cannot be listed. Removes only git-ignored directories
   resolved inside the worktree (no symlinks); never the worktree or its branch. Prints

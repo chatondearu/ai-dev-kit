@@ -183,7 +183,7 @@ pub use worktree::{
 };
 pub use worktree_clean::{
     check_free_space, checkout_bytes, clean_verdict, clean_worktrees, format_bytes, gh_pr_state,
-    registry_paths, CleanItem, PrState,
+    mark_managed, registry_paths, CleanItem, PrState, MANAGED_MARKER,
     Verdict, WorktreeSession, DEFAULT_DISPOSABLE, DEFAULT_MIN_FREE_GIB,
 };
 pub use tmux::{

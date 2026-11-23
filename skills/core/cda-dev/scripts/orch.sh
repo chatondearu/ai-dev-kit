@@ -94,15 +94,27 @@ orch_on_signal() {
   orch_tmux_kill_run || true
   exit 130
 }
+# Workers still in flight when the run dies → `error` on the board and in the cdamux
+# registry (agent status), so nothing stays `working` (H9).
+orch_progress_abort_open() {
+  local id line
+  for id in ${ORCH_PROGRESS_IDS:-}; do
+    line="$(cat "$(orch_progress_dir)/${id}.status" 2>/dev/null || true)"
+    case "${line%%|*}" in done|error|blocked) continue ;; esac
+    orch_progress_set "$id" error "$1" || true
+  done
+}
 # Any non-zero exit after the lock that did not finish the run (crash, early block,
-# interrupt; Q12): the run must not stay `running` nor the parent wait forever. Mark it
-# blocked, tell the parent (kind error), free the build dirs
-# of finished worktrees (interrupted ones keep theirs for the retry), release the lock.
+# interrupt; Q12): the run must not stay `running` nor the parent wait forever. Mark its
+# open workers and the run blocked/error, tell the parent (kind error), free the build
+# dirs of finished worktrees (interrupted ones keep theirs for the retry), release the lock.
 orch_on_exit() {
-  local rc=$?
+  local rc=$? reason
   trap - EXIT
   if [ "$rc" -ne 0 ] && [ -n "${ORCH_RUN_LIVE:-}" ] && [ -z "${ORCH_RUN_FINISHED:-}" ]; then
-    orch_graph_finish interrupted "${ORCH_ABORT_REASON:-exited (code $rc)}" || true
+    reason="${ORCH_ABORT_REASON:-exited (code $rc)}"
+    orch_progress_abort_open "run $reason" || true
+    orch_graph_finish interrupted "$reason" || true
     orch_free_build_dirs "$ORCH_REPO" || true
   fi
   _orch_release_lock
@@ -859,6 +871,7 @@ case "$MODE" in
           git -C "$REPO" worktree add "$path" "orch/pr-$num"
         fi
       fi
+      orch_worktree_mark "$path"
 
       mkdir -p "$path/.orch"
       prompt_file="$path/.orch/pr-fix-prompt.md"

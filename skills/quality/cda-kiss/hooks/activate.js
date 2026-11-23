@@ -29,6 +29,8 @@ function finish() {
   try { source = JSON.parse(input.replace(/^﻿/, '')).source; } catch (e) { /* fresh */ }
   activate(source);
 }
+// Decode as UTF-8 across chunk boundaries: a split BOM broke JSON.parse (ponytail ebd8654).
+process.stdin.setEncoding('utf8');
 process.stdin.on('data', c => { input += c; });
 process.stdin.on('end', () => { finish(); process.exit(0); });
 process.stdin.on('error', () => { finish(); process.exit(0); });

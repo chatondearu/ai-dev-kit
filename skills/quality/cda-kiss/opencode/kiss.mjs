@@ -42,10 +42,11 @@ function persistMode(args) {
   if (mode) writeMode(mode);
 }
 
-// Routing stays on when the KISS level is off.
+// Routing stays on when the KISS level is off. Orchestrator: routing only.
 function systemText() {
   const mode = readMode();
-  return [buildRouting(), mode === 'off' ? '' : getInstructions(mode)].filter(Boolean).join('\n\n');
+  const kiss = mode === 'off' || process.env.CDA_ROLE === 'orchestrator' ? '' : getInstructions(mode);
+  return [buildRouting(), kiss].filter(Boolean).join('\n\n');
 }
 
 function addRuleset(event) {

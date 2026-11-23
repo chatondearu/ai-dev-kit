@@ -175,12 +175,13 @@ pub use worktree::{
     worktree_add_new_branch, WorktreeEntry, WorktreeError,
 };
 pub use worktree_clean::{
-    check_free_space, clean_verdict, clean_worktrees, format_bytes, CleanItem, PrState,
+    check_free_space, clean_verdict, clean_worktrees, format_bytes, gh_pr_state, managed_branch,
+    CleanItem, PrState,
     Verdict, WorktreeSession, DEFAULT_DISPOSABLE, DEFAULT_MIN_FREE_GIB,
 };
 pub use tmux::{
     capture_pane_text, classify_pane_heuristics, is_hidden_fleet_session, list_panes_all,
-    list_tmux_sessions, parse_list_panes_all, parse_list_sessions, send_line_to_session,
+    list_tmux_sessions, list_tmux_sessions_strict, parse_list_panes_all, parse_list_sessions, send_line_to_session,
     SessionPaneInfo, HOME_SESSION_NAME, NAV_SESSION_NAME, TmuxError, TmuxSession,
 };
 

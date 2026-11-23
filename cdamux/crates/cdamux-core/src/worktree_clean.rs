@@ -57,15 +57,17 @@ pub enum Verdict {
 }
 
 /// Whether a worktree is finished for good. Open PRs and live unfinished sessions always keep.
-pub fn clean_verdict(session: WorktreeSession, pr: PrState, branch_merged: bool) -> Verdict {
+/// `own_commit_merged`: the branch has at least one commit of its own and `HEAD` is in the
+/// default branch (a fresh branch with zero commits never counts).
+pub fn clean_verdict(session: WorktreeSession, pr: PrState, own_commit_merged: bool) -> Verdict {
     match (session, pr) {
         (WorktreeSession::Live, _) => Verdict::Keep("session live"),
         (_, PrState::Open) => Verdict::Keep("PR open"),
         (_, PrState::Unknown) => Verdict::Keep("PR state unknown (gh)"),
         (_, PrState::Merged) => Verdict::Clean("PR merged"),
         (_, PrState::Closed) => Verdict::Clean("PR closed"),
-        (WorktreeSession::Gone, PrState::None) if branch_merged => {
-            Verdict::Clean("branch merged, session gone")
+        (WorktreeSession::Gone, PrState::None) if own_commit_merged => {
+            Verdict::Clean("own commits merged, session gone")
         }
         (_, PrState::None) => Verdict::Keep("no PR, branch not merged or session done"),
     }
@@ -261,8 +263,46 @@ fn branch_name(wt: &Path) -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
-/// `HEAD` is already contained in the default branch (local refs, no fetch).
-fn branch_merged(wt: &Path) -> bool {
+/// Branches cdamux and orch.sh create: `worker/<run>/<name>`, `feat/<id>-issue-<id>`,
+/// `orch/pr-<n>`. Anything else (hand-made worktree, detached HEAD) is never cleaned.
+pub fn managed_branch(branch: &str) -> bool {
+    if branch.starts_with("worker/") || branch.starts_with("orch/pr-") {
+        return true;
+    }
+    branch
+        .strip_prefix("feat/")
+        .and_then(|r| r.split_once("-issue-"))
+        .is_some_and(|(a, b)| !a.is_empty() && a == b)
+}
+
+/// Linked worktree: its git dir differs from the common dir (false for submodules and
+/// `--separate-git-dir` checkouts, whose `.git` is also a file).
+fn is_linked_worktree(wt: &Path) -> bool {
+    let Some(out) = git_out(wt, &["rev-parse", "--git-dir", "--git-common-dir"]) else {
+        return false;
+    };
+    let mut lines = out.lines().map(|l| {
+        let p = wt.join(l.trim());
+        p.canonicalize().unwrap_or(p)
+    });
+    matches!((lines.next(), lines.next()), (Some(a), Some(b)) if a != b)
+}
+
+/// At least one commit made on `branch` after its creation point (oldest reflog entry)
+/// and `HEAD` already contained in the default branch (local refs, no fetch).
+/// Unknown creation point (expired reflog) → false.
+fn own_commit_merged(wt: &Path, branch: &str) -> bool {
+    let Some(created) = git_out(wt, &["reflog", "show", "--format=%H", branch])
+        .and_then(|s| s.lines().last().map(str::to_string))
+    else {
+        return false;
+    };
+    let ahead = git_out(wt, &["rev-list", "--count", &format!("{created}..HEAD")])
+        .and_then(|s| s.trim().parse::<u64>().ok())
+        .unwrap_or(0);
+    if ahead == 0 {
+        return false;
+    }
     let base = [
         "origin/HEAD",
         "origin/main",
@@ -282,14 +322,12 @@ fn branch_merged(wt: &Path) -> bool {
     })
 }
 
-fn pr_state(wt: &Path) -> PrState {
-    let Some(branch) = branch_name(wt) else {
-        return PrState::None;
-    };
+/// PR state of `branch` from `gh pr list --head` run in `wt`.
+pub fn gh_pr_state(wt: &Path, branch: &str) -> PrState {
     let out = Command::new("gh")
         .current_dir(wt)
         .args([
-            "pr", "list", "--head", &branch, "--state", "all", "--json", "state", "--limit", "20",
+            "pr", "list", "--head", branch, "--state", "all", "--json", "state", "--limit", "20",
         ])
         .output();
     match out {
@@ -340,25 +378,37 @@ impl CleanItem {
 }
 
 /// Scan `roots`, decide per worktree, remove disposable dirs of finished ones (unless `dry_run`).
-/// Worktrees with nothing to free are skipped without calling `gh`.
+/// Only linked worktrees on a [`managed_branch`]; those with nothing to free are skipped
+/// without calling `pr_lookup`. `sessions` is `None` when tmux could not be listed: then
+/// every worktree is kept.
 pub fn clean_worktrees(
     roots: &[PathBuf],
     patterns: &[String],
     dry_run: bool,
-    sessions: &[(String, PathBuf)],
+    sessions: Option<&[(String, PathBuf)]>,
     agent_status: &dyn Fn(&str) -> Option<String>,
+    pr_lookup: &dyn Fn(&Path, &str) -> PrState,
 ) -> Vec<CleanItem> {
     let mut items = Vec::new();
     for wt in roots.iter().flat_map(|r| find_worktrees(r)) {
+        if !is_linked_worktree(&wt) {
+            continue;
+        }
+        let Some(branch) = branch_name(&wt).filter(|b| managed_branch(b)) else {
+            continue;
+        };
         let found = disposable_dirs(&wt, patterns);
         if found.is_empty() {
             continue;
         }
-        let session = session_state(&wt, sessions, agent_status);
-        let verdict = if session == WorktreeSession::Live {
-            clean_verdict(session, PrState::Unknown, false)
-        } else {
-            clean_verdict(session, pr_state(&wt), branch_merged(&wt))
+        let verdict = match sessions.map(|s| session_state(&wt, s, agent_status)) {
+            None => Verdict::Keep("tmux sessions unreadable"),
+            Some(WorktreeSession::Live) => Verdict::Keep("session live"),
+            Some(session) => clean_verdict(
+                session,
+                pr_lookup(&wt, &branch),
+                own_commit_merged(&wt, &branch),
+            ),
         };
         let dirs: Vec<(PathBuf, u64)> = found
             .into_iter()
@@ -484,39 +534,56 @@ mod tests {
         );
     }
 
-    #[test]
-    fn disposable_dirs_only_ignored_and_inside() {
-        let tmp = tempfile::tempdir().unwrap();
-        // A main checkout under the root is never scanned; only its linked worktree is.
-        let main = tmp.path().join("main");
-        fs::create_dir_all(main.join("target")).unwrap();
-        git(&main, &["init", "-q"]);
-        fs::write(main.join(".gitignore"), "target/\n").unwrap();
-        git(&main, &["add", ".gitignore"]);
+    fn commit(dir: &Path, msg: &str) {
         git(
-            &main,
+            dir,
             &[
                 "-c",
                 "user.email=t@t",
                 "-c",
                 "user.name=t",
                 "commit",
-                "-qm",
-                "init",
+                "-q",
+                "--allow-empty",
+                "-m",
+                msg,
             ],
         );
-        let wt = tmp.path().join("run").join("wt");
+    }
+
+    /// `<tmp>/main` (branch `main`) + linked worktree `<tmp>/root/run/<name>` on `branch`.
+    fn repo_with_worktree(tmp: &Path, name: &str, branch: &str) -> (PathBuf, PathBuf) {
+        let main = tmp.join("main");
+        if !main.exists() {
+            fs::create_dir_all(main.join("target")).unwrap();
+            git(&main, &["init", "-q", "-b", "main"]);
+            fs::write(main.join(".gitignore"), "target/\nnode_modules/\nlink\n").unwrap();
+            git(&main, &["add", ".gitignore"]);
+            commit(&main, "init");
+        }
+        let wt = tmp.join("root").join("run").join(name);
         git(
             &main,
-            &["worktree", "add", "-q", "-b", "w", wt.to_str().unwrap()],
+            &["worktree", "add", "-q", "-b", branch, wt.to_str().unwrap()],
         );
+        fs::create_dir_all(wt.join("target/debug")).unwrap();
+        fs::write(wt.join("target/debug/big"), vec![0u8; 8192]).unwrap();
+        (main, wt)
+    }
+
+    fn roots(tmp: &Path) -> Vec<PathBuf> {
+        vec![tmp.join("root")]
+    }
+
+    #[test]
+    fn disposable_dirs_only_ignored_and_inside() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (_, wt) = repo_with_worktree(tmp.path(), "wt", "worker/run/wt");
         fs::write(
             wt.join(".gitignore"),
             "target/\nnode_modules/\nsub/target/\nlink\n",
         )
         .unwrap();
-        fs::create_dir_all(wt.join("target/debug")).unwrap();
-        fs::write(wt.join("target/debug/big"), vec![0u8; 8192]).unwrap();
         fs::create_dir_all(wt.join("sub/target")).unwrap();
         fs::write(wt.join("sub/target/x"), "x").unwrap();
         // Tracked `node_modules` must survive: not git-ignored output.
@@ -529,6 +596,7 @@ mod tests {
         // Symlink to a dir outside the worktree is never followed.
         let outside = tmp.path().join("outside");
         fs::create_dir_all(&outside).unwrap();
+        fs::write(outside.join("keep"), "k").unwrap();
         std::os::unix::fs::symlink(&outside, wt.join("link")).unwrap();
 
         let pats = vec!["target".to_string(), "node_modules".into(), "link".into()];
@@ -536,24 +604,161 @@ mod tests {
         got.sort();
         assert_eq!(got, vec![wt.join("sub/target"), wt.join("target")]);
         assert!(dir_size(&wt.join("target")) >= 8192);
-        assert_eq!(find_worktrees(tmp.path()), vec![wt.clone()]);
+        assert_eq!(find_worktrees(&tmp.path().join("root")), vec![wt.clone()]);
 
-        // Dry-run removes nothing; no sessions and no PR in a remote-less repo → kept.
-        let items = clean_worktrees(&[tmp.path().to_path_buf()], &pats, true, &[], &|_| None);
-        assert_eq!(items.len(), 1);
-        assert!(wt.join("target").exists() && outside.exists());
+        let merged = |_: &Path, _: &str| PrState::Merged;
+        let none: &[(String, PathBuf)] = &[];
+        // Dry-run removes nothing.
+        let items = clean_worktrees(
+            &roots(tmp.path()),
+            &pats,
+            true,
+            Some(none),
+            &|_| None,
+            &merged,
+        );
+        assert_eq!(items[0].verdict, Verdict::Clean("PR merged"));
+        assert!(wt.join("target").exists());
 
         // A live unfinished session keeps the worktree, even when not a dry run.
-        let sessions = vec![("w".to_string(), wt.clone())];
+        let live = vec![("w".to_string(), wt.clone())];
         let items = clean_worktrees(
-            &[tmp.path().to_path_buf()],
+            &roots(tmp.path()),
             &pats,
             false,
-            &sessions,
+            Some(&live),
             &|_| Some("working".into()),
+            &merged,
         );
         assert_eq!(items[0].verdict, Verdict::Keep("session live"));
         assert!(wt.join("target").exists());
+
+        // Real clean: only the ignored dirs go; tracked, outside and the main repo stay.
+        let items = clean_worktrees(
+            &roots(tmp.path()),
+            &pats,
+            false,
+            Some(none),
+            &|_| None,
+            &merged,
+        );
+        assert!(items[0].errors.is_empty(), "{:?}", items[0].errors);
+        assert!(!wt.join("target").exists() && !wt.join("sub/target").exists());
+        assert!(wt.join("vendor/node_modules/keep").exists());
+        assert!(outside.join("keep").exists() && wt.join("link").exists());
+        assert!(tmp.path().join("main/target").exists());
+    }
+
+    #[test]
+    fn unreadable_tmux_keeps_everything() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (_, wt) = repo_with_worktree(tmp.path(), "wt", "worker/run/wt");
+        let pats = vec!["target".to_string()];
+        let items = clean_worktrees(
+            &roots(tmp.path()),
+            &pats,
+            false,
+            None,
+            &|_| None,
+            &|_, _| PrState::Merged,
+        );
+        assert_eq!(items[0].verdict, Verdict::Keep("tmux sessions unreadable"));
+        assert!(wt.join("target").exists());
+    }
+
+    #[test]
+    fn no_pr_needs_an_own_commit_in_main() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (main, wt) = repo_with_worktree(tmp.path(), "wt", "worker/run/wt");
+        let pats = vec!["target".to_string()];
+        let none: &[(String, PathBuf)] = &[];
+        let no_pr = |_: &Path, _: &str| PrState::None;
+        // Zero commits ahead of its base: HEAD is in main, yet not finished.
+        assert!(!own_commit_merged(&wt, "worker/run/wt"));
+        let items = clean_worktrees(
+            &roots(tmp.path()),
+            &pats,
+            false,
+            Some(none),
+            &|_| None,
+            &no_pr,
+        );
+        assert!(matches!(items[0].verdict, Verdict::Keep(_)));
+        assert!(wt.join("target").exists());
+        // Own commit not yet in main → keep; fast-forwarded into main → clean.
+        commit(&wt, "work");
+        assert!(!own_commit_merged(&wt, "worker/run/wt"));
+        git(&main, &["merge", "-q", "--ff-only", "worker/run/wt"]);
+        assert!(own_commit_merged(&wt, "worker/run/wt"));
+        let items = clean_worktrees(
+            &roots(tmp.path()),
+            &pats,
+            false,
+            Some(none),
+            &|_| None,
+            &no_pr,
+        );
+        assert_eq!(
+            items[0].verdict,
+            Verdict::Clean("own commits merged, session gone")
+        );
+        assert!(!wt.join("target").exists());
+    }
+
+    #[test]
+    fn only_managed_linked_worktrees() {
+        for (b, ok) in [
+            ("worker/r-1/api", true),
+            ("orch/pr-12", true),
+            ("feat/42-issue-42", true),
+            ("feat/42-issue-43", false),
+            ("feat/login", false),
+            ("main", false),
+        ] {
+            assert_eq!(managed_branch(b), ok, "{b}");
+        }
+        let tmp = tempfile::tempdir().unwrap();
+        let (main, hand) = repo_with_worktree(tmp.path(), "hand", "my-branch");
+        // Submodule shape: `.git` file, but git dir == common dir.
+        let sub = tmp.path().join("root").join("run").join("sub");
+        git(
+            tmp.path(),
+            &[
+                "init",
+                "-q",
+                "--separate-git-dir",
+                tmp.path().join("sub.git").to_str().unwrap(),
+                sub.to_str().unwrap(),
+            ],
+        );
+        fs::write(sub.join(".gitignore"), "target/\n").unwrap();
+        fs::create_dir_all(sub.join("target")).unwrap();
+        // Detached linked worktree.
+        let det = tmp.path().join("root").join("run").join("det");
+        git(
+            &main,
+            &["worktree", "add", "-q", "--detach", det.to_str().unwrap()],
+        );
+        fs::create_dir_all(det.join("target")).unwrap();
+        assert!(sub.join(".git").is_file() && !is_linked_worktree(&sub));
+        assert!(is_linked_worktree(&hand));
+
+        let pats = vec!["target".to_string()];
+        let none: &[(String, PathBuf)] = &[];
+        let items = clean_worktrees(
+            &roots(tmp.path()),
+            &pats,
+            false,
+            Some(none),
+            &|_| None,
+            &|_, _| PrState::Merged,
+        );
+        assert!(items.is_empty(), "{items:?}");
+        assert!(
+            hand.join("target").exists()
+                && sub.join("target").exists()
+                && det.join("target").exists()
+        );
     }
 
     #[test]

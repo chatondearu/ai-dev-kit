@@ -112,9 +112,11 @@ count; dormant hosts are dead so never count; all projects). Spawn also refuses 
 `[worktrees].min_free_gib` free on the worktree filesystem (default 40, `0` = off).
 `cdamux worker clean [--dry-run] [--root DIR]` deletes `[worktrees].disposable` build
 dirs (default `target`, `node_modules`, `.nuxt`, `.output`; git-ignored only) in
-worktrees whose PR is merged or closed, or whose session is gone and branch merged —
-never with an open PR or a live unfinished session; each spawn also runs it in the
-background at most every 30 min (log `$CDAMUX_HOME/logs/worker-clean.log`, ADR-017).
+cdamux/orch worktrees whose PR is merged or closed, or whose session is gone and own
+commits are in the default branch — never with an open PR, a live unfinished session,
+or when tmux cannot be listed; each spawn also runs it in the background (one pass at a
+time, log `$CDAMUX_HOME/logs/worker-clean.log`, ADR-017). Small hosts: set
+`min_free_gib = 0` (and `ORCH_MIN_FREE_GIB=0` for orch.sh) to turn the guard off.
 `cdamux restore <orch>` rebuilds the
 orchestrator host and its workers (resume by id when recorded). Retention:
 `cdamux state gc` (optional `--retention-days N`, or `--unrestorable` for N = 0)

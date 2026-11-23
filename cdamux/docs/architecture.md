@@ -202,13 +202,15 @@ Requires `$CDAMUX_AGENT_ID` (caller must be an orchestrator session).
 - `cdamux worker clean [--dry-run] [--root DIR]...` — frees `[worktrees].disposable`
   build dirs (default `target`, `node_modules`, `.nuxt`, `.output`) in finished worktrees
   under `<root>` (`<root>/<name>` or `<root>/<run>/<name>`). Finished = PR merged or
-  closed (`gh pr list --head`), or no PR, no live session and `HEAD` already in the
-  default branch. Keeps: a live tmux session rooted in the worktree whose agent is not
-  `done`, an open PR, or an unreadable PR state. Removes only git-ignored directories
+  closed (`gh pr list --head`), or no PR, no live session and at least one own commit
+  of the branch already in the default branch. Scans only linked worktrees on a
+  cdamux/orch branch (`worker/…`, `feat/<id>-issue-<id>`, `orch/pr-<n>`). Keeps: a live
+  tmux session rooted in the worktree whose agent is not `done`, an open PR, an
+  unreadable PR state, or every worktree when tmux cannot be listed. Removes only git-ignored directories
   resolved inside the worktree (no symlinks); never the worktree or its branch. Prints
   `freed <size>` per worktree and a total; `--dry-run` deletes nothing. Needs no
-  `$CDAMUX_AGENT_ID`. A successful `worker spawn` starts it in the background at most
-  every 30 min (`$CDAMUX_HOME/logs/worker-clean.log`). Spawn refuses when the worktree
+  `$CDAMUX_AGENT_ID`. A successful `worker spawn` starts it in the background
+  (`$CDAMUX_HOME/logs/worker-clean.log`); `logs/worker-clean.lock` keeps one pass at a time. Spawn refuses when the worktree
   filesystem has less than `[worktrees].min_free_gib` free (default 40, `0` = off)
   (ADR-017).
 - `cdamux worker peek <name> [--lines N]` — last N pane lines.

@@ -861,19 +861,14 @@ fn cmd_worker_spawn(
     }
 }
 
-/// Background `worker clean` after a spawn, at most every 30 min (log mtime throttle).
+/// Background `worker clean` after a spawn; its exclusive lock makes a second one a no-op.
 fn kick_background_clean() {
     use std::os::unix::process::CommandExt;
     let Some(dir) = cdamux_core::cdamux_state_dir("logs") else {
         return;
     };
     let log = dir.join("worker-clean.log");
-    let fresh = std::fs::metadata(&log)
-        .and_then(|m| m.modified())
-        .ok()
-        .and_then(|t| t.elapsed().ok())
-        .is_some_and(|age| age.as_secs() < 30 * 60);
-    if fresh || std::fs::create_dir_all(&dir).is_err() {
+    if std::fs::create_dir_all(&dir).is_err() {
         return;
     }
     let (Ok(exe), Ok(out)) = (
@@ -896,6 +891,22 @@ fn kick_background_clean() {
 }
 
 fn cmd_worker_clean(dry_run: bool, roots: Vec<PathBuf>) -> ExitCode {
+    // One pass at a time (background kicks, orch.sh, manual): concurrent removals race.
+    let lock = cdamux_core::cdamux_state_dir("logs").and_then(|d| {
+        std::fs::create_dir_all(&d).ok()?;
+        std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(d.join("worker-clean.lock"))
+            .ok()
+    });
+    if let Some(f) = &lock {
+        if f.try_lock().is_err() {
+            println!("worker clean: another pass is running; skipped");
+            return ExitCode::SUCCESS;
+        }
+    }
     let cfg = match load_config() {
         Ok(c) => c,
         Err(e) => {
@@ -919,14 +930,12 @@ fn cmd_worker_clean(dry_run: bool, roots: Vec<PathBuf>) -> ExitCode {
     } else {
         roots
     };
-    // Fail closed: without tmux we cannot tell a live session from a finished one.
-    let sessions: Vec<(String, PathBuf)> = match list_tmux_sessions() {
-        Ok(s) => s.into_iter().map(|s| (s.name, PathBuf::from(s.path))).collect(),
-        Err(e) => {
-            eprintln!("worker clean: cannot list tmux sessions ({e}); aborting");
-            return ExitCode::from(1);
-        }
-    };
+    // Fail closed: when tmux cannot be listed (no server, another socket), keep everything.
+    let sessions: Option<Vec<(String, PathBuf)>> = cdamux_core::list_tmux_sessions_strict()
+        .map(|v| v.into_iter().map(|s| (s.name, PathBuf::from(s.path))).collect());
+    if sessions.is_none() {
+        eprintln!("worker clean: cannot list tmux sessions; keeping every worktree");
+    }
     let status: std::collections::HashMap<String, String> =
         cdamux_core::state_list(StateKind::Agents)
             .into_iter()
@@ -941,8 +950,9 @@ fn cmd_worker_clean(dry_run: bool, roots: Vec<PathBuf>) -> ExitCode {
         &roots,
         &cfg.worktrees.disposable,
         dry_run,
-        &sessions,
+        sessions.as_deref(),
         &|h| status.get(h).cloned(),
+        &cdamux_core::gh_pr_state,
     );
     let (mut total, mut count, mut failed) = (0u64, 0usize, false);
     for it in &items {

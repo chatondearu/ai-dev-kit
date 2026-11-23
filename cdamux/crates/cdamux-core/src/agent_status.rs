@@ -53,6 +53,28 @@ pub fn load_reported_status(agent_id: &str) -> Option<SessionState> {
     status_from_value(&value)
 }
 
+/// Agent record field: `false` when a `kind=ask` sets `blocked`, `true` once the asker's
+/// next turn end (status hook `Stop`) ran. Only then is a `blocked` pane at rest (#402).
+pub const ASK_TURN_ENDED: &str = "ask_turn_ended";
+
+/// Status for pane delivery ([`crate::msg::should_paste`]): like [`load_reported_status`],
+/// except a `blocked` agent whose turn has not ended since its ask counts as `working`.
+/// It may sit on a permission dialog that hooks cannot report under sticky `blocked`, and
+/// a paste's Enter would answer it.
+pub fn load_delivery_status(agent_id: &str) -> Option<SessionState> {
+    let value = state_get(StateKind::Agents, agent_id).ok().flatten()?;
+    delivery_status_from(&value)
+}
+
+fn delivery_status_from(value: &Value) -> Option<SessionState> {
+    match status_from_value(value) {
+        Some(SessionState::Blocked) if value.get(ASK_TURN_ENDED) != Some(&Value::Bool(true)) => {
+            Some(SessionState::Working)
+        }
+        s => s,
+    }
+}
+
 fn status_from_value(value: &Value) -> Option<SessionState> {
     value
         .get("status")
@@ -270,5 +292,30 @@ mod tests {
             .unwrap();
             assert_eq!(load_reported_status(id), Some(SessionState::Working));
         });
+    }
+
+    /// #402 truth table: a quiet `blocked` pane gets the paste only after a turn end.
+    #[test]
+    fn blocked_pastes_only_after_turn_end() {
+        use crate::msg::should_paste;
+        use serde_json::json;
+        let rows = [
+            // Turn ended after the ask: at rest, once the pane is quiet.
+            (json!({"status": "blocked", ASK_TURN_ENDED: true}), 60, true),
+            (json!({"status": "blocked", ASK_TURN_ENDED: true}), 5, false),
+            // Mid-turn after the ask: a static permission dialog keeps the pane quiet.
+            (json!({"status": "blocked", ASK_TURN_ENDED: false}), 600, false),
+            // Blocked without the field (older record, orch.sh): fail closed.
+            (json!({"status": "blocked"}), 600, false),
+            // A reported permission prompt.
+            (json!({"status": "needs_input", ASK_TURN_ENDED: true}), 600, false),
+            // The field only qualifies `blocked`.
+            (json!({"status": "idle", ASK_TURN_ENDED: false}), 60, true),
+            (json!({"status": "working", ASK_TURN_ENDED: true}), 60, false),
+        ];
+        for (rec, idle, want) in rows {
+            let got = should_paste(delivery_status_from(&rec), Some(idle), 10);
+            assert_eq!(got, want, "{rec} idle={idle}");
+        }
     }
 }

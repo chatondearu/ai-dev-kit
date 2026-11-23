@@ -1,7 +1,9 @@
 //! Inbox messages under `$CDAMUX_HOME/inbox/` (ADR-011 §4).
 //! JSONL ≤ 2 KB per line; ack cursor is `<agent-id>.cursor` (byte offset).
 
-use crate::agent_status::{load_reported_status, may_overwrite, parse_reported_status};
+use crate::agent_status::{
+    load_delivery_status, may_overwrite, parse_reported_status, ASK_TURN_ENDED,
+};
 use crate::paths::cdamux_state_dir;
 use crate::send::{send_to_session, send_to_session_preclear};
 use crate::session::SessionState;
@@ -237,11 +239,10 @@ pub fn should_nudge(
 /// permission-prompt pane it would merge with (and submit) what the user is typing, or
 /// answer the prompt. Otherwise the message stays in the inbox and the status hook's
 /// digest delivers it at the worker's next prompt submit or turn end.
-/// A `blocked` agent waits on its parent with no turn left to end: only a paste reaches
-/// it, and the pasted prompt lifts `blocked` to `working` (#402).
-/// shortcut: a sticky status hides a later permission prompt (hooks keep it over
-/// `needs_input`), so a worker that asks or reports done and keeps going can get the
-/// paste on that prompt; upgrade if hooks ever record `needs_input` under a sticky status.
+/// `status` comes from [`load_delivery_status`]: `blocked` only once the asker's turn
+/// ended, so no permission dialog can be open. Such an agent waits on its parent with no
+/// turn end left to digest the inbox: only a paste reaches it, and the pasted prompt lifts
+/// `blocked` to `working` (#402).
 pub fn should_paste(
     status: Option<SessionState>,
     idle_seconds: Option<u32>,
@@ -460,7 +461,12 @@ pub fn reply_to_ask(worker_id: &str, text: &str) -> Result<SendOutcome, MsgError
 fn apply_kind_status(kind: &str, from: &str, to: &str) -> Result<(), MsgError> {
     match kind {
         "ask" => {
-            state_append(StateKind::Agents, from, &json!({ "status": "blocked" }))
+            // Mid-turn: the asker's `Stop` hook sets it true (load_delivery_status).
+            state_append(
+                StateKind::Agents,
+                from,
+                &json!({ "status": "blocked", ASK_TURN_ENDED: false }),
+            )
                 .map_err(|e| MsgError::Io(e.to_string()))?;
         }
         "done" | "error" => {
@@ -548,7 +554,7 @@ pub fn msg_send(
     let delivery = delivery_mode_for_role(&role);
     let mut pasted = false;
     let mut nudged = false;
-    let status = load_reported_status(&to);
+    let status = load_delivery_status(&to);
     let idle = match idle_override {
         Some(v) => v,
         None => host
@@ -826,10 +832,10 @@ mod tests {
             })
             .unwrap();
             apply_kind_status("ask", "a-ask1", "a-orch2").unwrap();
-            assert_eq!(
-                state_get(StateKind::Agents, "a-ask1").unwrap().unwrap()["status"],
-                "blocked"
-            );
+            let rec = state_get(StateKind::Agents, "a-ask1").unwrap().unwrap();
+            assert_eq!(rec["status"], "blocked");
+            // Asked mid-turn: no paste until its Stop hook records the turn end.
+            assert_eq!(rec[ASK_TURN_ENDED], false);
 
             append_message(&Message {
                 id: "m-ans01".into(),

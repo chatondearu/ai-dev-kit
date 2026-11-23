@@ -196,6 +196,23 @@ function setAgentStatus(env, status) {
   }
 }
 
+/// Turn end of an agent with a pending ask: record that its turn ended after the ask
+/// (`ask_turn_ended`, set false by `msg send --kind ask`). Only then may `msg send` paste
+/// into the quiet `blocked` pane: mid-turn it may sit on a permission dialog (#402).
+function markAskTurnEnded(env) {
+  const id = resolveAgentId(env);
+  if (!id || readAgentStatus(env, id) !== 'blocked') return;
+  try {
+    execFileSync('cdamux', ['state', 'append', 'agents', id, '{"ask_turn_ended":true}'], {
+      env,
+      timeout: 40,
+      stdio: 'ignore',
+    });
+  } catch (e) {
+    /* fail-open: the message stays in the inbox */
+  }
+}
+
 function readCursor(file) {
   try {
     const n = parseInt(fs.readFileSync(file, 'utf8').trim(), 10);
@@ -251,6 +268,7 @@ module.exports = {
   readAgentStatus,
   recordReply,
   drainSay,
+  markAskTurnEnded,
   setAgentStatus,
   readUnreadMessages,
   unreadDigest,

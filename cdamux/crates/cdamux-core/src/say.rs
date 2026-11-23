@@ -2,7 +2,7 @@
 //! or queues it (`$CDAMUX_HOME/say/<id>.jsonl`, FIFO) until a turn ends; `msg answer`
 //! answers a worker's ask on the human's behalf. Spec: `docs/say.md`.
 
-use crate::agent_status::load_reported_status;
+use crate::agent_status::{load_delivery_status, load_reported_status};
 use crate::events::emit;
 use crate::msg::{
     agent_role_and_host, ask_answered, find_message, generate_msg_id, inbox_path, msg_send,
@@ -197,7 +197,7 @@ pub fn say(
         let idle = idle_override.unwrap_or_else(|| {
             host.as_ref().and_then(|h| list_panes_all().get(h).and_then(|p| p.idle_seconds))
         });
-        (load_reported_status(&to), idle)
+        (load_delivery_status(&to), idle)
     };
     let (mut status, mut idle) = snapshot();
     // Just after a turn end the pane still counts as active, and no later Stop would flush

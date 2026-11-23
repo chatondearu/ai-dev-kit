@@ -15,7 +15,15 @@
 // beforeSubmitPrompt, so a stop that queues a followup stays `working` and postToolUse
 // lifts `idle` back to `working` (never a sticky status).
 const fs = require('fs');
-const { setAgentStatus, readAgentStatus, recordReply, drainSay, resolveAgentId, unreadDigest } = require('./ledger');
+const {
+  setAgentStatus,
+  readAgentStatus,
+  recordReply,
+  drainSay,
+  markAskTurnEnded,
+  resolveAgentId,
+  unreadDigest,
+} = require('./ledger');
 
 const MAP = {
   UserPromptSubmit: 'working',
@@ -63,7 +71,10 @@ function main() {
   if (status) setAgentStatus(process.env, status);
   if (event === 'Stop' || event === 'stop') recordReply(process.env, input);
   // Not when a Cursor stop queued a followup (status null): that turn is still running.
-  if (status === 'idle' && (event === 'Stop' || event === 'stop')) drainSay(process.env);
+  if (status === 'idle' && (event === 'Stop' || event === 'stop')) {
+    markAskTurnEnded(process.env);
+    drainSay(process.env);
+  }
 
   if (event === 'beforeSubmitPrompt') {
     // Cursor cannot inject additional_context here (continue / user_message only).

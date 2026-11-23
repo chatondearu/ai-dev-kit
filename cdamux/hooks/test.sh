@@ -190,10 +190,18 @@ run_status() { printf '%s' "$1" | node "$ST" || fail "status hook exited non-zer
 run_status '{"hook_event_name":"Stop"}' >/dev/null
 [ ! -s "$CDAMUX_LOG" ] || fail "sticky done should block idle write"
 # A pending ask (blocked) survives the asker's own turn end; the next prompt clears it below.
-printf '{"id":"a-hook1","status":"blocked"}\n' > "$AF"
-run_status '{"hook_event_name":"Stop"}' >/dev/null
+# Mid-turn (a permission prompt) leaves ask_turn_ended false: no paste (#402).
+printf '{"id":"a-hook1","status":"blocked","ask_turn_ended":false}\n' > "$AF"
 run_status '{"hook_event_name":"Notification","notification_type":"permission_prompt","message":"Claude needs your permission to use Bash"}' >/dev/null
-[ ! -s "$CDAMUX_LOG" ] || fail "sticky blocked should block idle/needs_input writes"
+[ ! -s "$CDAMUX_LOG" ] || fail "sticky blocked should block needs_input writes"
+run_status '{"hook_event_name":"Stop"}' >/dev/null
+[ "$(jq -c '[.status, .ask_turn_ended]' "$AF")" = '["blocked",true]' ] \
+  || fail "Stop under blocked must keep blocked and set ask_turn_ended, got: $(cat "$AF")"
+# A Cursor stop that queues a followup is not a turn end.
+printf '{"id":"a-hook1","status":"blocked","ask_turn_ended":false}\n' > "$AF"
+run_status '{"hook_event_name":"stop","loop_count":0}' >/dev/null
+[ "$(jq -r .ask_turn_ended "$AF")" = true ] || fail "cursor stop without digest must end the turn"
+printf '{"id":"a-hook1","status":"blocked","ask_turn_ended":false}\n' > "$AF"; : > "$CDAMUX_LOG"
 out="$(run_status '{"hook_event_name":"beforeSubmitPrompt"}')"
 [ "$out" = '{"continue":true}' ] || fail "cursor beforeSubmitPrompt output, got: $out"
 grep -q 'state append agents a-hook1 {"status":"working"}' "$CDAMUX_LOG" || fail "working not written"

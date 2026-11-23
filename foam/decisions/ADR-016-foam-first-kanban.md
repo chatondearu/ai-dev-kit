@@ -97,8 +97,9 @@ Nobody is left to move a card to `done` after a merge (the worker is gone; a
 maintainer merge runs nothing). `foam-board.sh reconcile --pr` closes that gap:
 
 - **Drift**: a card `in-progress` or `in-review` with a PR merged into the
-  default branch on or after the card's `updated` day (its claim / in-review
-  move), whose head is `feat/<id>-issue-<id>` or which closes the card's
+  default branch on or after the card's claim day — its `updated`, or when that
+  is not a `YYYY-MM-DD` date the day of the last commit touching the card (none
+  → never reconciled) — whose head is `feat/<id>-issue-<id>` or which closes the card's
   `github_issue` **in this repository**. It moves to `done`.
 - **Never on the default branch**: a throwaway worktree off a fresh
   `origin/<default>`, branch `board/reconcile-<stamp>`, one foam-only PR.
@@ -112,9 +113,12 @@ maintainer merge runs nothing). `foam-board.sh reconcile --pr` closes that gap:
 - **No waiting**: one try to land, no CI watch, so no run lock or pool slot
   is held on it. A PR left open (pending checks, merge lock busy) is landed
   by the next reconcile; one behind the default branch is closed and
-  regenerated; red checks leave it for the maintainer.
-- **Callers**: orch.sh after a successful ADR-016 merge and at the end of
-  every run (`ORCH_BOARD_RECONCILE=0` turns it off). One reconcile per repo
+  regenerated; red checks leave it for the maintainer. An open PR is adopted
+  only from this repository (not a fork) and only if its diff against the
+  merge base is still status/updated lines; otherwise it is left alone.
+- **Callers**: orch.sh at run start (after syncing the default branch, before
+  any merge, so repos with real CI land the previous run's PR), after a
+  successful ADR-016 merge and at the end of every run (`ORCH_BOARD_RECONCILE=0` turns it off). One reconcile per repo
   (mkdir lock in the git common dir; dead pid, or no pid after a minute, is
   stale); the open-PR check runs under that lock, so no duplicate PRs.
 - **`cdamux board refresh` stays read-only**: it reports drift in the index

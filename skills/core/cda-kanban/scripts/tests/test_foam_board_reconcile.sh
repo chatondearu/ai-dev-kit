@@ -33,6 +33,7 @@ unset ORCH_REPO ORCH_DEFAULT_BRANCH CDAMUX_AGENT_ID
 #  #10 closes OTHER/repo#60                   → not evidence (other repo)
 #  #11 orch branch of 61, merged 11-01        → older than the claim: not evidence
 #  #12 orch branch of 62, base "release"      → not into the default branch
+#  #13 / #14 orch branches of 63 / 64 (bad `updated`: the card's commit day, 11-05, rules)
 cat >"$TMP/merged.json" <<'EOF'
 [{"number":7,"headRefName":"worker/r1/x","baseRefName":"main","mergedAt":"2026-11-12T10:00:00Z",
   "closingIssuesReferences":[{"number":50,"repository":{"name":"r","owner":{"login":"O"}}}]},
@@ -41,7 +42,9 @@ cat >"$TMP/merged.json" <<'EOF'
  {"number":10,"headRefName":"worker/r1/y","baseRefName":"main","mergedAt":"2026-11-12T10:00:00Z",
   "closingIssuesReferences":[{"number":60,"repository":{"name":"repo","owner":{"login":"other"}}}]},
  {"number":11,"headRefName":"feat/61-issue-61","baseRefName":"main","mergedAt":"2026-11-01T10:00:00Z","closingIssuesReferences":[]},
- {"number":12,"headRefName":"feat/62-issue-62","baseRefName":"release","mergedAt":"2026-11-12T10:00:00Z","closingIssuesReferences":[]}]
+ {"number":12,"headRefName":"feat/62-issue-62","baseRefName":"release","mergedAt":"2026-11-12T10:00:00Z","closingIssuesReferences":[]},
+ {"number":13,"headRefName":"feat/63-issue-63","baseRefName":"main","mergedAt":"2026-11-12T10:00:00Z","closingIssuesReferences":[]},
+ {"number":14,"headRefName":"feat/64-issue-64","baseRefName":"main","mergedAt":"2026-11-01T10:00:00Z","closingIssuesReferences":[]}]
 EOF
 cat >"$TMP/bin/gh" <<'STUB'
 #!/usr/bin/env bash
@@ -52,7 +55,9 @@ case "$1 $2" in
   "pr list")
     case "$*" in
       *"--state merged"*) [ "${GH_FAIL_LIST:-0}" = 1 ] && exit 1; cat "$MERGED_JSON" ;;
-      *"--state open"*) [ -f "$OPEN_PR" ] && cat "$OPEN_PR"; exit 0 ;;
+      *"--state open"*)
+        q=""; while [ $# -gt 0 ]; do [ "$1" = -q ] && q="$2"; shift; done
+        [ -f "$OPEN_PR" ] && jq -r "$q" "$OPEN_PR"; exit 0 ;;
     esac ;;
   "pr create") echo "https://github.com/o/r/pull/99" ;;
   "pr checks") echo "[]" ;;
@@ -65,7 +70,7 @@ case "$1 $2" in
     [ "${GH_MERGE_FAIL:-0}" = 1 ] && { echo "stub: merge refused" >&2; exit 1; }
     touch "$MERGED_MARK" ;;
   "pr close")
-    [ -f "$OPEN_PR" ] && git -C "$ORIGIN" branch -D "$(cut -d' ' -f2 "$OPEN_PR")" >/dev/null
+    [ -f "$OPEN_PR" ] && git -C "$ORIGIN" branch -D "$(jq -r '.[0].headRefName' "$OPEN_PR")" >/dev/null
     rm -f "$OPEN_PR" ;;
   "issue view") echo OPEN ;;
   "issue close") [ -f "$MERGED_MARK" ] || echo "CLOSED-BEFORE-MERGE $*" >>"$GH_LOG" ;;
@@ -92,9 +97,14 @@ card "$TMP/seed/foam/board/60-other-repo.md" in-review 60
 card "$TMP/seed/foam/board/61-old-pr.md" in-progress 61
 card "$TMP/seed/foam/board/62-release.md" in-review 62
 card "$TMP/seed/foam/board/77-ready.md" ready 77
+card "$TMP/seed/foam/board/63-bad-date.md" in-review 63
+card "$TMP/seed/foam/board/64-bad-date-old-pr.md" in-review 64
+sed -i.bak 's/^updated: .*/updated: soon/' "$TMP/seed/foam/board/63-bad-date.md" "$TMP/seed/foam/board/64-bad-date-old-pr.md"
+rm -f "$TMP/seed/foam/board/"*.bak
 printf 'orch: allow-no-checks\n' >"$TMP/seed/AGENTS.md"
 printf '.orch/\n' >"$TMP/seed/.gitignore"
-git -C "$TMP/seed" add -A && git -C "$TMP/seed" commit -qm init
+git -C "$TMP/seed" add -A
+GIT_COMMITTER_DATE="2026-11-05T12:00:00Z" git -C "$TMP/seed" commit -qm init
 git clone -q --bare "$TMP/seed" "$ORIGIN"
 git clone -q "$ORIGIN" "$TMP/repo"
 REPO="$TMP/repo"
@@ -110,6 +120,8 @@ assert_absent "$out" "drift 60" "closing ref to another repo is not evidence"
 assert_absent "$out" "drift 61" "PR merged before the card's updated day is not evidence"
 assert_absent "$out" "drift 62" "PR into a non-default base is not evidence"
 assert_absent "$out" "drift 77" "ready card is never drift"
+assert_contains "$out" "drift 63 in-review -> done (PR #13 merged)" "bad updated: PR newer than the card's commit day is evidence"
+assert_absent "$out" "drift 64" "bad updated: PR older than the card's commit day is not"
 assert_contains "$(cat "$GH_LOG")" "pr list --state merged --base main" "merged list filtered on the default branch"
 assert_eq "$(git -C "$REPO" status --porcelain)" "" "report: working tree untouched"
 
@@ -160,7 +172,7 @@ assert_eq "$(git -C "$REPO" status --porcelain)" "" "pr: local working tree clea
 assert_eq "$(git -C "$REPO" worktree list | wc -l | tr -d ' ')" "1" "pr: throwaway worktree removed"
 assert_eq "$(git -C "$REPO" for-each-ref refs/heads/board/)" "" "pr: local reconcile branch removed"
 assert_eq "$(git -C "$ORIGIN" diff --name-only main "$pushed")" \
-  "$(printf 'foam/board/50-closed-by-pr.md\nfoam/board/foam-only.md')" "pr: commit touches drifted cards only"
+  "$(printf 'foam/board/50-closed-by-pr.md\nfoam/board/63-bad-date.md\nfoam/board/foam-only.md')" "pr: commit touches drifted cards only"
 log="$(cat "$GH_LOG")"
 assert_contains "$log" "pr create --base main --head board/reconcile-" "pr: PR opened against the default branch"
 assert_contains "$log" "pr merge 99 --rebase --match-head-commit" "pr: landed with a rebase merge pinned to the head"
@@ -178,7 +190,28 @@ assert_absent "$(cat "$GH_LOG")" "issue close" "no issue closed when the board P
 pending="$(git -C "$ORIGIN" for-each-ref --format='%(refname:short)' refs/heads/board/)"
 
 echo "# --pr with that PR still open: lands it, opens no duplicate"
-printf '41 %s\n' "$pending" >"$OPEN_PR"
+echo "# a fork PR on a board/reconcile-* branch is never adopted"
+printf '[{"number":%s,"headRefName":"%s","isCrossRepository":true}]\n' 41 "$pending" >"$OPEN_PR"
+: >"$GH_LOG"
+out="$(cd "$REPO" && bash "$FB" reconcile --pr 2>&1)"
+assert_absent "$(cat "$GH_LOG")" "pr merge 41" "cross-repository PR ignored"
+git -C "$ORIGIN" for-each-ref --format='%(refname:short)' refs/heads/board/ | grep -vx "$pending" | while read -r b; do git -C "$ORIGIN" branch -D "$b" >/dev/null; done
+rm -f "$MERGED_MARK"
+
+echo "# an open reconcile PR with extra commits is left for the maintainer"
+git clone -q "$ORIGIN" "$TMP/meddle"
+git -C "$TMP/meddle" checkout -q "$pending"
+printf 'x\n' >>"$TMP/meddle/foam/board/60-other-repo.md"
+git -C "$TMP/meddle" commit -qam meddle && git -C "$TMP/meddle" push -q origin "$pending"
+printf '[{"number":%s,"headRefName":"%s","isCrossRepository":false}]\n' 41 "$pending" >"$OPEN_PR"
+: >"$GH_LOG"
+out="$(cd "$REPO" && bash "$FB" reconcile --pr 2>&1)"
+assert_contains "$out" "holds more than status/updated lines" "tampered reconcile PR refused"
+assert_absent "$(cat "$GH_LOG")" "pr merge" "tampered PR not merged"
+assert_absent "$(cat "$GH_LOG")" "pr create" "no duplicate while it is open"
+git -C "$TMP/meddle" reset -q --hard HEAD~1 && git -C "$TMP/meddle" push -q -f origin "$pending"
+
+printf '[{"number":%s,"headRefName":"%s","isCrossRepository":false}]\n' 41 "$pending" >"$OPEN_PR"
 : >"$GH_LOG"
 out="$(cd "$REPO" && bash "$FB" reconcile --pr 2>&1)"
 log="$(cat "$GH_LOG")"
@@ -190,7 +223,7 @@ echo "# --pr with an open PR behind main: closed and regenerated"
 rm -f "$MERGED_MARK"
 git -C "$TMP/seed" commit -q --allow-empty -m "main moves"
 git -C "$TMP/seed" push -q "$ORIGIN" main
-printf '41 %s\n' "$pending" >"$OPEN_PR"
+printf '[{"number":%s,"headRefName":"%s","isCrossRepository":false}]\n' 41 "$pending" >"$OPEN_PR"
 : >"$GH_LOG"
 out="$(cd "$REPO" && bash "$FB" reconcile --pr 2>&1)"
 log="$(cat "$GH_LOG")"

@@ -291,10 +291,21 @@ merged_prs_tsv() {
                 | .number | tostring] | join(",")) + ",")] | @tsv'
 }
 
+# Day a card was claimed / moved: its `updated` (YYYY-MM-DD), else the date of the
+# last commit that touched the file. Neither → empty (the card is never reconciled).
+card_claim_day() {
+  local f="$1" d
+  d="$(fm_get "$f" updated)"
+  if ! printf '%s' "$d" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'; then
+    d="$(git -C "$(dirname "$f")" log -1 --format=%cs -- "$(basename "$f")" 2>/dev/null || true)"
+  fi
+  printf '%s\n' "$d"
+}
+
 # Drift rows (card<TAB>id<TAB>status<TAB>pr) for in-progress|in-review cards whose PR,
-# listed in TSV file $1, merged on or after the card's `updated` day (the claim or
-# in-review move; a PR merged before it is old work). A card's PR: head branch
-# feat/<id>-issue-<id> (orch.sh), or a PR that closes the card's github_issue.
+# listed in TSV file $1, merged on or after the card's claim day (a PR merged before
+# it is old work). A card's PR: head branch feat/<id>-issue-<id> (orch.sh), or a PR
+# that closes the card's github_issue.
 reconcile_drift() {
   local prs="$1" f st id gi upd pr
   while IFS= read -r f; do
@@ -303,7 +314,8 @@ reconcile_drift() {
     case "$st" in in-progress|in-review) ;; *) continue ;; esac
     id="$(card_id "$f")"
     gi="$(fm_get "$f" github_issue)"
-    upd="$(fm_get "$f" updated)"
+    upd="$(card_claim_day "$f")"
+    [ -n "$upd" ] || continue
     pr="$(awk -F'\t' -v b="feat/${id}-issue-${id}" -v gi="$gi" -v upd="$upd" \
       '$3 >= upd && ($2 == b || (gi != "" && index($4, "," gi ","))) { print $1; exit }' "$prs")"
     [ -n "$pr" ] || continue
@@ -311,8 +323,9 @@ reconcile_drift() {
   done < <(card_files)
 }
 
-# True when the index of $1 (after `git add`) differs from $2 only in foam/board
-# status/updated lines. The index, not the work tree: a new untracked card shows up.
+# True when the index of $1 (after `git add`; HEAD for a checked-out PR) differs from
+# base $2 only in foam/board status/updated lines. The index, not the work tree: a new
+# untracked card shows up.
 reconcile_diff_is_status_only() {
   local wt="$1" base="$2" paths lines
   paths="$(git -C "$wt" diff --cached --name-only --no-renames "$base")" || return 1
@@ -413,8 +426,10 @@ reconcile_pr_locked() (
   local repo="$1" wt="$2/board" prs="$3" def="$4" open num head rc branch drift card id st pr body url
   git -C "$repo" fetch -q origin "$def" || die "git fetch origin $def failed"
   # Checked under the lock, so two reconciles never open duplicate PRs.
-  open="$(GH_PROMPT_DISABLED=1 gh pr list --state open --limit 200 --json number,headRefName \
-    -q '[.[] | select(.headRefName | startswith("board/reconcile-"))][0] // empty | "\(.number) \(.headRefName)"' \
+  # Only same-repo PRs: a fork can name its branch board/reconcile-* too.
+  open="$(GH_PROMPT_DISABLED=1 gh pr list --state open --limit 200 --json number,headRefName,isCrossRepository \
+    -q '[.[] | select((.headRefName | startswith("board/reconcile-")) and .isCrossRepository == false)][0] // empty
+        | "\(.number) \(.headRefName)"' \
     </dev/null)" || die "cannot list open PRs (gh)"
   if [ -n "$open" ]; then
     num="${open%% *}"
@@ -422,6 +437,11 @@ reconcile_pr_locked() (
     git -C "$repo" fetch -q origin "+refs/heads/$head:refs/remotes/origin/$head" \
       && git -C "$repo" worktree add -q -B "$head" "$wt" "origin/$head" \
       || die "cannot check out reconcile PR #$num ($head)"
+    # Someone may have pushed to it: land only what this script would have written.
+    if ! reconcile_diff_is_status_only "$wt" "$(git -C "$wt" merge-base "origin/$def" HEAD)"; then
+      printf 'board: reconcile PR #%s holds more than status/updated lines; left for the maintainer\n' "$num"
+      exit 0
+    fi
     rc=0
     reconcile_land "$repo" "$wt" "$head" "$num" "$def" || rc=$?
     [ "$rc" = 3 ] || exit 0

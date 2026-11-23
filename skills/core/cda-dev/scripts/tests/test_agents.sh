@@ -108,6 +108,7 @@ assert_contains "$out_dry" "agent[verifier]: codex (role-override)" "dry-run lin
 export ORCH_RUN_ID=t1 ORCH_REPO="$FAKE2"
 assert_eq "$(orch_tier_for_role worker)" "medium" "default tier: medium"
 assert_eq "$(orch_tier_for_role integrator)" "small" "integrator default: small"
+assert_eq "$(orch_tier_for_role reviewer)" "large" "reviewer default: large (M14)"
 assert_eq "$(ORCH_TIER_PR_FIX=large orch_tier_for_role pr-fix)" "large" "ORCH_TIER_PR_FIX"
 assert_eq "$(ORCH_TIER=large ORCH_TIER_WORKER=small orch_tier_for_role worker)" "large" "ORCH_TIER (current) beats role tier"
 assert_eq "$(orch_tier_flags agent large)" "--model claude-opus-5-5-high" "agent uses cursor rows"

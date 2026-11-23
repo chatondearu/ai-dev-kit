@@ -55,7 +55,8 @@ _ORCH_KIT_TIERS="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/config/tier
 export _ORCH_KIT_TIERS
 
 # Tier of role $1: ORCH_TIER (current tier, raised on failure by orch_tier_escalate) >
-# ORCH_TIER_<ROLE> > default (integrator small, other roles medium). ADR-010.
+# ORCH_TIER_<ROLE> > default (reviewer large, integrator small, other roles medium).
+# ADR-010; reviewer large per M14 (the gate must not be weaker than the writer).
 orch_tier_for_role() {
   local role="${1:-worker}" var
   var="ORCH_TIER_${role^^}"
@@ -64,6 +65,8 @@ orch_tier_for_role() {
     printf '%s\n' "$ORCH_TIER"
   elif [ -n "${!var:-}" ]; then
     printf '%s\n' "${!var}"
+  elif [ "$role" = reviewer ]; then
+    echo large
   elif [ "$role" = integrator ]; then
     echo small
   else

@@ -36,7 +36,7 @@ prompt="$(cat)"
 mkdir -p .orch
 case "$prompt" in
   *"Verifier (grounding node)"*) touch .orch/verifier-ok ;;
-  *"Reviewer prompt"*) echo "REVIEW: ${STUB_REVIEW:-approved}" ;;
+  *"Reviewer prompt"*) echo "${STUB_REVIEW:-approved}" >.orch/review-verdict ;;
 esac
 exit 0
 EOF
@@ -274,7 +274,7 @@ prompt="$(cat)"
 mkdir -p .orch
 case "$prompt" in
   *"Verifier (grounding node)"*) touch .orch/verifier-ok; exit 0 ;;
-  *"Reviewer prompt"*) echo "REVIEW: approved"; exit 0 ;;
+  *"Reviewer prompt"*) mkdir -p .orch; echo approved >.orch/review-verdict; exit 0 ;;
 esac
 marker_dir="${ORCH_PARALLEL_MARKERS:-/tmp/orch-parallel-markers}"
 mkdir -p "$marker_dir"

@@ -144,6 +144,19 @@ rollout itself.
   file under the state root), [[ADR-012-foam-browser-replaces-notes-sidecar|ADR-012]],
   [[ADR-015-global-and-nested-orchestrators|ADR-015]].
 
+## Amendments
+
+- **2026-11-23** (orchestration audit C2/H1, owner decisions Q4/Q5/Q26): the
+  self-merge is `gh pr merge --rebase --match-head-commit` — never the repo
+  default method, which `gh` cannot pick non-interactively. Before merging,
+  `orch.sh` takes the per-repo `.orch/merge.lock`, fetches `origin/<default>`
+  (resolved, never assumed `main`), rebases + re-runs verify + pushes the
+  feature branch when it is behind, and refuses `mergeable=UNKNOWN`. A repo
+  that disallows rebase merges, or any failed step, is an `error` (no fallback
+  method, never reported `done`). The owner enables branch protection
+  "require branches to be up to date" on this repo. The same pre-merge rule
+  is written into skill `cda-orchestrator` for the maintainer's merges.
+
 ## References
 
 - Epic [#403](https://github.com/chatondearu/ai-dev-kit/issues/403); children

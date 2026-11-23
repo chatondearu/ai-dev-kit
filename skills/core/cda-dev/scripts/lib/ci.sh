@@ -62,9 +62,10 @@ _orch_ci_heartbeat() {
   fi
 }
 
+# Prints green | red | none | timeout (M13: a timeout is not a red CI). rc 0 only on green.
 orch_pr_checks_watch() {
   local pr="$1"
-  local timeout="${2:-600}"
+  local timeout="${2:-${ORCH_CI_TIMEOUT:-1800}}"
   # Seconds to keep waiting on "no checks reported" so a fresh push can register checks.
   local grace="${_ORCH_CI_NO_CHECKS_GRACE:-60}"
   local start=$SECONDS
@@ -105,7 +106,7 @@ orch_pr_checks_watch() {
       last_hb=$elapsed
     fi
     if (( elapsed >= timeout )); then
-      printf 'pending\n'
+      printf 'timeout\n'
       rc=1; break
     fi
     sleep 5
@@ -114,36 +115,41 @@ orch_pr_checks_watch() {
   return "$rc"
 }
 
+# Prints the PR's mergeable state; rc 0 only for an OPEN, MERGEABLE PR. GitHub computes
+# it lazily (UNKNOWN right after a push or a sibling merge): re-ask every 5 s for up to
+# ORCH_MERGEABLE_WAIT seconds (default 60), then refuse UNKNOWN (Q4).
 orch_pr_mergeable() {
-  local pr="$1"
+  local pr="$1" wait="${ORCH_MERGEABLE_WAIT:-60}" start=$SECONDS
   local json m state
-  json="$(gh pr view "$pr" --json mergeable,state 2>/dev/null)" || return 1
-  if command -v jq >/dev/null 2>&1; then
-    m="$(jq -r '.mergeable // empty' <<<"$json")"
-    state="$(jq -r '.state // empty' <<<"$json")"
-  else
-    m="$(echo "$json" | sed -n 's/.*"mergeable"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
-    state="$(echo "$json" | sed -n 's/.*"state"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
-  fi
-  [ -z "$m" ] && m="UNKNOWN"
+  while :; do
+    json="$(gh pr view "$pr" --json mergeable,state 2>/dev/null)" || return 1
+    if command -v jq >/dev/null 2>&1; then
+      m="$(jq -r '.mergeable // empty' <<<"$json")"
+      state="$(jq -r '.state // empty' <<<"$json")"
+    else
+      m="$(echo "$json" | sed -n 's/.*"mergeable"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+      state="$(echo "$json" | sed -n 's/.*"state"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+    fi
+    [ -z "$m" ] && m="UNKNOWN"
+    [ "$m" = UNKNOWN ] && (( SECONDS - start < wait )) || break
+    sleep 5
+  done
   printf '%s\n' "$m"
   if [ -n "$state" ] && [ "$state" != "OPEN" ]; then
     return 1
   fi
-  case "$m" in
-    MERGEABLE|UNKNOWN) return 0 ;;
-    *) return 1 ;;
-  esac
+  [ "$m" = MERGEABLE ]
 }
 
-# First PR state for branch head: OPEN|MERGED|CLOSED| (empty if none). Fail-open on gh error.
+# First PR state for branch head: OPEN|MERGED|CLOSED| (empty if none). A failed gh
+# lookup prints UNKNOWN (rc 1), never "no PR" (L11); callers only act on MERGED.
 orch_pr_state() {
   local branch="$1" json
   [ -n "$branch" ] || { printf '\n'; return 0; }
   command -v gh >/dev/null 2>&1 || { printf '\n'; return 0; }
   json="$(gh pr list --head "$branch" --state all --json number,state 2>/dev/null)" || {
-    printf '\n'
-    return 0
+    printf 'UNKNOWN\n'
+    return 1
   }
   if command -v jq >/dev/null 2>&1; then
     jq -r '.[0].state // empty' <<<"$json" 2>/dev/null || true

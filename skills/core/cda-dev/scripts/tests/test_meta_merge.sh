@@ -9,8 +9,12 @@ source "$TROOT/helpers.sh"
 source "$TROOT/../lib/meta.sh"
 # shellcheck source=../lib/worktree.sh
 source "$TROOT/../lib/worktree.sh"
+source "$TROOT/../lib/lock.sh"
+source "$TROOT/../lib/verify.sh"
+source "$TROOT/../lib/ci.sh"
 
 TMP="$(cd "$(mktemp -d)" && pwd -P)"
+ORIGIN="$(mktemp -d)"
 _ORIG_PATH="$PATH"
 STUB_BIN="$(mktemp -d)"
 MERGE_LOG="$STUB_BIN/merge.log"
@@ -19,7 +23,7 @@ cleanup() {
   PATH="$_ORIG_PATH"
   rm -rf "$TMP/.orch/worktrees" 2>/dev/null || true
   git -C "$TMP" worktree prune 2>/dev/null || true
-  rm -rf "$TMP" "$STUB_BIN"
+  rm -rf "$TMP" "$STUB_BIN" "$ORIGIN"
 }
 trap cleanup EXIT
 
@@ -62,6 +66,11 @@ echo init >"$TMP/README"
 git -C "$TMP" add README
 git -C "$TMP" commit -qm init
 git -C "$TMP" branch -M main
+# Bare origin: the merge path fetches origin/<default> and checks freshness (Q4).
+git init -q --bare -b main "$ORIGIN"
+git -C "$TMP" remote add origin "$ORIGIN"
+git -C "$TMP" push -q origin main
+export ORCH_REPO="$TMP" ORCH_MERGEABLE_WAIT=0
 git -C "$TMP" checkout -q -b feat-allow
 mkdir -p "$TMP/prd" "$TMP/plans" "$TMP/foam/board" "$TMP/foam/decisions"
 printf 'meta\n' >"$TMP/prd/x.md"
@@ -96,6 +105,7 @@ mkdir -p "$TMP/skills"
 printf 'old\n' >"$TMP/skills/old.sh"
 git -C "$TMP" add skills/old.sh
 git -C "$TMP" commit -qm "skills on main"
+git -C "$TMP" push -q origin main
 git -C "$TMP" checkout -q -b feat-rename
 mkdir -p "$TMP/prd"
 git -C "$TMP" mv skills/old.sh prd/new.md
@@ -106,6 +116,8 @@ if orch_meta_diff_allowlisted "$TMP"; then
 else
   PASSES=$((PASSES + 1))
 fi
+# Put origin/main back where feat-allow branched, so it is not behind below.
+git -C "$TMP" push -q --force origin main~1:main
 git -C "$TMP" checkout -q feat-allow
 
 echo "# harness stub: merge invoked only on allow"
@@ -118,7 +130,10 @@ case "\$*" in
     printf '%s\n' "\${GH_STUB_PR_FILES:-}"
     exit 0
     ;;
+  *rebaseMergeAllowed*) echo "\${GH_STUB_REBASE:-true}" ;;
+  *"pr view"*) echo "{\"mergeable\":\"\${GH_STUB_MERGEABLE:-MERGEABLE}\",\"state\":\"OPEN\"}" ;;
   *"pr merge"*)
+    [ -z "\${GH_STUB_MERGE_FAIL:-}" ] || { echo "\$GH_STUB_MERGE_FAIL" >&2; exit 1; }
     exit 0
     ;;
   *)
@@ -136,7 +151,44 @@ rc_allow=$?
 set -e
 assert_eq "$rc_allow" "0" "try_merge succeeds on allowlist diff"
 assert_contains "$(cat "$MERGE_LOG")" "pr merge 42" "gh pr merge invoked on allow"
-assert_contains "$(cat "$MERGE_LOG")" "match-head-commit" "merge pins worktree HEAD"
+assert_contains "$(cat "$MERGE_LOG")" "match-head-commit $(git -C "$TMP" rev-parse HEAD)" "merge pins worktree HEAD"
+assert_contains "$(cat "$MERGE_LOG")" "pr merge 42 --rebase" "merge method is rebase only (Q5)"
+
+echo "# repo without rebase merges: clear error, no merge, no fallback (Q26)"
+: >"$MERGE_LOG"
+set +e
+GH_STUB_REBASE=false GH_STUB_PR_FILES="$ALLOW_PR_FILES" orch_meta_try_merge 45 "$TMP" >/dev/null 2>"$STUB_BIN/norebase.err"
+rc_nr=$?
+set -e
+assert_eq "$rc_nr" "2" "rebase disallowed = merge failure (rc 2), not a skip"
+assert_contains "$(cat "$STUB_BIN/norebase.err")" "does not allow rebase merges" "clear rebase-disallowed reason"
+if grep -q "pr merge" "$MERGE_LOG"; then
+  FAILS=$((FAILS + 1)); printf 'FAIL no merge attempt (no fallback method) when rebase is disallowed\n' >&2
+else
+  PASSES=$((PASSES + 1))
+fi
+
+echo "# mergeable=UNKNOWN is refused (Q4)"
+: >"$MERGE_LOG"
+set +e
+GH_STUB_MERGEABLE=UNKNOWN GH_STUB_PR_FILES="$ALLOW_PR_FILES" orch_meta_try_merge 46 "$TMP" >/dev/null 2>"$STUB_BIN/unk.err"
+rc_unk=$?
+set -e
+assert_eq "$rc_unk" "2" "UNKNOWN mergeable refuses the merge"
+assert_contains "$(cat "$STUB_BIN/unk.err")" "mergeable=UNKNOWN" "UNKNOWN reason logged"
+if grep -q "pr merge" "$MERGE_LOG"; then
+  FAILS=$((FAILS + 1)); printf 'FAIL no merge on UNKNOWN\n' >&2
+else
+  PASSES=$((PASSES + 1))
+fi
+
+echo "# gh pr merge failure is rc 2 with the gh error (H1)"
+set +e
+GH_STUB_MERGE_FAIL="X required" GH_STUB_PR_FILES="$ALLOW_PR_FILES" orch_meta_try_merge 47 "$TMP" >/dev/null 2>"$STUB_BIN/mfail.err"
+rc_mf=$?
+set -e
+assert_eq "$rc_mf" "2" "gh pr merge failure is rc 2"
+assert_contains "$ORCH_MERGE_ERROR" "X required" "gh error carried in ORCH_MERGE_ERROR"
 
 echo "# local allowlist + stub PR files with skills/ must not merge"
 : >"$MERGE_LOG"
@@ -178,6 +230,7 @@ git -C "$TMP" branch -D feat-allow >/dev/null 2>&1 || true
 printf '{"scripts":{"test":"true"}}\n' >"$TMP/package.json"
 git -C "$TMP" add package.json
 git -C "$TMP" commit -qm "verify"
+git -C "$TMP" push -q origin main
 
 cat >"$STUB_BIN/stub-agent" <<'EOF'
 #!/usr/bin/env bash
@@ -185,7 +238,7 @@ prompt="$(cat)"
 mkdir -p .orch
 case "$prompt" in
   *"Verifier (grounding node)"*) touch .orch/verifier-ok; exit 0 ;;
-  *"Reviewer prompt"*) echo "REVIEW: approved"; exit 0 ;;
+  *"Reviewer prompt"*) echo approved >.orch/review-verdict; exit 0 ;;
 esac
 if [ "${STUB_COMMIT_META:-0}" = "1" ]; then
   mkdir -p prd
@@ -214,7 +267,9 @@ case "\$*" in
   *"issue view"*)
     case "\$*" in
       *"--comments"*|*"--json comments"*)
+        if [ -n "\${GH_STUB_NO_BRIEF:-}" ]; then echo '{"comments":[]}'; else
         printf '%s\n' '{"comments":[{"authorAssociation":"OWNER","body":"## Agent Brief\n\n**Acceptance criteria:**\n- [ ] done\n"}]}'
+        fi
         ;;
       *"--json body"*) printf '%s\n' '{"body":"Test"}' ;;
       *"--json title"*) echo "Test" ;;
@@ -238,8 +293,10 @@ case "\$*" in
     echo '{"mergeable":"MERGEABLE","state":"OPEN","headRefName":"main"}'
     ;;
   *"pr merge"*)
+    [ -z "\${GH_STUB_MERGE_FAIL:-}" ] || { echo "\$GH_STUB_MERGE_FAIL" >&2; exit 1; }
     exit 0
     ;;
+  *rebaseMergeAllowed*) echo true ;;
   *"repo view"*)
     echo '{"nameWithOwner":"stub/repo"}'
     ;;
@@ -262,7 +319,44 @@ set -e
 assert_eq "$rc_meta" "0" "allowlist worker orch exits 0"
 assert_contains "$out_meta" "merged" "orch reports merged on allowlist"
 assert_contains "$(cat "$MERGE_LOG")" "pr merge 301" "harness invoked gh pr merge on allow"
+assert_contains "$(cat "$MERGE_LOG")" "pr merge 301 --rebase" "orch.sh merges with --rebase"
 orch_worktree_remove "$TMP" "$(orch_worktree_path "$TMP" 21 issue-21)" 2>/dev/null || true
+git -C "$TMP" branch -D feat/21-issue-21 >/dev/null 2>&1 || true
+
+echo "# orch.sh: a failed merge is an error, never done (Q4, H1)"
+: >"$MERGE_LOG"
+set +e
+out_mf="$(STUB_COMMIT_META=1 GH_STUB_PR_NUM=303 GH_STUB_MERGE_FAIL="merge refused" \
+  bash "$SCRIPTS/orch.sh" --repo "$TMP" --mode ready-pickup --issue 23 --agent "$STUB_BIN/stub-agent" 2>&1)"
+rc_mf=$?
+set -e
+assert_eq "$rc_mf" "1" "failed merge exits 1"
+assert_contains "$out_mf" "merge failed: gh pr merge --rebase failed: merge refused" "failed merge reported with the gh error"
+assert_contains "$out_mf" "summary #23 error" "summary shows error, not done"
+orch_worktree_remove "$TMP" "$(orch_worktree_path "$TMP" 23 issue-23)" 2>/dev/null || true
+
+echo "# H6: plan merged upstream but not pulled locally -> found in the fetched worktree"
+UP="$(mktemp -d)"
+git clone -q "$ORIGIN" "$UP/c"
+mkdir -p "$UP/c/plans"
+echo plan >"$UP/c/plans/PLAN-24-upstream.md"
+git -C "$UP/c" add plans
+git -C "$UP/c" -c user.email=u@t -c user.name=u commit -qm "plan 24"
+git -C "$UP/c" push -q origin main
+rm -rf "$UP"
+set +e
+out_h6="$(STUB_COMMIT_META=1 GH_STUB_PR_NUM=304 GH_STUB_NO_BRIEF=1 \
+  bash "$SCRIPTS/orch.sh" --repo "$TMP" --mode ready-pickup --issue 24 --agent "$STUB_BIN/stub-agent" 2>&1)"
+rc_h6=$?
+set -e
+[ ! -e "$TMP/plans/PLAN-24-upstream.md" ] && PASSES=$((PASSES + 1)) \
+  || { FAILS=$((FAILS + 1)); echo "FAIL local checkout should not have the plan" >&2; }
+assert_eq "$rc_h6" "0" "stale local main: issue with an upstream plan is not blocked"
+case "$out_h6" in
+  *"needs agent brief"*|*"no PLAN and no agent brief"*) FAILS=$((FAILS + 1)); echo "FAIL fell to fast lane on a stale checkout" >&2 ;;
+  *) PASSES=$((PASSES + 1)) ;;
+esac
+orch_worktree_remove "$TMP" "$(orch_worktree_path "$TMP" 24 issue-24)" 2>/dev/null || true
 
 : >"$MERGE_LOG"
 set +e

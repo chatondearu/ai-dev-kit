@@ -142,7 +142,8 @@ bash scripts/verify.sh
   orch: allow-no-checks
   (or `ORCH_ALLOW_NO_CHECKS=1`). Poll live worker state under `$CDAMUX_HOME/runs/`
   (and agents); `.orch/run/` keeps work artefacts only.
-- ADR-016: `orch.sh` `gh pr merge --match-head-commit` after verify +
+- ADR-016: `orch.sh` `gh pr merge --rebase --match-head-commit` (under
+  `.orch/merge.lock`, after fetch + rebase + re-verify when behind) after verify +
   independent review + checks green-or-none **only** when the GitHub PR files
   and the worktree diff are the meta allowlist (`foam/board/**`, `prd/`,
   `plans/`, `foam/decisions/`, other foam except `foam/features/**`).

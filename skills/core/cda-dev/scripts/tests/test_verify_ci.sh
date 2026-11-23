@@ -118,7 +118,7 @@ if [ "$rc_gh_fail" -eq 0 ]; then
 else
   PASSES=$((PASSES + 1))
 fi
-assert_eq "$out_gh_fail" "pending" "failed gh ends pending"
+assert_eq "$out_gh_fail" "timeout" "still pending at the deadline reports timeout, not red (M13)"
 
 # Tests for orch_pr_mergeable with stub gh
 # 1. MERGEABLE and OPEN -> rc=0, prints MERGEABLE
@@ -133,17 +133,30 @@ set -e
 assert_eq "$m_rc" "0" "mergeable returns 0 for MERGEABLE"
 assert_eq "$m_out" "MERGEABLE" "mergeable prints MERGEABLE"
 
-# 2. UNKNOWN and OPEN -> rc=0, prints UNKNOWN
+# 2. UNKNOWN that never resolves -> refused (rc=1) once ORCH_MERGEABLE_WAIT is spent (Q4)
 cat >"$FAKE/gh" <<EOF
 #!$STUB_BASH
 echo '{"mergeable":"UNKNOWN","state":"OPEN"}'
 EOF
 set +e
-m_unk="$(orch_pr_mergeable 11)"
+m_unk="$(ORCH_MERGEABLE_WAIT=0 orch_pr_mergeable 11)"
 m_unk_rc=$?
 set -e
-assert_eq "$m_unk_rc" "0" "mergeable returns 0 for UNKNOWN"
+assert_eq "$m_unk_rc" "1" "mergeable refuses UNKNOWN"
 assert_eq "$m_unk" "UNKNOWN" "mergeable prints UNKNOWN"
+
+# 2b. UNKNOWN right after a push, then MERGEABLE -> re-asked, rc=0
+cat >"$FAKE/gh" <<EOF
+#!$STUB_BASH
+n=\$(cat "$TMP/mq" 2>/dev/null || echo 0); echo \$((n + 1)) >"$TMP/mq"
+if [ "\$n" -eq 0 ]; then echo '{"mergeable":"UNKNOWN","state":"OPEN"}'; else echo '{"mergeable":"MERGEABLE","state":"OPEN"}'; fi
+EOF
+set +e
+m_late="$(ORCH_MERGEABLE_WAIT=30 orch_pr_mergeable 15)"
+m_late_rc=$?
+set -e
+assert_eq "$m_late_rc" "0" "mergeable waits out a transient UNKNOWN"
+assert_eq "$m_late" "MERGEABLE" "mergeable prints the resolved state"
 
 # 3. CONFLICTING -> rc=1, prints CONFLICTING
 cat >"$FAKE/gh" <<EOF
@@ -179,6 +192,26 @@ m_fail_rc=$?
 set -e
 assert_eq "$m_fail_rc" "1" "mergeable returns 1 on gh command failure"
 
+# Default CI timeout is ORCH_CI_TIMEOUT (1800 s), not a fixed 600 s (M13).
+cat >"$FAKE/gh" <<EOF
+#!$STUB_BASH
+echo '[{"name":"ci","state":"PENDING","bucket":"pending"}]'
+EOF
+set +e
+out_to="$(ORCH_CI_TIMEOUT=0 orch_pr_checks_watch 16)"
+rc_to=$?
+set -e
+assert_eq "$out_to" "timeout" "ORCH_CI_TIMEOUT drives the default watch deadline"
+assert_eq "$rc_to" "1" "timeout is not green"
+cat >"$FAKE/gh" <<EOF
+#!$STUB_BASH
+echo '[{"name":"ci","state":"FAILURE","bucket":"fail"}]'
+EOF
+set +e
+out_red="$(orch_pr_checks_watch 17 0)"
+set -e
+assert_eq "$out_red" "red" "a failing check is red, distinct from timeout"
+
 # Tests for AGENTS.md verification extraction in orch_resolve_verify
 TMP_AGENTS="$(mktemp -d)"
 echo "verify: nix develop -c npm test" >"$TMP_AGENTS/AGENTS.md"
@@ -193,6 +226,25 @@ pnpm test
 EOF
 cmd_fenced="$(orch_resolve_verify "$TMP_AGENTS")"
 assert_eq "$cmd_fenced" "pnpm test" "resolve fenced pnpm test from AGENTS.md"
+
+# #381: comment lines in the Verify block are not part of the command, so the
+# untrusted (pr-fix) allowlist still matches this repo's own AGENTS.md shape.
+cat >"$TMP_AGENTS/AGENTS.md" <<'EOF'
+**Verify (run before every PR):**
+
+```bash
+# once per machine: mise trust && mise install
+bash scripts/verify.sh
+# or: mise run verify
+```
+EOF
+assert_eq "$(orch_resolve_verify "$TMP_AGENTS")" "bash scripts/verify.sh" "Verify block drops comment lines (#381)"
+mkdir -p "$TMP_AGENTS/scripts"; printf 'exit 0\n' >"$TMP_AGENTS/scripts/verify.sh"
+set +e
+ORCH_VERIFY_TRUST=untrusted orch_run_verify "$TMP_AGENTS" >/dev/null 2>&1
+rc_allow=$?
+set -e
+assert_eq "$rc_allow" "0" "commented Verify block passes the untrusted allowlist (#381)"
 
 cat >"$TMP_AGENTS/AGENTS.md" <<'EOF'
 To test changes, run `npm test`.

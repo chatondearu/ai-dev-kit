@@ -278,70 +278,71 @@ orch_graph_worker() {
 
     orch_graph_upsert_node "$agent_node" agent "$phase" done "agent exit $agent_rc" "$node_prefix" agent
 
-    local verify_node="${node_prefix}-verify-${i}"
-    orch_graph_upsert_node "$verify_node" verify verify running "running verify" "$node_prefix"
-    orch_graph_add_edge "$agent_node" "$verify_node" step
-
-    if ! vcmd="$(orch_resolve_verify "$wt")"; then
-      orch_graph_upsert_node "$verify_node" verify verify failed "no verify command" "$node_prefix"
-      orch_graph_upsert_node "$node_prefix" worker blocked blocked "$ORCH_NO_VERIFY_REASON" ""
-      if type orch_progress_set >/dev/null 2>&1 && [ -n "${ORCH_WORKER_ID:-}" ]; then
-        orch_progress_set "$ORCH_WORKER_ID" blocked "$ORCH_NO_VERIFY_REASON"
+    if [ "$agent_rc" -ne 0 ] && [ ! -f "$wt/.orch/agent-ok" ]; then
+      # A crashed agent fails the iteration (M11): verify on an untouched tree would pass.
+      # `.orch/agent-ok` lets an agent whose CLI exits non-zero after real work vouch for it.
+      fail="agent exited $agent_rc"
+      orch_graph_upsert_node "$node_prefix" worker "$phase" retry "$fail (iter $i)" ""
+      if [ -n "${ORCH_WORKER_ID:-}" ] && type orch_progress_set >/dev/null 2>&1; then
+        orch_progress_set "$ORCH_WORKER_ID" agent "retry after agent fail (${i}/${max})"
       else
-        printf 'blocked: %s\n' "$ORCH_NO_VERIFY_REASON" >&2
+        printf 'orch loop: %s (iter %s/%s)\n' "$fail" "$i" "$max" >&2
       fi
-      return 3
-    fi
-    if type orch_progress_set >/dev/null 2>&1 && [ -n "${ORCH_WORKER_ID:-}" ]; then
-      orch_progress_set "$ORCH_WORKER_ID" verify "${vcmd%%$'\n'*}"
-    fi
+    else
+      local verify_node="${node_prefix}-verify-${i}"
+      orch_graph_upsert_node "$verify_node" verify verify running "running verify" "$node_prefix"
+      orch_graph_add_edge "$agent_node" "$verify_node" step
 
-    mkdir -p "$wt/.orch"
-    orch_run_verify "$wt" 2>&1 | tee "$vlog" >&2
-    verify_rc="${PIPESTATUS[0]}"
-    if [ "$verify_rc" -eq 0 ]; then
-      orch_graph_upsert_node "$verify_node" verify verify done "verify ok" "$node_prefix"
-
-      if [ "$vcmd" = "true" ] && [ "$agent_rc" -ne 0 ] && [ ! -f "$wt/.orch/agent-ok" ]; then
-        orch_graph_upsert_node "$node_prefix" worker "$phase" retry "agent failed, verify fallback" ""
-        if [ -n "${ORCH_WORKER_ID:-}" ] && type orch_progress_set >/dev/null 2>&1; then
-          orch_progress_set "$ORCH_WORKER_ID" agent "retry after agent fail (${i}/${max})"
+      if ! vcmd="$(orch_resolve_verify "$wt")"; then
+        orch_graph_upsert_node "$verify_node" verify verify failed "no verify command" "$node_prefix"
+        orch_graph_upsert_node "$node_prefix" worker blocked blocked "$ORCH_NO_VERIFY_REASON" ""
+        if type orch_progress_set >/dev/null 2>&1 && [ -n "${ORCH_WORKER_ID:-}" ]; then
+          orch_progress_set "$ORCH_WORKER_ID" blocked "$ORCH_NO_VERIFY_REASON"
         else
-          printf 'orch loop: agent failed and verify is fallback true (iter %s/%s)\n' "$i" "$max" >&2
+          printf 'blocked: %s\n' "$ORCH_NO_VERIFY_REASON" >&2
         fi
-        i=$((i + 1))
-        continue
+        return 3
+      fi
+      if type orch_progress_set >/dev/null 2>&1 && [ -n "${ORCH_WORKER_ID:-}" ]; then
+        orch_progress_set "$ORCH_WORKER_ID" verify "${vcmd%%$'\n'*}"
       fi
 
-      # Default on (ADR-006): the grounding verifier is part of the gate.
-      case "${ORCH_GRAPH_VERIFY:-1}" in
-        1|on|true|yes)
-          if orch_graph_verifier_pass "$wt" "$node_prefix"; then
-            orch_graph_upsert_node "$node_prefix" worker done done "verify + grounding ok" ""
+      mkdir -p "$wt/.orch"
+      orch_run_verify "$wt" 2>&1 | tee "$vlog" >&2
+      verify_rc="${PIPESTATUS[0]}"
+      if [ "$verify_rc" -eq 0 ]; then
+        orch_graph_upsert_node "$verify_node" verify verify done "verify ok" "$node_prefix"
+
+        # Default on (ADR-006): the grounding verifier is part of the gate.
+        case "${ORCH_GRAPH_VERIFY:-1}" in
+          1|on|true|yes)
+            if orch_graph_verifier_pass "$wt" "$node_prefix"; then
+              orch_graph_upsert_node "$node_prefix" worker done done "verify + grounding ok" ""
+              [ -n "${ORCH_WORKER_ID:-}" ] || printf 'verify ok\n' >&2
+              return 0
+            fi
+            fail="grounding verifier failed"
+            orch_graph_upsert_node "$node_prefix" worker verify blocked "$fail" ""
+            # Retry with the verifier's reasons instead of re-sending the same prompt blind.
+            if type orch_verifier_retry_prompt >/dev/null 2>&1; then
+              prompt="$(orch_verifier_retry_prompt "$base_prompt" "$wt")"
+            fi
+            [ -n "${ORCH_WORKER_ID:-}" ] || printf 'orch loop: grounding verifier failed (iter %s/%s)\n' "$i" "$max" >&2
+            ;;
+          *)
+            orch_graph_upsert_node "$node_prefix" worker done done "verify ok" ""
             [ -n "${ORCH_WORKER_ID:-}" ] || printf 'verify ok\n' >&2
             return 0
-          fi
-          fail="grounding verifier failed"
-          orch_graph_upsert_node "$node_prefix" worker verify blocked "$fail" ""
-          # Retry with the verifier's reasons instead of re-sending the same prompt blind.
-          if type orch_verifier_retry_prompt >/dev/null 2>&1; then
-            prompt="$(orch_verifier_retry_prompt "$base_prompt" "$wt")"
-          fi
-          [ -n "${ORCH_WORKER_ID:-}" ] || printf 'orch loop: grounding verifier failed (iter %s/%s)\n' "$i" "$max" >&2
-          ;;
-        *)
-          orch_graph_upsert_node "$node_prefix" worker done done "verify ok" ""
-          [ -n "${ORCH_WORKER_ID:-}" ] || printf 'verify ok\n' >&2
-          return 0
-          ;;
-      esac
-    else
-      fail="verify failed"
-      orch_graph_upsert_node "$verify_node" verify verify failed "$fail" "$node_prefix"
-      orch_graph_upsert_node "$node_prefix" worker verify retry "verify failed iter $i" ""
-      # Retry with the failing output instead of re-sending the same prompt blind.
-      if type orch_verify_retry_prompt >/dev/null 2>&1; then
-        prompt="$(orch_verify_retry_prompt "$base_prompt" "$wt" "$vlog")"
+            ;;
+        esac
+      else
+        fail="verify failed"
+        orch_graph_upsert_node "$verify_node" verify verify failed "$fail" "$node_prefix"
+        orch_graph_upsert_node "$node_prefix" worker verify retry "verify failed iter $i" ""
+        # Retry with the failing output instead of re-sending the same prompt blind.
+        if type orch_verify_retry_prompt >/dev/null 2>&1; then
+          prompt="$(orch_verify_retry_prompt "$base_prompt" "$wt" "$vlog")"
+        fi
       fi
     fi
     # Red verify or failed verifier: the next iteration runs one tier up, bounded by

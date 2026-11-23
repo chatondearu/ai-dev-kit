@@ -66,7 +66,7 @@ assert_eq "$(orch_pr_state feat/x)" "CLOSED" "orch_pr_state CLOSED"
 : >"$STATE_FILE"
 assert_eq "$(orch_pr_state feat/x)" "" "orch_pr_state empty when no PR"
 printf 'ERR\n' >"$STATE_FILE"
-assert_eq "$(orch_pr_state feat/x)" "" "orch_pr_state fail-open on gh error"
+assert_eq "$(orch_pr_state feat/x || true)" "UNKNOWN" "orch_pr_state UNKNOWN on gh error, never no-PR (L11)"
 
 printf 'OPEN\n' >"$STATE_FILE"
 got="$(orch_pr_list_open_or_merged feat/x)"
@@ -120,7 +120,7 @@ prompt="\$(cat)"
 mkdir -p .orch
 case "\$prompt" in
   *"Verifier (grounding node)"*) touch .orch/verifier-ok ;;
-  *"Reviewer prompt"*) echo "REVIEW: approved" ;;
+  *"Reviewer prompt"*) mkdir -p .orch; echo approved >.orch/review-verdict ;;
   *"Commit all changes"*) touch "$OPENED_MARKER" ;;
 esac
 exit 0

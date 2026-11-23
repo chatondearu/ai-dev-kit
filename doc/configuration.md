@@ -41,7 +41,7 @@ binaries (`all_compile = false` in `mise.toml`).
 | -------- | ------- | ------- |
 | `ORCH_AGENT` | inherited | Agent CLI for every role. Unset → CLI of the session that launched `orch.sh` (`CLAUDECODE`, `CODEX_THREAD_ID`/`CODEX_SESSION_ID`, `CURSOR_INVOKED_AS`, else `ps` ancestry), then first of `agent`, `cursor-agent`, `claude`, `opencode` on `PATH` ([ADR-010](../foam/decisions/ADR-010-worker-cli-inheritance-and-tiers.md)). **Required** by `orch-auto.sh` (exit 2 when empty) |
 | `ORCH_AGENT_<ROLE>` | unset | Per-role CLI, beats `ORCH_AGENT`: `ORCH_AGENT_WORKER`, `ORCH_AGENT_REVIEWER`, `ORCH_AGENT_VERIFIER`, `ORCH_AGENT_INTEGRATOR`, `ORCH_AGENT_PR_FIX` |
-| `ORCH_TIER_<ROLE>` | `medium` (`small` for `integrator`) | Per-role tier (`small`, `medium`, `large`): `ORCH_TIER_WORKER`, `ORCH_TIER_REVIEWER`, `ORCH_TIER_VERIFIER`, `ORCH_TIER_INTEGRATOR`, `ORCH_TIER_PR_FIX`. A tier maps to model/effort flags per CLI in [`config/tiers.tsv`](../skills/core/cda-dev/config/tiers.tsv). An agent command that already passes `--model` / `-m` is `pinned` and gets no tier flags |
+| `ORCH_TIER_<ROLE>` | `medium` (`large` for `reviewer`, `small` for `integrator`) | Per-role tier (`small`, `medium`, `large`): `ORCH_TIER_WORKER`, `ORCH_TIER_REVIEWER`, `ORCH_TIER_VERIFIER`, `ORCH_TIER_INTEGRATOR`, `ORCH_TIER_PR_FIX`. A tier maps to model/effort flags per CLI in [`config/tiers.tsv`](../skills/core/cda-dev/config/tiers.tsv). An agent command that already passes `--model` / `-m` is `pinned` and gets no tier flags |
 | `ORCH_TIER` | unset | Current tier for every role, beats `ORCH_TIER_<ROLE>`. The worker / pr-fix loop sets it on escalation; a graph-plan task `tier` sets it as the start tier |
 | `ORCH_TIER_MAX` | `large` | Escalation ceiling (`small`, `medium`, `large`; anything else → `orch.sh` exits 2). A red verify or failed grounding verifier re-runs the next iteration one tier up; a failure at the ceiling ends the worker `blocked` (`tier ceiling <tier> reached: <failure>`) even with iterations left. Pinned commands and CLIs with no table row never escalate. The review gate keeps its single fix iteration |
 | `ORCH_TIERS_FILE` | kit `config/tiers.tsv` | Replaces the whole tier table (`cli<TAB>tier<TAB>flags`, `#` comments; `cursor` rows serve `agent` and `cursor-agent`). Missing / unreadable file → `orch.sh` exits 2. A CLI with no row runs without flags and warns once per run |
@@ -52,7 +52,10 @@ binaries (`all_compile = false` in `mise.toml`).
 | `ORCH_SANDBOX` | off | `1` / `--sandbox` → bubblewrap required |
 | `ORCH_TMUX` | `1` | `1` → each worker's agent runs in a detached tmux session `orch-<run>-<worker>` (`@cdamux_*` options, log `.orch/run/<worker>.log`); set `0` for headless tests; ignored with `--sandbox` (the tmux server runs outside bwrap); see [ADR-007](../foam/decisions/ADR-007-cdamux-session-hierarchy.md) / [ADR-011](../foam/decisions/ADR-011-cdamux-unified-state-model.md) |
 | `ORCH_TMUX_KEEP` | `0` | `1` → keep the worker session after the agent exits (state `done` / `error`) |
-| `ORCH_ALLOW_NO_CHECKS` | `0` | `1` → empty PR checks count as green. Without it, empty checks fail-fast as `none` (no 600s wait). Also enabled by `orch: allow-no-checks` in `AGENTS.md`. |
+| `ORCH_ALLOW_NO_CHECKS` | `0` | `1` → empty PR checks count as green. Without it, empty checks fail-fast as `none` (no CI wait). Also enabled by `orch: allow-no-checks` in `AGENTS.md`. |
+| `ORCH_CI_TIMEOUT` | `1800` | Seconds to wait for PR checks; still pending at the deadline → `CI timeout` (reported apart from a red check) |
+| `ORCH_MERGEABLE_WAIT` | `60` | Seconds to re-ask GitHub while `mergeable` is `UNKNOWN`; still `UNKNOWN` → not mergeable |
+| `ORCH_MERGE_LOCK_WAIT` | `900` | Seconds an ADR-016 merge waits for `.orch/merge.lock` (one merge at a time per repo) before failing |
 | `ORCH_COPY_ENV` | `0` | `1` → copy `.env` into worktrees |
 | `ORCH_VERIFY` | unset | Override verify command (allowlisted under pr-fix) |
 | `ORCH_FRONTIER` | `auto` | `0` disables Blocked-by gating |

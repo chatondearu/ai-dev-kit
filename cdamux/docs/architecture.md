@@ -79,10 +79,12 @@ registry, ADR-009) are never GC'd. Idle / working / live hosts are never GC'd.
 `cdamux orch new` runs the same pass (configured retention) before it spawns (Q18);
 otherwise manual. See [restore.md](restore.md).
 
-**One home (#391).** Every pane cdamux spawns gets the spawner's resolved
+**One home (#391).** Every pane cdamux spawns gets the spawner's explicit
 `CDAMUX_HOME` (`tmux new-session -e` and a prefix on the agent command), so hooks
 and the agent never fall back to another tree; `worker spawn` / `orch new` print
-`home=<path>`. `cdamux state migrate-home [--apply]` (dry-run by default) renames the
+`home=<path>`. Without an exported `CDAMUX_HOME` nothing is propagated (the XDG
+fallback is what #391 leaves behind): spawn prints `(fallback, not propagated)` and
+warns. `cdamux state migrate-home [--apply]` (dry-run by default) renames the
 legacy `${XDG_STATE_HOME:-~/.local/state}/cdamux` to `cdamux.archived-<unix_secs>`
 (refused while one of its agents still runs) and archives ghost orchestrator records:
 a record whose tmux session now runs another agent (`@cdamux_id`), or whose run lives
@@ -260,9 +262,13 @@ Requires `$CDAMUX_AGENT_ID` (caller must be an orchestrator session).
   (ADR-017).
 - `cdamux worker peek <name> [--lines N]` — last N pane lines.
 - `cdamux worker kill <name> [--subtree]` — permanent kill (see the kill table above):
-  inside an agent only the caller's own workers; a human outside any agent may name
-  any agent (name, id or host). `--subtree` also kills every agent below it, deepest
-  first. One `killed <id> <host> (finalized N agent(s), M run(s))` line each.
+  inside an agent only the caller's own workers, and only `done` / `idle` / `error`
+  ones (Q23); a human outside any agent may name any agent (name, id or host). A name
+  or host matching several records is refused (pass the id). The tmux session is
+  killed only when its `@cdamux_id` is the target (or unset); a stale record whose
+  host now runs another agent is only finalized. `--subtree` also kills every agent
+  below it, deepest first. One `killed <id> <host> (finalized N agent(s), M run(s))`
+  line each.
 
 **Worker cap.** `[orchestrator].max_workers` counts `role=worker` agents with a live
 host, status not `done`/`error`, whose parent orchestrator is still live (a worker of a
@@ -273,8 +279,9 @@ the worktree and branch it created, so the name can be retried.
 
 **Long-blocked workers.** A worker `blocked` for 15 min gets its orchestrator one
 `report` (once per blocked episode, `blocked_alert_ts`). No timer: the check runs at
-most once a minute on any pass that reaps panes (Fleet refresh, `cdamux list`,
-`worker ls|spawn`, `restore`).
+most once a minute (stamp `logs/blocked-alert.stamp`) on any pass that reaps panes
+(Fleet refresh, `cdamux list`, `worker ls|spawn`, `restore`) and on `cdamux state
+tick`, which the status hooks start detached on every status write.
 
 ### Read-only inspection (#388)
 

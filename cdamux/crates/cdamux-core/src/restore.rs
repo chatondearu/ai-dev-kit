@@ -477,27 +477,32 @@ pub fn reap_dead_agent_panes(panes: &HashMap<String, SessionPaneInfo>) -> usize 
         }
         n += 1;
     }
-    alert_long_blocked_throttled();
+    tick_long_blocked();
     n
 }
 
 /// Q17: a worker `blocked` longer than this gets its orchestrator one reminder.
+/// Checked by [`tick_long_blocked`]: pane-reaping passes and the hooks' `state tick`.
 pub const BLOCKED_ALERT_SECS: u64 = 15 * 60;
 
-/// Runs [`alert_long_blocked`] at most once a minute per process: the reap pass runs
-/// on every Fleet refresh, and the scan reads every agent record. No background timer
-/// exists, so the check rides on whatever cdamux call looks at panes next.
-fn alert_long_blocked_throttled() {
-    use std::sync::atomic::{AtomicU64, Ordering};
-    static LAST: AtomicU64 = AtomicU64::new(0);
-    let now = session_registry::now_secs();
-    let last = LAST.load(Ordering::Relaxed);
-    if now.saturating_sub(last) < 60
-        || LAST.compare_exchange(last, now, Ordering::Relaxed, Ordering::Relaxed).is_err()
-    {
+/// Runs [`alert_long_blocked`] at most once a minute across processes (stamp file
+/// `$CDAMUX_HOME/logs/blocked-alert.stamp`): the reap pass runs on every Fleet refresh
+/// and hooks call `cdamux state tick` on every status write, while the scan reads every
+/// agent record. Two racing passes cannot double-alert (claim under the record lock).
+pub fn tick_long_blocked() {
+    let Some(dir) = crate::paths::cdamux_state_dir("logs") else {
+        return;
+    };
+    let stamp = dir.join("blocked-alert.stamp");
+    let fresh = std::fs::metadata(&stamp)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.elapsed().ok())
+        .is_some_and(|age| age.as_secs() < 60);
+    if fresh || std::fs::create_dir_all(&dir).is_err() || std::fs::write(&stamp, b"").is_err() {
         return;
     }
-    let _ = alert_long_blocked(now);
+    let _ = alert_long_blocked(session_registry::now_secs());
 }
 
 /// Send each worker's parent one `report` when the worker has been `blocked` (unanswered

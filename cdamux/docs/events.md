@@ -31,7 +31,7 @@ One JSON object per line. Every item has:
 | ------ | ------ | ------------ |
 | `msg` | `id, from, to, kind, text, ref?` (the inbox line) | `cdamux msg send` appends to an **orchestrator's** inbox (role `orchestrator`); worker inboxes are not mirrored |
 | `status` | `agent, status, prev, role?, parent?` | Any agent write changes the value — `state append`/`set` (hooks, `msg send` side effects), finalize, dismiss, kill, reap; `prev` is `null` for the first one. Emitted under the agent record lock, so journal order matches write order. |
-| `lifecycle` | `agent, event, role?, parent?, host?` | `event`: `spawn` (record created by a spawn), `finalize` (sweep / dismiss marked a dead agent `error`), `dismiss` (Fleet / nav `d`), `kill` (Fleet / nav `x`, `worker kill`), `archive` (record moved to `archive/` by gc, dismiss or `migrate-home`). The matching `status` item comes first. |
+| `lifecycle` | `agent, event, role?, parent?, host?` | `event`: `spawn` (record created by a spawn), `finalize` (sweep, dismiss or kill turned the agent `error`; at most one per agent), `dismiss` (Fleet / nav `d`), `kill` (Fleet / nav `x`, `worker kill`), `archive` (record moved to `archive/` by gc, dismiss or `migrate-home`). The matching `status` item comes first. |
 | `reply` | `agent, text, turn_id, truncated?` | An orchestrator's turn ends (`Stop` hook): the assistant **text blocks** of the last turn joined by a blank line — no thinking, tool calls or tool results |
 | `human` | `id, agent, from, text` | `cdamux say` accepted a human prompt for orchestrator `agent` (`id` = the `say` message id), whether it was pasted or queued — see [`say.md`](say.md) |
 

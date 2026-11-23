@@ -220,7 +220,8 @@ report it ready to merge. `blocked` / `error` → read the `ref`, then
 
 `cdamux worker kill <name>` is permanent: session gone, state finalized, never
 respawned by `restore`. Kill your own worker only when its PR is merged or closed
-**and** it is `done` or `idle`; anything else → ask the maintainer. Always tell
+**and** it is `done` or `idle` (cdamux refuses a working/blocked one); anything
+else → ask the maintainer. Always tell
 the maintainer what you killed (the `killed …` lines).
 
 On `error`: summarise the cause and the next step for the maintainer.

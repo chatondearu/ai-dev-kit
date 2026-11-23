@@ -177,6 +177,8 @@ fs.writeFileSync(f, JSON.stringify(o));
 JS
 cat > "$tmp/bin/cdamux" <<CD
 #!/bin/sh
+# kickTick runs detached: logging it would race the log checks below.
+[ "\$1 \$2" = "state tick" ] && exit 0
 echo "\$@" >> "\$CDAMUX_LOG"
 if [ "\$1 \$2 \$3" = "msg read --ack" ]; then
   # Stub of the Rust reader: print unread lines, move the cursor to the end.
@@ -268,6 +270,30 @@ seed_inbox
 out="$(STUB_READ_FAIL=1 run_status '{"hook_event_name":"Stop"}')"
 [ -z "$out" ] || fail "failed read must not block, got: $out"
 [ "$(cat "$INBOX/a-hook1.cursor")" = 0 ] || fail "failed read must leave the line unread"
+# A nested CLI (`claude -p` from a tool call) inherits the agent id: no hand-over, no ack,
+# no status / turn write (it took the parent's inbox and set it idle mid-turn).
+nested() { CHAIN="sh claude zsh claude fish" PANE_PID=90000005 run_status "$1"; }
+printf '{"id":"a-hook1","client":"claude","status":"working","turn":"running"}\n' > "$AF"; : > "$CDAMUX_LOG"
+before="$(cat "$AF")"
+[ -z "$(nested '{"hook_event_name":"UserPromptSubmit"}')" ] || fail "nested UserPromptSubmit must print nothing"
+[ -z "$(nested '{"hook_event_name":"Stop"}')" ] || fail "nested Stop must not block"
+[ "$(nested '{"hook_event_name":"beforeSubmitPrompt"}')" = '{"continue":true}' ] || fail "nested Cursor hook must answer continue"
+[ "$(cat "$INBOX/a-hook1.cursor")" = 0 ] || fail "nested hook acked the parent's inbox"
+[ ! -s "$CDAMUX_LOG" ] && [ "$(cat "$AF")" = "$before" ] || fail "nested hook wrote the parent's state: $(cat "$CDAMUX_LOG")"
+# Consecutive Stop blocks are capped (3): then the turn ends and the line stays unread.
+for active in false true true; do
+  seed_inbox
+  out="$(run_status "{\"hook_event_name\":\"Stop\",\"stop_hook_active\":$active}")"
+  echo "$out" | jq -e '.decision=="block"' >/dev/null || fail "Stop block $active under the cap, got: $out"
+done
+seed_inbox
+out="$(run_status '{"hook_event_name":"Stop","stop_hook_active":true}')"
+[ -z "$out" ] || fail "4th consecutive Stop must not block, got: $out"
+[ "$(cat "$INBOX/a-hook1.cursor")" = 0 ] && [ "$(jq -r .turn "$AF")" = ended ] || fail "capped Stop must end the turn and leave the line unread"
+# A fresh stop resets the count.
+out="$(run_status '{"hook_event_name":"Stop"}')"
+echo "$out" | jq -e '.decision=="block"' >/dev/null || fail "fresh Stop must block again, got: $out"
+seed_inbox
 # Prompt submit (wake line or human prompt) injects the bodies and acks them.
 out="$(run_status '{"hook_event_name":"UserPromptSubmit"}')"
 echo "$out" | jq -e '.hookSpecificOutput.hookEventName=="UserPromptSubmit"

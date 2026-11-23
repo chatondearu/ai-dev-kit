@@ -65,11 +65,12 @@ wire_claude() {
     | .hooks.SessionStart  = (strip("SessionStart")  + [{hooks:[{type:"command", command:$ss, timeout:5}]}])
     | .hooks.UserPromptSubmit = (strip("UserPromptSubmit") + [{hooks:[{type:"command", command:$st, timeout:5}]}])
     | .hooks.Stop = (strip("Stop") + [{hooks:[{type:"command", command:$st, timeout:5}]}])
+    | .hooks.SessionEnd = (strip("SessionEnd") + [{hooks:[{type:"command", command:$st, timeout:5}]}])
     | .hooks.Notification = (strip("Notification") + [{hooks:[{type:"command", command:$st, timeout:5}]}])
     | .hooks.PermissionRequest = (strip("PermissionRequest") + [{hooks:[{type:"command", command:$st, timeout:5}]}])
   ' --arg m "$MATCH" --arg cmd "$(cmd claude-subagent.js)" --arg ss "$(cmd session-start.js)" \
     --arg st "$(cmd status.js)" || return 0
-  log "hook $f (cdamux: subagent + SessionStart + status)"
+  log "hook $f (cdamux: subagent + SessionStart + status + SessionEnd)"
 }
 
 wire_cursor() {

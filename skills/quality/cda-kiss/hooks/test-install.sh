@@ -48,7 +48,7 @@ D="$PWD/cdamux/hooks"
 dcount() { jq --arg d "$D" "[$claude_cmds | select(contains(\$d))] | length" "$S"; }
 inst; [ "$(dcount)" = 0 ] || fail "cdamux hooks wired without --cdamux-hooks"
 inst --cdamux-hooks; inst --cdamux-hooks
-[ "$(dcount)" = 7 ] || fail "cdamux hooks not exactly once"
+[ "$(dcount)" = 8 ] || fail "cdamux hooks not exactly once (8 incl. SessionEnd)"
 jq -e --arg d "$D" '[.hooks.SubagentStop[].hooks[].command | select(contains($d))] | length == 1' "$S" >/dev/null || fail "no cdamux SubagentStop hook"
 [ "$(count "$S" "$claude_cmds")" = 3 ] || fail "kiss hooks changed by --cdamux-hooks"
 # SessionStart: foreign + kiss + cdamux side by side; a plain re-install (kiss rewire) keeps cdamux

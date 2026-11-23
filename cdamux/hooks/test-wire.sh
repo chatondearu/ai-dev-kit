@@ -40,7 +40,7 @@ cmp -s "$S" "$tmp/s1" && cmp -s "$C" "$tmp/c1" || fail "second wire is not a no-
 [ "$(readlink "$OCL")" = "$STABLE/opencode-subagent.js" ] || fail "opencode plugin not relinked to the stable path"
 
 [ "$(n "$S" /old/kit/ "$claude_cmds")" = 0 ] && [ "$(n "$C" /old/kit/ "$cursor_cmds")" = 0 ] || fail "old checkout entries kept"
-[ "$(n "$S" "$STABLE/" "$claude_cmds")" = 7 ] || fail "claude: expected 7 cdamux entries on the stable path"
+[ "$(n "$S" "$STABLE/" "$claude_cmds")" = 8 ] || fail "claude: expected 8 cdamux entries on the stable path (incl. SessionEnd)"
 [ "$(n "$C" "$STABLE/" "$cursor_cmds")" = 8 ] || fail "cursor: expected 8 cdamux entries on the stable path"
 CX="$CODEX_HOME/hooks.json"
 [ "$(n "$CX" "$STABLE/" "$claude_cmds")" = 5 ] || fail "codex: expected 5 cdamux entries on the stable path"

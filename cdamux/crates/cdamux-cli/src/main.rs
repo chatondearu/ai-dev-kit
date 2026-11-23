@@ -1561,9 +1561,7 @@ fn cmd_state_migrate_home(apply: bool) -> ExitCode {
     };
     let owner = |h: &str| {
         live.contains(h)
-            .then(|| cdamux_core::tmux_user_option(h, "@cdamux_id"))
-            .flatten()
-            .filter(|id| !id.is_empty())
+            .then(|| cdamux_core::tmux_user_option(h, "@cdamux_id").unwrap_or_default())
     };
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -2135,8 +2133,13 @@ pub(crate) fn tmux_attach_session_with_mode(
 
 /// Archive unrestorable `done`/`error` (no live host, not registry-dormant).
 fn prune_unrestorable_agents() -> Result<(), ExitCode> {
-    let Some(live) = live_tmux_hosts("restore") else {
-        return Err(ExitCode::from(1));
+    // Right after boot no tmux server runs yet (the systemd oneshot): skip the prune
+    // (it cannot tell dead hosts from another socket) but still restore.
+    let Some(live) = cdamux_core::list_tmux_sessions_strict()
+        .map(|v| v.into_iter().map(|s| s.name).collect::<std::collections::HashSet<_>>())
+    else {
+        eprintln!("restore: cannot list tmux sessions; skipping the unrestorable prune");
+        return Ok(());
     };
     let host_alive = |host: &str| live.contains(host);
     match run_gc_agents_only(0, std::time::SystemTime::now(), &host_alive) {

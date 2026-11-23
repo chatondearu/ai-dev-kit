@@ -274,7 +274,9 @@ fn run_gc_ex(
         }
     }
 
-    report.archived_inboxes = gc_orphan_inboxes(now, days)?;
+    if archive_runs {
+        report.archived_inboxes = gc_orphan_inboxes(now, days)?;
+    }
     report.archived_agents.sort();
     report.archived_runs.sort();
     report.skipped_dormant.sort();

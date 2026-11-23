@@ -147,7 +147,8 @@ pub(crate) fn try_entity_lock(path: &Path) -> io::Result<Option<std::fs::File>> 
 
 /// Replace the entity file with `value` (pretty JSON).
 pub fn state_set(kind: StateKind, id: &str, value: &Value) -> io::Result<()> {
-    state_update(kind, id, |_| Some(value.clone())).map(|_| ())
+    // Lenient read: a blind replace must still repair an empty or corrupt file.
+    update_locked(kind, id, true, |_| Some(value.clone())).map(|_| ())
 }
 
 /// Read the entity file; `None` when missing.
@@ -212,9 +213,28 @@ pub fn state_update(
     id: &str,
     f: impl FnOnce(Option<Value>) -> Option<Value>,
 ) -> io::Result<bool> {
+    update_locked(kind, id, false, f)
+}
+
+/// `lenient`: an unparseable record reads as missing instead of failing.
+fn update_locked(
+    kind: StateKind,
+    id: &str,
+    lenient: bool,
+    f: impl FnOnce(Option<Value>) -> Option<Value>,
+) -> io::Result<bool> {
     let path = entity_path(kind, id)?;
     with_entity_lock(&path, || {
-        let prev = read_entity(&path)?;
+        let prev = match read_entity(&path) {
+            // serde maps a syntax error to InvalidData and an empty file to UnexpectedEof.
+            Err(e)
+                if lenient
+                    && matches!(e.kind(), io::ErrorKind::InvalidData | io::ErrorKind::UnexpectedEof) =>
+            {
+                None
+            }
+            r => r?,
+        };
         let prev_status = prev
             .as_ref()
             .and_then(|v| v.get("status")?.as_str().map(str::to_string));
@@ -444,6 +464,17 @@ mod tests {
             assert_eq!(bad.unwrap_err().kind(), io::ErrorKind::InvalidInput);
             state_append_sticky(StateKind::Agents, "a-ghost", &serde_json::json!({"status": "idle"})).unwrap();
             assert!(state_get(StateKind::Agents, "a-ghost").unwrap().is_none());
+        });
+    }
+
+    #[test]
+    fn state_set_repairs_a_corrupt_record() {
+        with_temp_home(|home| {
+            std::fs::create_dir_all(home.join("agents")).unwrap();
+            std::fs::write(home.join("agents/a-bad.json"), "").unwrap();
+            assert!(state_append(StateKind::Agents, "a-bad", &serde_json::json!({"k": 1})).is_err());
+            state_set(StateKind::Agents, "a-bad", &serde_json::json!({"id": "a-bad"})).unwrap();
+            assert_eq!(state_get(StateKind::Agents, "a-bad").unwrap().unwrap()["id"], "a-bad");
         });
     }
 

@@ -35,7 +35,7 @@ fn same_dir(a: &Path, b: &Path) -> bool {
 }
 
 /// Build the plan. `host_owner(session)` is the `@cdamux_id` of a live tmux session
-/// (`None`: no such session, or one without an id). A dormant orchestrator (dead host,
+/// (`Some("")`: live without an id, `None`: no such session). A dormant orchestrator (dead host,
 /// run outside the legacy home) is kept: `restore` may still revive it (ADR-009). Errors when `CDAMUX_HOME` is unset (nothing to migrate to).
 pub fn plan_home_migration(
     host_owner: &dyn Fn(&str) -> Option<String>,
@@ -50,6 +50,12 @@ pub fn plan_home_migration(
     let home = cdamux_home().expect("CDAMUX_HOME set");
     let mut plan = HomeMigration { home: home.clone(), ..Default::default() };
     let legacy = legacy_home().filter(|l| l.is_dir() && !same_dir(l, &home));
+    if legacy.as_deref().is_some_and(|l| home.starts_with(l)) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "CDAMUX_HOME lives inside the legacy home; move it out first",
+        ));
+    }
     if let Some(l) = &legacy {
         plan.legacy = Some((l.clone(), l.with_file_name(format!("cdamux.archived-{stamp}"))));
         for ent in std::fs::read_dir(l.join("agents")).into_iter().flatten().flatten() {
@@ -61,7 +67,8 @@ pub fn plan_home_migration(
             ) else {
                 continue;
             };
-            if host_owner(host).as_deref() == Some(id) {
+            // Its own session, or a live one without a readable id: assume still running.
+            if matches!(host_owner(host).as_deref(), Some(o) if o == id || o.is_empty()) {
                 plan.legacy_live.push(format!("{id} on {host}"));
             }
         }
@@ -81,8 +88,10 @@ pub fn plan_home_migration(
             .and_then(|r| r.as_str())
             .and_then(|run| crate::state::state_get(StateKind::Runs, run).ok().flatten())
             .and_then(|r| r.get("repo")?.as_str().map(str::to_string));
-        let why = if owner.is_some() {
+        let why = if owner.as_deref().is_some_and(|o| !o.is_empty()) {
             Some(format!("its session {host} now runs another agent"))
+        } else if owner.is_some() {
+            None // live session with no readable id: cannot tell, keep it
         } else {
             repo.filter(|r| legacy.as_deref().is_some_and(|l| Path::new(r).starts_with(l)))
                 .map(|r| format!("its run lives in the legacy home ({r})"))
@@ -148,7 +157,13 @@ mod tests {
         // Dormant orchestrator (dead host, own run): kept for restore (ADR-009).
         state_set(StateKind::Agents, "a-dorm", &json!({"id": "a-dorm", "role": "orchestrator", "host": "c-dorm"})).unwrap();
 
-        let owner = |h: &str| (h == "c-global").then(|| "a-live".to_string());
+        // Live orchestrator whose session has no readable id: never planned as a ghost.
+        state_set(StateKind::Agents, "a-anon", &json!({"id": "a-anon", "role": "orchestrator", "host": "c-anon", "run": "r-g"})).unwrap();
+        let owner = |h: &str| match h {
+            "c-global" => Some("a-live".to_string()),
+            "c-anon" => Some(String::new()),
+            _ => None,
+        };
         let plan = plan_home_migration(&owner, "T").unwrap();
         assert_eq!(plan.legacy.as_ref().unwrap().1, xdg.join("cdamux.archived-T"));
         assert!(plan.legacy_live.is_empty());
@@ -166,6 +181,11 @@ mod tests {
         assert!(xdg.join("cdamux.archived-T/agents/a-old.json").is_file());
         assert!(home.join("archive/agents/a-ghost.json").is_file());
         assert!(home.join("agents/a-dorm.json").is_file());
+
+        // A home inside the legacy tree would be renamed away with it.
+        std::fs::create_dir_all(xdg.join("cdamux/v2")).unwrap();
+        std::env::set_var("CDAMUX_HOME", xdg.join("cdamux/v2"));
+        assert!(plan_home_migration(&owner, "T").is_err());
 
         std::env::remove_var("XDG_STATE_HOME");
         std::env::remove_var("CDAMUX_HOME");

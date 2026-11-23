@@ -45,7 +45,9 @@ review of #433 the owner chose `dontAsk` over `acceptEdits` (2026-11-23).
    branch, or the default is unknown, no push is allowed (fail closed); a path with a
    quote, paren or `*` is refused.
    - **files**: `Edit(//<worktree>/**)` (all edit tools), `Read(//**)` minus `~/.ssh`,
-     `~/.gnupg`, `~/.aws`, `~/.config/gh`; `mkdir`. Writes outside the worktree are denied.
+     `~/.gnupg`, `~/.aws`, `~/.config/gh`; `mkdir`. Writes outside the worktree are denied,
+     except the orch.sh reviewer's verdict file: `Edit(//<TMPDIR>/orch-review.*/verdict)`
+     (a glob, so the settings never name the random review dir).
    - **allow** (Q24): `git add/commit/restore/rm/mv/fetch/rebase/merge-base`,
      `git merge [--no-edit] origin/<default>`;
      `git push [-u|--set-upstream] origin <own branch>` and `git push origin HEAD:<own

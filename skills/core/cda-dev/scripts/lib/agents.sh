@@ -207,7 +207,7 @@ orch_agent_run() {
   esac
   # Exported for the tmux runner. Claude never runs without the rendered allowlist: its
   # user-scope allows would otherwise be the only rules (ADR-019).
-  ORCH_AGENT_SETTINGS="$(orch_agent_settings "$wt")" || ORCH_AGENT_SETTINGS=""
+  ORCH_AGENT_SETTINGS="$(orch_agent_settings "$wt" "$role")" || ORCH_AGENT_SETTINGS=""
   export ORCH_AGENT_SETTINGS
   if [ -z "$ORCH_AGENT_SETTINGS" ] && [ "$ORCH_AGENT_CLI" = claude ]; then
     printf 'orch: cannot render worker permission settings (ORCH_REPO, jq, node or %s missing); not running claude\n' \
@@ -229,15 +229,10 @@ orch_agent_run() {
 ORCH_SETTINGS_TEMPLATE="${ORCH_SETTINGS_TEMPLATE:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../templates" && pwd)/worker-settings.json}"
 export ORCH_SETTINGS_TEMPLATE
 
-# Default branch of the repo at $1 (origin/HEAD, else gh); empty when unknown.
-orch_default_branch() {
-  local d
-  d="$(git -C "$1" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null || true)"
-  [ -n "$d" ] || d="$(cd "$1" && gh repo view --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null || true)"
-  printf '%s\n' "${d#origin/}"
-}
+# orch_default_branch (Q4) lives in worktree.sh; headless.sh and tests source agents.sh alone.
+declare -F orch_default_branch >/dev/null || source "$(dirname "${BASH_SOURCE[0]}")/worktree.sh"
 
-# Render the worker permission template (ADR-019) for worktree $1 next to the push guard
+# Render the worker permission template (ADR-019) for worktree $1 (role $2) next to the push guard
 # hook: push only to its own branch (ORCH_PUSH_BRANCH, e.g. a pr-fix head ref, else the
 # checked-out branch), never to the default one. Prints the settings file path; fails
 # without ORCH_REPO (the files never go inside the worktree), jq, node or the template.
@@ -251,10 +246,18 @@ orch_agent_settings() {
   mkdir -p "$dir" && cp "$tdir/worker-push-guard.mjs" "$dir/worker-push-guard.mjs" || return 1
   if git -C "$wt" rev-parse --git-dir >/dev/null 2>&1; then
     branch="${ORCH_PUSH_BRANCH:-$(git -C "$wt" branch --show-current 2>/dev/null || true)}"
-    default="$(orch_default_branch "$wt")"
+    default="$(orch_default_branch "$wt")" || default=""
   fi
   orch_render_settings "$branch" "$default" "$(cd "$wt" && pwd -P)" "$dir/worker-push-guard.mjs" \
     <"$ORCH_SETTINGS_TEMPLATE" >"$out" || return 1
+  # The reviewer writes its verdict in a mktemp dir outside the worktree (orch.sh review
+  # gate): allow that one file by glob, so the settings never name the random dir.
+  if [ "${2:-}" = reviewer ]; then
+    local t="${TMPDIR:-/tmp}" tp
+    t="${t%/}"; tp="$(cd "$t" && pwd -P)" || return 1
+    jq --arg a "Edit(/$t/orch-review.*/verdict)" --arg b "Edit(/$tp/orch-review.*/verdict)" \
+      '.permissions.allow += ([$a, $b] | unique)' "$out" >"$out.tmp" && mv "$out.tmp" "$out" || return 1
+  fi
   printf '%s\n' "$out"
 }
 

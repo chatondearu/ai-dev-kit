@@ -106,17 +106,23 @@ pub struct SessionPaneInfo {
     pub cdamux_id: Option<String>,
     pub cdamux_agent: Option<String>,
     pub ccmux_agent: Option<String>,
-    /// True when any pane's `#{pane_current_command}` looks like an agent CLI.
+    /// True when the active pane still looks like an agent CLI.
+    /// A shell / `mise` / `direnv` in the tty foreground group clears this even when
+    /// `#{pane_current_command}` is still `cursor-agent`.
     pub has_agent_process: bool,
     /// True when at least one pane reported a non-empty `pane_current_command`.
     pub saw_pane_command: bool,
+    /// `#{pane_pid}` of the active pane.
+    pub pane_pid: Option<u32>,
+    /// Comm of the active pane's tty foreground group, when readable.
+    pub proc_comm: Option<String>,
 }
 
 /// Session user options resolve through pane formats, so one `-a` call covers every session.
 /// tmux has no pane idle format (`pane_idle_time` does not exist and expands empty):
 /// idle is `now - window_activity` (epoch of the window's last pane output).
 const LIST_PANES_ALL_FORMAT: &str =
-    "#{session_name}\t#{pane_active}\t#{window_activity}\t#{@cdamux_state}\t#{@cdamux_id}\t#{@cdamux_agent}\t#{@ccmux_agent}\t#{pane_current_command}";
+    "#{session_name}\t#{pane_active}\t#{window_activity}\t#{@cdamux_state}\t#{@cdamux_id}\t#{@cdamux_agent}\t#{@ccmux_agent}\t#{pane_current_command}\t#{pane_pid}";
 
 fn non_empty(s: &str) -> Option<String> {
     let t = s.trim();
@@ -145,14 +151,51 @@ pub fn parse_list_panes_all(stdout: &str, now: u64) -> HashMap<String, SessionPa
         info.cdamux_id = f.next().and_then(non_empty);
         info.cdamux_agent = f.next().and_then(non_empty);
         info.ccmux_agent = f.next().and_then(non_empty);
-        if let Some(cmd) = f.next().and_then(non_empty) {
+        let cmd = f.next().and_then(non_empty);
+        let pid = f
+            .next()
+            .and_then(|s| s.trim().parse::<u32>().ok())
+            .filter(|n| *n > 0);
+        if is_new || active == "1" {
+            info.pane_pid = pid;
+            // pane_pid is the shell cdamux started; its own comm stays `fish` while
+            // the agent runs. The tty foreground group is the process that is actually
+            // in front. tmux can keep reporting `cursor-agent` after that group is gone.
+            info.proc_comm = pid.and_then(foreground_comm);
+        }
+        if let Some(cmd) = cmd {
             info.saw_pane_command = true;
-            if looks_like_agent_process(&cmd) {
+            let comm = (is_new || active == "1")
+                .then(|| info.proc_comm.as_deref())
+                .flatten();
+            if info.proc_comm.as_deref().is_some_and(is_dead_pane_comm) {
+                // Active (or first) pane's real comm wins over a stale command string.
+                info.has_agent_process = false;
+            } else if pane_command_is_agent(&cmd, comm) {
                 info.has_agent_process = true;
             }
         }
     }
     out
+}
+
+fn read_proc_comm(pid: u32) -> Option<String> {
+    let raw = std::fs::read_to_string(format!("/proc/{pid}/comm")).ok()?;
+    let comm = raw.trim();
+    (!comm.is_empty()).then(|| comm.to_string())
+}
+
+/// `tpgid` from `/proc/<pid>/stat` (field after tty_nr). `comm` may contain `)`.
+fn tpgid_from_stat(stat: &str) -> Option<u32> {
+    let rest = stat.rsplit_once(')')?.1;
+    let tpgid: i64 = rest.split_whitespace().nth(5)?.parse().ok()?;
+    u32::try_from(tpgid).ok().filter(|n| *n > 0)
+}
+
+/// Comm of the pane's foreground process group, not of `pane_pid` itself.
+fn foreground_comm(pane_pid: u32) -> Option<String> {
+    let stat = std::fs::read_to_string(format!("/proc/{pane_pid}/stat")).ok()?;
+    read_proc_comm(tpgid_from_stat(&stat)?)
 }
 
 /// One tmux spawn for all sessions (empty map when tmux is down or has no server).
@@ -219,6 +262,21 @@ pub fn is_shell_command(cmd: &str) -> bool {
         cmd.trim_start_matches('-'),
         "sh" | "bash" | "zsh" | "fish" | "dash" | "ksh" | "mksh" | "tcsh" | "csh" | "nu"
     )
+}
+
+/// True when a process comm is a shell, `mise`, or `direnv` (the CLI has exited).
+pub(crate) fn is_dead_pane_comm(comm: &str) -> bool {
+    let c = comm.trim().trim_start_matches('-');
+    is_shell_command(c) || matches!(c, "mise" | "direnv")
+}
+
+/// `pane_current_command` still says `cursor-agent` after the process became a shell.
+/// `proc_comm` is that lie's correction; `None` keeps the tmux string (no `/proc`).
+pub(crate) fn pane_command_is_agent(pane_command: &str, proc_comm: Option<&str>) -> bool {
+    if proc_comm.is_some_and(is_dead_pane_comm) {
+        return false;
+    }
+    looks_like_agent_process(pane_command)
 }
 
 /// True when `#{pane_current_command}` is the agent CLI, not a leftover shell / mise.
@@ -724,6 +782,27 @@ mod tests {
             1000,
         );
         assert!(live["f"].has_agent_process);
+    }
+
+    #[test]
+    fn fish_comm_overrides_cursor_agent_command() {
+        assert!(!pane_command_is_agent("cursor-agent", Some("fish")));
+        assert!(!pane_command_is_agent("cursor-agent", Some("mise")));
+        assert!(!pane_command_is_agent("cursor-agent", Some("direnv")));
+        assert!(!pane_command_is_agent("cursor-agent", Some("-zsh")));
+        assert!(pane_command_is_agent("cursor-agent", Some("cursor-agent")));
+        assert!(pane_command_is_agent("cursor-agent", None));
+        assert!(pane_command_is_agent("cursor-agent", Some("node")));
+    }
+
+    #[test]
+    fn stat_tpgid_is_the_foreground_group_not_the_shell_pid() {
+        // pid (comm) state ppid pgrp session tty_nr tpgid …
+        assert_eq!(
+            tpgid_from_stat("2811669 (fish) S 1 2811669 2811669 34860 2837251 0"),
+            Some(2837251)
+        );
+        assert_eq!(tpgid_from_stat("10 (a) b) S 1 2 3 4 -1"), None);
     }
 
     #[test]

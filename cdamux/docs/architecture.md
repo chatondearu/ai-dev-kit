@@ -146,7 +146,7 @@ Text always reaches the pane as a bracketed paste from a per-call buffer
 (`paste-buffer -p -d`, deleted on failure too), never as `send-keys`; control characters
 other than `\n` / `\t` are stripped so text cannot act as keys (`cdamux send` refuses them).
 
-`msg send` prints the message id and `pasted`, `nudged` or `queued` (inbox only).
+`msg send` prints the message id and `pasted`, `nudged`, `inbox` (worker line not pasted; no drain), or `queued` (orchestrator `say`, drained on stop).
 
 `cdamux msg read [--agent id] [--ack] [--digest]` prints unread lines after the
 ack cursor; `--ack` advances `inbox/<id>.cursor` to the end of the last complete line
@@ -197,8 +197,8 @@ Requires `$CDAMUX_AGENT_ID` (caller must be an orchestrator session).
   prefixes the first message with `cdamux/prompts/worker-preamble.md` (report via
   `cdamux msg`); `--prompt-file` content is appended. opencode's first message uses
   `--prompt`; other clients get a pane paste after launch.
-- `cdamux worker ls` — workers whose `parent` is the caller; a worker whose host is not a live
-  tmux session shows `dormant` instead of its stored status.
+- `cdamux worker ls` — one line per worker whose `parent` is the caller: tmux session name
+  and worktree path, so a human can `tmux kill-session`. Does not delete worktrees.
 - `cdamux worker peek <name> [--lines N]` — last N pane lines.
 
 ### Read-only inspection (#388)

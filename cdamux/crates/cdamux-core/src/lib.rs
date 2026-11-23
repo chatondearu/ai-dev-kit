@@ -165,7 +165,8 @@ pub use spawn::{
 };
 pub use worker::{
     compose_worker_first_prompt, count_live_workers, ensure_orch_run, list_workers, peek_worker,
-    shell_single_quote, spawn_worker, with_first_prompt, worker_preamble, WorkerError, WorkerRow,
+    shell_single_quote, spawn_worker, with_first_prompt, worker_ls_line, worker_preamble,
+    WorkerError, WorkerRow,
     WorkerSpawnRequest, WorkerSpawnResult,
 };
 pub use worktree::{

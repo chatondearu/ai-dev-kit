@@ -76,12 +76,16 @@ pub struct SendOutcome {
 }
 
 impl SendOutcome {
-    /// What happened beyond the inbox append: `pasted`, `nudged` or `queued` (inbox only).
+    /// What happened beyond the inbox append.
+    /// `inbox`: a worker relay/answer was not pasted (workers have no drain).
+    /// `queued`: an orchestrator line was not nudged; `say` drains that on stop.
     pub fn delivery_word(&self) -> &'static str {
         if self.pasted {
             "pasted"
         } else if self.nudged {
             "nudged"
+        } else if self.delivery == DeliveryMode::WorkerPaste {
+            "inbox"
         } else {
             "queued"
         }
@@ -887,7 +891,24 @@ mod tests {
         };
         assert_eq!(out(true, false).delivery_word(), "pasted");
         assert_eq!(out(false, true).delivery_word(), "nudged");
-        assert_eq!(out(false, false).delivery_word(), "queued");
+    }
+
+    #[test]
+    fn delivery_word_is_inbox_when_paste_skipped() {
+        let skipped = SendOutcome {
+            message: test_msg("m-in".into(), "a-w"),
+            delivery: DeliveryMode::WorkerPaste,
+            nudged: false,
+            pasted: false,
+        };
+        assert_eq!(skipped.delivery_word(), "inbox");
+        let say_wait = SendOutcome {
+            message: test_msg("m-q".into(), "a-orch"),
+            delivery: DeliveryMode::OrchNudge,
+            nudged: false,
+            pasted: false,
+        };
+        assert_eq!(say_wait.delivery_word(), "queued");
     }
 
     #[test]

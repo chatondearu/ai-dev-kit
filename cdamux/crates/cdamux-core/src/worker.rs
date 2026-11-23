@@ -17,9 +17,11 @@ use crate::worktree::{
 };
 use crate::AgentsConfig;
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -46,9 +48,7 @@ pub enum WorkerError {
     Io(String),
     #[error("worker not found: {0}")]
     NotFound(String),
-    #[error(
-        "worker cap reached: {live}/{cap} live workers ([orchestrator].max_workers)"
-    )]
+    #[error("worker cap reached: {live}/{cap} live workers ([orchestrator].max_workers)")]
     Cap { live: u32, cap: u32 },
     #[error("{0}")]
     Other(String),
@@ -97,6 +97,17 @@ pub struct WorkerRow {
     pub client: String,
     pub run: Option<String>,
     pub status: Option<String>,
+    /// Worktree (or `--here` checkout) path. Empty when neither tmux nor the registry has it.
+    pub path: String,
+}
+
+/// One line a human can act on: tmux session name and worktree path.
+pub fn worker_ls_line(row: &WorkerRow) -> String {
+    if row.path.is_empty() {
+        row.host.clone()
+    } else {
+        format!("{}\t{}", row.host, row.path)
+    }
 }
 
 /// Shell-escape for embedding a prompt in a pane command line.
@@ -186,15 +197,21 @@ pub(crate) fn resolve_spawned_agent_id(host: &str) -> String {
     crate::session_registry::load(host)
         .and_then(|r| r.cdamux_id)
         .or_else(|| {
-            state_list(StateKind::Agents).into_iter().find_map(|(id, _, v)| {
-                (v.get("host").and_then(|h| h.as_str()) == Some(host)).then_some(id)
-            })
+            state_list(StateKind::Agents)
+                .into_iter()
+                .find_map(|(id, _, v)| {
+                    (v.get("host").and_then(|h| h.as_str()) == Some(host)).then_some(id)
+                })
         })
         .unwrap_or_default()
 }
 
 /// Ensure the orchestrator has a long-lived run id (mint + write when missing).
-pub fn ensure_orch_run(caller_id: &str, caller: &Value, repo: &Path) -> Result<String, WorkerError> {
+pub fn ensure_orch_run(
+    caller_id: &str,
+    caller: &Value,
+    repo: &Path,
+) -> Result<String, WorkerError> {
     if let Some(run) = caller
         .get("run")
         .and_then(|r| r.as_str())
@@ -240,11 +257,10 @@ pub fn list_workers(caller_id: &str) -> Result<Vec<WorkerRow>, WorkerError> {
     // keeps its stored `working`).
     let panes = crate::tmux::list_panes_all();
     let _ = crate::restore::reap_dead_agent_panes(&panes);
-    let live: Vec<String> = crate::tmux::list_tmux_sessions()
-        .unwrap_or_default()
-        .into_iter()
-        .map(|s| s.name)
-        .collect();
+    let sessions = crate::tmux::list_tmux_sessions().unwrap_or_default();
+    let live: Vec<String> = sessions.iter().map(|s| s.name.clone()).collect();
+    let session_path: HashMap<String, String> =
+        sessions.into_iter().map(|s| (s.name, s.path)).collect();
     let mut rows: Vec<WorkerRow> = state_list(StateKind::Agents)
         .into_iter()
         .filter(|(_, _, v)| {
@@ -268,14 +284,12 @@ pub fn list_workers(caller_id: &str) -> Result<Vec<WorkerRow>, WorkerError> {
                 .and_then(|c| c.as_str())
                 .unwrap_or("")
                 .to_string(),
-            run: v
-                .get("run")
-                .and_then(|r| r.as_str())
-                .map(str::to_string),
-            status: v
-                .get("status")
-                .and_then(|s| s.as_str())
-                .map(str::to_string),
+            run: v.get("run").and_then(|r| r.as_str()).map(str::to_string),
+            status: v.get("status").and_then(|s| s.as_str()).map(str::to_string),
+            path: worker_path(
+                &v.get("host").and_then(|h| h.as_str()).unwrap_or(""),
+                &session_path,
+            ),
         })
         .map(|mut row| {
             if !live.contains(&row.host) {
@@ -316,39 +330,133 @@ fn resolve_caller_cwd(caller: &Value, fallback: &Path) -> PathBuf {
 }
 
 fn worker_name_taken(name: &str, caller_id: &str) -> bool {
-    list_workers(caller_id)
-        .ok()
-        .is_some_and(|rows| rows.iter().any(|r| r.name == name || r.host == slug_session(name)))
+    list_workers(caller_id).ok().is_some_and(|rows| {
+        rows.iter()
+            .any(|r| r.name == name || r.host == slug_session(name))
+    })
 }
 
 /// Count workers that count toward `[orchestrator].max_workers`.
-/// Live = `role=worker`, host that passes `host_alive`, status not `done`/`error`
-/// (missing status and `idle` both count; dormant hosts are dead so never pass liveness).
-pub fn count_live_workers<'a, I>(agents: I, host_alive: &dyn Fn(&str) -> bool) -> u32
+/// Live = `role=worker`, host that passes `host_alive`, status not `done`/`error`.
+/// `idle` past [`crate::msg::DEFAULT_NUDGE_QUIET_SECS`] with no open ask does not count
+/// (`host_idle_secs` is the pane's idle time; `None` keeps the slot). `done` never counts.
+/// Missing status still counts. Dormant hosts fail `host_alive`.
+pub fn count_live_workers<'a, I>(
+    agents: I,
+    host_alive: &dyn Fn(&str) -> bool,
+    host_idle_secs: &dyn Fn(&str) -> Option<u32>,
+) -> u32
 where
     I: IntoIterator<Item = &'a Value>,
 {
     agents
         .into_iter()
         .filter(|v| {
-            v.get("role").and_then(|r| r.as_str()) == Some("worker")
-                && !matches!(
-                    v.get("status").and_then(|s| s.as_str()),
-                    Some("done") | Some("error")
-                )
-                && v
-                    .get("host")
-                    .and_then(|h| h.as_str())
-                    .filter(|h| !h.is_empty())
-                    .is_some_and(host_alive)
+            if v.get("role").and_then(|r| r.as_str()) != Some("worker") {
+                return false;
+            }
+            if matches!(
+                v.get("status").and_then(|s| s.as_str()),
+                Some("done") | Some("error")
+            ) {
+                return false;
+            }
+            let Some(host) = v
+                .get("host")
+                .and_then(|h| h.as_str())
+                .filter(|h| !h.is_empty())
+            else {
+                return false;
+            };
+            if !host_alive(host) {
+                return false;
+            }
+            !idle_releases_cap(v, host_idle_secs(host))
         })
         .count() as u32
+}
+
+/// Quiet `idle` with no open ask is finished work: it must not hold the cap.
+fn idle_releases_cap(agent: &Value, idle_secs: Option<u32>) -> bool {
+    if agent.get("status").and_then(|s| s.as_str()) != Some("idle") {
+        return false;
+    }
+    if !idle_secs.is_some_and(|s| s >= crate::msg::DEFAULT_NUDGE_QUIET_SECS.max(1)) {
+        return false;
+    }
+    let Some(id) = agent
+        .get("id")
+        .and_then(|s| s.as_str())
+        .filter(|s| !s.is_empty())
+    else {
+        return true;
+    };
+    let Some(parent) = agent
+        .get("parent")
+        .and_then(|s| s.as_str())
+        .filter(|s| !s.is_empty())
+    else {
+        return true;
+    };
+    !crate::msg::has_pending_ask(id, parent)
+}
+
+fn worker_path(host: &str, session_path: &HashMap<String, String>) -> String {
+    session_path
+        .get(host)
+        .filter(|p| !p.is_empty())
+        .cloned()
+        .or_else(|| crate::session_registry::load(host).map(|r| r.cwd.display().to_string()))
+        .unwrap_or_default()
+}
+
+fn checkout_branch(path: &Path) -> Option<String> {
+    // `rev-parse --abbrev-ref` is `HEAD` on an unborn branch; symbolic-ref is `main`.
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(path)
+        .args(["symbolic-ref", "--short", "HEAD"])
+        .output()
+        .ok()?;
+    if out.status.success() {
+        let name = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if !name.is_empty() {
+            return Some(name);
+        }
+    }
+    current_branch(path)
+}
+
+fn refuse_here_checkout(path: &Path) -> Result<(), WorkerError> {
+    let branch = checkout_branch(path).unwrap_or_default();
+    if branch == "main" || branch == "master" {
+        return Err(WorkerError::Other(format!(
+            "refuse --here on branch {branch}"
+        )));
+    }
+    if git_porcelain_dirty(path) {
+        return Err(WorkerError::Other("refuse --here on a dirty tree".into()));
+    }
+    Ok(())
+}
+
+fn git_porcelain_dirty(path: &Path) -> bool {
+    let Ok(out) = Command::new("git")
+        .arg("-C")
+        .arg(path)
+        .args(["status", "--porcelain", "--untracked-files=all"])
+        .output()
+    else {
+        return false;
+    };
+    out.status.success() && out.stdout.iter().any(|b| !b.is_ascii_whitespace())
 }
 
 fn refuse_if_at_cap(max_workers: u32) -> Result<(), WorkerError> {
     if max_workers == 0 {
         return Ok(());
     }
+    let panes = crate::tmux::list_panes_all();
     let live_hosts: Vec<String> = crate::tmux::list_tmux_sessions()
         .unwrap_or_default()
         .into_iter()
@@ -358,7 +466,11 @@ fn refuse_if_at_cap(max_workers: u32) -> Result<(), WorkerError> {
         .into_iter()
         .map(|(_, _, v)| v)
         .collect();
-    let live = count_live_workers(agents.iter(), &|h| live_hosts.iter().any(|x| x == h));
+    let live = count_live_workers(
+        agents.iter(),
+        &|h| live_hosts.iter().any(|x| x == h),
+        &|h| panes.get(h).and_then(|p| p.idle_seconds),
+    );
     if live >= max_workers {
         return Err(WorkerError::Cap {
             live,
@@ -412,6 +524,9 @@ pub fn spawn_worker(req: WorkerSpawnRequest<'_>) -> Result<WorkerSpawnResult, Wo
         .repo
         .map(Path::to_path_buf)
         .unwrap_or_else(|| caller_cwd.clone());
+    if req.here {
+        refuse_here_checkout(&base_cwd)?;
+    }
     let run = ensure_orch_run(req.caller_id, &caller, &caller_cwd)?;
 
     let target_repo = git_toplevel(&base_cwd);
@@ -510,12 +625,35 @@ mod tests {
         let alive = |h: &str| {
             matches!(
                 h,
-                "live-a" | "live-b" | "live-idle" | "live-nostatus" | "live-c" | "live-err"
+                "live-a"
+                    | "live-b"
+                    | "live-idle"
+                    | "live-nostatus"
+                    | "live-c"
+                    | "live-err"
                     | "live-e"
             )
         };
-        // working + blocked + idle + missing status = 4; done/error/dead/orch excluded
-        assert_eq!(count_live_workers(agents.iter(), &alive), 4);
+        // working + blocked + idle (idle unknown) + missing status = 4; done/error/dead/orch excluded
+        assert_eq!(count_live_workers(agents.iter(), &alive, &|_| None), 4);
+    }
+
+    #[test]
+    fn quiet_idle_and_done_do_not_hold_the_cap() {
+        let agents = vec![
+            json!({"role": "worker", "status": "idle", "host": "quiet"}),
+            json!({"role": "worker", "status": "idle", "host": "fresh"}),
+            json!({"role": "worker", "status": "done", "host": "finished"}),
+            json!({"role": "worker", "status": "working", "host": "busy"}),
+        ];
+        let alive = |h: &str| matches!(h, "quiet" | "fresh" | "finished" | "busy");
+        let idle = |h: &str| match h {
+            "quiet" | "finished" => Some(crate::msg::DEFAULT_NUDGE_QUIET_SECS),
+            "fresh" => Some(1),
+            _ => None,
+        };
+        // quiet idle released; fresh idle + working still count; done never counts
+        assert_eq!(count_live_workers(agents.iter(), &alive, &idle), 2);
     }
 
     #[test]
@@ -620,6 +758,92 @@ mod tests {
         std::env::remove_var("TMUX_TMPDIR");
         std::env::remove_var("CDAMUX_HOME");
         assert_eq!(rows[0].status.as_deref(), Some("dormant"));
+        assert_eq!(worker_ls_line(&rows[0]), "gone-host");
+    }
+
+    #[test]
+    fn spawn_here_on_main_is_refused() {
+        let _g = crate::paths::env_lock();
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().join("repo");
+        fs::create_dir(&repo).unwrap();
+        assert!(
+            Command::new("git")
+                .arg("-C")
+                .arg(&repo)
+                .args(["init", "-b", "main"])
+                .status()
+                .unwrap()
+                .success(),
+            "git init -b main"
+        );
+        std::env::set_var("TMUX_TMPDIR", tmp.path());
+        std::env::set_var("CDAMUX_HOME", tmp.path().join("home"));
+        std::env::remove_var("TMUX");
+        state_set(
+            StateKind::Agents,
+            "a-orchh",
+            &json!({
+                "id": "a-orchh",
+                "role": "orchestrator",
+                "host": "c-orch-here",
+                "client": "cursor"
+            }),
+        )
+        .unwrap();
+        let agents = crate::AgentsConfig::default();
+        let err = spawn_worker(WorkerSpawnRequest {
+            name: "w",
+            caller_id: "a-orchh",
+            agent: None,
+            prompt_file: None,
+            here: true,
+            repo: Some(&repo),
+            worktree_root: None,
+            agents: &agents,
+            cwd: &repo,
+            max_workers: 0,
+        });
+        std::env::remove_var("TMUX_TMPDIR");
+        std::env::remove_var("CDAMUX_HOME");
+        match err {
+            Err(WorkerError::Other(msg)) => {
+                assert!(msg.contains("branch main"), "{msg}");
+                assert!(!msg.contains('\n'), "{msg}");
+            }
+            other => panic!("expected refuse --here on main, got {other:?}"),
+        }
+
+        let dirty = tmp.path().join("dirty");
+        fs::create_dir(&dirty).unwrap();
+        assert!(Command::new("git")
+            .arg("-C")
+            .arg(&dirty)
+            .args(["init", "-b", "feature"])
+            .status()
+            .unwrap()
+            .success());
+        fs::write(dirty.join("untracked"), "x").unwrap();
+        std::env::set_var("TMUX_TMPDIR", tmp.path());
+        std::env::set_var("CDAMUX_HOME", tmp.path().join("home"));
+        let dirty_err = spawn_worker(WorkerSpawnRequest {
+            name: "w",
+            caller_id: "a-orchh",
+            agent: None,
+            prompt_file: None,
+            here: true,
+            repo: Some(&dirty),
+            worktree_root: None,
+            agents: &agents,
+            cwd: &dirty,
+            max_workers: 0,
+        });
+        std::env::remove_var("TMUX_TMPDIR");
+        std::env::remove_var("CDAMUX_HOME");
+        match dirty_err {
+            Err(WorkerError::Other(msg)) => assert!(msg.contains("dirty"), "{msg}"),
+            other => panic!("expected refuse --here on a dirty tree, got {other:?}"),
+        }
     }
 
     #[test]

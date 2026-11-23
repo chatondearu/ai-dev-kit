@@ -1,7 +1,13 @@
 //! Git worktree helpers for spawn flow (explicit opt-in; no orch bridge).
 
+use std::io::{ErrorKind, Read};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
+
+/// Hang guard: a full disk blocks `git worktree add` instead of returning ENOSPC.
+/// shortcut: 30s, raise if a real checkout of a large repo exceeds it.
+const WORKTREE_ADD_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorktreeEntry {
@@ -109,10 +115,15 @@ pub fn worktree_add_new_branch(
     }
     if let Some(parent) = dest.parent() {
         std::fs::create_dir_all(parent).map_err(|e| {
-            WorktreeError::Git(format!("create parent dir: {e}"))
+            if e.kind() == ErrorKind::StorageFull {
+                WorktreeError::Git("ENOSPC: no space left on device".into())
+            } else {
+                WorktreeError::Git(format!("create parent dir: {e}"))
+            }
         })?;
     }
-    let out = Command::new("git")
+    // stdout is discarded so a chatty checkout cannot fill the pipe and deadlock the wait.
+    let mut child = Command::new("git")
         .arg("-C")
         .arg(repo)
         .arg("worktree")
@@ -121,13 +132,65 @@ pub fn worktree_add_new_branch(
         .arg(new_branch)
         .arg(dest)
         .arg(base_branch)
-        .output()
-        .map_err(|e| WorktreeError::Git(e.to_string()))?;
-    if out.status.success() {
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| {
+            if e.kind() == ErrorKind::StorageFull {
+                WorktreeError::Git("ENOSPC: no space left on device".into())
+            } else {
+                WorktreeError::Git(e.to_string())
+            }
+        })?;
+    let status = wait_with_timeout(&mut child, WORKTREE_ADD_TIMEOUT)?;
+    let mut stderr = String::new();
+    if let Some(mut err) = child.stderr.take() {
+        let _ = err.read_to_string(&mut stderr);
+    }
+    if status.success() {
         Ok(())
     } else {
-        let stderr = String::from_utf8_lossy(&out.stderr);
-        Err(WorktreeError::Git(stderr.trim().to_string()))
+        Err(WorktreeError::Git(git_err_line(&stderr)))
+    }
+}
+
+fn git_err_line(stderr: &str) -> String {
+    let lines: Vec<&str> = stderr
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect();
+    lines
+        .iter()
+        .copied()
+        .find(|l| l.contains("No space left on device") || l.contains("ENOSPC"))
+        .or_else(|| lines.first().copied())
+        .unwrap_or("git worktree add failed")
+        .to_string()
+}
+
+fn wait_with_timeout(
+    child: &mut std::process::Child,
+    timeout: Duration,
+) -> Result<std::process::ExitStatus, WorktreeError> {
+    let start = Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return Ok(status),
+            Ok(None) if start.elapsed() >= timeout => {
+                let _ = child.kill();
+                let kill_wait = Instant::now();
+                while kill_wait.elapsed() < Duration::from_millis(200) {
+                    if child.try_wait().ok().flatten().is_some() {
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_millis(20));
+                }
+                return Err(WorktreeError::Git("git worktree add timed out".into()));
+            }
+            Ok(None) => std::thread::sleep(Duration::from_millis(20)),
+            Err(e) => return Err(WorktreeError::Git(e.to_string())),
+        }
     }
 }
 
@@ -174,6 +237,26 @@ fn git_output(path: &Path, args: &[&str]) -> Result<String, WorktreeError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn worktree_add_enospc_is_one_line() {
+        let err = git_err_line("hint: something\nfatal: No space left on device\n");
+        assert_eq!(err, "fatal: No space left on device");
+        assert!(!err.contains('\n'));
+        assert_eq!(
+            git_err_line("fatal: branch already exists\n"),
+            "fatal: branch already exists"
+        );
+    }
+
+    #[test]
+    fn worktree_add_timeout_returns_one_line() {
+        let mut child = Command::new("sleep").arg("30").spawn().unwrap();
+        let err = wait_with_timeout(&mut child, Duration::from_millis(200)).unwrap_err();
+        assert_eq!(err.to_string(), "git: git worktree add timed out");
+        let _ = child.kill();
+        let _ = child.wait();
+    }
 
     #[test]
     fn slug_sanitizes_path_segment() {

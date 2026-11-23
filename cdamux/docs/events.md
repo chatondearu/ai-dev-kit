@@ -80,13 +80,17 @@ hook payload on stdin at turn end, only for agents whose role is `orchestrator`.
 cdamux reads `transcript_path` (last 512 KiB), finds the last user line holding text,
 and keeps the assistant text after it. The transcript can lag the `Stop` hook: when
 the payload's `last_assistant_message` is not the end of that text (or there is no
-transcript), the reply is `last_assistant_message` alone. A turn already recorded (same `turn_id`, kept as
-`last_reply_turn` in the agent record) is not written twice.
+transcript), the reply is `last_assistant_message` alone. When that message is empty
+and the transcript is missing or has no assistant text, the reply text is
+`tool-only turn`. `generation_id`, when the client sends one, is the `turn_id`.
+A turn already recorded (same `turn_id`, kept as
+`last_reply_turn` in the agent record) is not written twice. The hook allows 1s;
+on timeout it retries once without `transcript_path` so the journal still gets a line.
 
 | Client | `reply` |
 | ------ | ------- |
 | Claude Code | Yes: `Stop` hook + transcript. |
-| Cursor | Best effort: `stop` hook; only when the payload carries a `transcript_path` in the JSONL shape cdamux reads. |
+| Cursor | `stop` hook. Prose when the transcript matches; otherwise one `tool-only turn` line. |
 | opencode, Codex | Not yet (no turn-end hook wired to `events reply`). |
 
 Gaps: a turn whose prompt sits more than 512 KiB back in the transcript keeps only

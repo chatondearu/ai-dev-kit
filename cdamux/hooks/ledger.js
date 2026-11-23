@@ -127,20 +127,34 @@ function readAgentField(env, id, key) {
 
 const readAgentStatus = (env, id) => readAgentField(env, id, 'status');
 
+function replyTimedOut(err) {
+  return !!err && (err.code === 'ETIMEDOUT' || err.killed === true || err.signal === 'SIGTERM');
+}
+
 // Turn end of an orchestrator: hand the hook payload to `cdamux events reply`, which
-// records its last assistant prose in the events feed (docs/events.md). Fail-open.
+// records its last assistant prose — or one tool-only line when there is none
+// (docs/events.md). A 1s timeout must not leave the journal empty: retry once
+// without the transcript (the slow read). Fail-open either way: never fail the turn.
 function recordReply(env, input) {
   const id = resolveAgentId(env);
   if (readAgentField(env, id, 'role') !== 'orchestrator') return;
+  const call = (payload) => execFileSync('cdamux', ['events', 'reply', id], {
+    env,
+    input: JSON.stringify(payload ?? {}),
+    timeout: 1000,
+    stdio: ['pipe', 'ignore', 'ignore'],
+  });
   try {
-    execFileSync('cdamux', ['events', 'reply', id], {
-      env,
-      input: JSON.stringify(input),
-      timeout: 1000,
-      stdio: ['pipe', 'ignore', 'ignore'],
-    });
+    call(input);
   } catch (e) {
-    /* fail-open */
+    if (!replyTimedOut(e)) return;
+    try {
+      const fast = input && typeof input === 'object' ? { ...input } : {};
+      delete fast.transcript_path;
+      call(fast);
+    } catch (e2) {
+      /* fail-open */
+    }
   }
 }
 

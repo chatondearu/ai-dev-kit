@@ -274,9 +274,38 @@ fn cap_text(text: &str) -> (String, bool) {
     (text[..end].to_string(), true)
 }
 
+/// Journal text when an orchestrator turn ends with no assistant prose.
+const TOOL_ONLY_REPLY: &str = "tool-only turn";
+
+fn text_field<'a>(payload: &'a Value, key: &str) -> Option<&'a str> {
+    payload[key].as_str().map(str::trim).filter(|s| !s.is_empty())
+}
+
+/// Per-turn id when a stop has no assistant prose. Cursor's `generation_id`
+/// changes every user message, so each stop is one line and a retry of the
+/// same stop matches `last_reply_turn`.
+fn tool_only_turn_id(payload: &Value) -> String {
+    if let Some(id) = text_field(payload, "generation_id") {
+        return id.to_string();
+    }
+    if let Some(p) = payload["transcript_path"].as_str().filter(|s| !s.is_empty()) {
+        if let Ok(tail) = read_tail(Path::new(p), REPLY_TRANSCRIPT_TAIL_BYTES) {
+            let tail = tail.trim();
+            if !tail.is_empty() {
+                return format!("h-{:016x}", fnv1a(tail));
+            }
+        }
+    }
+    // shortcut: identical payloads and no transcript share one tool-only line.
+    format!("h-{:016x}", fnv1a(&payload.to_string()))
+}
+
 /// Turn-end hook (`cdamux events reply`): emit one `reply` item for an orchestrator.
 /// `payload` is the client hook JSON (`transcript_path`, else `last_assistant_message`).
-/// A turn already recorded (same `turn_id` in `last_reply_turn`) is skipped.
+/// No prose (empty last message, transcript missing or without assistant text) still
+/// writes [`TOOL_ONLY_REPLY`]. A turn already recorded (same `turn_id` in
+/// `last_reply_turn`) is skipped, including a real reply stored under the same
+/// `generation_id`.
 /// Returns whether an item was written.
 pub fn record_reply(agent: &str, payload: &Value) -> io::Result<bool> {
     let Some(rec) = state_get(StateKind::Agents, agent)? else {
@@ -285,10 +314,7 @@ pub fn record_reply(agent: &str, payload: &Value) -> io::Result<bool> {
     if rec.get("role").and_then(Value::as_str) != Some("orchestrator") {
         return Ok(false);
     }
-    let last_msg = payload["last_assistant_message"]
-        .as_str()
-        .map(str::trim)
-        .filter(|t| !t.is_empty());
+    let last_msg = text_field(payload, "last_assistant_message");
     let from_transcript = payload["transcript_path"]
         .as_str()
         .filter(|p| !p.is_empty())
@@ -299,8 +325,13 @@ pub fn record_reply(agent: &str, payload: &Value) -> io::Result<bool> {
         .filter(|(text, _)| last_msg.is_none_or(|m| text.ends_with(m)));
     let reply = from_transcript
         .or_else(|| last_msg.map(|t| (t.to_string(), format!("h-{:016x}", fnv1a(t)))));
-    let Some((text, turn_id)) = reply else {
-        return Ok(false);
+    // generation_id is the turn key, so a tool-only retry dedupes a real reply.
+    let (text, turn_id) = match reply {
+        Some((text, turn_id)) => {
+            let id = text_field(payload, "generation_id").unwrap_or(&turn_id);
+            (text, id.to_string())
+        }
+        None => (TOOL_ONLY_REPLY.to_string(), tool_only_turn_id(payload)),
     };
     if rec.get("last_reply_turn").and_then(Value::as_str) == Some(turn_id.as_str()) {
         return Ok(false);
@@ -479,6 +510,76 @@ mod tests {
         std::fs::create_dir(&live).unwrap();
         assert!(!record_reply("a-o", &json!({ "last_assistant_message": "lost?" })).unwrap());
         assert_eq!(state_get(StateKind::Agents, "a-o").unwrap().unwrap()["last_reply_turn"], before);
+        std::env::remove_var("CDAMUX_HOME");
+    }
+
+    #[test]
+    fn tool_only_stop_writes_one_reply() {
+        let _g = env_lock();
+        let dir = tempfile::tempdir().unwrap();
+        std::env::set_var("CDAMUX_HOME", dir.path());
+        state_set(StateKind::Agents, "a-o", &json!({"id":"a-o","role":"orchestrator"})).unwrap();
+        state_set(StateKind::Agents, "a-w", &json!({"id":"a-w","role":"worker"})).unwrap();
+
+        // Cursor stop: no assistant prose, no transcript.
+        let stop = json!({
+            "hook_event_name": "stop",
+            "generation_id": "g-tool",
+            "last_assistant_message": "",
+            "status": "completed",
+        });
+        assert!(!record_reply("a-w", &stop).unwrap(), "workers emit no reply");
+        assert!(record_reply("a-o", &stop).unwrap(), "tool-only stop writes a reply");
+        assert!(!record_reply("a-o", &stop).unwrap(), "same turn twice → one item");
+        let replies: Vec<Value> =
+            read_events(0).unwrap().into_iter().filter(|v| v["type"] == "reply").collect();
+        assert_eq!(replies.len(), 1);
+        assert_eq!(replies[0]["agent"], "a-o");
+        assert_eq!(replies[0]["text"], TOOL_ONLY_REPLY);
+        assert_eq!(replies[0]["turn_id"], "g-tool");
+
+        // Transcript of a tool call only: still no assistant prose.
+        let tp = dir.path().join("tools.jsonl");
+        std::fs::write(
+            &tp,
+            "{\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"tool_use\",\"name\":\"Bash\"}]}}\n",
+        )
+        .unwrap();
+        let tools = json!({
+            "hook_event_name": "stop",
+            "generation_id": "g-bash",
+            "last_assistant_message": "  ",
+            "transcript_path": tp,
+        });
+        assert!(record_reply("a-o", &tools).unwrap(), "tool transcript still leaves a line");
+
+        // Real prose for a generation wins; a later empty stop of that turn does not.
+        let prose = json!({
+            "hook_event_name": "stop",
+            "generation_id": "g-prose",
+            "last_assistant_message": "All merged.",
+        });
+        assert!(record_reply("a-o", &prose).unwrap());
+        let again = json!({
+            "hook_event_name": "stop",
+            "generation_id": "g-prose",
+            "last_assistant_message": "",
+        });
+        assert!(!record_reply("a-o", &again).unwrap(), "real reply already recorded");
+        let texts: Vec<String> = read_events(0)
+            .unwrap()
+            .into_iter()
+            .filter(|v| v["type"] == "reply")
+            .map(|v| v["text"].as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(
+            texts,
+            vec![
+                TOOL_ONLY_REPLY.to_string(),
+                TOOL_ONLY_REPLY.to_string(),
+                "All merged.".to_string(),
+            ]
+        );
         std::env::remove_var("CDAMUX_HOME");
     }
 }

@@ -33,8 +33,8 @@ session that launched the run, with explicit overrides per role.
 4. **AFK requires an explicit CLI**: `orch-auto.sh` has no parent session, so it exits
    2 when `ORCH_AGENT` is empty (amends [[ADR-002-orch-auto-and-fast-lane|ADR-002]]).
 5. **Visibility**: `orch.sh --dry-run` prints `agent[<role>]: <cli> (<source>)` per role.
-6. `codex` runs as `codex exec --dangerously-bypass-approvals-and-sandbox -` (prompt on
-   stdin), like `claude -p --dangerously-skip-permissions`.
+6. `codex` runs as `codex exec -` (prompt on stdin). Permission flags of every CLI:
+   [[ADR-019-worker-permission-boundary|ADR-019]] (no bypass flag; superseded 2026-11-23).
 
 ### Tiers (#208)
 

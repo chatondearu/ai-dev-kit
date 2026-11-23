@@ -15,6 +15,8 @@ TMP="$(mktemp -d)"
 FAKE="$(mktemp -d)"
 PROMPT="$(mktemp)"
 echo "fix" >"$PROMPT"
+# Claude agents need a repo for their rendered permission settings (ADR-019).
+export ORCH_REPO="$TMP/repo"
 _ORIG_PATH="$PATH"
 STUB_BASH="$(command -v bash)"
 

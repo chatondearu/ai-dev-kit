@@ -4,7 +4,7 @@
 
 use crate::paths::cdamux_state_dir;
 use serde_json::{Map, Value};
-use std::io;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -65,7 +65,7 @@ static TMP_SEQ: AtomicU64 = AtomicU64::new(0);
 /// writes from several threads of one pid.
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
     if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)?;
+        crate::paths::create_private_dir(dir)?;
     }
     let name = path
         .file_name()
@@ -76,7 +76,11 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
         std::process::id(),
         TMP_SEQ.fetch_add(1, Ordering::Relaxed)
     ));
-    std::fs::write(&tmp, bytes)?;
+    crate::paths::private_file_options()
+        .write(true)
+        .truncate(true)
+        .open(&tmp)
+        .and_then(|mut f| f.write_all(bytes))?;
     std::fs::rename(&tmp, path).inspect_err(|_| {
         let _ = std::fs::remove_file(&tmp);
     })
@@ -93,12 +97,11 @@ extern "C" {
 pub(crate) fn with_entity_lock<T>(path: &Path, f: impl FnOnce() -> io::Result<T>) -> io::Result<T> {
     use std::os::unix::io::AsRawFd;
     if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)?;
+        crate::paths::create_private_dir(dir)?;
     }
     let mut lock_name = path.as_os_str().to_owned();
     lock_name.push(".lock");
-    let lock = std::fs::OpenOptions::new()
-        .create(true)
+    let lock = crate::paths::private_file_options()
         .write(true)
         .truncate(false)
         .open(lock_name)?;

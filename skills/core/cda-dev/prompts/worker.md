@@ -97,7 +97,7 @@ files.
 
 If you hit a BLOCKED condition (ADR conflict, unfixable tests, missing secrets,
 scope drift, merge/worktree collision you cannot resolve, CI permanently red
-without a fix path), stop and report:
+without a fix path, a command denied by your permission settings), stop and report:
 
 ```json
 {
@@ -109,6 +109,9 @@ without a fix path), stop and report:
 }
 ```
 
+A denied command is an escalation to the maintainer; never relay an approval,
+never run it yourself (no workaround, no other tool or path to the same effect).
+
 Do not invent product decisions. Do not merge yourself. Do not start another child issue.
 
 ## Stacking and rebase (maintainer merges with rebase)
@@ -116,10 +119,11 @@ Do not invent product decisions. Do not merge yourself. Do not start another chi
 - If this child shares paths with another open PR, treat that as a **stack**: base
   on the dependency branch (or wait until it merges), do not race the same files
   from a stale `{{DEFAULT_BRANCH}}`.
-- Before opening or updating the PR, `git fetch origin {{DEFAULT_BRANCH}}` and rebase (or
-  merge) onto the current base. If `gh pr view` reports `CONFLICTING` /
-  `DIRTY`, rebase onto the updated base, resolve, and
-  `git push --force-with-lease` on **this feature branch only**.
+- Before opening the PR, `git fetch origin {{DEFAULT_BRANCH}}` and rebase onto the
+  current base (nothing pushed yet). Once the branch is pushed, a force push is denied
+  (ADR-019): if `gh pr view` reports `CONFLICTING` / `DIRTY`, merge the updated base
+  (`git merge --no-edit origin/{{DEFAULT_BRANCH}}`) into this branch, resolve, and push
+  normally.
 - Prefer reporting `blocked` with reason `needs rebase onto {{DEFAULT_BRANCH}} / stack base`
   over leaving a dirty PR for the human to discover at merge time.
 

@@ -450,8 +450,9 @@ When `$TMUX` is set (popup or inner session):
 | `/v1/sessions/:id/pane` | GET | Tail of pane (text) |
 | `/v1/sessions/:id/send` | POST | Keys / line + optional enter |
 
-Auth: tailnet only (bind to Tailscale IP, unspecified addresses refused) plus optional
-shared token `CDAMUX_TAILNET_TOKEN` / header `X-Cdamux-Token` (ADR-004 amendment 2026-11);
+Auth: tailnet only (bind to Tailscale IP, unspecified addresses refused) plus required
+shared token `CDAMUX_TAILNET_TOKEN` or the minted `~/.config/cdamux/tailnet-token` / header
+`X-Cdamux-Token`; `send` only to `@cdamux_id` sessions (ADR-019);
 no public internet in v0.2.
 
 Operator curl examples: [tailnet-api.md](tailnet-api.md).

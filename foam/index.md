@@ -51,6 +51,7 @@ Index: [[decisions/index|All ADRs]]
 - [[decisions/ADR-016-foam-first-kanban|ADR-016 — Foam-first kanban (proposed)]]
 - [[decisions/ADR-017-worktree-build-cache-cleanup|ADR-017 — Worktree build-cache cleanup and spawn disk guard]]
 - [[decisions/ADR-018-message-delivery-wake-line|ADR-018 — Message delivery: wake line, never a pasted body]]
+- [[decisions/ADR-019-worker-permission-boundary|ADR-019 — Worker permission boundary]]
 - [[board/README|Foam board]] (execution status; ADR-016)
 - [[graph/README|Foam machine graph + orch overlay]]
 

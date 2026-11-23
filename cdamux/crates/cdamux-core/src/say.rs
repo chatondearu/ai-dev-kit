@@ -76,7 +76,7 @@ fn queue_push(orch: &str, q: &Queued) -> Result<(), MsgError> {
     let path = queue_path(orch)?;
     let line = format!("{}\n", serde_json::to_string(q).map_err(|e| MsgError::Io(e.to_string()))?);
     with_entity_lock(&path, || {
-        let mut f = std::fs::OpenOptions::new().create(true).append(true).open(&path)?;
+        let mut f = crate::paths::private_file_options().append(true).open(&path)?;
         f.write_all(line.as_bytes())
     })?;
     Ok(())

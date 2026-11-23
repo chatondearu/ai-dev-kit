@@ -2,8 +2,7 @@
 
 use crate::web_static::lookup_web_asset;
 use cdamux_core::{
-    check_tailnet_token, dispatch_tailnet_request, LiveTailnetBackend,
-    ProjectsConfig, SessionsConfig, TailnetResponse, TAILNET_TOKEN_HEADER,
+    check_tailnet_token, dispatch_tailnet_request, LiveTailnetBackend, ProjectsConfig, SessionsConfig, TailnetResponse, TAILNET_TOKEN_HEADER,
 };
 use std::io::Read;
 use std::net::{IpAddr, SocketAddr};
@@ -18,6 +17,7 @@ const MAX_BODY: usize = 64 * 1024;
 /// Blocks serving requests on `ip`; returns `Err` when the address cannot be bound.
 pub fn run_tailnet_server(
     ip: IpAddr,
+    token: String,
     port: u16,
     version: String,
     projects: ProjectsConfig,
@@ -29,12 +29,6 @@ pub fn run_tailnet_server(
     let server = Server::http(addr).map_err(|e| format!("bind {addr}: {e}"))?;
     info!(%addr, "tailnet HTTP listening");
 
-    let token = std::env::var("CDAMUX_TAILNET_TOKEN")
-        .ok()
-        .filter(|t| !t.is_empty());
-    if token.is_none() {
-        warn!("tailnet API without token: set CDAMUX_TAILNET_TOKEN to require {TAILNET_TOKEN_HEADER}");
-    }
 
     let mut allowed_hosts = vec![addr.to_string()];
     match tailnet_dns_name() {
@@ -62,13 +56,13 @@ fn tailnet_dns_name() -> Option<String> {
 }
 
 /// Accept loop; split from `run_tailnet_server` so tests can bind `127.0.0.1:0`.
-fn serve(server: Server, backend: LiveTailnetBackend, token: Option<String>, allowed_hosts: Vec<String>) {
+fn serve(server: Server, backend: LiveTailnetBackend, token: String, allowed_hosts: Vec<String>) {
     let backend = Arc::new(backend);
     let ctx = Arc::new((token, allowed_hosts));
     for request in server.incoming_requests() {
         let backend = Arc::clone(&backend);
         let ctx = Arc::clone(&ctx);
-        thread::spawn(move || handle_one(request, backend, ctx.0.as_deref(), &ctx.1));
+        thread::spawn(move || handle_one(request, backend, &ctx.0, &ctx.1));
     }
 }
 
@@ -115,7 +109,7 @@ fn check_request_headers(
 fn handle_one(
     mut request: tiny_http::Request,
     backend: Arc<LiveTailnetBackend>,
-    token: Option<&str>,
+    token: &str,
     allowed_hosts: &[String],
 ) {
     let method = match request.method() {
@@ -179,7 +173,7 @@ mod tests {
     use std::io::Write;
     use std::net::TcpStream;
 
-    fn start(token: Option<&str>) -> SocketAddr {
+    fn start(token: &str) -> SocketAddr {
         let server = Server::http("127.0.0.1:0").unwrap();
         let addr = server.server_addr().to_ip().unwrap();
         let backend = LiveTailnetBackend::new(
@@ -189,7 +183,7 @@ mod tests {
             60,
             600,
         );
-        let token = token.map(str::to_string);
+        let token = token.to_string();
         thread::spawn(move || serve(server, backend, token, vec![addr.to_string()]));
         addr
     }
@@ -248,21 +242,21 @@ mod tests {
 
     #[test]
     fn huge_post_is_rejected_before_its_body_is_read() {
-        let head = |addr: SocketAddr, ct: &str| {
+        let head = |addr: SocketAddr, ct: &str, tok: &str| {
             format!(
-                "POST /v1/sessions/x/send HTTP/1.1\r\nHost: {addr}\r\nContent-Type: {ct}\r\nContent-Length: 300000000\r\n\r\n"
+                "POST /v1/sessions/x/send HTTP/1.1\r\nHost: {addr}\r\n{tok}Content-Type: {ct}\r\nContent-Length: 300000000\r\n\r\n"
             )
         };
-        let locked = start(Some("s3cret"));
-        assert_eq!(status_of_raw(locked, &head(locked, "application/json")), 401);
-        let open = start(None);
-        assert_eq!(status_of_raw(open, &head(open, "application/json")), 413);
-        assert_eq!(status_of_raw(open, &head(open, "text/plain")), 415);
+        let addr = start("s3cret");
+        let tok = format!("{TAILNET_TOKEN_HEADER}: s3cret\r\n");
+        assert_eq!(status_of_raw(addr, &head(addr, "application/json", "")), 401);
+        assert_eq!(status_of_raw(addr, &head(addr, "application/json", &tok)), 413);
+        assert_eq!(status_of_raw(addr, &head(addr, "text/plain", &tok)), 415);
     }
 
     #[test]
     fn token_set_rejects_missing_and_wrong_header_with_json_401() {
-        let addr = start(Some("s3cret"));
+        let addr = start("s3cret");
         let (status, body) = get(addr, "/v1/health", None);
         assert_eq!(status, 401);
         assert!(body.contains("\"code\":\"unauthorized\""), "{body}");
@@ -274,15 +268,8 @@ mod tests {
     }
 
     #[test]
-    fn token_unset_keeps_api_open() {
-        let addr = start(None);
-        let (status, _) = get(addr, "/v1/health", None);
-        assert_eq!(status, 200);
-    }
-
-    #[test]
     fn static_assets_stay_public_with_token_set() {
-        let addr = start(Some("s3cret"));
+        let addr = start("s3cret");
         let (status, _) = get(addr, "/", None);
         assert_eq!(status, 200);
     }

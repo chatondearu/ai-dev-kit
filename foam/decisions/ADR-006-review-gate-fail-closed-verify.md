@@ -101,10 +101,11 @@ lazy worker is caught by nobody before the operator opens the PR.
   can start one; unproven findings are dropped. Levels, the verdict line and
   the one-fix loop are unchanged.
 - **2026-11-23** (orchestration audit M12/M14): the verdict is read only from
-  a sentinel file (`approved` | `changes_requested`) whose name carries a fresh
-  nonce, named only in the reviewer prompt, which the harness keeps outside the
-  worktree and hands to the agent on stdin; stdout no longer counts, and code
-  under review cannot write a verdict at a known path. The reviewer runs at tier `large` by default and
+  a sentinel file (`approved` | `changes_requested`) in a `mktemp -d` dir
+  outside the worktree and `.orch/`, next to the rendered reviewer prompt; the
+  dir path reaches the harness through the environment (never argv), is hidden
+  from the agent's own environment and removed after the review. stdout no
+  longer counts, and code under review cannot write a verdict at a known path. The reviewer runs at tier `large` by default and
   never inherits the worker's escalated `ORCH_TIER`. `pr-fix` runs the same
   gate (one fix iteration, one re-review). Harness test stubs write
   the `Verdict file:` path from the prompt instead of printing `REVIEW: approved`.

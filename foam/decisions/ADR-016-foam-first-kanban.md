@@ -150,7 +150,7 @@ rollout itself.
   self-merge is `gh pr merge --rebase --match-head-commit` — never the repo
   default method, which `gh` cannot pick non-interactively. Before merging,
   `orch.sh` takes the per-repo `.orch/merge.lock` (`flock(2)`; manual merges via
-  `scripts/merge-lock.sh`), checks the PR head is the feature branch, fetches `origin/<default>`
+  `scripts/merge-lock.sh merge <N>`, same checks), checks the PR head is the feature branch, fetches `origin/<default>`
   (resolved, never assumed `main`), rebases + re-runs verify + pushes the
   feature branch when it is behind, and refuses `mergeable=UNKNOWN`. A repo
   that disallows rebase merges, or any failed step, is an `error` (no fallback

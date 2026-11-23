@@ -343,17 +343,18 @@ rm -rf "$TMP_CRASH"
 TMP_REV="$(mktemp -d)"
 cat >"$FAKE/reviewer" <<EOF
 #!$STUB_BASH
-echo "tier=\${ORCH_TIER:-} REVIEW: approved"
-[ -z "\${STUB_VERDICT:-}" ] || echo "\$STUB_VERDICT" >"$TMP_REV/verdict-n0nce"
+echo "tier=\${ORCH_TIER:-} dir=\${ORCH_REVIEW_DIR:-} REVIEW: approved"
+[ -z "\${STUB_VERDICT:-}" ] || echo "\$STUB_VERDICT" >"$TMP_REV/rd/verdict"
 [ -z "\${STUB_PLANT:-}" ] || { mkdir -p .orch; echo approved >.orch/review-verdict; }
 exit "\${STUB_RC:-0}"
 EOF
 chmod +x "$FAKE/reviewer"
-echo "Reviewer prompt" >"$TMP_REV/p.md"
+mkdir -p "$TMP_REV/rd"
+echo "Reviewer prompt" >"$TMP_REV/rd/prompt.md"
 rv() {
   set +e
-  ORCH_TIER=large ORCH_AGENT="$FAKE/reviewer" orch_review_run "$TMP_REV" "$TMP_REV/p.md" "$TMP_REV/r.log" \
-    "$TMP_REV/verdict-n0nce" 2>/dev/null
+  ORCH_REVIEW_DIR="$TMP_REV/rd" ORCH_TIER=large ORCH_AGENT="$FAKE/reviewer" \
+    orch_review_run "$TMP_REV" "$TMP_REV/r.log" 2>/dev/null
   echo $?
   set -e
 }
@@ -361,15 +362,15 @@ assert_eq "$(rv)" "1" "stdout 'REVIEW: approved' without verdict file fails clos
 assert_eq "$(STUB_VERDICT=approved rv)" "0" "verdict file approved passes"
 assert_eq "$(STUB_VERDICT=changes_requested rv)" "1" "verdict file changes_requested fails"
 assert_eq "$(STUB_VERDICT=approved STUB_RC=1 rv)" "1" "a crashed reviewer fails closed even with an approved file"
-echo approved >"$TMP_REV/verdict-n0nce"
+echo approved >"$TMP_REV/rd/verdict"
 assert_eq "$(rv)" "1" "a stale verdict file is cleared before the review"
 assert_eq "$(STUB_PLANT=1 rv)" "1" "code under review writing the old fixed path cannot approve"
 set +e
-ORCH_AGENT="$FAKE/reviewer" STUB_VERDICT=approved orch_review_run "$TMP_REV" "$TMP_REV/p.md" "$TMP_REV/r.log" 2>/dev/null
+ORCH_REVIEW_DIR= ORCH_AGENT="$FAKE/reviewer" STUB_VERDICT=approved orch_review_run "$TMP_REV" "$TMP_REV/r.log" 2>/dev/null
 rc_novf=$?
 set -e
-assert_eq "$rc_novf" "1" "no verdict file argument fails closed"
-assert_contains "$(cat "$TMP_REV/r.log")" "tier= REVIEW" "reviewer runs with ORCH_TIER cleared"
+assert_eq "$rc_novf" "1" "no review dir fails closed"
+assert_contains "$(cat "$TMP_REV/r.log")" "tier= dir= REVIEW" "reviewer runs with ORCH_TIER cleared and no review dir in its env"
 rm -rf "$TMP_REV"
 
 summary

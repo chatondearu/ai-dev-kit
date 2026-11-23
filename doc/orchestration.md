@@ -102,8 +102,8 @@ nothing to fix` with no agent run and no checkout.
 
 Per issue the harness runs: worker loop (agent → verify, retry prompt carries
 the failed verify output or verifier findings) → PR exists → **independent review** (fresh
-`reviewer.md` agent at tier `large`, verdict read from a nonce file named only in
-its prompt, which stays outside the worktree;
+`reviewer.md` agent at tier `large`, verdict read from a file in a `mktemp -d` dir
+outside the worktree and `.orch/`, never from stdout;
 `changes_requested` gives the worker one fix iteration, then re-review once, then
 `blocked`) → CI green + `MERGEABLE` → `done`. `pr-fix` runs the same review gate.
 
@@ -116,8 +116,9 @@ rebases + re-runs verify + pushes when the branch is behind, refuses
 `mergeable=UNKNOWN`, and merges with `gh pr merge --rebase` only; a repo that
 disallows rebase merges, or any failed step, ends the issue `error`. The lock is
 `flock(2)` (flock(1), else a perl helper on stock macOS), so a dead holder never
-leaves it stale; merges by hand take it with
-`skills/core/cda-dev/scripts/merge-lock.sh --repo <repo> -- gh pr merge <N> --rebase`.
+leaves it stale; merges by hand use `skills/core/cda-dev/scripts/merge-lock.sh --repo <repo> merge <N>`
+(same lock, fetch, behind → refused, `--rebase --match-head-commit`). Every `gh` call of
+the merge path runs in the worktree (or `--repo`), never an inherited `GH_REPO`.
 Before each graph iteration, before PR lookup, and before each review round it
 checks the branch PR state (`gh pr list --state all`): **MERGED** → `done`
 (`merged by maintainer`), no further pushes. Lookup accepts OPEN or MERGED.

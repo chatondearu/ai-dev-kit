@@ -34,6 +34,7 @@ orch_test_stub_cdamux "$TMP"
 export CDAMUX_HOME="$TMP/cdamux" ORCH_GRAPH=1 ORCH_TMUX=0 ORCH_PROGRESS=0
 export ORCH_VERIFY=true ORCH_ALLOW_NO_CHECKS=1 ORCH_GRAPH_VERIFY=0
 export ORCH_RUN_ID="prfix-finish-1"
+export TMPDIR="$TMP/tmpd"; mkdir -p "$TMPDIR"
 
 cat >"$STUB_BIN/stub-agent" <<EOF
 #!/usr/bin/env bash
@@ -42,6 +43,7 @@ case "\$prompt" in
   *"Reviewer prompt"*)
     echo "\${STUB_REVIEW:-approved}" >"\$(printf '%s\n' "\$prompt" | sed -n 's/^Verdict file: //p' | head -n 1)"
     ls .orch/reviewer-prompt-* >>"$TMP/prompt-in-wt" 2>/dev/null || true
+    printf '%s\n' "\$prompt" | sed -n 's/^Verdict file: //p' >>"$TMP/verdict-paths"
     echo x >>"$TMP/reviews"
     ;;
   *) touch "$TMP/agent-ran" ;;
@@ -95,7 +97,11 @@ fi
 assert_contains "$out" "done: PR 77" "success message"
 assert_eq "$(wc -l <"$TMP/reviews" | tr -d ' ')" "1" "pr-fix runs the independent review gate (M12)"
 assert_eq "$(cat "$TMP/prompt-in-wt" 2>/dev/null)" "" "reviewer prompt (naming the verdict file) is not in the worktree"
-assert_eq "$(ls "$R/.orch/run"/reviewer-* 2>/dev/null)" "" "reviewer prompt removed after the review"
+assert_eq "$(ls "$TMPDIR")" "" "review dir (prompt + verdict) removed after the review"
+case "$(cat "$TMP/verdict-paths")" in
+  "$TMPDIR"/orch-review.*/verdict) PASSES=$((PASSES + 1)) ;;
+  *) FAILS=$((FAILS + 1)); echo "FAIL verdict must live in a mktemp dir outside the worktree and .orch: $(cat "$TMP/verdict-paths")" >&2 ;;
+esac
 
 echo "# pr-fix: two changes_requested reviews block the PR (M12)"
 rm -f "$TMP/reviews"

@@ -34,15 +34,13 @@ orch_meta_paths_allowlisted() {
   [ "$any" = 1 ]
 }
 
-# Merge-base of HEAD vs origin/<default> (then origin/main, main/master). Empty → caller fail-closed.
+# Merge-base of HEAD vs origin/<default> (default resolved for this worktree when
+# ORCH_DEFAULT_BRANCH is unset, never assumed). Empty → caller fail-closed.
 orch_meta_merge_base() {
-  local wt="$1"
-  { [ -n "${ORCH_DEFAULT_BRANCH:-}" ] && git -C "$wt" merge-base HEAD "origin/$ORCH_DEFAULT_BRANCH" 2>/dev/null; } \
-    || git -C "$wt" merge-base HEAD origin/main 2>/dev/null \
-    || git -C "$wt" merge-base HEAD origin/master 2>/dev/null \
-    || git -C "$wt" merge-base HEAD main 2>/dev/null \
-    || git -C "$wt" merge-base HEAD master 2>/dev/null \
-    || true
+  local wt="$1" def
+  def="${ORCH_DEFAULT_BRANCH:-$(orch_default_branch "$wt")}" || def=""
+  [ -n "$def" ] || return 0
+  git -C "$wt" merge-base HEAD "origin/$def" 2>/dev/null || true
 }
 
 # True when every committed path merge-base…HEAD in $1 is allowlisted.
@@ -73,9 +71,19 @@ orch_meta_pr_diff_paths() {
 # 0 = merged, 1 = skipped (not allowlisted, PR left open), 2 = merge failed
 # (reason in ORCH_MERGE_ERROR and on stderr; the caller reports an error, Q4).
 orch_meta_try_merge() {
-  local pr="$1" wt="$2" branch="${3:-}" pr_paths
+  local pr="$1" wt="$2" branch="${3:-}" here="$PWD" rc=0
   ORCH_MERGE_ERROR=""
-  [ -n "$pr" ] && [ -n "$wt" ] || return 1
+  [ -n "$pr" ] && [ -n "$wt" ] && [ -d "$wt" ] || return 1
+  # Every gh call resolves the repo from the worktree, never an inherited GH_REPO.
+  local -x GH_REPO=""
+  cd "$wt" || return 1
+  _orch_meta_try_merge_in_wt "$pr" "$wt" "$branch" || rc=$?
+  cd "$here" || true
+  return "$rc"
+}
+
+_orch_meta_try_merge_in_wt() {
+  local pr="$1" wt="$2" branch="$3" pr_paths
   pr_paths="$(orch_meta_pr_diff_paths "$pr")" || {
     printf 'meta-merge: skip PR #%s (could not list PR files)\n' "$pr" >&2
     return 1
@@ -105,9 +113,21 @@ _orch_merge_fail() {
 # branch is behind, rebase it, re-run verify, push (lease on the old head) and re-watch
 # checks; refuse mergeable=UNKNOWN; merge pinned to the verified HEAD. 0 = merged.
 orch_merge_pr() {
+  local pr="$1" wt="$2" branch="$3" here="$PWD" rc=0
+  ORCH_MERGE_ERROR=""
+  [ -d "$wt" ] || { _orch_merge_fail "$pr" "worktree $wt missing"; return 1; }
+  # Every gh call (repo view, pr view, checks, mergeable, merge) resolves the repo
+  # from the worktree, never an inherited GH_REPO pointing elsewhere.
+  local -x GH_REPO=""
+  cd "$wt" || { _orch_merge_fail "$pr" "cannot cd to $wt"; return 1; }
+  _orch_merge_pr_in_wt "$pr" "$wt" "$branch" || rc=$?
+  cd "$here" || true
+  return "$rc"
+}
+
+_orch_merge_pr_in_wt() {
   local pr="$1" wt="$2" branch="$3" def allowed head_ref rc=0
   local ORCH_REPO="${ORCH_REPO:-$(orch_repo_root "$wt")}"
-  ORCH_MERGE_ERROR=""
   def="${ORCH_DEFAULT_BRANCH:-}"
   [ -n "$def" ] || def="$(orch_default_branch "$wt")" \
     || { _orch_merge_fail "$pr" "cannot resolve the default branch of origin"; return 1; }

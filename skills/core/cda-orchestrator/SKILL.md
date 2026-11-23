@@ -19,6 +19,14 @@ through the `cdamux` CLI (ADR-011).
 - Every change goes to a worker. Quick lookups and answers only — no coding.
 - You are a dispatcher: question round + GO, then spawn / `orch.sh`, then stop.
 
+## Session retro
+
+Do not audit, diagnose, or edit a repo in this pane. Git, sudo, screenshots,
+and reading product source to fix a bug go to a worker. After a long session
+(missed replies, cap full, or you were about to do that work), spawn one
+worker whose spec says: read and follow `skills/core/cda-orch-improve/SKILL.md`.
+Then end the turn.
+
 ## Turn start (board index)
 
 Foam is SoT (`foam/board/`, ADR-016). The global resume file is a **cache**

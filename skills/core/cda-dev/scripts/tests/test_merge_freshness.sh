@@ -76,6 +76,10 @@ EOF
 chmod +x "$STUB/gh"
 export PATH="$STUB:$PATH" ORCH_REPO="$R" ORCH_MERGEABLE_WAIT=0 ORCH_PROGRESS=0
 
+echo "# prompts never hardcode main (Q4): worker, reviewer, verifier use {{DEFAULT_BRANCH}}"
+assert_eq "$(grep -l 'origin/main\|fetch origin main' "$TROOT"/../../prompts/{worker,reviewer,verifier}.md || true)" "" \
+  "no origin/main in agent prompts"
+
 echo "# default branch resolved from origin, never assumed main"
 assert_eq "$(orch_default_branch "$R")" "develop" "origin HEAD → develop"
 
@@ -147,6 +151,17 @@ assert_eq "$rc" "1" "conflict refuses the merge"
 assert_contains "$ORCH_MERGE_ERROR" "conflicts" "conflict reason"
 [ -d "$(git -C "$WT_D" rev-parse --git-path rebase-merge)" ] \
   && { FAILS=$((FAILS + 1)); echo "FAIL rebase left in progress" >&2; } || PASSES=$((PASSES + 1))
+
+echo "# dirty worktree: its own reason, not a conflict"
+WT_G="$(new_branch 7 feat/g g.txt)"
+sibling_push g2.txt g2
+echo dirty >>"$WT_G/g.txt"
+set +e
+ORCH_VERIFY=true orch_merge_pr 507 "$WT_G" feat/g 2>/dev/null
+rc=$?
+set -e
+assert_eq "$rc" "1" "dirty worktree refuses the merge"
+assert_contains "$ORCH_MERGE_ERROR" "uncommitted changes" "dirty reason"
 
 echo "# head branch = default branch is refused"
 set +e

@@ -88,4 +88,16 @@ echo '{"issue":15,"tasks":[{"id":"a","paths":["src/a/"],"prompt":"a","tier":"lar
 ORCH_GRAPH_PLAN_PARALLEL=0 orch_graph_plan_run "$PLAN1" 15 2>/dev/null
 assert_eq "$(paste -sd, "$STUB_TIERS")" "task-a large,task-b none" "task tier is the worker start tier"
 
+# (e) the issue worktree is cut from ORCH_BASE (origin/<default> in orch.sh), not the
+# possibly stale local HEAD (Q11, H6).
+git -C "$TMP" branch -q upstream
+git -C "$TMP" checkout -q upstream
+echo up >"$TMP/up.txt"
+git -C "$TMP" add up.txt
+git -C "$TMP" commit -qm upstream
+git -C "$TMP" checkout -q -
+echo '{"issue":16,"tasks":[{"id":"a","paths":["src/a/"],"prompt":"a"}]}' >"$PLAN1"
+ORCH_BASE=upstream orch_graph_plan_run "$PLAN1" 16 2>/dev/null || true
+assert_file "$(orch_worktree_path "$TMP" 16 issue-16)/up.txt" "graph-plan worktree starts from ORCH_BASE"
+
 summary

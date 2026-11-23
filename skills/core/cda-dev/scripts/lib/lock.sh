@@ -51,10 +51,11 @@ orch_acquire_lock() {
 
 # Per-repo merge lock (Q4): sibling workers of one run and other runs merge one at a
 # time, so each merge re-checks freshness after the previous one landed. Blocks up to
-# ORCH_MERGE_LOCK_WAIT seconds (default 900). Release with orch_merge_lock_release.
+# ORCH_MERGE_LOCK_WAIT seconds (default: ORCH_CI_TIMEOUT + 900, longer than one holder's
+# post-rebase CI watch). Release with orch_merge_lock_release.
 _ORCH_MERGE_LOCK_MODE=""
 orch_merge_lock_acquire() {
-  local lock="$ORCH_REPO/.orch/merge.lock" wait="${ORCH_MERGE_LOCK_WAIT:-900}" start=$SECONDS owner
+  local lock="$ORCH_REPO/.orch/merge.lock" wait="${ORCH_MERGE_LOCK_WAIT:-$(( ${ORCH_CI_TIMEOUT:-1800} + 900 ))}" start=$SECONDS owner
   mkdir -p "$ORCH_REPO/.orch"
   if command -v flock >/dev/null 2>&1; then
     exec 9>"$lock"

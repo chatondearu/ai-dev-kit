@@ -14,14 +14,14 @@ against plan, brief, and foam ADRs — not prose quality alone.
 
 1. Read the plan or fast-lane brief and list acceptance criteria.
 2. Search `foam/decisions/` for related ADRs; cite any that apply.
-3. Inspect the diff in the worktree: `git diff origin/main...HEAD` (fallback
-   `git diff main...HEAD`), plus `--stat` and `--name-status`.
+3. Inspect the diff in the worktree: `git diff origin/{{DEFAULT_BRANCH}}...HEAD`
+   (fallback `git diff {{DEFAULT_BRANCH}}...HEAD`), plus `--stat` and `--name-status`.
 4. Fail if:
    - Acceptance criteria clearly unmet
    - Change contradicts an **accepted** ADR without documenting supersede intent
    - Scope clearly beyond plan/brief
    - The diff **adds** a line matching `TODO|FIXME|\.skip\(|xit\(`
-     (`git diff origin/main...HEAD | grep -nE '^\+.*(TODO|FIXME|\.skip\(|xit\()'`)
+     (`git diff origin/{{DEFAULT_BRANCH}}...HEAD | grep -nE '^\+.*(TODO|FIXME|\.skip\(|xit\()'`)
    - The diff **deletes or renames** a test file (`^D` / `^R` in `--name-status`
      under `test`, `tests`, `spec`, `__tests__`, or `*.test.*` / `*_test.*` /
      `test_*`) that the plan's **Test plan** section does not name

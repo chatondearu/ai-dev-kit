@@ -378,9 +378,10 @@ orch_graph_verifier_pass() {
   local plan="none"
 
   local p repo="${ORCH_REPO:-$wt}" wid="${ORCH_WORKER_ID:-0}"
+  # Worktree first: it holds the fetched default branch; the checkout may be stale (H6).
   for p in \
-    "$repo/plans/PLAN-${wid}"-*.md \
-    "$wt/plans/PLAN-${wid}"-*.md
+    "$wt/plans/PLAN-${wid}"-*.md \
+    "$repo/plans/PLAN-${wid}"-*.md
   do
     [ -f "$p" ] || continue
     plan="$p"
@@ -399,6 +400,7 @@ orch_graph_verifier_pass() {
     "WORKTREE=$wt" \
     "ISSUE=${ORCH_WORKER_ID:-N/A}" \
     "PLAN_PATH=$plan" \
+    "DEFAULT_BRANCH=$(orch_base_branch_name)" \
     "CONSTRAINTS=$ORCH_CONSTRAINTS"
 
   local vnode="${parent}-verifier"
@@ -690,7 +692,7 @@ orch_graph_plan_run() {
 
   export ORCH_WORKER_ID="$issue"
   orch_progress_set "$issue" worktree "graph-plan ${path##*/}"
-  if ! orch_worktree_add "$ORCH_REPO" "$issue" "$slug" "$branch" HEAD; then
+  if ! orch_worktree_add "$ORCH_REPO" "$issue" "$slug" "$branch" "${ORCH_BASE:-HEAD}"; then
     orch_progress_set "$issue" blocked "worktree create failed"
     echo 1 >"$rc_file"
     return 1

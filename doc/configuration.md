@@ -55,7 +55,7 @@ binaries (`all_compile = false` in `mise.toml`).
 | `ORCH_ALLOW_NO_CHECKS` | `0` | `1` → empty PR checks count as green. Without it, empty checks fail-fast as `none` (no CI wait). Also enabled by `orch: allow-no-checks` in `AGENTS.md`. |
 | `ORCH_CI_TIMEOUT` | `1800` | Seconds to wait for PR checks; still pending at the deadline → `CI timeout` (reported apart from a red check) |
 | `ORCH_MERGEABLE_WAIT` | `60` | Seconds to re-ask GitHub while `mergeable` is `UNKNOWN`; still `UNKNOWN` → not mergeable |
-| `ORCH_MERGE_LOCK_WAIT` | `900` | Seconds an ADR-016 merge waits for `.orch/merge.lock` (one merge at a time per repo) before failing |
+| `ORCH_MERGE_LOCK_WAIT` | `ORCH_CI_TIMEOUT` + 900 | Seconds an ADR-016 merge waits for `.orch/merge.lock` (one merge at a time per repo) before failing |
 | `ORCH_COPY_ENV` | `0` | `1` → copy `.env` into worktrees |
 | `ORCH_VERIFY` | unset | Override verify command (allowlisted under pr-fix) |
 | `ORCH_FRONTIER` | `auto` | `0` disables Blocked-by gating |

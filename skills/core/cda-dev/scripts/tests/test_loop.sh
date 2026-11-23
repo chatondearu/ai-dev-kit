@@ -345,6 +345,7 @@ cat >"$FAKE/reviewer" <<EOF
 #!$STUB_BASH
 echo "tier=\${ORCH_TIER:-} REVIEW: approved"
 [ -z "\${STUB_VERDICT:-}" ] || { mkdir -p .orch; echo "\$STUB_VERDICT" >.orch/review-verdict; }
+exit "\${STUB_RC:-0}"
 EOF
 chmod +x "$FAKE/reviewer"
 echo "Reviewer prompt" >"$TMP_REV/p.md"
@@ -357,6 +358,7 @@ rv() {
 assert_eq "$(rv)" "1" "stdout 'REVIEW: approved' without verdict file fails closed"
 assert_eq "$(STUB_VERDICT=approved rv)" "0" "verdict file approved passes"
 assert_eq "$(STUB_VERDICT=changes_requested rv)" "1" "verdict file changes_requested fails"
+assert_eq "$(STUB_VERDICT=approved STUB_RC=1 rv)" "1" "a crashed reviewer fails closed even with an approved file"
 mkdir -p "$TMP_REV/.orch"; echo approved >"$TMP_REV/.orch/review-verdict"
 assert_eq "$(rv)" "1" "a stale verdict file is cleared before the review"
 assert_contains "$(cat "$TMP_REV/r.log")" "tier= REVIEW" "reviewer runs with ORCH_TIER cleared"

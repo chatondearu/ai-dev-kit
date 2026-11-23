@@ -165,7 +165,7 @@ mkdir -p "$TMP/.orch"
   rc2=$?
   set -e
   assert_eq "$rc2" "75" "second run exits 75 when lock held"
-  assert_contains "$out2" "another run holds" "reports lock contention"
+  assert_contains "$out2" "lock held by run" "reports lock contention with the holding run"
   # Counters do not leave the subshell: report failures through its status.
   [ "$FAILS" -eq 0 ]
 ) || FAILS=$((FAILS + 1))

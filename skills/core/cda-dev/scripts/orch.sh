@@ -234,7 +234,7 @@ orch_review_gate() {
   local path="$1" worker_prompt="$2" worker_env="$3"
   shift 3
   local round review_prompt review_log fix_prompt loop_rc label="${ORCH_WORKER_ID:-review}" def
-  def="${ORCH_DEFAULT_BRANCH:-$(git -C "$ORCH_REPO" branch --show-current 2>/dev/null)}"
+  def="$(orch_base_branch_name)"
   ORCH_REVIEW_FAIL=""
   for round in 1 2; do
     if [ -n "${ORCH_WORKER_BRANCH:-}" ] && [ "$(orch_pr_state "$ORCH_WORKER_BRANCH")" = "MERGED" ]; then
@@ -369,7 +369,8 @@ orch_ready_pickup_one() {
     "LANE=$lane" \
     "PRD_PATH=$ORCH_PRD_PATH" \
     "EPIC=$ORCH_EPIC" \
-    "CONSTRAINTS=$ORCH_CONSTRAINTS"
+    "CONSTRAINTS=$ORCH_CONSTRAINTS" \
+    "DEFAULT_BRANCH=$(orch_base_branch_name)"
 
   export ORCH_WT="$path"
   export ORCH_WORKER_BRANCH="$branch"

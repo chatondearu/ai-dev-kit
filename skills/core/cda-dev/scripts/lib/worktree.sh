@@ -75,6 +75,12 @@ orch_sync_default() {
   export ORCH_DEFAULT_BRANCH ORCH_BASE="origin/$ORCH_DEFAULT_BRANCH"
 }
 
+# Branch name prompts diff and rebase against: the fetched default branch, else (no
+# origin remote) the main checkout's current branch.
+orch_base_branch_name() {
+  printf '%s\n' "${ORCH_DEFAULT_BRANCH:-$(git -C "${ORCH_REPO:-.}" branch --show-current 2>/dev/null)}"
+}
+
 orch_worktree_path() {
   local repo="$1" id="$2" slug="$3"
   printf '%s/.orch/worktrees/%s-%s\n' "$repo" "$id" "$slug"

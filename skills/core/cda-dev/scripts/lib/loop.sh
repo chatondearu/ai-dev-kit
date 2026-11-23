@@ -84,11 +84,17 @@ orch_loop_worker() { orch_graph_worker "$@"; }
 # fresh agent call at the reviewer tier (default large, never the worker's escalated
 # tier), log to RLOG. The verdict is read only from the sentinel file
 # .orch/review-verdict (`approved` | `changes_requested`), never from stdout, where the
-# reviewed diff itself can print a verdict line (M14). No file → 1 (fail closed).
+# reviewed diff itself can print a verdict line (M14). No file, or a reviewer that
+# exited non-zero (M11), → 1 (fail closed).
 orch_review_run() {
-  local wt="$1" rprompt="$2" rlog="$3" verdict
+  local wt="$1" rprompt="$2" rlog="$3" verdict rc
   rm -f "$wt/.orch/review-verdict" 2>/dev/null || true
-  ORCH_TIER= ORCH_ROLE=reviewer orch_agent_run "$wt" "$rprompt" 2>&1 | tee "$rlog" >&2 || true
+  ORCH_TIER= ORCH_ROLE=reviewer orch_agent_run "$wt" "$rprompt" 2>&1 | tee "$rlog" >&2
+  rc="${PIPESTATUS[0]}"
+  if [ "$rc" -ne 0 ]; then
+    printf 'orch review: reviewer exited %s; treating as changes_requested\n' "$rc" >&2
+    return 1
+  fi
   verdict="$(tr -d '[:space:]' <"$wt/.orch/review-verdict" 2>/dev/null || true)"
   case "$verdict" in
     approved) return 0 ;;

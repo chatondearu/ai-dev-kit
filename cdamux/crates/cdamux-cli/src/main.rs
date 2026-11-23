@@ -25,7 +25,7 @@ use cdamux_core::{
     git_toplevel, home_session_new_argv, list_tmux_sessions, list_worktrees, list_workers, load_config,
     refresh_board_index, resolve_spawn_repo, RefreshOptions,
     note_refs_for_projects, current_tmux_session, kill_tmux_session, list_panes_all, msg_send,
-    parents_first, peek_worker, read_messages, parse_unified_diff, resolve_agent_command,
+    parents_first, peek_worker, parse_unified_diff, resolve_agent_command,
     is_done_record, last_global_orch_record, restore_one, restore_targets, reap_dead_agent_panes, restart_plan, session_registry, resolve_note_path, send_input,
     find_live_global_orchestrator, run_gc_agents_only,
     session_name_for_path, spawn_orchestrator, spawn_tmux_session_with_layout, spawn_worker,
@@ -443,6 +443,10 @@ enum MsgCommands {
         /// Print a short digest instead of raw JSONL.
         #[arg(long)]
         digest: bool,
+        /// Stop before the line that would pass this many bytes (at least one line);
+        /// `--ack` acks only what is printed.
+        #[arg(long)]
+        max_bytes: Option<usize>,
     },
 }
 
@@ -614,8 +618,8 @@ fn main() -> ExitCode {
                     }
                 }
             }
-            MsgCommands::Read { agent, ack, digest } => {
-                cmd_msg_read(agent.as_deref(), ack, digest)
+            MsgCommands::Read { agent, ack, digest, max_bytes } => {
+                cmd_msg_read(agent.as_deref(), ack, digest, max_bytes)
             }
         },
         Some(Commands::Events {
@@ -1158,12 +1162,12 @@ fn cmd_msg_answer(ask_id: &str, from: &str, json: bool, text: &[String]) -> Exit
     }
 }
 
-fn cmd_msg_read(agent: Option<&str>, ack: bool, digest: bool) -> ExitCode {
+fn cmd_msg_read(agent: Option<&str>, ack: bool, digest: bool, max_bytes: Option<usize>) -> ExitCode {
     let id = match resolve_self_agent_id(agent) {
         Ok(id) => id,
         Err(c) => return c,
     };
-    match read_messages(&id, ack) {
+    match cdamux_core::read_messages_max(&id, ack, max_bytes) {
         Ok(msgs) => {
             if digest {
                 let d = format_unread_digest(&msgs);

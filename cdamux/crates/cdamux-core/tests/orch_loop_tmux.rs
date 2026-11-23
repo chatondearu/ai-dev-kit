@@ -127,8 +127,9 @@ fn orchestrator_loop_spawn_ask_answer_done() {
     let oid = orch.agent_id.as_str();
     let rec = state_get(StateKind::Agents, oid).unwrap().expect("hop 1: orchestrator record missing");
     assert_eq!(rec["role"], "orchestrator", "hop 1: wrong role");
-    // The stub reports idle, as the real status hook would after the boot turn.
-    state_append(StateKind::Agents, oid, &serde_json::json!({ "status": "idle" })).unwrap();
+    // The stub reports idle + turn ended, as the real status hook would after the boot turn.
+    let at_rest = serde_json::json!({ "status": "idle", "turn": "ended" });
+    state_append(StateKind::Agents, oid, &at_rest).unwrap();
 
     // Hop 2: worker spawn --prompt-file → spec reaches the worker's first prompt intact.
     let spec = "Implement the `api` endpoint.\nKeep $HOME untouched; it's \"quoted\" & (nested).\nDone = tests green.";
@@ -154,7 +155,7 @@ fn orchestrator_loop_spawn_ask_answer_done() {
     assert_eq!(wrec["role"], "worker", "hop 2: wrong role");
     let pane = wait_for_pane(&w.host, spec);
     assert!(pane.contains(&squash(spec)), "hop 2: spec not intact in worker first prompt: {pane}");
-    state_append(StateKind::Agents, wid, &serde_json::json!({ "status": "idle" })).unwrap();
+    state_append(StateKind::Agents, wid, &at_rest).unwrap();
 
     // Hop 3: worker ask → worker blocked, `?` + ✉1 on the orchestrator side, orch woken.
     let ask = msg_send(wid, oid, "ask", "which-db-please", None, QUIET)
@@ -163,8 +164,10 @@ fn orchestrator_loop_spawn_ask_answer_done() {
     assert_eq!(status(wid), "blocked", "hop 3: worker not blocked after ask");
     assert_eq!(inbox_badges(wid), (0, true), "hop 3: worker badges want (0 unread, ? pending)");
     assert_eq!(inbox_badges(oid), (1, false), "hop 3: orchestrator badges want ✉1");
-    let opane = wait_for_pane(&orch.host, "📨 1 message — cdamux msg read --ack");
-    assert!(opane.contains("📨1message—cdamuxmsgread--ack"), "hop 3: wake line missing from orch pane: {opane}");
+    // Hooked Claude: the bare wake line, its prompt hook injects the bodies.
+    let opane = wait_for_pane(&orch.host, "📨 1 message");
+    assert!(opane.contains("📨1message"), "hop 3: wake line missing from orch pane: {opane}");
+    assert!(!opane.contains("which-db-please"), "hop 3: body typed into the orch pane: {opane}");
 
     // Hop 4: orchestrator answer → worker unblocked, `?` cleared, wake line (not the body)
     // in its pane; the answer stays unread until the worker reads its inbox.
@@ -182,7 +185,7 @@ fn orchestrator_loop_spawn_ask_answer_done() {
     assert_eq!(done.delivery_word(), "woken", "hop 5: orchestrator not woken");
     assert_eq!(status(wid), "done", "hop 5: worker not done");
     assert_eq!(inbox_badges(oid), (2, false), "hop 5: orchestrator badges want ✉2");
-    let opane = wait_for_pane(&orch.host, "📨 2 messages — cdamux msg read --ack");
+    let opane = wait_for_pane(&orch.host, "📨 2 messages");
     assert!(opane.contains("📨2messages"), "hop 5: count wake line missing from orch pane: {opane}");
 
     // Hop 6: orchestrator digest lists ask + done in order, then the inbox is acked.

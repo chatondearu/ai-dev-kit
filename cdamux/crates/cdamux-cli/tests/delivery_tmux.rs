@@ -135,7 +135,7 @@ fn quiet_windows(n: u64) {
 }
 
 #[test]
-fn wake_line_only_never_mid_turn_never_wipes_a_draft() {
+fn wake_line_only_never_mid_turn_draft_kept_and_submitted() {
     let (Some(real_tmux), Some(_)) = (which("tmux"), which("node")) else {
         eprintln!("tmux or node not on PATH: skipped");
         return;
@@ -227,7 +227,8 @@ fn wake_line_only_never_mid_turn_never_wipes_a_draft() {
     quiet_windows(3);
     assert_eq!(lab.log(w), "", "a permission dialog was answered");
 
-    // A human draft left in an idle pane: never cleared; the wake line is appended to it.
+    // A human draft left in an idle pane: never cleared; the wake line is appended to it and
+    // Enter submits both (no `C-u`, Q21).
     let w = "a-ddraft";
     lab.worker(w, "ready");
     lab.hook(w, r#"{"hook_event_name":"UserPromptSubmit"}"#);

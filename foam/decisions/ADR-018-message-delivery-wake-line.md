@@ -28,17 +28,24 @@ the turn going and the model acts on the reason; the re-fired `Stop` carries
 1. **No body is ever typed into a pane.** Bodies reach the agent only through hooks.
 2. **Turn state is a hook-written field**, `turn` on the agent record, never sticky:
    `running` at prompt submit and permission requests, `ended` at a `Stop` that ends
-   the turn. It, not the display status, says whether a pane is safe to type into.
+   the turn (and at a `resume` / `clear` session start), `exited` at session end. For
+   Claude Code it, not the display status, says whether a pane is safe to type into; a
+   Claude agent with a status but no `turn` yet (startup dialogs) waits.
 3. **Mid-turn**: Claude's `Stop` hook reads and acks the unread lines (`cdamux msg read
-   --ack`) and blocks the stop with the full bodies as the reason.
+   --ack --max-bytes 8000`, acking only what it returns) and blocks the stop with the
+   full bodies as the reason. Other clients firing the same events (codex) keep the
+   unacked digest.
 4. **At rest** (`turn: ended`): after ≥ 60 s of pane quiet (`CDAMUX_WAKE_QUIET_SECS`),
    cdamux types only `📨 N messages` + Enter, no `C-u`. Claude's `UserPromptSubmit`
    hook injects the bodies and acks them. A pane not quiet yet gets a detached
    `cdamux msg wake <id>` (one per agent), which also polls mid-turn agents as a
    backstop for a line appended after the `Stop` hook read the inbox.
-5. **Hookless clients** (Cursor, codex, opencode, or no turn hooks): wake line
+5. **Other clients** (Cursor, codex, opencode, or Claude without hooks): `turn` is not
+   trusted (Cursor runs queued prompts without a prompt-submit hook). Wake line
    `📨 N messages — cdamux msg read --ack`, only when status is `idle` / unset and the
-   pane tail is not a prompt; a sticky status without turn hooks waits in the inbox.
+   pane tail is not a prompt; a sticky status waits in the inbox. This is best effort: a
+   Cursor approval dialog that does not look like a prompt and stays static for 60 s
+   could take the line (follow-up: wire Cursor's pre-execution hooks to `turn`).
 6. **Status**: `answer` or `relay` to a blocked agent lifts it to `idle` and answers its
    ask; a blocked agent's own `done` replaces `blocked` (`error` keeps it: orch.sh
    reports blocked workers as `error`).
@@ -51,7 +58,9 @@ the turn going and the model acts on the reason; the re-fired `Stop` carries
 - A human draft is never wiped; one left untouched for 60 s is submitted with the wake
   line appended.
 - An interrupted Claude turn fires no `Stop`, so `turn` stays `running`: messages wait
-  for the next prompt (safe, the human is there).
+  for the next prompt (safe, the human is there); a resume or `/clear` resets it.
+- A peer sending faster than turns end can keep a Claude agent from stopping (each
+  `Stop` hands over what arrived); not capped.
 - `say` (human prompt to an orchestrator) is unchanged: it is the human's own prompt.
 - Tests: unit truth tables (`wake_plan`, status effects), `hooks/test.sh`, and
   `cdamux-cli/tests/delivery_tmux.rs` (real binary, hooks and tmux idle time).

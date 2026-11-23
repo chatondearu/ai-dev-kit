@@ -131,10 +131,16 @@ same for workers and orchestrators. A message body is **never typed into a pane*
 
 - **Mid-turn** (agent field `turn: running`, written by the status hook at prompt submit
   and permission requests): nothing is typed. Claude's `Stop` hook finds the unread
-  lines, acks them (`cdamux msg read --ack`) and blocks the stop with the full bodies as
-  the reason, so the turn goes on with them. Output `turn-end`.
-- **At rest** (`turn: ended`, written at turn end; or, without turn hooks, status `idle`
-  / unset and a pane tail that is not a prompt): once the pane has been quiet for
+  lines, acks them (`cdamux msg read --ack --max-bytes 8000`: at most ~8 KB per hand-over,
+  the rest at the next stop) and blocks the stop with the full bodies as the reason, so
+  the turn goes on with them. Output `turn-end`.
+- **At rest**: a Claude agent with `turn: ended` (written at a turn-ending `Stop`, or at a
+  `SessionStart` from `resume` / `clear`). `turn` is trusted for Claude only; a Claude
+  agent with a status but no `turn` yet (before its first prompt: startup dialogs)
+  waits. Other clients (Cursor runs queued prompts without a prompt-submit hook; codex,
+  opencode) and Claude without hooks: status `idle` / unset and a pane tail that is not
+  a prompt. `turn: exited` (session end, the pane may be a shell) never wakes. Once the
+  pane has been quiet for
   60 s (`CDAMUX_WAKE_QUIET_SECS`), the fixed line `📨 N messages` is typed with Enter,
   never after `C-u` (a human draft gets the line appended and is submitted with it, never
   wiped). Claude's `UserPromptSubmit` hook then injects the bodies and acks them. Clients

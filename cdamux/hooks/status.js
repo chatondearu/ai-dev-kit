@@ -5,6 +5,7 @@
 // sticky: `cdamux msg` types its wake line only into a pane whose turn ended.
 // Message bodies never reach a pane: a Claude turn end with unread messages blocks the
 // stop and hands them over as the reason; a prompt submit injects them; both ack them.
+// Other clients on these events (codex) keep the unacked digest: `msg read --ack` is theirs.
 // Turn end of an orchestrator also records its reply in the events feed (docs/events.md),
 // including a tool-only stop that has no assistant prose,
 // and pastes the next queued `cdamux say` prompt (docs/say.md).
@@ -72,24 +73,28 @@ function main() {
     const perm = type ? type === 'permission_prompt' : /permission/i.test(input.message || '');
     if (perm) status = 'needs_input';
   }
+  const claude = readAgentField(process.env, resolveAgentId(process.env), 'client') === 'claude';
   // Claude turn end with unread messages: keep the turn going and hand them over (Q21).
   // Taken (acked) before `turn: ended` is written, so nothing typed lands mid-turn; a line
   // appended after this read is left to the `msg wake` backstop.
-  if (event === 'Stop') {
+  if (event === 'Stop' && claude) {
     const msgs = takeUnread(process.env);
     if (msgs.length) {
+      recordReply(process.env, input);
       writeJson({ decision: 'block', reason: formatMessages(msgs) });
       return;
     }
   }
-  const digest = event === 'stop' ? unreadDigest(process.env) : '';
+  const digest = event === 'stop' || !claude ? unreadDigest(process.env) : '';
   if (event === 'stop' && digest && (Number(input.loop_count) || 0) === 0) {
     liftIdle();
     status = null;
   }
   let turn = null;
   if (status === 'working' || status === 'needs_input') turn = 'running';
-  if (status === 'idle' && /^(Stop|stop|SessionEnd|sessionEnd)$/.test(event)) turn = 'ended';
+  if (status === 'idle' && /^(Stop|stop)$/.test(event)) turn = 'ended';
+  // The CLI exited; its pane may be a shell now: never type into it.
+  if (/^(SessionEnd|sessionEnd)$/.test(event)) turn = 'exited';
   setAgentState(process.env, status, turn);
   if (event === 'Stop' || event === 'stop') recordReply(process.env, input);
   // Not when a Cursor stop queued a followup (status null): that turn is still running.
@@ -100,15 +105,11 @@ function main() {
     writeJson({ continue: true });
     return;
   }
-  if (event === 'UserPromptSubmit') {
-    const msgs = takeUnread(process.env);
-    if (msgs.length) {
-      writeJson({
-        hookSpecificOutput: {
-          hookEventName: 'UserPromptSubmit',
-          additionalContext: formatMessages(msgs),
-        },
-      });
+  if (event === 'UserPromptSubmit' || (event === 'Stop' && !claude && !input.stop_hook_active)) {
+    const msgs = claude ? takeUnread(process.env) : [];
+    const context = msgs.length ? formatMessages(msgs) : digest;
+    if (context) {
+      writeJson({ hookSpecificOutput: { hookEventName: event, additionalContext: context } });
     }
     return;
   }

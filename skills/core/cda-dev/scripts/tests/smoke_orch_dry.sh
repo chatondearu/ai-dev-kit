@@ -281,9 +281,10 @@ mkdir -p "$marker_dir"
 # Prefer issue id from worker prompt path in cwd; fallback to pid
 id="${ORCH_WORKER_ID:-${ORCH_WT##*/}}"
 [ -n "$id" ] || id="$$"
-date +%s%N >"$marker_dir/start.$id"
-sleep 1
-date +%s%N >"$marker_dir/end.$id"
+date +%s >"$marker_dir/start.$id"
+# 2 s at 1 s resolution: a dispatch lag under 1 s still reads as an overlap.
+sleep 2
+date +%s >"$marker_dir/end.$id"
 exit 0
 EOF
 chmod +x "$STUB_BIN/slow-agent"
@@ -378,33 +379,36 @@ cat >/dev/null
 while :; do sleep 1; done
 EOS
 chmod +x "$STUB_BIN/$MARK"
-# orch runs in its own session/process group (setsid), so `kill 0` in its trap can only
-# reach the stub. SIGINT is reset to default because async jobs (and nohup) start with it ignored,
-# and a signal ignored on entry cannot be trapped.
+# orch runs in its own session/process group, so `kill 0` in its trap can only reach the stub.
+# SIGINT is reset to default because async jobs (and nohup) start with it ignored, and a signal
+# ignored on entry cannot be trapped. perl does both portably (no setsid / GNU env on macOS).
 PIDF="$TMP/orch30.pid"
-set -m
-setsid bash -c 'echo $$ >"$1"; shift; exec "$@"' _ "$PIDF" \
-  env --default-signal=INT ORCH_VERIFY=true GH_STUB_NO_PR=1 bash "$SCRIPTS/orch.sh" --repo "$TMP" --mode ready-pickup --issue 30 \
-  --agent "$STUB_BIN/$MARK" >/dev/null 2>&1 &
-set +m
-for _ in $(seq 100); do [ -s "$PIDF" ] && pgrep -f "$MARK" >/dev/null && break; sleep 0.1; done
-orch_pid="$(cat "$PIDF" 2>/dev/null || true)"
-if [ -n "$orch_pid" ] && [ "$(ps -o pgid= -p "$orch_pid" | tr -d ' ')" = "$orch_pid" ] && pgrep -f "$MARK" >/dev/null; then
-  PASSES=$((PASSES + 1))
-  kill -INT "$orch_pid"
-  for _ in $(seq 50); do kill -0 "$orch_pid" 2>/dev/null || break; sleep 0.1; done
-  sleep 0.3
-  if pgrep -f "$MARK" >/dev/null; then
-    FAILS=$((FAILS + 1))
-    printf 'FAIL agent child survived INT\n' >&2
-    kill -KILL -- "-$orch_pid" 2>/dev/null || true
-  else
-    PASSES=$((PASSES + 1))
-  fi
+if ! command -v perl >/dev/null 2>&1; then
+  echo "SKIP Ctrl-C process-group case (perl not installed: needed for setsid + default SIGINT)"
 else
-  # Never signal anything unless orch is the leader of its own group.
-  FAILS=$((FAILS + 1))
-  printf 'FAIL orch did not start as its own process group leader with a running stub agent\n' >&2
+  perl -MPOSIX -e 'POSIX::setsid() or die "setsid: $!"; $SIG{INT} = "DEFAULT";
+    open my $f, ">", shift or die; print $f "$$\n"; close $f; exec @ARGV or die "exec: $!"' "$PIDF" \
+    env ORCH_VERIFY=true GH_STUB_NO_PR=1 bash "$SCRIPTS/orch.sh" --repo "$TMP" --mode ready-pickup --issue 30 \
+    --agent "$STUB_BIN/$MARK" >/dev/null 2>&1 &
+  for _ in $(seq 100); do [ -s "$PIDF" ] && pgrep -f "$MARK" >/dev/null && break; sleep 0.1; done
+  orch_pid="$(cat "$PIDF" 2>/dev/null || true)"
+  if [ -n "$orch_pid" ] && [ "$(ps -o pgid= -p "$orch_pid" | tr -d ' ')" = "$orch_pid" ] && pgrep -f "$MARK" >/dev/null; then
+    PASSES=$((PASSES + 1))
+    kill -INT "$orch_pid"
+    for _ in $(seq 50); do kill -0 "$orch_pid" 2>/dev/null || break; sleep 0.1; done
+    sleep 0.3
+    if pgrep -f "$MARK" >/dev/null; then
+      FAILS=$((FAILS + 1))
+      printf 'FAIL agent child survived INT\n' >&2
+      kill -KILL -- "-$orch_pid" 2>/dev/null || true
+    else
+      PASSES=$((PASSES + 1))
+    fi
+  else
+    # Never signal anything unless orch is the leader of its own group.
+    FAILS=$((FAILS + 1))
+    printf 'FAIL orch did not start as its own process group leader with a running stub agent\n' >&2
+  fi
 fi
 orch_worktree_remove "$TMP" "$(orch_worktree_path "$TMP" 30 issue-30)" 2>/dev/null || true
 

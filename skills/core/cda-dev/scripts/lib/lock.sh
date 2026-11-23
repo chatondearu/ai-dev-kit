@@ -13,9 +13,10 @@ _orch_release_lock() {
 }
 
 # Serialize ready-pickup / pr-fix against orch-auto and concurrent orch (ADR-002).
+# Usage: orch_acquire_lock [lock-file]  (default <repo>/.orch/orch.lock; orch-auto passes auto.lock)
 orch_acquire_lock() {
   mkdir -p "$ORCH_REPO/.orch"
-  local lock="$ORCH_REPO/.orch/orch.lock"
+  local lock="${1:-$ORCH_REPO/.orch/orch.lock}"
   if command -v flock >/dev/null 2>&1; then
     exec 8>"$lock"
     if ! flock -n 8; then

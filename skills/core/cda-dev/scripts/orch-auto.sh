@@ -27,7 +27,7 @@ Skips: triage:ready-for-human, issues with an open PR on feat/<id>-issue-<id>,
 and (fail closed) any issue whose label or PR lookup fails.
 Requires ORCH_AGENT (exit 2 when empty): no parent session to inherit a CLI from.
 Runs one discovery+dispatch cycle, then exits (systemd oneshot).
-Uses flock on <repo>/.orch/auto.lock. Logs under <repo>/.orch/auto/ (newest 50 kept).
+Locks <repo>/.orch/auto.lock (flock, else a mkdir lock dir auto.lock.d). Logs under <repo>/.orch/auto/ (newest 50 kept).
 EOF
 }
 
@@ -49,6 +49,7 @@ if [ -z "${ORCH_AGENT:-}" ]; then
 fi
 
 source "$ROOT/lib/worktree.sh"
+source "$ROOT/lib/lock.sh"
 REPO="$(orch_repo_root "$REPO")"
 export ORCH_REPO="$REPO" ORCH_PROGRESS="${ORCH_PROGRESS:-0}"
 
@@ -73,7 +74,6 @@ fi
 need() { command -v "$1" >/dev/null 2>&1 || { echo "orch-auto: missing $1" >&2; exit 1; }; }
 need gh
 need jq
-need flock
 
 LOG_DIR="$REPO/.orch/auto"
 mkdir -p "$LOG_DIR" "$REPO/.orch"
@@ -174,10 +174,7 @@ run_once() {
 # list-ready reads foam/board from this cwd (ADR-016).
 cd "$REPO"
 
-exec 9>"$LOCK"
-if ! flock -n 9; then
-  echo "orch-auto: another run holds $LOCK; exiting 75 (EX_TEMPFAIL)" >&2
-  exit 75
-fi
+# Exits 75 (EX_TEMPFAIL) when another run holds it.
+orch_acquire_lock "$LOCK"
 
 run_once

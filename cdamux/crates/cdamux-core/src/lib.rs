@@ -8,6 +8,7 @@ mod daemon;
 mod diff;
 mod events;
 mod foam;
+mod home_migrate;
 mod markdown;
 mod notes;
 mod issue_ref;
@@ -113,6 +114,9 @@ pub use agents_util::{
     command_on_path, preferred_spawn_agent, preferred_spawn_agent_index,
 };
 pub use client_name::{is_product_client, normalize_client_name};
+pub use home_migrate::{
+    apply_home_migration, legacy_home, plan_home_migration, HomeMigration,
+};
 pub use paths::{cdamux_home, cdamux_state_dir, env_lock};
 pub use orch::{
     agent_scope_is_global, find_live_global_orchestrator, global_orch_cwd, orch_boot_prompt,
@@ -123,10 +127,11 @@ pub use orch::{list_orchestrators, orch_scope_of_agent, OrchEntry, ORCH_SCOPE_PR
 pub use capture::{capture_session, CaptureError, PaneCapture, CAPTURE_MAX_LINES};
 pub use state::{
     agent_state_path, generate_agent_id, generate_run_id, initial_agent_value, state_append,
-    state_get, state_list, state_set, valid_state_id, StateKind,
+    state_append_sticky, state_get, state_list, state_set, state_update, valid_state_id,
+    StateKind,
 };
 pub use state_finalize::{
-    apply_dismiss, finalize_session_host, orphan_agent_eligible, orphan_run_eligible,
+    agent_subtree, apply_dismiss, finalize_session_host, kill_agent_permanent, kill_permanent, orphan_agent_eligible, orphan_run_eligible,
     plan_dismiss_agent, plan_dismiss_run, sweep_orphans, DismissPlan, DismissReject, FinalizeReport,
 };
 pub use state_gc::{
@@ -136,7 +141,7 @@ pub use state_gc::{
 };
 pub use restore::{
     dormant, is_busy_state, is_done_record, last_global_orch_record, parents_first,
-    pick_global_orch_record, reap_dead_agent_panes, restart_plan, restore_one, restore_subtree,
+    pick_global_orch_record, reap_dead_agent_panes, alert_long_blocked, BLOCKED_ALERT_SECS, restart_plan, restore_one, restore_subtree,
     restore_targets, resume_command, RestoreError, RestoreOutcome, DEAD_AGENT_PANE_SECS,
 };
 pub use msg::{
@@ -166,7 +171,8 @@ pub use spawn::{
     SpawnError, SpawnExtra, SpawnOutcome,
 };
 pub use worker::{
-    compose_worker_first_prompt, count_live_workers, ensure_orch_run, list_workers, peek_worker,
+    compose_worker_first_prompt, count_live_workers, ensure_orch_run, kill_worker, list_workers,
+    peek_worker, KilledAgent,
     shell_single_quote, spawn_worker, with_first_prompt, worker_ls_line, worker_preamble,
     WorkerError, WorkerRow,
     WorkerSpawnRequest, WorkerSpawnResult,
@@ -183,6 +189,7 @@ pub use worktree_clean::{
 pub use tmux::{
     capture_pane_text, classify_pane_heuristics, is_hidden_fleet_session, list_panes_all,
     list_tmux_sessions, list_tmux_sessions_strict, parse_list_panes_all, parse_list_sessions, send_line_to_session,
+    tmux_user_option,
     SessionPaneInfo, HOME_SESSION_NAME, NAV_SESSION_NAME, TmuxError, TmuxSession,
 };
 

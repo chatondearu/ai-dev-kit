@@ -145,6 +145,8 @@ fn non_empty(s: &str) -> Option<String> {
 /// Idle comes from the active pane, else the session's first pane.
 pub fn parse_list_panes_all(stdout: &str, now: u64) -> HashMap<String, SessionPaneInfo> {
     let mut out: HashMap<String, SessionPaneInfo> = HashMap::new();
+    // Built on first use, once per call, only where `/proc` is missing (macOS).
+    let ps_table = std::cell::OnceCell::new();
     for line in stdout.lines() {
         let mut f = line.split('\t');
         let (Some(name), Some(active), Some(idle)) = (f.next(), f.next(), f.next()) else {
@@ -173,7 +175,7 @@ pub fn parse_list_panes_all(stdout: &str, now: u64) -> HashMap<String, SessionPa
             // pane_pid is the shell cdamux started; its own comm stays `fish` while
             // the agent runs. The tty foreground group is the process that is actually
             // in front. tmux can keep reporting `cursor-agent` after that group is gone.
-            info.proc_comm = pid.and_then(foreground_comm);
+            info.proc_comm = pid.and_then(|p| foreground_comm(p, &ps_table));
         }
         if let Some(cmd) = cmd {
             info.saw_pane_command = true;
@@ -204,10 +206,43 @@ fn tpgid_from_stat(stat: &str) -> Option<u32> {
     u32::try_from(tpgid).ok().filter(|n| *n > 0)
 }
 
-/// Comm of the pane's foreground process group, not of `pane_pid` itself.
-fn foreground_comm(pane_pid: u32) -> Option<String> {
-    let stat = std::fs::read_to_string(format!("/proc/{pane_pid}/stat")).ok()?;
-    read_proc_comm(tpgid_from_stat(&stat)?)
+/// Comm of the pane's foreground process group, not of `pane_pid` itself: `/proc` on
+/// Linux, else one `ps -A` snapshot shared by every pane of the call (macOS, L1).
+fn foreground_comm(pane_pid: u32, ps_table: &std::cell::OnceCell<HashMap<u32, (u32, String)>>) -> Option<String> {
+    if let Ok(stat) = std::fs::read_to_string(format!("/proc/{pane_pid}/stat")) {
+        return read_proc_comm(tpgid_from_stat(&stat)?);
+    }
+    let table = ps_table.get_or_init(ps_snapshot);
+    let (tpgid, _) = table.get(&pane_pid)?;
+    table.get(tpgid).map(|(_, comm)| comm.clone())
+}
+
+/// `pid → (tpgid, comm basename)` from `ps -A -o pid=,tpgid=,comm=`; empty on failure.
+fn ps_snapshot() -> HashMap<u32, (u32, String)> {
+    Command::new("ps")
+        .args(["-A", "-o", "pid=,tpgid=,comm="])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| parse_ps_table(&String::from_utf8_lossy(&o.stdout)))
+        .unwrap_or_default()
+}
+
+/// macOS prints the full executable path as `comm` (with spaces, or `-fish` for a
+/// login shell): keep the basename so it matches the `/proc/<pid>/comm` form.
+fn parse_ps_table(text: &str) -> HashMap<u32, (u32, String)> {
+    text.lines()
+        .filter_map(|l| {
+            let mut it = l.trim_start().splitn(2, char::is_whitespace);
+            let pid = it.next()?.parse().ok()?;
+            let rest = it.next()?.trim_start();
+            let mut it = rest.splitn(2, char::is_whitespace);
+            let tpgid = it.next()?.parse::<i64>().ok()?;
+            let comm = it.next()?.trim();
+            let base = comm.rsplit('/').next().unwrap_or(comm);
+            (tpgid > 0 && !base.is_empty()).then(|| (pid, (tpgid as u32, base.to_string())))
+        })
+        .collect()
 }
 
 /// One tmux spawn for all sessions (empty map when tmux is down or has no server).
@@ -698,6 +733,17 @@ mod tests {
             classify_pane_heuristics(Some(0), tail, 3),
             SessionState::Working
         );
+    }
+
+    #[test]
+    fn parse_ps_table_keeps_basename_and_drops_no_tty() {
+        let t = parse_ps_table(
+            "  1     0 /sbin/launchd\n 4242  4300 -fish\n 4300  4300 /opt/My Apps/bin/claude\nbad line\n",
+        );
+        assert_eq!(t.len(), 2);
+        assert_eq!(t[&4242], (4300, "-fish".to_string()));
+        assert_eq!(t[&4300], (4300, "claude".to_string()));
+        assert!(is_dead_pane_comm(&t[&4242].1));
     }
 
     #[test]

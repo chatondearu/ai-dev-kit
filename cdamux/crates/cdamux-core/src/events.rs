@@ -147,6 +147,26 @@ pub fn emit_status(agent: &str, status: &str, prev: Option<&str>, record: &Value
     emit(item);
 }
 
+/// Lifecycle verbs of a `lifecycle` item (#398).
+pub const LIFECYCLE_EVENTS: &[&str] = &["spawn", "finalize", "dismiss", "kill", "archive"];
+
+/// `lifecycle` item: `event` is one of [`LIFECYCLE_EVENTS`] for agent `agent`
+/// (`record`: its document, for `role` / `parent` / `host`; `None` when unknown).
+pub fn emit_lifecycle(event: &str, agent: &str, record: Option<&Value>) {
+    debug_assert!(LIFECYCLE_EVENTS.contains(&event));
+    let mut item = json!({ "type": "lifecycle", "ts": now_ts(), "event": event, "agent": agent });
+    for key in ["role", "parent", "host"] {
+        if let Some(v) = record
+            .and_then(|r| r.get(key))
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+        {
+            item[key] = json!(v);
+        }
+    }
+    emit(item);
+}
+
 /// Every retained item with a cursor strictly after `since` (`0`: all retained).
 /// Lock-free so a follower never stalls a hook's write: the live segment is read
 /// before the rotated one, so a rotation in between duplicates items (merged by
@@ -210,7 +230,9 @@ impl EventFilter {
                 return false;
             }
         }
-        !self.orchestrators || field("type") != Some("status") || field("role") == Some("orchestrator")
+        !self.orchestrators
+            || !matches!(field("type"), Some("status" | "lifecycle"))
+            || field("role") == Some("orchestrator")
     }
 }
 

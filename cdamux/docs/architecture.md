@@ -70,13 +70,34 @@ Writers use `cdamux state set|get|append` and `cdamux msg send|read` (private JS
 (`ok`/`blocked`/`done`/`error`) with no live host whose file mtime is older than
 `[state].retention_days` (default 14) in `config.toml`. `--unrestorable` (or
 `--retention-days 0`) archives eligible records immediately. Aborts when
-tmux cannot be probed (fail closed). An archived agent's `inbox/<id>.jsonl` and
+tmux sessions cannot be listed — no server, another socket, missing binary (fail
+closed: a cron without `TMUX_TMPDIR` must not finalize every agent). Inbox files whose
+agent record is gone move to `archive/inbox/` once untouched for the retention period. An archived agent's `inbox/<id>.jsonl` and
 `.cursor` move to `archive/inbox/`; an existing archive of the same name is kept and
 the new one gets a `.<unix_secs>` suffix. Dormant resumable agents (session restore
 registry, ADR-009) are never GC'd. Idle / working / live hosts are never GC'd.
-Manual only (no timer in v0). See [restore.md](restore.md).
+`cdamux orch new` runs the same pass (configured retention) before it spawns (Q18);
+otherwise manual. See [restore.md](restore.md).
 
-Fleet permanent kill (`x`) finalizes agents with that host and live runs with that
+**One home (#391).** Every pane cdamux spawns gets the spawner's resolved
+`CDAMUX_HOME` (`tmux new-session -e` and a prefix on the agent command), so hooks
+and the agent never fall back to another tree; `worker spawn` / `orch new` print
+`home=<path>`. `cdamux state migrate-home [--apply]` (dry-run by default) renames the
+legacy `${XDG_STATE_HOME:-~/.local/state}/cdamux` to `cdamux.archived-<unix_secs>`
+(refused while one of its agents still runs) and archives ghost orchestrator records:
+a record whose tmux session now runs another agent (`@cdamux_id`), or whose run lives
+in the legacy tree. Dormant orchestrators are kept (ADR-009). Needs `CDAMUX_HOME` set.
+
+**Writes.** Every agent write (`state set|append`, finalize, dismiss) is one
+read-modify-write under the record's lock (`state_update`); a status change stamps
+`status_ts` and emits one events `status` item. `state append --sticky` (hooks) keeps
+a sticky `done`/`error`/`blocked` unless the new status is `working`, checked under
+the lock, and never creates a missing record. `state set|append` refuse an unknown
+agent status (exit 2).
+
+Permanent kill — Fleet `x`, navigator `x` and `cdamux worker kill` share
+`kill_permanent` — kills the session, forgets its restore record (so `restore` never
+respawns it), finalizes agents with that host and live runs with that
 `session` (`status=error`, `ended_at`, clear host) so recreating the same tmux name
 cannot re-attach stuck graphs (#307). Graph / Fleet bind for a session uses only
 `@cdamux_run` — never a live run whose JSON `session` field merely matches the
@@ -85,7 +106,7 @@ the agent).
 
 | Kill / dismiss path | Finalize / archive? | After recreate same name |
 | --- | --- | --- |
-| Fleet `x` | yes (`finalize_session_host`) | no live graph/workers under the new session |
+| Fleet / nav `x`, `worker kill` | yes (`kill_permanent`: finalize + forget restore record) | no live graph/workers under the new session |
 | Fleet / nav `d` | yes (shared finalize + archive of finished/orphan run/worker; dormant kept) | row gone from live `$CDAMUX_HOME`; multi-entity asks `d` again |
 | `tmux kill-session` (raw) | no (restart must keep state) | no name-only re-attach; orphan stays at project root until sweep |
 | `cdamux restart` | no | same host continues; agent state kept |
@@ -238,6 +259,22 @@ Requires `$CDAMUX_AGENT_ID` (caller must be an orchestrator session).
   filesystem has less than `[worktrees].min_free_gib` free (default 40, `0` = off)
   (ADR-017).
 - `cdamux worker peek <name> [--lines N]` — last N pane lines.
+- `cdamux worker kill <name> [--subtree]` — permanent kill (see the kill table above):
+  inside an agent only the caller's own workers; a human outside any agent may name
+  any agent (name, id or host). `--subtree` also kills every agent below it, deepest
+  first. One `killed <id> <host> (finalized N agent(s), M run(s))` line each.
+
+**Worker cap.** `[orchestrator].max_workers` counts `role=worker` agents with a live
+host, status not `done`/`error`, whose parent orchestrator is still live (a worker of a
+dead or archived orchestrator never holds a slot). `idle` keeps its slot for 10 min of
+pane quiet (then only with an open ask). Dead panes (agent CLI exited; `ps` on macOS,
+`/proc` on Linux) are reaped to `error` inside the cap check. A failed spawn removes
+the worktree and branch it created, so the name can be retried.
+
+**Long-blocked workers.** A worker `blocked` for 15 min gets its orchestrator one
+`report` (once per blocked episode, `blocked_alert_ts`). No timer: the check runs at
+most once a minute on any pass that reaps panes (Fleet refresh, `cdamux list`,
+`worker ls|spawn`, `restore`).
 
 ### Read-only inspection (#388)
 

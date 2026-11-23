@@ -154,6 +154,27 @@ pub fn worktree_add_new_branch(
     }
 }
 
+/// Best-effort undo of [`worktree_add_new_branch`] after a later spawn step failed
+/// (M10): remove the worktree (or what a timed-out add left), prune, delete the branch.
+/// Only for a `dest` this process just created; errors are ignored.
+pub fn remove_new_worktree(repo: &Path, dest: &Path, branch: &str) {
+    let git = |args: &[&str]| {
+        let _ = Command::new("git")
+            .arg("-C")
+            .arg(repo)
+            .args(args)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    };
+    git(&["worktree", "remove", "--force", &dest.to_string_lossy()]);
+    if dest.exists() {
+        let _ = std::fs::remove_dir_all(dest);
+    }
+    git(&["worktree", "prune"]);
+    git(&["branch", "-D", branch]);
+}
+
 fn git_err_line(stderr: &str) -> String {
     let lines: Vec<&str> = stderr
         .lines()
@@ -256,6 +277,26 @@ mod tests {
         assert_eq!(err.to_string(), "git: git worktree add timed out");
         let _ = child.kill();
         let _ = child.wait();
+    }
+
+    #[test]
+    fn remove_new_worktree_drops_checkout_and_branch() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().join("repo");
+        std::fs::create_dir(&repo).unwrap();
+        let git = |args: &[&str]| {
+            assert!(Command::new("git").arg("-C").arg(&repo).args(args).output().unwrap().status.success());
+        };
+        git(&["init", "-b", "main"]);
+        git(&["-c", "user.email=t@t", "-c", "user.name=t", "commit", "--allow-empty", "-m", "i"]);
+        let dest = tmp.path().join("wt/w1");
+        worktree_add_new_branch(&repo, &dest, "worker/r/w1", "main").unwrap();
+        assert!(list_local_branches(&repo).contains(&"worker/r/w1".to_string()));
+        remove_new_worktree(&repo, &dest, "worker/r/w1");
+        assert!(!dest.exists());
+        assert!(!list_local_branches(&repo).contains(&"worker/r/w1".to_string()));
+        // Retry with the same name works again (M10).
+        worktree_add_new_branch(&repo, &dest, "worker/r/w1", "main").unwrap();
     }
 
     #[test]

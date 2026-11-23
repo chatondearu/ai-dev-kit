@@ -25,7 +25,7 @@ use crate::spawn_modal::{
 };
 use cdamux_core::{
     build_project_session_tree_ex, AgentLinks, capture_pane_text, config_path, current_tmux_session,
-    discover_projects, finalize_session_host, kill_tmux_session, load_config, preferred_spawn_agent,
+    discover_projects, kill_permanent, load_config, preferred_spawn_agent,
     rename_tmux_session,
     configured_agent_ids, resolve_agent_command, reply_to_ask, restore_one, restore_targets,
     send_to_session,
@@ -1021,13 +1021,10 @@ pub fn run_dashboard() -> ExitCode {
                                 status_line = format!("forget dormant {}? press x again", r.name);
                             }
                         } else if let Some(s) = session_at_row(&rows, selected_row) {
-                            match kill_tmux_session(&s.name) {
-                                Ok(()) => {
-                                    // Closed from cdamux: forget it (an external kill stays restorable).
-                                    let _ = session_registry::remove(&s.name);
-                                    // Finalize agents/runs for this host so a recreate cannot
-                                    // re-attach stuck live graphs (#307). Not used by restart.
-                                    let fin = finalize_session_host(&s.name).unwrap_or_default();
+                            // Closed from cdamux: forgotten by restore and finalized (#307);
+                            // an external kill stays restorable. Not used by restart.
+                            match kill_permanent(&s.name) {
+                                Ok(fin) => {
                                     tree_dirty = true;
                                     status_line = if fin.agents.is_empty() && fin.runs.is_empty() {
                                         format!("killed {}", s.name)

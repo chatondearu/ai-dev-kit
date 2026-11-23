@@ -127,6 +127,27 @@ pub fn restore_one(
     agents: &AgentsConfig,
 ) -> Result<RestoreOutcome, RestoreError> {
     let live = tmux_has_session(&rec.name).map_err(|_| RestoreError::LiveCheck)?;
+    let outcome = restore_plan_run(rec, agents, live)?;
+    // A revived `error` agent runs again: drop the sticky `error` so it holds a cap slot
+    // and takes hook updates (L7). Its next prompt moves it to `working`.
+    if !matches!(outcome, RestoreOutcome::SkippedLive) {
+        if let Some(id) = rec.cdamux_id.as_deref() {
+            let _ = crate::state::state_update(StateKind::Agents, id, |cur| {
+                let mut cur = cur?;
+                (cur.get("status")?.as_str()? == "error").then_some(())?;
+                cur.as_object_mut()?.insert("status".into(), "idle".into());
+                Some(cur)
+            });
+        }
+    }
+    Ok(outcome)
+}
+
+fn restore_plan_run(
+    rec: &SessionRecord,
+    agents: &AgentsConfig,
+    live: bool,
+) -> Result<RestoreOutcome, RestoreError> {
     Ok(match plan(rec, agents, live)? {
         Plan::SkipLive => RestoreOutcome::SkippedLive,
         Plan::Resume(cmd) => RestoreOutcome::Restored(respawn_recorded(rec, &cmd)?),
@@ -257,10 +278,14 @@ pub fn restore_subtree(root: SessionRecord, all: Vec<SessionRecord>) -> Vec<Sess
     parents_first(out)
 }
 
-/// True when the record's agent reported `done` (`cdamux msg --kind done`): its job
-/// is over, so bulk restores (`--all`, an orchestrator's subtree) leave it dormant.
+/// True when the record's agent is finished: `done` (`cdamux msg --kind done`) or
+/// `error` (crashed, finalized). Bulk restores (`--all`, an orchestrator's subtree)
+/// leave it dormant (L7); `cdamux restore <name>` still revives it.
 pub fn is_done_record(rec: &SessionRecord) -> bool {
-    rec.cdamux_id.as_deref().and_then(load_reported_status) == Some(SessionState::Done)
+    matches!(
+        rec.cdamux_id.as_deref().and_then(load_reported_status),
+        Some(SessionState::Done | SessionState::Error)
+    )
 }
 
 /// Registry record of the most recently updated `scope=global` orchestrator, if any.
@@ -452,7 +477,71 @@ pub fn reap_dead_agent_panes(panes: &HashMap<String, SessionPaneInfo>) -> usize 
         }
         n += 1;
     }
+    alert_long_blocked_throttled();
     n
+}
+
+/// Q17: a worker `blocked` longer than this gets its orchestrator one reminder.
+pub const BLOCKED_ALERT_SECS: u64 = 15 * 60;
+
+/// Runs [`alert_long_blocked`] at most once a minute per process: the reap pass runs
+/// on every Fleet refresh, and the scan reads every agent record. No background timer
+/// exists, so the check rides on whatever cdamux call looks at panes next.
+fn alert_long_blocked_throttled() {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static LAST: AtomicU64 = AtomicU64::new(0);
+    let now = session_registry::now_secs();
+    let last = LAST.load(Ordering::Relaxed);
+    if now.saturating_sub(last) < 60
+        || LAST.compare_exchange(last, now, Ordering::Relaxed, Ordering::Relaxed).is_err()
+    {
+        return;
+    }
+    let _ = alert_long_blocked(now);
+}
+
+/// Send each worker's parent one `report` when the worker has been `blocked` (unanswered
+/// ask) for [`BLOCKED_ALERT_SECS`]: once per blocked episode (`blocked_alert_ts` set
+/// under the record lock before sending). Records without `status_ts` are skipped.
+/// Returns the alerted worker ids.
+pub fn alert_long_blocked(now: u64) -> Vec<String> {
+    let mut out = Vec::new();
+    for (id, _, v) in crate::state::state_list(StateKind::Agents) {
+        let due = |v: &serde_json::Value| {
+            let since = v.get("status_ts").and_then(|t| t.as_u64())?;
+            let alerted = v.get("blocked_alert_ts").and_then(|t| t.as_u64()).unwrap_or(0);
+            (v.get("role").and_then(|r| r.as_str()) == Some("worker")
+                && v.get("status").and_then(|s| s.as_str()) == Some("blocked")
+                && now.saturating_sub(since) >= BLOCKED_ALERT_SECS
+                && alerted < since)
+                .then_some(since)
+        };
+        let Some(parent) = v.get("parent").and_then(|p| p.as_str()).filter(|p| !p.is_empty())
+        else {
+            continue;
+        };
+        if due(&v).is_none() {
+            continue;
+        }
+        let mut since = 0;
+        let claimed = crate::state::state_update(StateKind::Agents, &id, |cur| {
+            let mut cur = cur?;
+            since = due(&cur)?;
+            cur.as_object_mut()?.insert("blocked_alert_ts".into(), now.into());
+            Some(cur)
+        });
+        if !matches!(claimed, Ok(true)) {
+            continue;
+        }
+        let who = v.get("name").and_then(|n| n.as_str()).unwrap_or(&id);
+        let text = format!(
+            "worker {who} ({id}) blocked for {} min: its ask is unanswered. Answer it (cdamux msg send --to {id} --kind answer …) or escalate to the maintainer.",
+            now.saturating_sub(since) / 60
+        );
+        let _ = msg_send(&id, parent, "report", &text, None, DEFAULT_NUDGE_QUIET_SECS, None);
+        out.push(id);
+    }
+    out
 }
 
 #[cfg(test)]
@@ -767,6 +856,28 @@ mod tests {
     }
 
     #[test]
+    fn long_blocked_worker_alerts_its_parent_once_per_episode() {
+        let _g = env_lock();
+        let dir = tempfile::tempdir().unwrap();
+        std::env::set_var("CDAMUX_HOME", dir.path());
+        std::env::set_var("TMUX_TMPDIR", dir.path());
+        state_set(StateKind::Agents, "a-par", &serde_json::json!({"id": "a-par", "role": "orchestrator"})).unwrap();
+        state_set(StateKind::Agents, "a-blk", &serde_json::json!({"id": "a-blk", "role": "worker", "parent": "a-par", "name": "api"})).unwrap();
+        state_append(StateKind::Agents, "a-blk", &serde_json::json!({"status": "blocked"})).unwrap();
+        let since = state_get(StateKind::Agents, "a-blk").unwrap().unwrap()["status_ts"].as_u64().unwrap();
+
+        assert!(alert_long_blocked(since + BLOCKED_ALERT_SECS - 1).is_empty(), "not yet 15 min");
+        assert_eq!(alert_long_blocked(since + BLOCKED_ALERT_SECS), ["a-blk"]);
+        assert!(alert_long_blocked(since + 2 * BLOCKED_ALERT_SECS).is_empty(), "one alert per episode");
+        let inbox = std::fs::read_to_string(dir.path().join("inbox/a-par.jsonl")).unwrap();
+        assert_eq!(inbox.lines().count(), 1);
+        assert!(inbox.contains("worker api (a-blk) blocked for 15 min"), "{inbox}");
+
+        std::env::remove_var("TMUX_TMPDIR");
+        std::env::remove_var("CDAMUX_HOME");
+    }
+
+    #[test]
     fn is_done_record_reads_agent_status() {
         let _g = env_lock();
         let dir = tempfile::tempdir().unwrap();
@@ -787,7 +898,14 @@ mod tests {
             &serde_json::json!({"id": "a-idle", "status": "idle"}),
         )
         .unwrap();
+        state_set(
+            StateKind::Agents,
+            "a-err",
+            &serde_json::json!({"id": "a-err", "status": "error"}),
+        )
+        .unwrap();
         assert!(is_done_record(&with_id("c-done", "a-done")));
+        assert!(is_done_record(&with_id("c-err", "a-err")));
         assert!(!is_done_record(&with_id("c-idle", "a-idle")));
         assert!(!is_done_record(&with_id("c-none", "a-missing")));
         assert!(!is_done_record(&rec("c-noid", "claude", None, None)));

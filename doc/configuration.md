@@ -107,8 +107,10 @@ workers with a pending `ask`; answering from the composer / send form uses
 any discovered project from outside a git cwd; default first message includes the
 worker preamble for `cdamux msg`). Spawn refuses when live workers already meet
 `[orchestrator].max_workers` (default 6, `0` = no cap; count = `role=worker` +
-live tmux host, excluding only status `done`/`error` — missing status and `idle`
-count; dormant hosts are dead so never count; all projects). Spawn also refuses below
+live tmux host + live parent orchestrator, excluding status `done`/`error` — missing
+status counts, `idle` keeps its slot for 10 min; dormant hosts and workers of a dead
+orchestrator never count; all projects). `cdamux worker kill <name> [--subtree]`
+frees a slot for good (never respawned by `restore`). Spawn also refuses below
 `[worktrees].min_free_gib` free on the worktree filesystem (default 40, `0` = off).
 `cdamux worker clean [--dry-run] [--root DIR]` deletes `[worktrees].disposable` build
 dirs (default `target`, `node_modules`, `.nuxt`, `.output`; git-ignored only) in
@@ -122,7 +124,10 @@ orchestrator host and its workers (resume by id when recorded). Retention:
 `cdamux state gc` (optional `--retention-days N`, or `--unrestorable` for N = 0)
 archives then removes done/error agents and finished runs with no live host older
 than `[state].retention_days` (default 14; `0` = now) into `$CDAMUX_HOME/archive/`;
-dormant resumable agents stay. Aborts if tmux cannot be probed.
+dormant resumable agents stay, orphan inbox files go too. Aborts if tmux sessions
+cannot be listed. `cdamux orch new` runs it first. One state home: export
+`CDAMUX_HOME` (e.g. `/cda/cdamux`) everywhere; spawned panes inherit it, and
+`cdamux state migrate-home [--apply]` archives the legacy `~/.local/state/cdamux`.
 `cdamux restore --last-orch` prunes unrestorable stubs then restores the last
 global orchestrator (see [cdamux/docs/restore.md](../cdamux/docs/restore.md)).
 Layout, ids, delivery and restore: [cdamux/docs/architecture.md](../cdamux/docs/architecture.md)

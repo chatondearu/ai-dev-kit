@@ -31,7 +31,7 @@ use cdamux_core::{
     session_name_for_path, spawn_orchestrator, spawn_tmux_session_with_layout, spawn_worker,
     worker_ls_line,
     agent_cwd, clear_links, parse_link_ref, refresh_links, resolve_agent_id, set_link_override,
-    state_append, state_get, state_set, run_gc, sweep_orphans, tmux_has_session, unique_session_name,
+    state_append, state_get, state_set, run_gc, sweep_orphans, unique_session_name,
     valid_kind,
     AttachMode, DEFAULT_NUDGE_QUIET_SECS, DiffError, GroupBy, OrchNewRequest, PaneLayout,
     SendError, SidebarSide, SpawnError, StateKind, WorkerSpawnRequest, ORCHESTRATOR_SKILL,
@@ -336,6 +336,16 @@ enum WorkerCommands {
         #[arg(long)]
         root: Vec<PathBuf>,
     },
+    /// Permanently kill a worker: tmux session gone, state finalized, never respawned
+    /// by `restore`. Inside an agent only its own workers; a human may name any agent.
+    #[command(after_help = "Prints one `killed <id> <host> (finalized N agent(s), M run(s))` line per agent.\nExit 1: not found or a tmux/state error.")]
+    Kill {
+        /// Worker name, agent id (`a-xxxxx`) or tmux session.
+        name: String,
+        /// Also kill every agent below it (its workers, recursively).
+        #[arg(long)]
+        subtree: bool,
+    },
     /// Show the last N lines of a worker pane.
     Peek {
         name: String,
@@ -365,6 +375,18 @@ enum StateCommands {
         kind: String,
         id: String,
         json: String,
+        /// Keep a sticky `done`/`error`/`blocked` unless the new status is `working`
+        /// (checked under the record lock; hooks use this).
+        #[arg(long)]
+        sticky: bool,
+    },
+    /// One-shot move to the single `$CDAMUX_HOME` (#391): rename the legacy
+    /// `${XDG_STATE_HOME:-~/.local/state}/cdamux` aside and archive ghost orchestrator
+    /// records. Prints the plan; changes nothing without `--apply`.
+    MigrateHome {
+        /// Perform the plan (default: dry-run).
+        #[arg(long)]
+        apply: bool,
     },
     /// Archive then remove done/error agents and finished runs past retention.
     Gc {
@@ -583,7 +605,10 @@ fn main() -> ExitCode {
         Some(Commands::State { command }) => match command {
             StateCommands::Set { kind, id, json } => cmd_state_set(&kind, &id, &json),
             StateCommands::Get { kind, id } => cmd_state_get(&kind, &id),
-            StateCommands::Append { kind, id, json } => cmd_state_append(&kind, &id, &json),
+            StateCommands::Append { kind, id, json, sticky } => {
+                cmd_state_append(&kind, &id, &json, sticky)
+            }
+            StateCommands::MigrateHome { apply } => cmd_state_migrate_home(apply),
             StateCommands::Gc {
                 retention_days,
                 unrestorable,
@@ -651,6 +676,7 @@ fn main() -> ExitCode {
             WorkerCommands::Ls => cmd_worker_ls(),
             WorkerCommands::Clean { dry_run, root } => cmd_worker_clean(dry_run, root),
             WorkerCommands::Peek { name, lines } => cmd_worker_peek(&name, lines),
+            WorkerCommands::Kill { name, subtree } => cmd_worker_kill(&name, subtree),
         },
         Some(Commands::Orch { command }) => match command {
             OrchCommands::New {
@@ -777,6 +803,7 @@ fn cmd_orch_new(
     } else {
         None
     };
+    orch_new_gc(cfg.state.retention_days);
     let req = OrchNewRequest {
         path: &path_buf,
         agent,
@@ -789,13 +816,14 @@ fn cmd_orch_new(
         Ok(r) => {
             let verb = if r.reused { "reusing" } else { "spawned" };
             println!(
-                "{verb} orchestrator id={} host={} run={} client={} skill={} path={}{}",
+                "{verb} orchestrator id={} host={} run={} client={} skill={} path={} home={}{}",
                 r.agent_id,
                 r.host,
                 r.run,
                 r.client,
                 ORCHESTRATOR_SKILL,
                 r.path.display(),
+                home_display(),
                 if r.reused {
                     String::new()
                 } else {
@@ -809,6 +837,34 @@ fn cmd_orch_new(
             ExitCode::from(1)
         }
     }
+}
+
+/// Q18: `state gc` (configured retention, default 14 days) before each `orch new`, so
+/// state stops growing unattended. Best effort: a failure never blocks the spawn, and
+/// an unreachable tmux server skips it (fail closed, M2).
+fn orch_new_gc(retention_days: u32) {
+    let Some(live) = cdamux_core::list_tmux_sessions_strict()
+        .map(|v| v.into_iter().map(|s| s.name).collect::<std::collections::HashSet<_>>())
+    else {
+        return;
+    };
+    match run_gc(retention_days, std::time::SystemTime::now(), &|h| live.contains(h)) {
+        Ok(r) if r.archived_agents.len() + r.archived_runs.len() + r.archived_inboxes.len() > 0 => {
+            println!(
+                "orch new: state gc archived {} agent(s), {} run(s), {} inbox file(s)",
+                r.archived_agents.len(),
+                r.archived_runs.len(),
+                r.archived_inboxes.len()
+            );
+        }
+        Ok(_) => {}
+        Err(e) => eprintln!("orch new: state gc: {e}"),
+    }
+}
+
+/// The state home every spawned pane inherits (#391), as printed by spawn commands.
+fn home_display() -> String {
+    cdamux_core::cdamux_home().map_or_else(|| "-".into(), |h| h.display().to_string())
 }
 
 fn resolve_caller_agent_id(cmd: &str) -> Result<String, ExitCode> {
@@ -867,12 +923,13 @@ fn cmd_worker_spawn(
         Ok(r) => {
             kick_background_clean();
             println!(
-                "spawned worker '{}' id={} host={} run={} path={}{}",
+                "spawned worker '{}' id={} host={} run={} path={} home={}{}",
                 r.name,
                 r.agent_id,
                 r.host,
                 r.run,
                 r.path.display(),
+                home_display(),
                 r.outcome.note()
             );
             ExitCode::SUCCESS
@@ -1037,6 +1094,30 @@ fn cmd_worker_ls() -> ExitCode {
         }
         Err(e) => {
             eprintln!("worker ls: {e}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+fn cmd_worker_kill(name: &str, subtree: bool) -> ExitCode {
+    let caller = std::env::var("CDAMUX_AGENT_ID")
+        .ok()
+        .filter(|s| !s.trim().is_empty());
+    match cdamux_core::kill_worker(caller.as_deref().map(str::trim), name, subtree) {
+        Ok(killed) => {
+            for k in &killed {
+                println!(
+                    "killed {} {} (finalized {} agent(s), {} run(s))",
+                    k.id,
+                    if k.host.is_empty() { "-" } else { &k.host },
+                    k.report.agents.len(),
+                    k.report.runs.len()
+                );
+            }
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("worker kill: {e}");
             ExitCode::from(1)
         }
     }
@@ -1322,6 +1403,9 @@ fn cmd_state_set(kind: &str, id: &str, json: &str) -> ExitCode {
         Ok(v) => v,
         Err(c) => return c,
     };
+    if let Err(c) = check_agent_status("state set", kind, &value) {
+        return c;
+    }
     match state_set(kind, id, &value) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
@@ -1360,7 +1444,20 @@ fn cmd_state_get(kind: &str, id: &str) -> ExitCode {
     }
 }
 
-fn cmd_state_append(kind: &str, id: &str, json: &str) -> ExitCode {
+/// Agent records only take a known status (ADR-011 §3), not free text.
+fn check_agent_status(cmd: &str, kind: StateKind, value: &serde_json::Value) -> Result<(), ExitCode> {
+    match value.get("status") {
+        Some(serde_json::Value::String(s))
+            if kind == StateKind::Agents && cdamux_core::parse_reported_status(s).is_none() =>
+        {
+            eprintln!("{cmd}: unknown agent status '{s}'");
+            Err(ExitCode::from(2))
+        }
+        _ => Ok(()),
+    }
+}
+
+fn cmd_state_append(kind: &str, id: &str, json: &str, sticky: bool) -> ExitCode {
     let kind = match parse_state_kind(kind) {
         Ok(k) => k,
         Err(c) => return c,
@@ -1369,7 +1466,15 @@ fn cmd_state_append(kind: &str, id: &str, json: &str) -> ExitCode {
         Ok(v) => v,
         Err(c) => return c,
     };
-    match state_append(kind, id, &value) {
+    if let Err(c) = check_agent_status("state append", kind, &value) {
+        return c;
+    }
+    let write = if sticky {
+        cdamux_core::state_append_sticky
+    } else {
+        state_append
+    };
+    match write(kind, id, &value) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("state append: {e}");
@@ -1397,16 +1502,10 @@ fn cmd_state_gc(
                 .unwrap_or(cdamux_core::DEFAULT_RETENTION_DAYS)
         })
     };
-    // Fail closed: refuse destructive GC when tmux cannot be probed.
-    if let Err(e) = tmux_has_session("__cdamux_gc_probe__") {
-        eprintln!("state gc: cannot probe tmux sessions ({e}); aborting");
+    let Some(live) = live_tmux_hosts("state gc") else {
         return ExitCode::from(1);
-    }
-    let host_alive = |host: &str| match tmux_has_session(host) {
-        Ok(alive) => alive,
-        // Rare after preflight; treat as alive so we never archive on probe failure.
-        Err(_) => true,
     };
+    let host_alive = |host: &str| live.contains(host);
     if sweep {
         match sweep_orphans(&host_alive, dry_run) {
             Ok(report) => {
@@ -1435,9 +1534,10 @@ fn cmd_state_gc(
     match run_gc(days, std::time::SystemTime::now(), &host_alive) {
         Ok(report) => {
             println!(
-                "state gc: archived {} agent(s), {} run(s); kept {} dormant resumable",
+                "state gc: archived {} agent(s), {} run(s), {} inbox file(s); kept {} dormant resumable",
                 report.archived_agents.len(),
                 report.archived_runs.len(),
+                report.archived_inboxes.len(),
                 report.skipped_dormant.len()
             );
             for id in &report.archived_agents {
@@ -1451,6 +1551,70 @@ fn cmd_state_gc(
         Err(e) => {
             eprintln!("state gc: {e}");
             ExitCode::from(1)
+        }
+    }
+}
+
+fn cmd_state_migrate_home(apply: bool) -> ExitCode {
+    let Some(live) = live_tmux_hosts("state migrate-home") else {
+        return ExitCode::from(1);
+    };
+    let owner = |h: &str| {
+        live.contains(h)
+            .then(|| cdamux_core::tmux_user_option(h, "@cdamux_id"))
+            .flatten()
+            .filter(|id| !id.is_empty())
+    };
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs())
+        .to_string();
+    let plan = match cdamux_core::plan_home_migration(&owner, &stamp) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("state migrate-home: {e}");
+            return ExitCode::from(2);
+        }
+    };
+    let verb = |done: &str, would: &str| if apply { done.to_string() } else { would.to_string() };
+    println!("home: {}", plan.home.display());
+    match &plan.legacy {
+        Some((from, to)) => println!(
+            "{} {} -> {}",
+            verb("archived", "would archive"),
+            from.display(),
+            to.display()
+        ),
+        None => println!("no legacy home to archive"),
+    }
+    for l in &plan.legacy_live {
+        println!("  still running in the legacy home: {l}");
+    }
+    for (id, why) in &plan.ghosts {
+        println!("{} ghost orchestrator {id}: {why}", verb("archived", "would archive"));
+    }
+    if !apply {
+        println!("dry-run: re-run with --apply");
+        return ExitCode::SUCCESS;
+    }
+    match cdamux_core::apply_home_migration(&plan) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("state migrate-home: {e}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+/// Live tmux session names, or `None` (after printing why) when the server cannot be
+/// listed: no server, another socket (`TMUX_TMPDIR`), missing binary. Destructive
+/// passes (gc, sweep, prune) must then abort instead of treating every host as dead.
+fn live_tmux_hosts(cmd: &str) -> Option<std::collections::HashSet<String>> {
+    match cdamux_core::list_tmux_sessions_strict() {
+        Some(v) => Some(v.into_iter().map(|s| s.name).collect()),
+        None => {
+            eprintln!("{cmd}: cannot list tmux sessions (no server or another socket); aborting");
+            None
         }
     }
 }
@@ -1971,14 +2135,10 @@ pub(crate) fn tmux_attach_session_with_mode(
 
 /// Archive unrestorable `done`/`error` (no live host, not registry-dormant).
 fn prune_unrestorable_agents() -> Result<(), ExitCode> {
-    if let Err(e) = tmux_has_session("__cdamux_gc_probe__") {
-        eprintln!("restore: cannot probe tmux sessions ({e}); aborting prune");
+    let Some(live) = live_tmux_hosts("restore") else {
         return Err(ExitCode::from(1));
-    }
-    let host_alive = |host: &str| match tmux_has_session(host) {
-        Ok(alive) => alive,
-        Err(_) => true,
     };
+    let host_alive = |host: &str| live.contains(host);
     match run_gc_agents_only(0, std::time::SystemTime::now(), &host_alive) {
         Ok(report) => {
             println!(
@@ -2030,7 +2190,10 @@ fn cmd_restore(name: Option<String>, all: bool, last_orch: bool) -> ExitCode {
         let (done, rest): (Vec<_>, Vec<_>) =
             session_registry::load_all().into_iter().partition(is_done_record);
         for rec in &done {
-            println!("{}: skipped (agent done; `cdamux restore {}` revives it)", rec.name, rec.name);
+            println!(
+                "{}: skipped (agent done or error; `cdamux restore {}` revives it)",
+                rec.name, rec.name
+            );
         }
         parents_first(rest)
     } else {

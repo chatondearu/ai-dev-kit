@@ -315,6 +315,40 @@ pub fn peek_worker(caller_id: &str, key: &str, lines: i32) -> Result<String, Wor
     capture_pane_text(host, lines.max(1), false).map_err(|e| WorkerError::Other(e.to_string()))
 }
 
+/// One agent removed by [`kill_worker`].
+#[derive(Debug, Clone)]
+pub struct KilledAgent {
+    pub id: String,
+    /// tmux session it ran in; empty when its pane was already gone.
+    pub host: String,
+    pub report: crate::state_finalize::FinalizeReport,
+}
+
+/// `cdamux worker kill`: permanent kill of a worker (by name, id or host) and, with
+/// `subtree`, of every agent below it. `caller` limits the target to its own workers
+/// (an orchestrator); `None` (a human outside any agent) may name any agent.
+pub fn kill_worker(
+    caller: Option<&str>,
+    key: &str,
+    subtree: bool,
+) -> Result<Vec<KilledAgent>, WorkerError> {
+    let (id, _) = find_worker_doc(key, caller)?;
+    let targets = if subtree {
+        crate::state_finalize::agent_subtree(&id)
+    } else {
+        vec![id]
+    };
+    let mut out = Vec::new();
+    for t in targets {
+        let host = state_get(StateKind::Agents, &t)?
+            .and_then(|v| v.get("host")?.as_str().map(str::to_string))
+            .unwrap_or_default();
+        let report = crate::state_finalize::kill_agent_permanent(&t)?;
+        out.push(KilledAgent { id: t, host, report });
+    }
+    Ok(out)
+}
+
 fn resolve_caller_cwd(caller: &Value, fallback: &Path) -> PathBuf {
     if let Some(host) = caller.get("host").and_then(|h| h.as_str()) {
         if let Ok(sessions) = crate::tmux::list_tmux_sessions() {
@@ -338,11 +372,17 @@ fn worker_name_taken(name: &str, caller_id: &str) -> bool {
     })
 }
 
+/// Quiet time after which an `idle` worker gives its cap slot back (Q9: 10 min, not
+/// the 10 s paste window: a worker between two relays must keep its slot).
+pub const IDLE_CAP_RELEASE_SECS: u32 = 600;
+
 /// Count workers that count toward `[orchestrator].max_workers`.
-/// Live = `role=worker`, host that passes `host_alive`, status not `done`/`error`.
-/// `idle` past [`crate::msg::DEFAULT_NUDGE_QUIET_SECS`] with no open ask does not count
-/// (`host_idle_secs` is the pane's idle time; `None` keeps the slot). `done` never counts.
-/// Missing status still counts. Dormant hosts fail `host_alive`.
+/// Live = `role=worker`, host that passes `host_alive`, status not `done`/`error`, and
+/// a parent orchestrator that is still live (a recorded agent whose host passes
+/// `host_alive`): workers of a dead or archived orchestrator never hold the cap. A
+/// worker with no `parent` key still counts. `idle` past [`IDLE_CAP_RELEASE_SECS`]
+/// with no open ask does not count (`host_idle_secs` is the pane's idle time; `None`
+/// keeps the slot). Missing status still counts. Dormant hosts fail `host_alive`.
 pub fn count_live_workers<'a, I>(
     agents: I,
     host_alive: &dyn Fn(&str) -> bool,
@@ -351,8 +391,16 @@ pub fn count_live_workers<'a, I>(
 where
     I: IntoIterator<Item = &'a Value>,
 {
+    let agents: Vec<&Value> = agents.into_iter().collect();
+    let host_of = |id: &str| {
+        agents
+            .iter()
+            .find(|v| v.get("id").and_then(Value::as_str) == Some(id))
+            .and_then(|v| v.get("host")?.as_str())
+            .filter(|h| !h.is_empty())
+    };
     agents
-        .into_iter()
+        .iter()
         .filter(|v| {
             if v.get("role").and_then(|r| r.as_str()) != Some("worker") {
                 return false;
@@ -373,17 +421,22 @@ where
             if !host_alive(host) {
                 return false;
             }
+            if let Some(parent) = v.get("parent").and_then(Value::as_str).filter(|p| !p.is_empty()) {
+                if !host_of(parent).is_some_and(host_alive) {
+                    return false;
+                }
+            }
             !idle_releases_cap(v, host_idle_secs(host))
         })
         .count() as u32
 }
 
-/// Quiet `idle` with no open ask is finished work: it must not hold the cap.
+/// Long-quiet `idle` with no open ask is finished work: it must not hold the cap.
 fn idle_releases_cap(agent: &Value, idle_secs: Option<u32>) -> bool {
     if agent.get("status").and_then(|s| s.as_str()) != Some("idle") {
         return false;
     }
-    if !idle_secs.is_some_and(|s| s >= crate::msg::DEFAULT_NUDGE_QUIET_SECS.max(1)) {
+    if !idle_secs.is_some_and(|s| s >= IDLE_CAP_RELEASE_SECS) {
         return false;
     }
     let Some(id) = agent
@@ -459,6 +512,8 @@ fn refuse_if_at_cap(max_workers: u32) -> Result<(), WorkerError> {
         return Ok(());
     }
     let panes = crate::tmux::list_panes_all();
+    // Free slots held by panes whose agent CLI exited before counting them (L1).
+    let _ = crate::restore::reap_dead_agent_panes(&panes);
     let live_hosts: Vec<String> = crate::tmux::list_tmux_sessions()
         .unwrap_or_default()
         .into_iter()
@@ -544,8 +599,10 @@ pub fn spawn_worker(req: WorkerSpawnRequest<'_>) -> Result<WorkerSpawnResult, Wo
     let run = ensure_orch_run(req.caller_id, &caller, &caller_cwd)?;
 
     let target_repo = git_toplevel(&base_cwd);
-    let spawn_path = if req.here {
-        base_cwd.clone()
+    // Resolve the command before any side effect: an unknown agent leaves nothing behind.
+    let base_cmd = resolve_agent_command(req.agents, &client)?;
+    let (spawn_path, new_worktree) = if req.here {
+        (base_cwd.clone(), None)
     } else {
         let root = worktree_root.ok_or(WorkerError::NoWorktreeRoot)?;
         let repo = target_repo.clone().ok_or(WorkerError::NotGit)?;
@@ -555,11 +612,17 @@ pub fn spawn_worker(req: WorkerSpawnRequest<'_>) -> Result<WorkerSpawnResult, Wo
         if dest.exists() {
             return Err(WorkerError::Exists(dest.display().to_string()));
         }
-        worktree_add_new_branch(&repo, &dest, &branch, &base_branch)?;
-        dest
+        // Never delete a branch this spawn did not create (it may hold unpushed work).
+        if crate::worktree::list_local_branches(&repo).contains(&branch) {
+            return Err(WorkerError::Exists(format!("branch {branch}")));
+        }
+        if let Err(e) = worktree_add_new_branch(&repo, &dest, &branch, &base_branch) {
+            // A failed or timed-out add can leave a half checkout and the branch.
+            crate::worktree::remove_new_worktree(&repo, &dest, &branch);
+            return Err(e.into());
+        }
+        (dest.clone(), Some((repo, dest, branch)))
     };
-
-    let base_cmd = resolve_agent_command(req.agents, &client)?;
 
     let session_base = if req.here {
         session_name_for_path(&spawn_path)
@@ -577,7 +640,7 @@ pub fn spawn_worker(req: WorkerSpawnRequest<'_>) -> Result<WorkerSpawnResult, Wo
         parent_agent_id: Some(req.caller_id),
         name: Some(name.as_str()),
     };
-    let outcome = spawn_tmux_session_ex(
+    let outcome = match spawn_tmux_session_ex(
         &host,
         &spawn_path,
         &launch_cmd,
@@ -586,7 +649,16 @@ pub fn spawn_worker(req: WorkerSpawnRequest<'_>) -> Result<WorkerSpawnResult, Wo
         Some(client.as_str()),
         Some(parent_host.as_str()),
         extra,
-    )?;
+    ) {
+        Ok(o) => o,
+        Err(e) => {
+            // M10: no orphan worktree + branch, so the same name can be retried.
+            if let Some((repo, dest, branch)) = &new_worktree {
+                crate::worktree::remove_new_worktree(repo, dest, branch);
+            }
+            return Err(e.into());
+        }
+    };
 
     let agent_id = resolve_spawned_agent_id(&host);
 
@@ -658,12 +730,27 @@ mod tests {
         ];
         let alive = |h: &str| matches!(h, "quiet" | "fresh" | "finished" | "busy");
         let idle = |h: &str| match h {
-            "quiet" | "finished" => Some(crate::msg::DEFAULT_NUDGE_QUIET_SECS),
-            "fresh" => Some(1),
+            "quiet" | "finished" => Some(IDLE_CAP_RELEASE_SECS),
+            // Past the 10 s paste window but well inside the 10 min slot (Q9).
+            "fresh" => Some(crate::msg::DEFAULT_NUDGE_QUIET_SECS * 6),
             _ => None,
         };
         // quiet idle released; fresh idle + working still count; done never counts
         assert_eq!(count_live_workers(agents.iter(), &alive, &idle), 2);
+    }
+
+    #[test]
+    fn workers_of_a_dead_orchestrator_do_not_hold_the_cap() {
+        let agents = vec![
+            json!({"id": "a-live", "role": "orchestrator", "host": "c-live"}),
+            json!({"id": "a-dead", "role": "orchestrator", "host": "c-dead"}),
+            json!({"role": "worker", "status": "working", "host": "w1", "parent": "a-live"}),
+            json!({"role": "worker", "status": "working", "host": "w2", "parent": "a-dead"}),
+            // Parent record archived / never existed.
+            json!({"role": "worker", "status": "working", "host": "w3", "parent": "a-gone"}),
+        ];
+        let alive = |h: &str| matches!(h, "c-live" | "w1" | "w2" | "w3");
+        assert_eq!(count_live_workers(agents.iter(), &alive, &|_| None), 1);
     }
 
     #[test]

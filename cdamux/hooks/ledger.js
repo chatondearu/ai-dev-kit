@@ -198,14 +198,21 @@ function setAgentStatus(env, status) {
   if (!id || !status) return;
   const current = readAgentStatus(env, id);
   if (!stickyOk(current, status)) return;
+  const args = ['state', 'append', 'agents', id, JSON.stringify({ status })];
+  // 40 ms used to kill the write while it waited on the record / journal locks.
+  const opts = { env, timeout: 500, stdio: 'ignore' };
   try {
-    execFileSync('cdamux', ['state', 'append', 'agents', id, JSON.stringify({ status })], {
-      env,
-      timeout: 40,
-      stdio: 'ignore',
-    });
+    // `--sticky` re-checks stickiness under the record lock (no read-then-write race).
+    execFileSync('cdamux', [...args, '--sticky'], opts);
   } catch (e) {
-    /* fail-open */
+    // An older binary without `--sticky` exits 2: fall back to the plain append.
+    if (e && e.status === 2) {
+      try {
+        execFileSync('cdamux', args, opts);
+      } catch (e2) {
+        /* fail-open */
+      }
+    }
   }
 }
 

@@ -1,0 +1,173 @@
+//! W4 lifecycle on a throwaway tmux server: CDAMUX_HOME reaches every spawned pane,
+//! workers of a dead orchestrator free the cap, `worker kill [--subtree]` is permanent.
+
+use cdamux_core::{
+    env_lock, kill_worker, read_events, restore_targets, session_registry, spawn_worker,
+    state_get, state_set, AgentEntry, AgentsConfig, StateKind, WorkerError, WorkerSpawnRequest,
+};
+use std::path::Path;
+use std::process::Command;
+use std::time::{Duration, Instant};
+
+const SOCKET: &str = "cdamux-lifecycle-test";
+
+fn which(bin: &str) -> Option<String> {
+    Command::new("sh")
+        .args(["-c", &format!("command -v {bin}")])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+}
+
+fn tmux(args: &[&str]) -> (bool, String) {
+    let out = Command::new("tmux").args(args).output().expect("tmux");
+    (out.status.success(), String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+fn has_session(name: &str) -> bool {
+    tmux(&["has-session", "-t", &format!("={name}")]).0
+}
+
+fn wait_for_pane(session: &str, needle: &str) -> String {
+    let start = Instant::now();
+    loop {
+        let (_, text) = tmux(&["capture-pane", "-p", "-J", "-t", &format!("={session}:")]);
+        if text.contains(needle) || start.elapsed() > Duration::from_secs(5) {
+            return text;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+fn git(repo: &Path, args: &[&str]) {
+    assert!(Command::new("git").arg("-C").arg(repo).args(args).status().unwrap().success());
+}
+
+fn orch(id: &str, host: &str, cwd: &Path) {
+    assert!(tmux(&["new-session", "-d", "-s", host, "-c", cwd.to_str().unwrap(), "sleep", "120"]).0);
+    state_set(
+        StateKind::Agents,
+        id,
+        &serde_json::json!({"id": id, "client": "claude", "host": host, "role": "orchestrator", "status": "idle"}),
+    )
+    .unwrap();
+}
+
+#[test]
+fn home_propagation_cap_and_permanent_kill() {
+    let Some(real_tmux) = which("tmux") else {
+        eprintln!("tmux not on PATH: skipped");
+        return;
+    };
+    if which("git").is_none() {
+        eprintln!("git not on PATH: skipped");
+        return;
+    }
+    let tmp = tempfile::tempdir().unwrap();
+    let bin = tmp.path().join("bin");
+    std::fs::create_dir(&bin).unwrap();
+    let wrapper = bin.join("tmux");
+    std::fs::write(&wrapper, format!("#!/bin/sh\nexec {real_tmux} -L {SOCKET} -f /dev/null \"$@\"\n")).unwrap();
+    let stub = bin.join("claude");
+    std::fs::write(&stub, "#!/bin/sh\nprintf 'home=%s\\n' \"$CDAMUX_HOME\"\nexec sleep 60\n").unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    for f in [&wrapper, &stub] {
+        std::fs::set_permissions(f, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let repo = tmp.path().join("repo");
+    std::fs::create_dir(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "init"]);
+
+    let _env = env_lock();
+    let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default());
+    std::env::set_var("PATH", &path);
+    std::env::set_var("TMUX_TMPDIR", tmp.path());
+    let home = tmp.path().join("state home");
+    std::env::set_var("CDAMUX_HOME", &home);
+    std::env::remove_var("TMUX");
+
+    let agents = AgentsConfig {
+        default: "claude".into(),
+        claude: Some(AgentEntry { command: "claude".into(), resume: None }),
+        cursor: None,
+        opencode: None,
+        pi: None,
+    };
+    let wt_root = tmp.path().join("wts");
+    let spawn = |caller: &str, name: &str, cap: u32, agent: Option<&str>| {
+        spawn_worker(WorkerSpawnRequest {
+            name,
+            caller_id: caller,
+            agent,
+            prompt_file: None,
+            here: false,
+            repo: None,
+            worktree_root: Some(&wt_root),
+            agents: &agents,
+            cwd: &repo,
+            max_workers: cap,
+            min_free_gib: 0,
+        })
+    };
+
+    orch("a-orch1", "c-orch1", &repo);
+    let w1 = spawn("a-orch1", "w1", 2, None).expect("w1");
+
+    // H5 / #391: the pane env and the agent process both see the spawner's home.
+    let (_, env) = tmux(&["show-environment", "-t", &w1.host, "CDAMUX_HOME"]);
+    assert_eq!(env.trim(), format!("CDAMUX_HOME={}", home.display()));
+    let pane = wait_for_pane(&w1.host, "home=/");
+    assert!(pane.contains(&format!("home={}", home.display())), "agent env: {pane}");
+    let spawned = read_events(0)
+        .unwrap()
+        .into_iter()
+        .any(|v| v["type"] == "lifecycle" && v["event"] == "spawn" && v["agent"] == w1.agent_id.as_str());
+    assert!(spawned, "missing spawn lifecycle item");
+
+    // M10: an unknown agent fails before any worktree / branch exists.
+    let bad = spawn("a-orch1", "bad", 0, Some("cursor"));
+    assert!(bad.is_err());
+    assert!(!wt_root.join(&w1.run).join("bad").exists());
+
+    let w2 = spawn("a-orch1", "w2", 2, None).expect("w2");
+    assert!(matches!(spawn("a-orch1", "w3", 2, None), Err(WorkerError::Cap { live: 2, cap: 2 })));
+
+    // H2: the orchestrator dies; a new one gets the slots its workers held.
+    assert!(tmux(&["kill-session", "-t", "=c-orch1"]).0);
+    orch("a-orch2", "c-orch2", &repo);
+    let w3 = spawn("a-orch2", "w3", 2, None).expect("dead orchestrator's workers must not hold the cap");
+
+    // Permanent kill of an own worker: session gone, finalized, never restored.
+    assert!(matches!(kill_worker(Some("a-orch2"), "w1", false), Err(WorkerError::NotFound(_))), "not its worker");
+    let killed = kill_worker(Some("a-orch2"), "w3", false).unwrap();
+    assert_eq!(killed.len(), 1);
+    assert!(!has_session(&w3.host));
+    let rec = state_get(StateKind::Agents, &w3.agent_id).unwrap().unwrap();
+    assert_eq!((rec["status"].as_str(), rec["host"].as_str()), (Some("error"), Some("")));
+    assert!(session_registry::load(&w3.host).is_none());
+    assert!(restore_targets(&w3.host).is_none(), "restore must not respawn a killed worker");
+    let kill_items = read_events(0)
+        .unwrap()
+        .into_iter()
+        .filter(|v| v["type"] == "lifecycle" && v["event"] == "kill")
+        .count();
+    assert_eq!(kill_items, 1);
+
+    // A human kills the dead orchestrator's whole subtree.
+    let killed = kill_worker(None, "a-orch1", true).unwrap();
+    let ids: Vec<&str> = killed.iter().map(|k| k.id.as_str()).collect();
+    assert_eq!(ids.len(), 3, "{ids:?}");
+    assert_eq!(ids.last(), Some(&"a-orch1"));
+    assert!(!has_session(&w1.host) && !has_session(&w2.host));
+
+    let (_, sock) = tmux(&["display-message", "-p", "#{socket_path}"]);
+    assert!(
+        sock.contains(tmp.path().to_str().unwrap_or("___")),
+        "refusing kill-server: socket {sock} not under temp"
+    );
+    let _ = Command::new("tmux").args(["kill-server"]).status();
+    std::env::remove_var("CDAMUX_HOME");
+    std::env::remove_var("TMUX_TMPDIR");
+}

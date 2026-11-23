@@ -194,7 +194,7 @@ CD
 chmod +x "$tmp/bin/cdamux"
 export CDAMUX_AGENT_ID=a-hook1 CDAMUX_LOG="$tmp/cdamux.log"
 # macOS scans a new executable on its first exec (~250 ms): warm the stub so the hooks'
-# 40 ms timeout measures the stub, not the scan.
+# 500 ms timeout measures the stub, not the scan.
 "$tmp/bin/cdamux" warm
 printf '{"id":"a-hook1","status":"done"}\n' > "$AF"
 run_status() { printf '%s' "$1" | node "$ST" || fail "status hook exited non-zero"; }
@@ -217,6 +217,19 @@ out="$(run_status '{"hook_event_name":"beforeSubmitPrompt"}')"
 [ "$out" = '{"continue":true}' ] || fail "cursor beforeSubmitPrompt output, got: $out"
 grep -q 'state append agents a-hook1 {"status":"working","turn":"running"}' "$CDAMUX_LOG" || fail "working not written"
 [ "$(jq -r .status "$AF")" = working ] || fail "agent file status not working"
+grep -q 'state append agents a-hook1 {"status":"working"} --sticky' "$CDAMUX_LOG" || fail "status write must pass --sticky"
+# An older cdamux without --sticky exits 2: the hook retries the plain append.
+cp "$tmp/bin/cdamux" "$tmp/bin/cdamux.new"
+cat > "$tmp/bin/cdamux" <<CD
+#!/bin/sh
+case "\$*" in *--sticky*) echo "\$@" >> "\$CDAMUX_LOG"; exit 2;; esac
+exec "$tmp/bin/cdamux.new" "\$@"
+CD
+"$tmp/bin/cdamux" warm
+printf '{"id":"a-hook1","status":"idle"}\n' > "$AF"; : > "$CDAMUX_LOG"
+run_status '{"hook_event_name":"beforeSubmitPrompt"}' >/dev/null
+[ "$(jq -r .status "$AF")" = working ] || fail "old binary fallback did not write working"
+mv "$tmp/bin/cdamux.new" "$tmp/bin/cdamux"
 run_status '{"hook_event_name":"Notification","notification_type":"permission_prompt","message":"Claude needs your permission to use Bash"}' >/dev/null
 [ "$(jq -r .status "$AF")" = needs_input ] || fail "needs_input not sticky-cleared after working"
 # Claude's idle_prompt Notification (~60 s after a turn ends) is not needs_input: an idle

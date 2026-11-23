@@ -126,7 +126,8 @@ One worker per disjoint scope. Never start a second worker on the same scope:
 
 Dispatch, tell the maintainer "dispatched", then **end the turn**. Never
 `sleep`, foreground `AwaitShell` loops, or `gh pr checks --watch` /
-`orch.sh | tee` in the foreground. The `📨` nudge (`cdamux msg`) wakes you.
+`orch.sh | tee` in the foreground. The `📨 N messages` wake line (`cdamux msg`) wakes
+you; the messages themselves arrive in your prompt through the hooks.
 
 ## Spawn with a spec
 
@@ -167,12 +168,22 @@ behind `--ref`.
 
 ## Asks (worker → you)
 
-1. `cdamux msg read [--ack] [--digest]` when nudged or after a turn.
+1. Messages reach you as hook context (at your turn end, or with the `📨` wake line).
+   Run `cdamux msg read --ack` only when the wake line says so (hookless client).
 2. Inside the spec: `cdamux msg send --to <worker> --kind answer "…"`.
 3. A product decision, or outside the spec: ask the maintainer in your chat,
    then answer the worker once they decide.
 
-`kind=ask` leaves the worker `blocked` (Fleet `?`) until an `answer`.
+`kind=ask` leaves the worker `blocked` (Fleet `?`) until an `answer` or a `relay`
+from you, or its own `done`.
+
+## Delivery
+
+`msg send` never types a body into a pane. Its last word tells you what happened:
+`woken` (wake line typed), `scheduled` (typed once the pane is quiet 60 s),
+`turn-end` (the worker's `Stop` hook hands it over when its turn ends), `inbox`
+(no live pane: restore it). All four are delivered or kept; do not resend, and never
+push a message body with `cdamux send`.
 
 ## Stuck workers
 

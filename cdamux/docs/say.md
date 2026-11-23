@@ -33,7 +33,7 @@ cdamux say c-orch  --from alice --json "stop after this task"
   marks a hooked orchestrator `working` under that lock, so concurrent `say` calls
   paste one prompt and queue the rest.
 - A local draft left untouched for ≥ 10 s on an idle orchestrator gets the paste
-  appended, and Enter submits both (same as the inbox nudge).
+  appended, and Enter submits both (the inbox wake line does the same after 60 s, ADR-018).
 - Every accepted `say` appends one `human` item to the [events feed](events.md)
   (`id, agent, from, text`), at call time, delivered or queued.
 

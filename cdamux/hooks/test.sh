@@ -178,6 +178,13 @@ JS
 cat > "$tmp/bin/cdamux" <<CD
 #!/bin/sh
 echo "\$@" >> "\$CDAMUX_LOG"
+if [ "\$1 \$2 \$3" = "msg read --ack" ]; then
+  # Stub of the Rust reader: print unread lines, move the cursor to the end.
+  [ -z "\$STUB_READ_FAIL" ] || exit 1
+  d="\$XDG_STATE_HOME/cdamux/inbox"; c=\$(cat "\$d/\$5.cursor" 2>/dev/null || echo 0)
+  tail -c +\$((c + 1)) "\$d/\$5.jsonl"; wc -c < "\$d/\$5.jsonl" | tr -d ' ' > "\$d/\$5.cursor"
+  exit 0
+fi
 [ "\$1 \$2 \$3" = "state append agents" ] || exit 0
 f="\$XDG_STATE_HOME/cdamux/agents/\$4.json"
 node "$tmp/bin/merge-status.js" "\$f" "\$5"
@@ -191,15 +198,22 @@ printf '{"id":"a-hook1","status":"done"}\n' > "$AF"
 run_status() { printf '%s' "$1" | node "$ST" || fail "status hook exited non-zero"; }
 : > "$CDAMUX_LOG"
 run_status '{"hook_event_name":"Stop"}' >/dev/null
-[ ! -s "$CDAMUX_LOG" ] || fail "sticky done should block idle write"
+grep -q '"status"' "$CDAMUX_LOG" && fail "sticky done should block idle write"
+# `turn` is not sticky (ADR-018): the turn end is recorded under any status.
+[ "$(jq -c '[.status, .turn]' "$AF")" = '["done","ended"]' ] || fail "Stop must record turn ended, got: $(cat "$AF")"
 # A pending ask (blocked) survives the asker's own turn end; the next prompt clears it below.
+# A permission prompt under it is still recorded as a running turn: no wake line lands there.
 printf '{"id":"a-hook1","status":"blocked"}\n' > "$AF"
 run_status '{"hook_event_name":"Stop"}' >/dev/null
 run_status '{"hook_event_name":"Notification","notification_type":"permission_prompt","message":"Claude needs your permission to use Bash"}' >/dev/null
-[ ! -s "$CDAMUX_LOG" ] || fail "sticky blocked should block idle/needs_input writes"
+grep -q '"status"' "$CDAMUX_LOG" && fail "sticky blocked should block idle/needs_input writes"
+[ "$(jq -c '[.status, .turn]' "$AF")" = '["blocked","running"]' ] || fail "permission prompt must mark the turn running, got: $(cat "$AF")"
+printf '{"id":"a-hook1","status":"blocked","turn":"ended"}\n' > "$AF"
+run_status '{"hook_event_name":"PermissionRequest"}' >/dev/null
+[ "$(jq -r .turn "$AF")" = running ] || fail "PermissionRequest must mark the turn running"
 out="$(run_status '{"hook_event_name":"beforeSubmitPrompt"}')"
 [ "$out" = '{"continue":true}' ] || fail "cursor beforeSubmitPrompt output, got: $out"
-grep -q 'state append agents a-hook1 {"status":"working"}' "$CDAMUX_LOG" || fail "working not written"
+grep -q 'state append agents a-hook1 {"status":"working","turn":"running"}' "$CDAMUX_LOG" || fail "working not written"
 [ "$(jq -r .status "$AF")" = working ] || fail "agent file status not working"
 run_status '{"hook_event_name":"Notification","notification_type":"permission_prompt","message":"Claude needs your permission to use Bash"}' >/dev/null
 [ "$(jq -r .status "$AF")" = needs_input ] || fail "needs_input not sticky-cleared after working"
@@ -222,23 +236,45 @@ out="$(run_status '{"hook_event_name":"sessionEnd"}')"
 # No cdamux on PATH → fail-open exit 0 (keep host node; drop the stub bin dir)
 PATH="$(dirname "$(command -v node)"):/usr/bin:/bin" run_status '{"hook_event_name":"UserPromptSubmit"}' >/dev/null || fail "missing cdamux must still exit 0"
 
-# Unread digest (ADR-011 §4): seed inbox after cursor; turn-end / prompt-submit inject.
+# Inbox hand-over (ADR-018): a Claude turn end with unread messages blocks the stop with
+# the full bodies as the reason and acks them; the turn goes on (no idle, no turn end).
 INBOX="$tmp/state/cdamux/inbox"
 mkdir -p "$INBOX"
-printf '{"id":"m-1","ts":1,"from":"a-w","to":"a-hook1","kind":"done","text":"pr opened"}\n' > "$INBOX/a-hook1.jsonl"
-printf '0\n' > "$INBOX/a-hook1.cursor"
-: > "$CDAMUX_LOG"
+seed_inbox() {
+  printf '{"id":"m-1","ts":1,"from":"a-w","to":"a-hook1","kind":"relay","text":"pr opened\\nsecond line"}\n' > "$INBOX/a-hook1.jsonl"
+  printf '0\n' > "$INBOX/a-hook1.cursor"
+}
+seed_inbox
+printf '{"id":"a-hook1","status":"working","turn":"running"}\n' > "$AF"; : > "$CDAMUX_LOG"
 out="$(run_status '{"hook_event_name":"Stop"}')"
-echo "$out" | jq -e '.hookSpecificOutput.hookEventName=="Stop"
-  and (.hookSpecificOutput.additionalContext|test("1 unread"))
-  and (.hookSpecificOutput.additionalContext|test("pr opened"))' >/dev/null \
-  || fail "Stop digest missing, got: $out"
+echo "$out" | jq -e '.decision=="block"
+  and (.reason|test("1 message"))
+  and (.reason|test("relay from a-w · m-1"))
+  and (.reason|test("pr opened\nsecond line"))' >/dev/null \
+  || fail "Stop must block with the full bodies, got: $out"
+[ "$(cat "$INBOX/a-hook1.cursor")" = "$(wc -c < "$INBOX/a-hook1.jsonl" | tr -d ' ')" ] || fail "Stop hand-over must ack"
+[ "$(jq -c '[.status, .turn]' "$AF")" = '["working","running"]' ] || fail "blocked Stop must keep the turn running, got: $(cat "$AF")"
+# Nothing left (acked): the re-fired Stop (stop_hook_active) ends the turn normally.
 out="$(run_status '{"hook_event_name":"Stop","stop_hook_active":true}')"
-[ -z "$out" ] || fail "Stop with stop_hook_active must stay silent, got: $out"
+[ -z "$out" ] || fail "Stop with an empty inbox must stay silent, got: $out"
+[ "$(jq -c '[.status, .turn]' "$AF")" = '["idle","ended"]' ] || fail "Stop must end the turn, got: $(cat "$AF")"
+# A line that arrived during the continued turn is handed over too, even when stop_hook_active.
+seed_inbox
+out="$(run_status '{"hook_event_name":"Stop","stop_hook_active":true}')"
+echo "$out" | jq -e '.decision=="block"' >/dev/null || fail "new unread must block again, got: $out"
+# A failed read never blocks (it could not ack): the stop goes through, the line stays unread.
+seed_inbox
+out="$(STUB_READ_FAIL=1 run_status '{"hook_event_name":"Stop"}')"
+[ -z "$out" ] || fail "failed read must not block, got: $out"
+[ "$(cat "$INBOX/a-hook1.cursor")" = 0 ] || fail "failed read must leave the line unread"
+# Prompt submit (wake line or human prompt) injects the bodies and acks them.
 out="$(run_status '{"hook_event_name":"UserPromptSubmit"}')"
 echo "$out" | jq -e '.hookSpecificOutput.hookEventName=="UserPromptSubmit"
-  and (.hookSpecificOutput.additionalContext|test("unread"))' >/dev/null \
-  || fail "UserPromptSubmit digest missing, got: $out"
+  and (.hookSpecificOutput.additionalContext|test("pr opened\nsecond line"))' >/dev/null \
+  || fail "UserPromptSubmit must inject the bodies, got: $out"
+[ "$(cat "$INBOX/a-hook1.cursor")" != 0 ] || fail "UserPromptSubmit hand-over must ack"
+# Cursor cannot inject: its stop hook keeps the digest followup (agent runs msg read --ack).
+seed_inbox
 out="$(run_status '{"hook_event_name":"stop","loop_count":0}')"
 echo "$out" | jq -e '.followup_message|test("unread")' >/dev/null \
   || fail "cursor stop followup_message missing, got: $out"

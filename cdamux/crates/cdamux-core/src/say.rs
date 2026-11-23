@@ -5,9 +5,8 @@
 use crate::agent_status::load_reported_status;
 use crate::events::emit;
 use crate::msg::{
-    agent_role_and_host, ask_answered, find_message, generate_msg_id, inbox_path, msg_send,
-    read_inbox_all, resolve_agent_id, should_paste, MsgError, DEFAULT_NUDGE_QUIET_SECS,
-    MAX_MSG_BYTES,
+    agent_role_and_host, ask_answered, check_text, find_message, generate_msg_id, inbox_path,
+    msg_send, read_inbox_all, resolve_agent_id, should_paste, MsgError,
 };
 use crate::paths::cdamux_state_dir;
 use crate::send::send_to_session;
@@ -141,21 +140,6 @@ fn check_label(s: &str) -> Result<(), MsgError> {
     Ok(())
 }
 
-/// Non-empty, at most [`MAX_MSG_BYTES`], and free of control characters other than `\n` /
-/// `\t` (an ESC would drive the agent's TUI), like `cdamux send`.
-fn check_text(s: &str) -> Result<(), MsgError> {
-    if s.len() > MAX_MSG_BYTES {
-        return Err(MsgError::TooLarge);
-    }
-    if s.trim().is_empty() || s.chars().any(|c| c.is_control() && c != '\n' && c != '\t') {
-        return Err(MsgError::Invalid(
-            "text must be non-empty, without control characters other than newline and tab"
-                .into(),
-        ));
-    }
-    Ok(())
-}
-
 /// Deliver `text` to an orchestrator as a human prompt `[from] text`: pasted when it is
 /// at rest (reported `idle`, sticky `done` / `error`, or no status, and a quiet pane), else queued for its next turn
 /// end ([`say_drain`]). A `needs_input` orchestrator waits on a permission prompt, where
@@ -255,7 +239,6 @@ pub fn answer_ask(ask_id: &str, from: &str, text: &str) -> Result<AnswerResult, 
                 "answer",
                 &format!("[{from}] {text}"),
                 Some(ask_id),
-                DEFAULT_NUDGE_QUIET_SECS,
                 None,
             ),
             Err(e) => Err(e),
@@ -263,7 +246,7 @@ pub fn answer_ask(ask_id: &str, from: &str, text: &str) -> Result<AnswerResult, 
     })??;
     let relay = format!("[{from}] answered {}'s ask {ask_id}: {text}", ask.from);
     let relayed = msg_send(
-        "human", &ask.to, "relay", &relay, Some(ask_id), DEFAULT_NUDGE_QUIET_SECS, None,
+        "human", &ask.to, "relay", &relay, Some(ask_id), None,
     )
     .is_ok();
     Ok(AnswerResult { id: out.message.id, ask: ask_id.into(), worker: ask.from, relayed })
@@ -272,7 +255,7 @@ pub fn answer_ask(ask_id: &str, from: &str, text: &str) -> Result<AnswerResult, 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::msg::has_pending_ask;
+    use crate::msg::{has_pending_ask, MAX_MSG_BYTES};
     use crate::paths::env_lock;
     use crate::state::{state_append, state_set, StateKind};
     use serde_json::Value;
@@ -368,12 +351,13 @@ mod tests {
             agent("a-ao1", "orchestrator", None, "idle");
             agent("a-aw1", "worker", Some("a-ao1"), "working");
             let ask =
-                msg_send("a-aw1", "a-ao1", "ask", "which schema?", None, 10, Some(None)).unwrap();
+                msg_send("a-aw1", "a-ao1", "ask", "which schema?", None, Some(None)).unwrap();
             let id = ask.message.id;
             assert!(matches!(answer_ask("m-zzzzz", "alice", "v2"), Err(MsgError::NotFound(_))));
-            let done = msg_send("a-aw1", "a-ao1", "done", "x", None, 10, Some(None)).unwrap();
+            // Not `done`: the worker's own done would replace `blocked` (msg.rs).
+            let report = msg_send("a-aw1", "a-ao1", "report", "x", None, Some(None)).unwrap();
             assert!(matches!(
-                answer_ask(&done.message.id, "alice", "v2"),
+                answer_ask(&report.message.id, "alice", "v2"),
                 Err(MsgError::Invalid(_))
             ));
 
@@ -406,7 +390,7 @@ mod tests {
             agent("a-ao3", "orchestrator", None, "idle");
             agent("a-aw2", "worker", Some("a-ao2"), "working");
             let ask = |to: &str, t: &str| {
-                msg_send("a-aw2", to, "ask", t, None, 10, Some(None)).unwrap().message.id
+                msg_send("a-aw2", to, "ask", t, None, Some(None)).unwrap().message.id
             };
             // Same second: a timestamp match would mark both answered.
             let (a, b) = (ask("a-ao2", "schema?"), ask("a-ao2", "branch?"));
@@ -431,11 +415,11 @@ mod tests {
             agent("a-ao4", "orchestrator", None, "idle");
             agent("a-aw4", "worker", Some("a-ao4"), "working");
             let ask = |t: &str| {
-                msg_send("a-aw4", "a-ao4", "ask", t, None, 10, Some(None)).unwrap().message.id
+                msg_send("a-aw4", "a-ao4", "ask", t, None, Some(None)).unwrap().message.id
             };
             let (a, b) = (ask("schema?"), ask("branch?"));
             // `msg send --kind answer --ref <path>`: not an ask id, answers both asks.
-            msg_send("a-ao4", "a-aw4", "answer", "see doc", Some("notes/a.md"), 10, Some(None))
+            msg_send("a-ao4", "a-aw4", "answer", "see doc", Some("notes/a.md"), Some(None))
                 .unwrap();
             assert!(!has_pending_ask("a-aw4", "a-ao4"));
             for id in [&a, &b] {
@@ -444,8 +428,8 @@ mod tests {
             // An id ref answers that ask only (own worker: the path-ref answer above has the
             // same second, so it would count for any ask sent now).
             agent("a-aw5", "worker", Some("a-ao4"), "working");
-            msg_send("a-aw5", "a-ao4", "ask", "deploy?", None, 10, Some(None)).unwrap();
-            msg_send("a-ao4", "a-aw5", "answer", "no", Some("m-zzzzz"), 10, Some(None)).unwrap();
+            msg_send("a-aw5", "a-ao4", "ask", "deploy?", None, Some(None)).unwrap();
+            msg_send("a-ao4", "a-aw5", "answer", "no", Some("m-zzzzz"), Some(None)).unwrap();
             assert!(has_pending_ask("a-aw5", "a-ao4"));
         });
     }

@@ -196,6 +196,27 @@ function setAgentStatus(env, status) {
   }
 }
 
+/// One `state append` with `status` (when stickiness allows it) and `turn` (`running` /
+/// `ended`, never sticky: msg wake reads it to know a pane is safe to type into, ADR-018).
+/// 1 s budget: a dropped `turn` write would leave a stale value. Fail-open.
+function setAgentState(env, status, turn) {
+  const id = resolveAgentId(env);
+  if (!id) return;
+  const patch = {};
+  if (status && stickyOk(readAgentStatus(env, id), status)) patch.status = status;
+  if (turn) patch.turn = turn;
+  if (!Object.keys(patch).length) return;
+  try {
+    execFileSync('cdamux', ['state', 'append', 'agents', id, JSON.stringify(patch)], {
+      env,
+      timeout: 1000,
+      stdio: 'ignore',
+    });
+  } catch (e) {
+    /* fail-open */
+  }
+}
+
 function readCursor(file) {
   try {
     const n = parseInt(fs.readFileSync(file, 'utf8').trim(), 10);
@@ -229,6 +250,37 @@ function readUnreadMessages(env, id) {
   }
 }
 
+/// Read and ack the whole unread inbox through `cdamux msg read --ack` (Rust owns the
+/// cursor). Empty on any failure, so a hook never hands over what it could not ack.
+function takeUnread(env) {
+  const id = resolveAgentId(env);
+  if (!id || !readUnreadMessages(env, id).length) return [];
+  try {
+    const out = execFileSync('cdamux', ['msg', 'read', '--ack', '--agent', id], {
+      env,
+      encoding: 'utf8',
+      timeout: 2000,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    return out.split('\n').filter(Boolean).map((line) => {
+      try { return JSON.parse(line); } catch (e) { return null; }
+    }).filter(Boolean);
+  } catch (e) {
+    return [];
+  }
+}
+
+/// Full message bodies for a Stop `reason` / UserPromptSubmit context, oldest first.
+function formatMessages(msgs) {
+  const n = msgs.length === 1 ? '1 message' : `${msgs.length} messages`;
+  const lines = [`cdamux: ${n} from your inbox (already acked; act on them):`];
+  for (const m of msgs) {
+    const ref = m.ref ? ` · ref ${m.ref}` : '';
+    lines.push('', `[${m.kind || '?'} from ${m.from || '?'} · ${m.id || '?'}${ref}]`, String(m.text || ''));
+  }
+  return lines.join('\n');
+}
+
 /// One-line-ish digest for turn-end / prompt-submit hooks. Empty when nothing unread.
 function unreadDigest(env) {
   const id = resolveAgentId(env);
@@ -251,8 +303,12 @@ module.exports = {
   readAgentStatus,
   recordReply,
   drainSay,
+  formatMessages,
+  readAgentField,
+  setAgentState,
   setAgentStatus,
   readUnreadMessages,
+  takeUnread,
   unreadDigest,
   stateDir,
 };

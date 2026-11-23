@@ -324,7 +324,7 @@ pub fn classify_pane_heuristics(
     SessionState::Idle
 }
 
-fn pane_tail_looks_like_input(tail: &str) -> bool {
+pub(crate) fn pane_tail_looks_like_input(tail: &str) -> bool {
     let line = tail
         .lines()
         .rev()
@@ -403,20 +403,8 @@ pub fn capture_pane_text(
 
 /// Test shorthand: [`input_argvs`] on a session's active pane, no named keys.
 #[cfg(test)]
-fn send_line_argvs(
-    session_name: &str,
-    line: &str,
-    enter: bool,
-    clear_line: bool,
-) -> Vec<Vec<String>> {
-    input_argvs(
-        &pane_target(session_name),
-        line,
-        &[],
-        enter,
-        clear_line,
-        "cdamux-send-test",
-    )
+fn send_line_argvs(session_name: &str, line: &str, enter: bool) -> Vec<Vec<String>> {
+    input_argvs(&pane_target(session_name), line, &[], enter, "cdamux-send-test")
 }
 
 /// Control characters text may not carry into a pane: they act as keys (`\r` submits,
@@ -433,24 +421,17 @@ pub(crate) fn is_forbidden_control(c: char) -> bool {
 /// pasted with `-p` (bracketed paste) and `-d` (buffer deleted once pasted). Bracketed
 /// paste only applies when the receiving app enabled it; without it, each `\n` still
 /// submits a line. Keys and `Enter` are separate `send-keys` calls, never `-l`.
-///
-/// When `clear_line` is true, send `C-u` first so a leftover composer draft is not
-/// concatenated. Needed for Cursor orch idle nudges: keyboard submit omits prompt clear
-/// (`us("")`); real fix is upstream Cursor. Heuristic may differ under vim-mode.
+/// Nothing clears the input line first: a human draft is never wiped.
 fn input_argvs(
     target: &str,
     line: &str,
     keys: &[&str],
     enter: bool,
-    clear_line: bool,
     buffer: &str,
 ) -> Vec<Vec<String>> {
     let target = target.to_string();
     let argv = |args: &[&str]| -> Vec<String> { args.iter().map(|s| s.to_string()).collect() };
     let mut out = Vec::new();
-    if clear_line {
-        out.push(argv(&["send-keys", "-t", &target, "C-u"]));
-    }
     if !line.is_empty() {
         out.push(argv(&["load-buffer", "-b", buffer, "-"]));
         out.push(argv(&[
@@ -500,25 +481,7 @@ fn settle_before(argvs: &[Vec<String>]) -> Vec<bool> {
 
 /// Send a literal line to the session's active pane; optional Enter keypress.
 pub fn send_line_to_session(session_name: &str, line: &str, enter: bool) -> Result<(), TmuxError> {
-    send_line_to_session_ex(session_name, line, enter, false)
-}
-
-/// Like [`send_line_to_session`], but kill the current input line (`C-u`) first.
-pub(crate) fn send_line_to_session_preclear(
-    session_name: &str,
-    line: &str,
-    enter: bool,
-) -> Result<(), TmuxError> {
-    send_line_to_session_ex(session_name, line, enter, true)
-}
-
-fn send_line_to_session_ex(
-    session_name: &str,
-    line: &str,
-    enter: bool,
-    clear_line: bool,
-) -> Result<(), TmuxError> {
-    run_input(&pane_target(session_name), line, &[], enter, clear_line)
+    run_input(&pane_target(session_name), line, &[], enter)
 }
 
 /// Type `line`, then press `keys` (tmux key names, never `-l`), then optional Enter on `target`.
@@ -529,19 +492,13 @@ pub(crate) fn send_input_to_target(
     keys: &[&str],
     enter: bool,
 ) -> Result<(), TmuxError> {
-    run_input(target, line, keys, enter, false)
+    run_input(target, line, keys, enter)
 }
 
-fn run_input(
-    target: &str,
-    line: &str,
-    keys: &[&str],
-    enter: bool,
-    clear_line: bool,
-) -> Result<(), TmuxError> {
+fn run_input(target: &str, line: &str, keys: &[&str], enter: bool) -> Result<(), TmuxError> {
     let line: String = line.chars().filter(|c| !is_forbidden_control(*c)).collect();
     let buffer = paste_buffer_name();
-    let argvs = input_argvs(target, &line, keys, enter, clear_line, &buffer);
+    let argvs = input_argvs(target, &line, keys, enter, &buffer);
     let result = run_argvs(&argvs, &line);
     if result.is_err() && !line.is_empty() {
         // `paste-buffer -d` only deletes on success: never leave the text (maybe a secret) behind.
@@ -609,15 +566,16 @@ mod tests {
     fn send_line_enter_is_separate_key_invocation() {
         let mut want = paste("=c-bar:");
         want.push(vec!["send-keys", "-t", "=c-bar:", "Enter"]);
-        assert_eq!(send_line_argvs("c-bar", "echo hi", true, false), want);
-        assert_eq!(send_line_argvs("c-bar", "y", false, false).len(), 2);
-        assert_eq!(send_line_argvs("c-bar", "", true, false).len(), 1); // Enter only
+        // Exactly paste + Enter: no `C-u` first, a human draft is never wiped.
+        assert_eq!(send_line_argvs("c-bar", "echo hi", true), want);
+        assert_eq!(send_line_argvs("c-bar", "y", false).len(), 2);
+        assert_eq!(send_line_argvs("c-bar", "", true).len(), 1); // Enter only
     }
 
     #[test]
     fn text_never_goes_through_send_keys() {
         for line in ["y", "a\nb", "-la", "C-c"] {
-            let argvs = send_line_argvs("c-bar", line, true, true);
+            let argvs = send_line_argvs("c-bar", line, true);
             assert!(
                 argvs.iter().all(|a| !a.contains(&line.to_string())),
                 "{line}: {argvs:?}"
@@ -652,35 +610,18 @@ mod tests {
         want.push(vec!["send-keys", "-t", "%3", "Up"]);
         want.push(vec!["send-keys", "-t", "%3", "Enter"]);
         assert_eq!(
-            input_argvs("%3", "y", &["C-c", "Up"], true, false, "cdamux-send-test"),
+            input_argvs("%3", "y", &["C-c", "Up"], true, "cdamux-send-test"),
             want
-        );
-    }
-
-    #[test]
-    fn send_line_preclear_sends_c_u_before_text() {
-        let mut want = vec![vec!["send-keys", "-t", "=c-bar:", "C-u"]];
-        want.extend(paste("=c-bar:"));
-        want.push(vec!["send-keys", "-t", "=c-bar:", "Enter"]);
-        assert_eq!(
-            send_line_argvs("c-bar", "📨 1 messages — cdamux msg read --ack", true, true),
-            want
-        );
-        // Default path (worker paste / CLI send) must not clear.
-        assert_eq!(
-            send_line_argvs("c-bar", "hello", true, false)[0][0],
-            "load-buffer"
         );
     }
 
     #[test]
     fn send_settles_between_pane_writes() {
-        let s = |line, enter, clear| settle_before(&send_line_argvs("c-bar", line, enter, clear));
+        let s = |line, enter| settle_before(&send_line_argvs("c-bar", line, enter));
         // load-buffer is not a pane write: no pause before paste-buffer
-        assert_eq!(s("hi", true, false), vec![false, false, true]); // pause before Enter
-        assert_eq!(s("hi", true, true), vec![false, false, true, true]); // after C-u too
-        assert_eq!(s("hi", false, false), vec![false, false]);
-        assert_eq!(s("", true, false), vec![false]);
+        assert_eq!(s("hi", true), vec![false, false, true]); // pause before Enter
+        assert_eq!(s("hi", false), vec![false, false]);
+        assert_eq!(s("", true), vec![false]);
     }
 
     #[test]

@@ -1,28 +1,48 @@
 //! Inbox messages under `$CDAMUX_HOME/inbox/` (ADR-011 §4).
 //! JSONL ≤ 2 KB per line; ack cursor is `<agent-id>.cursor` (byte offset).
 
-use crate::agent_status::{load_reported_status, may_overwrite, parse_reported_status};
+use crate::agent_status::{may_overwrite, parse_reported_status};
 use crate::paths::cdamux_state_dir;
-use crate::send::{send_to_session, send_to_session_preclear};
+use crate::send::send_to_session;
 use crate::session::SessionState;
 use crate::session_registry;
 use crate::state::{
-    random_id, state_append, state_get, state_list, valid_state_id, write_atomic, StateKind,
+    random_chars, state_append, state_get, state_list, try_entity_lock, valid_state_id,
+    with_entity_lock, write_atomic, StateKind, BASE36,
 };
-use crate::tmux::list_panes_all;
+use crate::tmux::{list_panes_all, pane_tail, pane_tail_looks_like_input};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::fs::{self, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 
 /// Max serialised JSON line size (ADR-011 §4).
 pub const MAX_MSG_BYTES: usize = 2048;
 
-/// Idle pane quiet window before an orchestrator nudge (seconds).
+/// Quiet pane window before `say` pastes a human prompt, and of the worker cap (seconds).
 pub const DEFAULT_NUDGE_QUIET_SECS: u32 = 10;
+
+/// Quiet pane window before the wake line is typed into an agent at rest (seconds).
+/// `CDAMUX_WAKE_QUIET_SECS` overrides it (tuning, tmux e2e tests); the idle time itself is
+/// always read from tmux.
+pub const DEFAULT_WAKE_QUIET_SECS: u32 = 60;
+
+/// A background waker gives up after this long; the agent's next prompt or turn end
+/// still hands the inbox over through its hooks.
+const WAKER_MAX: Duration = Duration::from_secs(6 * 3600);
+
+/// Effective wake quiet window: `CDAMUX_WAKE_QUIET_SECS` when set to a positive number.
+pub fn wake_quiet_secs() -> u32 {
+    std::env::var("CDAMUX_WAKE_QUIET_SECS")
+        .ok()
+        .and_then(|s| s.trim().parse::<u32>().ok())
+        .filter(|s| *s > 0)
+        .unwrap_or(DEFAULT_WAKE_QUIET_SECS)
+}
 
 const KINDS: &[&str] = &["report", "ask", "done", "error", "relay", "answer"];
 
@@ -58,37 +78,40 @@ pub struct Message {
     pub r#ref: Option<String>,
 }
 
-/// How delivery should treat the target after the inbox append.
+/// What `msg send` did beyond the inbox append (Q21: a message body is never typed into
+/// a pane; only the fixed wake line is).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DeliveryMode {
-    /// Worker: paste into its pane.
-    WorkerPaste,
-    /// Orchestrator / free agent: optional idle nudge.
-    OrchNudge,
+pub enum Delivery {
+    /// The agent was at rest on a quiet pane: the wake line was typed.
+    Woken,
+    /// At rest but the pane is not quiet yet: a background waker retries.
+    Scheduled,
+    /// Mid-turn: the agent's `Stop` hook hands the messages over at turn end.
+    TurnEnd,
+    /// No live pane, or no safe moment known: the message waits in the inbox.
+    Inbox,
+}
+
+impl Delivery {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Delivery::Woken => "woken",
+            Delivery::Scheduled => "scheduled",
+            Delivery::TurnEnd => "turn-end",
+            Delivery::Inbox => "inbox",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SendOutcome {
     pub message: Message,
-    pub delivery: DeliveryMode,
-    pub nudged: bool,
-    pub pasted: bool,
+    pub delivery: Delivery,
 }
 
 impl SendOutcome {
-    /// What happened beyond the inbox append.
-    /// `inbox`: a worker relay/answer was not pasted (workers have no drain).
-    /// `queued`: an orchestrator line was not nudged; `say` drains that on stop.
     pub fn delivery_word(&self) -> &'static str {
-        if self.pasted {
-            "pasted"
-        } else if self.nudged {
-            "nudged"
-        } else if self.delivery == DeliveryMode::WorkerPaste {
-            "inbox"
-        } else {
-            "queued"
-        }
+        self.delivery.as_str()
     }
 }
 
@@ -121,9 +144,22 @@ fn cursor_path(agent_id: &str) -> io::Result<PathBuf> {
     Ok(inbox_dir()?.join(format!("{agent_id}.cursor")))
 }
 
-/// Mint `m-xxxxx` (5 lowercase alphanumeric). `None` without `/dev/urandom`.
+/// Mint `m-ttttttrrrrr`: 6 base36 chars of seconds since 2024-01-01 (sortable, good until
+/// 2093) and 5 random ones, so two ids can collide only within the same second (1 in
+/// 60 M per pair). `None` without `/dev/urandom`.
 pub fn generate_msg_id() -> Option<String> {
-    random_id("m")
+    Some(format!("m-{}{}", base36_secs(now_ts()), random_chars::<5>()?))
+}
+
+/// Seconds since 2024-01-01 UTC as 6 base36 chars.
+fn base36_secs(ts: u64) -> String {
+    let mut n = ts.saturating_sub(1_704_067_200);
+    let mut out = [b'0'; 6];
+    for slot in out.iter_mut().rev() {
+        *slot = BASE36[(n % 36) as usize];
+        n /= 36;
+    }
+    String::from_utf8_lossy(&out).into_owned()
 }
 
 pub fn valid_kind(kind: &str) -> bool {
@@ -213,30 +249,11 @@ pub(crate) fn agent_role_and_host(id: &str) -> Result<(String, Option<String>), 
     Ok((role, host))
 }
 
-pub fn delivery_mode_for_role(role: &str) -> DeliveryMode {
-    if role == "worker" {
-        DeliveryMode::WorkerPaste
-    } else {
-        DeliveryMode::OrchNudge
-    }
-}
-
-/// True when status is `idle` and the pane has been quiet for `quiet_secs`.
-pub fn should_nudge(
-    status: Option<SessionState>,
-    idle_seconds: Option<u32>,
-    quiet_secs: u32,
-) -> bool {
-    status == Some(SessionState::Idle)
-        && idle_seconds.is_some_and(|s| s >= quiet_secs.max(1))
-}
-
-/// Paste into a worker pane only after a finished turn (`idle`, or sticky `done` /
-/// `error`; no status = no hooks, so the quiet pane alone decides) and the nudge's quiet
-/// window: the paste ends with Enter, so on a busy, a just-active or a permission-prompt
-/// pane it would merge with (and submit) what the user is typing, or answer the prompt.
-/// Otherwise the message stays in the inbox and the status hook's digest delivers it at
-/// the worker's next prompt submit or turn end.
+/// `say` pastes a human prompt into an orchestrator only after a finished turn (`idle`, or
+/// sticky `done` / `error`; no status = no hooks, so the quiet pane alone decides) and the
+/// quiet window: the paste ends with Enter, so on a busy, a just-active or a
+/// permission-prompt pane it would merge with (and submit) what the user is typing, or
+/// answer the prompt.
 pub fn should_paste(
     status: Option<SessionState>,
     idle_seconds: Option<u32>,
@@ -248,8 +265,15 @@ pub fn should_paste(
     ) && idle_seconds.is_some_and(|s| s >= quiet_secs.max(1))
 }
 
-pub fn nudge_text(unread: usize) -> String {
-    format!("📨 {unread} messages — cdamux msg read --ack")
+/// The fixed wake line. `injected`: the agent's `UserPromptSubmit` hook adds the bodies to
+/// the prompt (and acks them); otherwise the line tells the agent to read its inbox.
+pub fn wake_text(unread: usize, injected: bool) -> String {
+    let n = if unread == 1 { "1 message".to_string() } else { format!("{unread} messages") };
+    if injected {
+        format!("📨 {n}")
+    } else {
+        format!("📨 {n} — cdamux msg read --ack")
+    }
 }
 
 fn read_cursor(path: &Path) -> io::Result<u64> {
@@ -262,15 +286,6 @@ fn read_cursor(path: &Path) -> io::Result<u64> {
 
 fn write_cursor(path: &Path, offset: u64) -> io::Result<()> {
     write_atomic(path, format!("{offset}\n").as_bytes())
-}
-
-/// Move `agent_id`'s ack cursor from `from` to `to` only when it sits at `from`, so a
-/// pasted line is marked read without skipping older unread lines.
-fn move_cursor_if_at(agent_id: &str, from: u64, to: u64) -> bool {
-    let Ok(path) = cursor_path(agent_id) else {
-        return false;
-    };
-    read_cursor(&path).ok() == Some(from) && write_cursor(&path, to).is_ok()
 }
 
 /// Append one message line (O_APPEND). Rejects lines over [`MAX_MSG_BYTES`].
@@ -375,12 +390,13 @@ pub fn agent_parent_id(agent_id: &str) -> Option<String> {
         })
 }
 
-/// True when the worker's inbox answers `ask`: an `answer` whose `ref` is a message id
-/// answers that ask only (`msg answer`); any other `answer` (no `ref`, or a `--ref` path)
-/// answers every ask the worker sent its sender up to then (TUI / tailnet reply).
+/// True when the worker's inbox answers `ask`: an `answer` or `relay` whose `ref` is a
+/// message id answers that ask only (`msg answer`); any other one (no `ref`, or a `--ref`
+/// path) from the asked agent answers every ask the worker sent it up to then (TUI /
+/// tailnet reply, or an orchestrator replying with `relay`; it also lifts `blocked`).
 pub fn ask_answered(ask: &Message, worker_msgs: &[Message]) -> bool {
     worker_msgs.iter().any(|ans| {
-        ans.kind == "answer"
+        (ans.kind == "answer" || ans.kind == "relay")
             && match ans.r#ref.as_deref().filter(|r| r.starts_with("m-")) {
                 Some(r) => r == ask.id,
                 None => ans.from == ask.to && ans.ts >= ask.ts,
@@ -439,66 +455,83 @@ pub fn reply_to_ask(worker_id: &str, text: &str) -> Result<SendOutcome, MsgError
             "agent '{worker_id}' has no parent; cannot answer ask"
         ))
     })?;
-    msg_send(
-        &parent,
-        worker_id,
-        "answer",
-        text,
-        None,
-        DEFAULT_NUDGE_QUIET_SECS,
-        None,
-    )
+    msg_send(&parent, worker_id, "answer", text, None, None)
 }
 
+fn agent_status(id: &str) -> Result<Option<SessionState>, MsgError> {
+    Ok(state_get(StateKind::Agents, id)
+        .map_err(|e| MsgError::Io(e.to_string()))?
+        .and_then(|v| v.get("status").and_then(|s| s.as_str()).and_then(parse_reported_status)))
+}
+
+fn set_status(id: &str, status: &str) -> Result<(), MsgError> {
+    state_append(StateKind::Agents, id, &json!({ "status": status }))
+        .map_err(|e| MsgError::Io(e.to_string()))
+}
+
+/// Status side effects of a message. `ask` sets the sender `blocked` (shown as `?`); a
+/// parent's `answer` or `relay` lifts the recipient's `blocked` to `idle` (the asker got
+/// its reply); the blocked agent's own `done` replaces `blocked` (it finished anyway).
+/// `error` keeps a sticky status: orch.sh reports its `blocked` workers as kind=error.
 fn apply_kind_status(kind: &str, from: &str, to: &str) -> Result<(), MsgError> {
     match kind {
-        "ask" => {
-            state_append(StateKind::Agents, from, &json!({ "status": "blocked" }))
-                .map_err(|e| MsgError::Io(e.to_string()))?;
-        }
+        "ask" => set_status(from, "blocked")?,
         "done" | "error" => {
-            // Sticky (agent_status::may_overwrite): orch.sh reports a `blocked` worker as
-            // kind=error, and that `blocked` is kept.
-            let rec =
-                state_get(StateKind::Agents, from).map_err(|e| MsgError::Io(e.to_string()))?;
-            if let Some(v) = rec {
-                let cur = v
-                    .get("status")
-                    .and_then(|s| s.as_str())
-                    .and_then(parse_reported_status);
-                let next = if kind == "done" { SessionState::Done } else { SessionState::Error };
-                if may_overwrite(cur, next) {
-                    state_append(StateKind::Agents, from, &json!({ "status": kind }))
-                        .map_err(|e| MsgError::Io(e.to_string()))?;
-                }
+            let cur = agent_status(from)?;
+            let next = if kind == "done" { SessionState::Done } else { SessionState::Error };
+            let own_done = kind == "done" && cur == Some(SessionState::Blocked);
+            if cur.is_some() && (own_done || may_overwrite(cur, next)) {
+                set_status(from, kind)?;
             }
         }
-        "answer" => {
-            // Clear asker blocked → idle only; do not wipe other statuses.
-            let blocked = state_get(StateKind::Agents, to)
-                .map_err(|e| MsgError::Io(e.to_string()))?
-                .and_then(|v| v.get("status").and_then(|s| s.as_str()).map(str::to_owned));
-            if blocked.as_deref() == Some("blocked") {
-                state_append(StateKind::Agents, to, &json!({ "status": "idle" }))
-                    .map_err(|e| MsgError::Io(e.to_string()))?;
-            }
+        "answer" | "relay" if agent_status(to)? == Some(SessionState::Blocked) => {
+            set_status(to, "idle")?;
         }
         _ => {}
     }
     Ok(())
 }
 
-/// Build, append, deliver (paste / nudge), and apply ask/answer status side-effects.
+/// Background wakers are spawned only from the `cdamux` binary (it calls
+/// [`enable_background_waker`]); library callers and tests get `scheduled` without one.
+static BACKGROUND_WAKER: AtomicBool = AtomicBool::new(false);
+
+/// Let [`msg_send`] start `cdamux msg wake <id>` (the current executable) when an agent at
+/// rest is not quiet yet.
+pub fn enable_background_waker() {
+    BACKGROUND_WAKER.store(true, Ordering::Relaxed);
+}
+
+fn spawn_waker(agent_id: &str) {
+    use std::os::unix::process::CommandExt;
+    if !BACKGROUND_WAKER.load(Ordering::Relaxed) {
+        return;
+    }
+    let Ok(exe) = std::env::current_exe() else {
+        return;
+    };
+    // Own process group, no stdio: it outlives the caller (a hook, a tool call).
+    let _ = std::process::Command::new(exe)
+        .args(["msg", "wake", agent_id])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .process_group(0)
+        .spawn();
+}
+
+/// Validate, append, apply status side effects, then wake the recipient when it is at rest.
+/// The body is never typed into a pane (Q21): mid-turn the `Stop` hook hands it over, an
+/// agent at rest gets only the wake line ([`wake_once`]), retried in the background
+/// until its pane has been quiet for [`wake_quiet_secs`].
 ///
-/// `quiet_secs` is injectable for tests (production: [`DEFAULT_NUDGE_QUIET_SECS`]).
-/// `idle_override` injects pane idle seconds in tests (`None` → read from tmux).
+/// `idle_override` injects pane idle seconds in unit tests (`None` → read from tmux).
 pub fn msg_send(
     from: &str,
     to_raw: &str,
     kind: &str,
     text: &str,
     r#ref: Option<&str>,
-    quiet_secs: u32,
     idle_override: Option<Option<u32>>,
 ) -> Result<SendOutcome, MsgError> {
     if !valid_kind(kind) {
@@ -507,9 +540,7 @@ pub fn msg_send(
             KINDS.join("|")
         )));
     }
-    if text.is_empty() {
-        return Err(MsgError::Invalid("text must not be empty".into()));
-    }
+    check_text(text)?;
     if !valid_state_id(from) {
         return Err(MsgError::Invalid(format!("invalid from id '{from}'")));
     }
@@ -530,57 +561,160 @@ pub fn msg_send(
         return Err(MsgError::TooLarge);
     }
 
-    let end = append_message(&msg)?;
-    let start = end - (line.len() as u64 + 1);
+    append_message(&msg)?;
     apply_kind_status(kind, from, &to)?;
-
-    let (role, host) = agent_role_and_host(&to)?;
+    let (role, _) = agent_role_and_host(&to)?;
     if role == "orchestrator" {
         crate::events::emit_msg(&msg);
     }
-    let delivery = delivery_mode_for_role(&role);
-    let mut pasted = false;
-    let mut nudged = false;
-    let status = load_reported_status(&to);
-    let idle = match idle_override {
-        Some(v) => v,
-        None => host
-            .as_ref()
-            .and_then(|h| list_panes_all().get(h).and_then(|p| p.idle_seconds)),
-    };
 
-    // Inbox append is the source of truth; pane paste/nudge are best-effort.
-    match delivery {
-        DeliveryMode::WorkerPaste => {
-            let session = host.as_deref().filter(|_| should_paste(status, idle, quiet_secs));
-            if let Some(session) = session {
-                // Ack before the paste: its prompt-submit hook must not digest this line again.
-                let acked = move_cursor_if_at(&to, start, end);
-                pasted = send_to_session(session, text, true).is_ok();
-                if acked && !pasted {
-                    move_cursor_if_at(&to, end, start);
-                }
+    // Inbox append is the source of truth; the wake line is best-effort.
+    let delivery = match wake_once(&to, wake_quiet_secs(), idle_override) {
+        Ok(WakePlan::Now) => Delivery::Woken,
+        Ok(WakePlan::After(_)) => {
+            spawn_waker(&to);
+            Delivery::Scheduled
+        }
+        Ok(WakePlan::TurnEnd) => {
+            // Backstop: a line appended while the Stop hook already ran waits for a wake.
+            spawn_waker(&to);
+            Delivery::TurnEnd
+        }
+        Ok(WakePlan::Never) | Err(_) => Delivery::Inbox,
+    };
+    Ok(SendOutcome { message: msg, delivery })
+}
+
+/// Non-empty, at most [`MAX_MSG_BYTES`], and free of control characters other than `\n` /
+/// `\t` (an ESC would drive a terminal that prints the inbox).
+pub(crate) fn check_text(s: &str) -> Result<(), MsgError> {
+    if s.len() > MAX_MSG_BYTES {
+        return Err(MsgError::TooLarge);
+    }
+    if s.trim().is_empty() || s.chars().any(|c| c.is_control() && c != '\n' && c != '\t') {
+        return Err(MsgError::Invalid(
+            "text must be non-empty, without control characters other than newline and tab"
+                .into(),
+        ));
+    }
+    Ok(())
+}
+
+/// What a wake attempt does for an agent with unread messages and a live pane.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WakePlan {
+    /// Type the wake line now.
+    Now,
+    /// Retry after that many seconds (not quiet yet, or busy without turn hooks).
+    After(u32),
+    /// Mid-turn: the `Stop` hook delivers (a waker still polls as a backstop).
+    TurnEnd,
+    /// Nothing to wake, or no safe moment is knowable.
+    Never,
+}
+
+/// Wake decision (Q21). `turn` is the hook-written field (`running` from prompt submit or
+/// a permission request until `Stop`, then `ended`): when present it is authoritative, so a
+/// pane on a permission dialog (always mid-turn) is never typed into. Without it (no turn
+/// hooks: Cursor/codex/opencode, or older hooks) only `idle` / no status qualifies; a
+/// sticky `blocked` / `done` / `error` may still be mid-turn, so it is left to the inbox.
+/// `pane_input`: the pane tail looks like a prompt waiting for an answer.
+pub fn wake_plan(
+    turn: Option<&str>,
+    status: Option<SessionState>,
+    pane_input: bool,
+    idle: Option<u32>,
+    quiet: u32,
+) -> WakePlan {
+    let quiet = quiet.max(1);
+    let at_rest = match turn {
+        Some("running") => return WakePlan::TurnEnd,
+        Some(_) => status != Some(SessionState::NeedsInput),
+        None => match status {
+            None | Some(SessionState::Idle) => true,
+            Some(SessionState::Working | SessionState::NeedsInput) => false,
+            Some(_) => return WakePlan::Never,
+        },
+    };
+    match idle {
+        _ if !at_rest || pane_input => WakePlan::After(quiet),
+        Some(s) if s >= quiet => WakePlan::Now,
+        Some(s) => WakePlan::After(quiet - s),
+        None => WakePlan::After(quiet),
+    }
+}
+
+/// `inbox/<id>.<ext>`: lock entities next to the inbox (validated id).
+fn inbox_sibling(agent_id: &str, ext: &str) -> Result<PathBuf, MsgError> {
+    Ok(inbox_path(agent_id)?.with_extension(ext))
+}
+
+/// One wake attempt under the agent's wake lock: reads unread count, record and pane, then
+/// types [`wake_text`] (never a body, never `C-u`) when [`wake_plan`] says `Now`. A typed
+/// line refreshes the pane's activity, so a concurrent attempt waits for the next quiet
+/// window. Returns the plan acted on; a failed type is an error.
+pub fn wake_once(
+    agent_id: &str,
+    quiet: u32,
+    idle_override: Option<Option<u32>>,
+) -> Result<WakePlan, MsgError> {
+    let lock = inbox_sibling(agent_id, "wake")?;
+    with_entity_lock(&lock, || {
+        let unread = unread_count(agent_id).map_err(|e| io::Error::other(e.to_string()))?;
+        let rec = state_get(StateKind::Agents, agent_id)?.unwrap_or_default();
+        let field = |k: &str| rec.get(k).and_then(|v| v.as_str()).filter(|s| !s.is_empty());
+        // A gone pane ends the waker too: the inbox waits for a restore.
+        let Some(host) = field("host")
+            .filter(|h| unread > 0 && crate::send::tmux_has_session(h).unwrap_or(false))
+        else {
+            return Ok(WakePlan::Never);
+        };
+        let turn = field("turn");
+        if turn == Some("running") {
+            return Ok(WakePlan::TurnEnd);
+        }
+        let status = field("status").and_then(parse_reported_status);
+        let idle = idle_override
+            .unwrap_or_else(|| list_panes_all().get(host).and_then(|p| p.idle_seconds));
+        let pane_input = pane_tail(host).is_some_and(|t| pane_tail_looks_like_input(&t));
+        let plan = wake_plan(turn, status, pane_input, idle, quiet);
+        if plan == WakePlan::Now {
+            // Only Claude's UserPromptSubmit hook injects bodies (Cursor cannot).
+            let injected = turn.is_some() && field("client") == Some("claude");
+            send_to_session(host, &wake_text(unread, injected), true)
+                .map_err(|e| io::Error::other(e.to_string()))?;
+        }
+        Ok(plan)
+    })
+    .map_err(MsgError::from)
+}
+
+/// `cdamux msg wake <id>`: retry [`wake_once`] until it types the wake line or the inbox is
+/// read; mid-turn it polls every `quiet` seconds, so a line that missed the `Stop` hook
+/// still gets a wake once the turn ended. One waker per agent (a held lock); a waker that
+/// finds the lock taken exits, and the holder re-checks the inbox after releasing it, so a
+/// message appended meanwhile is not left without a waker.
+pub fn run_waker(agent_id: &str, quiet: u32) -> Result<(), MsgError> {
+    let lock = inbox_sibling(agent_id, "waker")?;
+    let start = Instant::now();
+    loop {
+        let Some(held) = try_entity_lock(&lock)? else {
+            return Ok(());
+        };
+        let mut seen = 0;
+        while start.elapsed() < WAKER_MAX {
+            seen = unread_count(agent_id)?;
+            match wake_once(agent_id, quiet, None) {
+                Ok(WakePlan::After(s)) => std::thread::sleep(Duration::from_secs(s.into())),
+                Ok(WakePlan::TurnEnd) => std::thread::sleep(Duration::from_secs(quiet.into())),
+                _ => break,
             }
         }
-        DeliveryMode::OrchNudge => {
-            if should_nudge(status, idle, quiet_secs) {
-                if let Some(session) = host.as_deref() {
-                    let n = unread_count(&to).unwrap_or(1).max(1);
-                    // Pre-clear: Cursor Enter submit does not empty the composer.
-                    if send_to_session_preclear(session, &nudge_text(n), true).is_ok() {
-                        nudged = true;
-                    }
-                }
-            }
+        drop(held);
+        if start.elapsed() >= WAKER_MAX || unread_count(agent_id)? <= seen {
+            return Ok(());
         }
     }
-
-    Ok(SendOutcome {
-        message: msg,
-        delivery,
-        nudged,
-        pasted,
-    })
 }
 
 /// Format a short digest for hooks (one line per message, capped).
@@ -854,16 +988,44 @@ mod tests {
         });
     }
 
+    /// Q21 truth table: when the wake line may be typed.
     #[test]
-    fn nudge_requires_idle_and_quiet() {
-        assert!(!should_nudge(Some(SessionState::Idle), Some(5), 10));
-        assert!(should_nudge(Some(SessionState::Idle), Some(10), 10));
-        assert!(!should_nudge(Some(SessionState::Working), Some(60), 10));
-        assert!(!should_nudge(None, Some(60), 10));
+    fn wake_plan_truth_table() {
+        use SessionState::*;
+        use WakePlan::*;
+        type Row = (Option<&'static str>, Option<SessionState>, bool, Option<u32>, WakePlan);
+        let q = 60;
+        let rows: &[Row] = &[
+            // Hooked agent at rest (turn ended after its Stop hook): quiet window only.
+            (Some("ended"), Some(Idle), false, Some(60), Now),
+            (Some("ended"), Some(Idle), false, Some(4), After(56)), // answer inside the window
+            (Some("ended"), Some(Blocked), false, Some(90), Now), // relay to a blocked worker
+            (Some("ended"), Some(Done), false, Some(90), Now),
+            (Some("ended"), Some(Idle), false, None, After(60)),
+            // Mid-turn: the Stop hook delivers, whatever the status or pane (permission dialog).
+            (Some("running"), Some(Working), false, Some(900), TurnEnd),
+            (Some("running"), Some(NeedsInput), true, Some(900), TurnEnd),
+            (Some("running"), Some(Blocked), false, Some(900), TurnEnd),
+            (Some("ended"), Some(NeedsInput), false, Some(900), After(60)),
+            // No turn hooks: idle / no status and a pane not waiting for an answer.
+            (None, None, false, Some(60), Now),
+            (None, Some(Idle), false, Some(61), Now),
+            (None, None, true, Some(900), After(60)), // pane looks like a prompt
+            (None, Some(Working), false, Some(900), After(60)),
+            (None, Some(NeedsInput), false, Some(900), After(60)),
+            // A sticky status without turn hooks may be mid-turn on a dialog: inbox only.
+            (None, Some(Blocked), false, Some(900), Never),
+            (None, Some(Done), false, Some(900), Never),
+            (None, Some(Error), false, Some(900), Never),
+        ];
+        for &(turn, status, pane_input, idle, want) in rows {
+            let got = wake_plan(turn, status, pane_input, idle, q);
+            assert_eq!(got, want, "turn={turn:?} status={status:?} input={pane_input} idle={idle:?}");
+        }
     }
 
     #[test]
-    fn paste_requires_finished_turn_and_quiet() {
+    fn say_paste_requires_finished_turn_and_quiet() {
         for s in [SessionState::Idle, SessionState::Done, SessionState::Error] {
             assert!(should_paste(Some(s), Some(10), 10));
             assert!(!should_paste(Some(s), Some(5), 10));
@@ -877,50 +1039,40 @@ mod tests {
     }
 
     #[test]
-    fn nudge_text_acks() {
-        assert!(nudge_text(2).ends_with("cdamux msg read --ack"));
+    fn wake_text_is_fixed_and_counts() {
+        assert_eq!(wake_text(1, true), "📨 1 message");
+        assert_eq!(wake_text(3, true), "📨 3 messages");
+        assert_eq!(wake_text(1, false), "📨 1 message — cdamux msg read --ack");
     }
 
     #[test]
-    fn delivery_word_names_outcome() {
-        let out = |pasted, nudged| SendOutcome {
-            message: test_msg("m-dw".into(), "a-x"),
-            delivery: DeliveryMode::WorkerPaste,
-            nudged,
-            pasted,
-        };
-        assert_eq!(out(true, false).delivery_word(), "pasted");
-        assert_eq!(out(false, true).delivery_word(), "nudged");
+    fn delivery_words() {
+        let words: Vec<_> = [Delivery::Woken, Delivery::Scheduled, Delivery::TurnEnd, Delivery::Inbox]
+            .iter()
+            .map(|d| d.as_str())
+            .collect();
+        assert_eq!(words, ["woken", "scheduled", "turn-end", "inbox"]);
     }
 
     #[test]
-    fn delivery_word_is_inbox_when_paste_skipped() {
-        let skipped = SendOutcome {
-            message: test_msg("m-in".into(), "a-w"),
-            delivery: DeliveryMode::WorkerPaste,
-            nudged: false,
-            pasted: false,
-        };
-        assert_eq!(skipped.delivery_word(), "inbox");
-        let say_wait = SendOutcome {
-            message: test_msg("m-q".into(), "a-orch"),
-            delivery: DeliveryMode::OrchNudge,
-            nudged: false,
-            pasted: false,
-        };
-        assert_eq!(say_wait.delivery_word(), "queued");
+    fn msg_ids_are_time_prefixed_and_distinct() {
+        assert_eq!(base36_secs(1_704_067_200), "000000");
+        assert_eq!(base36_secs(1_704_067_200 + 36), "000010");
+        assert!(base36_secs(now_ts()) > base36_secs(now_ts() - 86_400));
+        let ids: std::collections::HashSet<_> = (0..50).filter_map(|_| generate_msg_id()).collect();
+        assert_eq!(ids.len(), 50);
+        assert!(ids.iter().all(|id| id.len() == 13 && id.starts_with("m-") && valid_state_id(id)));
     }
 
     #[test]
-    fn cursor_moves_only_from_expected_offset() {
+    fn msg_send_refuses_control_characters() {
         with_temp_home(|_| {
-            let a = append_message(&test_msg("m-c1".into(), "a-cur1")).unwrap();
-            let b = append_message(&test_msg("m-c2".into(), "a-cur1")).unwrap();
-            // Cursor at 0, line 2 starts at `a`: line 1 is still unread, keep it.
-            assert!(!move_cursor_if_at("a-cur1", a, b));
-            assert_eq!(unread_count("a-cur1").unwrap(), 2);
-            assert!(move_cursor_if_at("a-cur1", 0, a));
-            assert_eq!(read_messages("a-cur1", false).unwrap()[0].id, "m-c2");
+            state_set(StateKind::Agents, "a-cc1", &json!({"id": "a-cc1", "role": "worker"})).unwrap();
+            for bad in ["\x1b[31mred", "a\rb", "  "] {
+                let e = msg_send("a-x", "a-cc1", "relay", bad, None, Some(None)).unwrap_err();
+                assert!(matches!(e, MsgError::Invalid(_)), "{bad:?}: {e}");
+            }
+            assert!(msg_send("a-x", "a-cc1", "relay", "two\nlines\tok", None, Some(None)).is_ok());
         });
     }
 
@@ -939,6 +1091,9 @@ mod tests {
                 ("a-wd2", "error", "idle", "error"),
                 // orch.sh sends a blocked worker as kind=error: blocked stays.
                 ("a-wd3", "error", "blocked", "blocked"),
+                // A worker that asked, then finished anyway: its own done wins.
+                ("a-wd4", "done", "blocked", "done"),
+                ("a-wd5", "done", "error", "error"),
             ] {
                 state_set(
                     StateKind::Agents,
@@ -946,7 +1101,7 @@ mod tests {
                     &json!({ "id": id, "role": "worker", "parent": "a-orchd", "status": before }),
                 )
                 .unwrap();
-                msg_send(id, "a-orchd", kind, "x", None, 10, Some(None)).unwrap();
+                msg_send(id, "a-orchd", kind, "x", None, Some(None)).unwrap();
                 assert_eq!(status(id), after, "{id}");
             }
             assert_eq!(status("a-orchd"), "working");
@@ -1028,57 +1183,44 @@ mod tests {
     }
 
     #[test]
-    fn msg_send_orch_nudge_with_injectable_idle() {
+    fn msg_send_delivery_without_live_pane() {
         with_temp_home(|_| {
-            state_set(
-                StateKind::Agents,
-                "a-from1",
-                &initial_agent_value("a-from1", "claude", "c-f", "worker", None),
-            )
-            .unwrap();
-            state_set(
-                StateKind::Agents,
-                "a-to1",
-                &json!({
-                    "id": "a-to1",
-                    "client": "claude",
-                    "host": "missing-session",
-                    "role": "orchestrator",
-                    "status": "idle",
-                    "parent": null,
-                    "run": null
-                }),
-            )
-            .unwrap();
+            let to = |id: &str, extra: serde_json::Value| {
+                let mut v = json!({"id": id, "client": "claude", "role": "worker", "parent": "a-o"});
+                v.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+                state_set(StateKind::Agents, id, &v).unwrap();
+            };
+            let send = |id: &str, idle| msg_send("a-o", id, "relay", "hi", None, idle).unwrap();
+            // No host, or a gone pane, whatever the turn: inbox only, no waker.
+            // (Live panes: tests/delivery_tmux.rs in cdamux-cli.)
+            to("a-nh", json!({"status": "idle"}));
+            assert_eq!(send("a-nh", Some(Some(900))).delivery, Delivery::Inbox);
+            to("a-mt", json!({"host": "missing-session", "status": "blocked", "turn": "running"}));
+            assert_eq!(send("a-mt", Some(Some(900))).delivery, Delivery::Inbox);
+            to("a-nq", json!({"host": "missing-session", "status": "idle", "turn": "ended"}));
+            assert_eq!(send("a-nq", Some(Some(3))).delivery, Delivery::Inbox);
+            assert_eq!(read_messages("a-nq", false).unwrap().len(), 1);
+        });
+    }
 
-            // Idle + quiet but no live session → append ok, nudge soft-fails.
-            let out = msg_send(
-                "a-from1",
-                "a-to1",
-                "report",
-                "hi",
-                None,
-                10,
-                Some(Some(15)),
-            )
-            .unwrap();
-            assert!(!out.nudged);
-            assert_eq!(read_messages("a-to1", false).unwrap().len(), 1);
-
-            // Not quiet enough → append only, no nudge.
-            let out = msg_send(
-                "a-from1",
-                "a-to1",
-                "report",
-                "again",
-                None,
-                10,
-                Some(Some(3)),
-            )
-            .unwrap();
-            assert!(!out.nudged);
-            assert!(!out.pasted);
-            assert_eq!(out.delivery, DeliveryMode::OrchNudge);
+    #[test]
+    fn relay_and_answer_lift_blocked_and_answer_the_ask() {
+        with_temp_home(|_| {
+            for id in ["a-ob", "a-wb"] {
+                let role = if id == "a-ob" { "orchestrator" } else { "worker" };
+                state_set(StateKind::Agents, id, &json!({"id": id, "role": role, "parent": "a-ob"}))
+                    .unwrap();
+            }
+            let status = || state_get(StateKind::Agents, "a-wb").unwrap().unwrap()["status"].clone();
+            msg_send("a-wb", "a-ob", "ask", "which db?", None, Some(None)).unwrap();
+            assert_eq!(status(), "blocked");
+            assert!(has_pending_ask("a-wb", "a-ob"));
+            // A plain report does not answer.
+            msg_send("a-ob", "a-wb", "report", "fyi", None, Some(None)).unwrap();
+            assert_eq!(status(), "blocked");
+            msg_send("a-ob", "a-wb", "relay", "postgres", None, Some(None)).unwrap();
+            assert_eq!(status(), "idle");
+            assert!(!has_pending_ask("a-wb", "a-ob"));
         });
     }
 

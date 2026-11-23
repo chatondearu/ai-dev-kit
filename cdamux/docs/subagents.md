@@ -49,22 +49,23 @@ No-op without `CDAMUX_AGENT_ID` / `@cdamux_id` or without `cdamux` on `PATH`.
 
 | CLI | Events → status |
 | --- | --------------- |
-| Claude Code | `UserPromptSubmit` → `working`; `Stop` → `idle`; `SessionStart` → `idle` (via `session-start.js`); `PermissionRequest` and `Notification` with `notification_type: permission_prompt` → `needs_input` (`idle_prompt` writes nothing) |
+| Claude Code | `UserPromptSubmit` → `working`; `Stop` → `idle`; `SessionStart` → `idle` (via `session-start.js`); `PermissionRequest` and `Notification` with `notification_type: permission_prompt` → `needs_input` (`idle_prompt` writes nothing). `turn` (never sticky, ADR-018): `running` at prompt submit and permission requests, `ended` at a `Stop` that ends the turn |
 | Cursor | `beforeSubmitPrompt` → `working`; `sessionStart` / `sessionEnd` → `idle`; `stop` → `idle`, or `working` when it returns a digest `followup_message`; `postToolUse` / `postToolUseFailure` → `working` only from `idle` (the CLI runs queued messages — stop followups, text sent mid-turn — without `beforeSubmitPrompt`); no permission event (pane heuristic). **Print-mode (`cursor-agent -p`) may omit `beforeSubmitPrompt`** — rely on sessionStart/End |
 | Codex | `UserPromptSubmit` → `working`; `Stop` → `idle`; `SessionStart` / `SessionEnd` → `idle`; `PermissionRequest` → `needs_input` (`~/.codex/hooks.json`) |
 | opencode | plugin: main `session.created` / `session.idle` → `idle`; `session.error` → `error` (no prompt-submit event in the plugin API) |
 
-### Unread inbox digest (ADR-011 §4)
+### Unread inbox hand-over (ADR-011 §4, ADR-018)
 
-When `$CDAMUX_HOME/inbox/<id>.jsonl` has lines past the ack cursor, `status.js`
-injects a short digest (does not ack — the agent runs `cdamux msg read --ack`):
+When `$CDAMUX_HOME/inbox/<id>.jsonl` has lines past the ack cursor, `status.js` hands
+them over. Claude gets the full bodies and they are acked (`cdamux msg read --ack`; a
+failed read hands nothing over and acks nothing):
 
-| CLI | Event | Injection |
+| CLI | Event | Hand-over |
 | --- | ----- | --------- |
-| Claude Code | `Stop` | `hookSpecificOutput.additionalContext` (skipped when `stop_hook_active`) |
-| Claude Code | `UserPromptSubmit` | `hookSpecificOutput.additionalContext` |
-| Cursor | `stop` | `followup_message` (only when `loop_count` is 0) |
-| Cursor | `beforeSubmitPrompt` | **cannot inject** (output is `continue` / `user_message` only) — status + idle nudge cover delivery |
+| Claude Code | `Stop` | `{"decision":"block","reason":…}`: the turn goes on with the bodies (also when `stop_hook_active`, for lines that arrived meanwhile); no `idle`, no `turn: ended` |
+| Claude Code | `UserPromptSubmit` | `hookSpecificOutput.additionalContext` with the bodies (the `📨` wake line, or any human prompt) |
+| Cursor | `stop` | digest `followup_message` (only when `loop_count` is 0; not acked — the agent runs `cdamux msg read --ack`) |
+| Cursor | `beforeSubmitPrompt` | **cannot inject** (output is `continue` / `user_message` only) — the wake line says `cdamux msg read --ack` |
 
 ## Session id capture (restore registry)
 

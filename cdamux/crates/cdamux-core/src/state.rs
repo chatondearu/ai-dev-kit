@@ -116,6 +116,35 @@ pub(crate) fn with_entity_lock<T>(path: &Path, f: impl FnOnce() -> io::Result<T>
     f()
 }
 
+/// Non-blocking [`with_entity_lock`]: the held lock file, or `None` when another process
+/// holds it. The lock lasts until the returned file is dropped.
+pub(crate) fn try_entity_lock(path: &Path) -> io::Result<Option<std::fs::File>> {
+    use std::os::unix::io::AsRawFd;
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let mut lock_name = path.as_os_str().to_owned();
+    lock_name.push(".lock");
+    let lock = std::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(false)
+        .open(lock_name)?;
+    const LOCK_EX_NB: std::os::raw::c_int = 2 | 4; // LOCK_EX | LOCK_NB, Linux and macOS
+    loop {
+        // SAFETY: valid open fd for the whole call.
+        if unsafe { flock(lock.as_raw_fd(), LOCK_EX_NB) } == 0 {
+            return Ok(Some(lock));
+        }
+        let err = io::Error::last_os_error();
+        match err.kind() {
+            io::ErrorKind::Interrupted => continue,
+            io::ErrorKind::WouldBlock => return Ok(None),
+            _ => return Err(err),
+        }
+    }
+}
+
 /// Replace the entity file with `value` (pretty JSON).
 pub fn state_set(kind: StateKind, id: &str, value: &Value) -> io::Result<()> {
     let path = entity_path(kind, id)?;
@@ -213,14 +242,21 @@ pub(crate) fn random_bytes<const N: usize>() -> Option<[u8; N]> {
     Some(b)
 }
 
+pub(crate) const BASE36: &[u8] = b"0123456789abcdefghijklmnopqrstuvwxyz";
+
+/// `N` random lowercase alphanumeric chars.
+pub(crate) fn random_chars<const N: usize>() -> Option<String> {
+    Some(
+        random_bytes::<N>()?
+            .iter()
+            .map(|x| BASE36[(*x as usize) % BASE36.len()] as char)
+            .collect(),
+    )
+}
+
 /// Mint `<prefix>-xxxxx` (5 lowercase alphanumeric chars).
 pub(crate) fn random_id(prefix: &str) -> Option<String> {
-    const ALPH: &[u8] = b"0123456789abcdefghijklmnopqrstuvwxyz";
-    let s: String = random_bytes::<5>()?
-        .iter()
-        .map(|x| ALPH[(*x as usize) % ALPH.len()] as char)
-        .collect();
-    Some(format!("{prefix}-{s}"))
+    Some(format!("{prefix}-{}", random_chars::<5>()?))
 }
 
 /// True when `id` already owns an agent file or an inbox.

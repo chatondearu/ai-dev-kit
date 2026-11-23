@@ -11,8 +11,9 @@ use std::process::Command;
 use std::time::{Duration, Instant};
 
 const SOCKET: &str = "cdamux-orch-loop-test";
-/// Injected pane quiet window: the freshly spawned panes are not 15 s old yet.
-const QUIET: Option<Option<u32>> = Some(Some(15));
+/// Injected pane idle time: the freshly spawned panes are not 60 s (the wake window) old yet.
+/// `tests/delivery_tmux.rs` (cdamux-cli) covers real idle times.
+const QUIET: Option<Option<u32>> = Some(Some(60));
 
 fn which(bin: &str) -> Option<String> {
     Command::new("sh")
@@ -155,32 +156,34 @@ fn orchestrator_loop_spawn_ask_answer_done() {
     assert!(pane.contains(&squash(spec)), "hop 2: spec not intact in worker first prompt: {pane}");
     state_append(StateKind::Agents, wid, &serde_json::json!({ "status": "idle" })).unwrap();
 
-    // Hop 3: worker ask → worker blocked, `?` + ✉1 on the orchestrator side, orch nudged.
-    let ask = msg_send(wid, oid, "ask", "which-db-please", None, 15, QUIET)
+    // Hop 3: worker ask → worker blocked, `?` + ✉1 on the orchestrator side, orch woken.
+    let ask = msg_send(wid, oid, "ask", "which-db-please", None, QUIET)
         .expect("hop 3 (ask) failed");
-    assert_eq!(ask.delivery_word(), "nudged", "hop 3: ask not nudged to the idle orchestrator");
+    assert_eq!(ask.delivery_word(), "woken", "hop 3: idle orchestrator not woken");
     assert_eq!(status(wid), "blocked", "hop 3: worker not blocked after ask");
     assert_eq!(inbox_badges(wid), (0, true), "hop 3: worker badges want (0 unread, ? pending)");
     assert_eq!(inbox_badges(oid), (1, false), "hop 3: orchestrator badges want ✉1");
-    let opane = wait_for_pane(&orch.host, "📨 1 messages — cdamux msg read --ack");
-    assert!(opane.contains("cdamuxmsgread--ack"), "hop 3: nudge missing from orch pane: {opane}");
+    let opane = wait_for_pane(&orch.host, "📨 1 message — cdamux msg read --ack");
+    assert!(opane.contains("📨1message—cdamuxmsgread--ack"), "hop 3: wake line missing from orch pane: {opane}");
 
-    // Hop 4: orchestrator answer → worker unblocked, `?` cleared, answer pasted in its pane.
-    let ans = msg_send(oid, wid, "answer", "use-postgres", None, 15, QUIET)
+    // Hop 4: orchestrator answer → worker unblocked, `?` cleared, wake line (not the body)
+    // in its pane; the answer stays unread until the worker reads its inbox.
+    let ans = msg_send(oid, wid, "answer", "use-postgres", None, QUIET)
         .expect("hop 4 (answer) failed");
-    assert_eq!(ans.delivery_word(), "pasted", "hop 4: answer not pasted to the idle worker");
+    assert_eq!(ans.delivery_word(), "woken", "hop 4: idle worker not woken");
     assert_eq!(status(wid), "idle", "hop 4: worker still blocked after answer");
-    assert_eq!(inbox_badges(wid), (0, false), "hop 4: ? not cleared / pasted line still unread");
-    let wpane = wait_for_pane(&w.host, "use-postgres");
-    assert!(wpane.contains("use-postgres"), "hop 4: answer missing from worker pane: {wpane}");
+    assert_eq!(inbox_badges(wid), (1, false), "hop 4: ? not cleared / answer not in the inbox");
+    let wpane = wait_for_pane(&w.host, "📨 1 message");
+    assert!(wpane.contains("📨1message"), "hop 4: wake line missing from worker pane: {wpane}");
+    assert!(!wpane.contains("use-postgres"), "hop 4: body typed into the worker pane: {wpane}");
 
-    // Hop 5: worker done → status done, orchestrator ✉2 and nudged with the count.
-    let done = msg_send(wid, oid, "done", "pr-opened", None, 15, QUIET).expect("hop 5 (done) failed");
-    assert_eq!(done.delivery_word(), "nudged", "hop 5: done not nudged to the orchestrator");
+    // Hop 5: worker done → status done, orchestrator ✉2 and woken with the count.
+    let done = msg_send(wid, oid, "done", "pr-opened", None, QUIET).expect("hop 5 (done) failed");
+    assert_eq!(done.delivery_word(), "woken", "hop 5: orchestrator not woken");
     assert_eq!(status(wid), "done", "hop 5: worker not done");
     assert_eq!(inbox_badges(oid), (2, false), "hop 5: orchestrator badges want ✉2");
     let opane = wait_for_pane(&orch.host, "📨 2 messages — cdamux msg read --ack");
-    assert!(opane.contains("📨2messages"), "hop 5: count nudge missing from orch pane: {opane}");
+    assert!(opane.contains("📨2messages"), "hop 5: count wake line missing from orch pane: {opane}");
 
     // Hop 6: orchestrator digest lists ask + done in order, then the inbox is acked.
     let msgs = read_messages(oid, true).expect("hop 6 (read) failed");

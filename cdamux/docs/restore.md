@@ -62,7 +62,7 @@ non-shell session as **dead** when `#{pane_current_command}` is a shell / `mise`
 `direnv`, or when the tty foreground group (`tpgid` in `/proc/<pane_pid>/stat`) is,
 even if `pane_current_command` still says `cursor-agent`. `pane_pid` itself stays
 the shell for the whole session. Status becomes `error`, the parent gets an inbox `error`
-(nudge when idle). Host is kept — `cdamux restore <name>` or `restart --force`
+(wake line when at rest, ADR-018). Host is kept — `cdamux restore <name>` or `restart --force`
 resumes. `restart` no longer skips `role=worker` as a shell session. Missing
 command and comm, or a shell pane idle under 10s, is fail-closed (no reap:
 spawn still shows `sh` wrapping the CLI).

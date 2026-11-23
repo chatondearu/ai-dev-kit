@@ -323,7 +323,7 @@ fn orch_new_child_under_global_then_worker_msg() {
     let child_prompt_body = std::fs::read_to_string(&child_prompt).unwrap();
     assert_eq!(child_prompt_body.trim(), orch_boot_prompt());
 
-    use cdamux_core::{msg_send, spawn_worker, WorkerSpawnRequest, DEFAULT_NUDGE_QUIET_SECS};
+    use cdamux_core::{msg_send, spawn_worker, WorkerSpawnRequest};
     let wt_root = tmp.path().join("wts");
     let prompt = tmp.path().join("prompt.txt");
     std::fs::write(&prompt, "nested-worker").unwrap();
@@ -350,7 +350,6 @@ fn orch_new_child_under_global_then_worker_msg() {
         "report",
         "hello-child",
         None,
-        DEFAULT_NUDGE_QUIET_SECS,
         None,
     )
     .expect("worker msg to child");

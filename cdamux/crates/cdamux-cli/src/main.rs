@@ -345,6 +345,9 @@ enum WorkerCommands {
         /// Also kill every agent below it (its workers, recursively).
         #[arg(long)]
         subtree: bool,
+        /// Allow the target (or its subtree) to include an orchestrator (human only).
+        #[arg(long)]
+        orchestrator: bool,
     },
     /// Show the last N lines of a worker pane.
     Peek {
@@ -683,7 +686,9 @@ fn main() -> ExitCode {
             WorkerCommands::Ls => cmd_worker_ls(),
             WorkerCommands::Clean { dry_run, root } => cmd_worker_clean(dry_run, root),
             WorkerCommands::Peek { name, lines } => cmd_worker_peek(&name, lines),
-            WorkerCommands::Kill { name, subtree } => cmd_worker_kill(&name, subtree),
+            WorkerCommands::Kill { name, subtree, orchestrator } => {
+                cmd_worker_kill(&name, subtree, orchestrator)
+            }
         },
         Some(Commands::Orch { command }) => match command {
             OrchCommands::New {
@@ -1115,11 +1120,11 @@ fn cmd_worker_ls() -> ExitCode {
     }
 }
 
-fn cmd_worker_kill(name: &str, subtree: bool) -> ExitCode {
+fn cmd_worker_kill(name: &str, subtree: bool, orchestrator: bool) -> ExitCode {
     let caller = std::env::var("CDAMUX_AGENT_ID")
         .ok()
         .filter(|s| !s.trim().is_empty());
-    match cdamux_core::kill_worker(caller.as_deref().map(str::trim), name, subtree) {
+    match cdamux_core::kill_worker(caller.as_deref().map(str::trim), name, subtree, orchestrator) {
         Ok(killed) => {
             for k in &killed {
                 println!(

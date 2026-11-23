@@ -261,12 +261,14 @@ Requires `$CDAMUX_AGENT_ID` (caller must be an orchestrator session).
   filesystem has less than `[worktrees].min_free_gib` free (default 40, `0` = off)
   (ADR-017).
 - `cdamux worker peek <name> [--lines N]` — last N pane lines.
-- `cdamux worker kill <name> [--subtree]` — permanent kill (see the kill table above):
-  inside an agent only the caller's own workers, and only `done` / `idle` / `error`
-  ones (Q23); a human outside any agent may name any agent (name, id or host). A name
-  or host matching several records is refused (pass the id). The tmux session is
-  killed only when its `@cdamux_id` is the target (or unset); a stale record whose
-  host now runs another agent is only finalized. `--subtree` also kills every agent
+- `cdamux worker kill <name> [--subtree] [--orchestrator]` — permanent kill (see the
+  kill table above): inside an agent only the caller's own workers, and only `done` /
+  `idle` / `error` ones (Q23, every `--subtree` target too); a human outside any agent
+  may name any agent (name, id or host), an orchestrator only with `--orchestrator`. A
+  name or host matching several records is refused (pass the id). The tmux session is
+  killed only when its `@cdamux_id` is the target (or unset), and only the target
+  record is finalized — never the other records naming that host; a stale record
+  whose host now runs another agent is finalized alone and the session survives. `--subtree` also kills every agent
   below it, deepest first. One `killed <id> <host> (finalized N agent(s), M run(s))`
   line each.
 

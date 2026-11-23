@@ -645,14 +645,16 @@ pub enum WakePlan {
 
 /// Wake decision (Q21). `turn` is the hook-written field: `running` from prompt submit or
 /// a permission request until `Stop`, then `ended`; `exited` after the CLI's session end
-/// (the pane may be a shell now). `claude`: the agent runs Claude Code, whose hooks write
-/// `turn` reliably, so `turn` is authoritative and a pane on a permission dialog (always
-/// mid-turn) is never typed into. A Claude agent with a status but no `turn` yet has not
-/// submitted its first prompt (startup dialogs): wait. Other clients (Cursor runs queued
-/// prompts without a prompt-submit hook; codex, opencode) and Claude without hooks: only
-/// `idle` / no status qualifies, and a sticky `blocked` / `done` / `error` may still be
-/// mid-turn, so it is left to the inbox. `pane_input`: the pane tail looks like a prompt
-/// waiting for an answer.
+/// (the pane may be a shell now). `running` vetoes the wake line for every client (codex,
+/// Cursor approval dialogs too). `claude`: the agent runs Claude Code, whose hooks write
+/// `turn` reliably, so `ended` is trusted and a pane on a permission dialog (always
+/// mid-turn) is never typed into; its `Stop` hook delivers mid-turn. A Claude agent with
+/// a status but no `turn` yet has not submitted its first prompt (startup dialogs): wait.
+/// Other clients (Cursor runs queued prompts without a prompt-submit hook, so `ended` may
+/// be stale; codex, opencode) and Claude without hooks: only `idle` / no status
+/// qualifies, and a sticky `blocked` / `done` / `error` may still be mid-turn, so it is
+/// left to the inbox. `pane_input`: the pane tail looks like a prompt waiting for an
+/// answer.
 pub fn wake_plan(
     claude: bool,
     turn: Option<&str>,
@@ -665,7 +667,8 @@ pub fn wake_plan(
     let at_rest = match (claude, turn) {
         (_, Some("exited")) => return WakePlan::Never,
         (true, Some("running")) => return WakePlan::TurnEnd,
-        (true, Some(_)) => status != Some(SessionState::NeedsInput),
+        (false, Some("running")) => false,
+        (true, Some(_)) => !matches!(status, Some(SessionState::NeedsInput | SessionState::Working)),
         (true, None) if status.is_some() => false,
         _ => match status {
             None | Some(SessionState::Idle) => true,
@@ -1049,6 +1052,7 @@ mod tests {
             (true, Some("ended"), Some(Done), false, Some(90), Now),
             (true, Some("ended"), Some(Idle), false, None, After(60)),
             (true, Some("ended"), Some(NeedsInput), false, Some(900), After(60)),
+            (true, Some("ended"), Some(Working), false, Some(900), After(60)),
             // Claude mid-turn: the Stop hook delivers, whatever the status or pane (dialog).
             (true, Some("running"), Some(Working), false, Some(900), TurnEnd),
             (true, Some("running"), Some(NeedsInput), true, Some(900), TurnEnd),
@@ -1064,6 +1068,9 @@ mod tests {
             (false, None, Some(Idle), false, Some(61), Now),
             (false, Some("ended"), Some(Idle), false, Some(61), Now),
             (false, Some("ended"), Some(Working), false, Some(900), After(60)), // stale turn ignored
+            // A running turn vetoes the wake for every client (codex / Cursor dialogs).
+            (false, Some("running"), Some(Idle), false, Some(900), After(60)),
+            (false, Some("running"), None, false, Some(900), After(60)),
             (false, None, None, true, Some(900), After(60)), // pane looks like a prompt
             (false, None, Some(NeedsInput), false, Some(900), After(60)),
             // A sticky status without a turn signal may be mid-turn on a dialog: inbox only.

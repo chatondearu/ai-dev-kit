@@ -56,11 +56,14 @@ the turn going and the model acts on the reason; the re-fired `Stop` carries
 
 - A permission dialog never receives a keystroke from cdamux on a hooked agent.
 - A human draft is never wiped; one left untouched for 60 s is submitted with the wake
-  line appended.
+  line appended. Skipping the wake on a non-empty input line is not possible reliably:
+  Claude Code's grey prompt suggestion reads as typed text in a pane capture (#402).
 - An interrupted Claude turn fires no `Stop`, so `turn` stays `running`: messages wait
   for the next prompt (safe, the human is there); a resume or `/clear` resets it.
-- A peer sending faster than turns end can keep a Claude agent from stopping (each
-  `Stop` hands over what arrived); not capped.
+- A `Stop` blocks at most 3 times in a row; past that the turn ends and the rest waits for
+  the wake line (a fast peer cannot keep an agent running).
+- Hooks act only for the pane's top-level CLI: a nested `claude -p` inherits the agent
+  id and would otherwise take the parent's inbox and flip its turn mid-turn.
 - `say` (human prompt to an orchestrator) is unchanged: it is the human's own prompt.
 - Tests: unit truth tables (`wake_plan`, status effects), `hooks/test.sh`, and
   `cdamux-cli/tests/delivery_tmux.rs` (real binary, hooks and tmux idle time).

@@ -8,7 +8,7 @@
 // (the first prompt follows) or compaction (it can run mid-turn).
 // Fail-open: any error exits 0; local only.
 const fs = require('fs');
-const { setAgentSessionId, setAgentState } = require('./ledger');
+const { setAgentSessionId, setAgentState, isTopLevelHook } = require('./ledger');
 
 let hookName = '';
 
@@ -19,7 +19,8 @@ function main() {
   if (hookName === 'SessionStart') setAgentSessionId(process.env, input.session_id);
   else if (hookName === 'sessionStart') setAgentSessionId(process.env, input.session_id || input.conversation_id);
   const ended = hookName === 'SessionStart' && (input.source === 'resume' || input.source === 'clear');
-  setAgentState(process.env, 'idle', ended ? 'ended' : null);
+  // A nested CLI (tool call) must not reset the parent's status / turn.
+  if (isTopLevelHook(process.env)) setAgentState(process.env, 'idle', ended ? 'ended' : null);
 }
 
 try { main(); } catch (e) { /* fail-open */ }

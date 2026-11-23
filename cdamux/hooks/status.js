@@ -6,6 +6,8 @@
 // Message bodies never reach a pane: a Claude turn end with unread messages blocks the
 // stop and hands them over as the reason; a prompt submit injects them; both ack them.
 // Other clients on these events (codex) keep the unacked digest: `msg read --ack` is theirs.
+// Only the pane's top-level CLI has effects: a nested `claude -p` (tool call) inherits the
+// agent id and must not take the parent's inbox nor flip its status / turn.
 // Turn end of an orchestrator also records its reply in the events feed (docs/events.md),
 // including a tool-only stop that has no assistant prose,
 // and pastes the next queued `cdamux say` prompt (docs/say.md).
@@ -29,6 +31,9 @@ const {
   unreadDigest,
   takeUnread,
   formatMessages,
+  isTopLevelHook,
+  readUnreadMessages,
+  takeStopBlock,
 } = require('./ledger');
 
 const MAP = {
@@ -43,8 +48,15 @@ const MAP = {
   PermissionRequest: 'needs_input',
 };
 
+// Synchronous: printed before any slower step, so a hook killed later still hands it over.
 function writeJson(obj) {
-  process.stdout.write(JSON.stringify(obj) + '\n');
+  fs.writeSync(1, JSON.stringify(obj) + '\n');
+}
+
+// What each client expects from a hook that does nothing.
+function writeNoop(event) {
+  if (event === 'beforeSubmitPrompt') writeJson({ continue: true });
+  else if (/^(stop|sessionStart|sessionEnd|postToolUse|postToolUseFailure)$/.test(event)) writeJson({});
 }
 
 // `working` only from idle / unset: sticky done/error/blocked (open ask) must survive.
@@ -60,6 +72,10 @@ function liftIdle() {
 function main() {
   const input = JSON.parse(fs.readFileSync(0, 'utf8'));
   const event = input.hook_event_name || input.event || '';
+  if (!isTopLevelHook(process.env)) {
+    writeNoop(event);
+    return;
+  }
   let status = MAP[event];
   if (event === 'postToolUse' || event === 'postToolUseFailure') {
     liftIdle();
@@ -73,15 +89,22 @@ function main() {
     const perm = type ? type === 'permission_prompt' : /permission/i.test(input.message || '');
     if (perm) status = 'needs_input';
   }
-  const claude = readAgentField(process.env, resolveAgentId(process.env), 'client') === 'claude';
+  const id = resolveAgentId(process.env);
+  const claude = readAgentField(process.env, id, 'client') === 'claude';
   // Claude turn end with unread messages: keep the turn going and hand them over (Q21).
   // Taken (acked) before `turn: ended` is written, so nothing typed lands mid-turn; a line
-  // appended after this read is left to the `msg wake` backstop.
-  if (event === 'Stop' && claude) {
+  // appended after this read is left to the `msg wake` backstop. At most MAX_STOP_BLOCKS
+  // in a row; then the turn ends and the rest waits for the wake line.
+  if (
+    event === 'Stop'
+    && claude
+    && readUnreadMessages(process.env, id).length
+    && takeStopBlock(process.env, !!input.stop_hook_active)
+  ) {
     const msgs = takeUnread(process.env);
     if (msgs.length) {
-      recordReply(process.env, input);
       writeJson({ decision: 'block', reason: formatMessages(msgs) });
+      recordReply(process.env, input);
       return;
     }
   }

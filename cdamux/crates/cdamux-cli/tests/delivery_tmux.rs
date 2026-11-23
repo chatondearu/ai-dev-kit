@@ -30,6 +30,15 @@ struct Lab {
     status_js: PathBuf,
 }
 
+/// Pass or panic, the throwaway server goes (`self.cmd` pins `TMUX_TMPDIR` to the temp dir
+/// and the wrapper to its own `-L` socket, so this never reaches a live server); wakers
+/// still polling then find their pane gone and exit.
+impl Drop for Lab {
+    fn drop(&mut self) {
+        let _ = self.cmd("tmux").arg("kill-server").stderr(Stdio::null()).status();
+    }
+}
+
 impl Lab {
     fn home(&self) -> PathBuf {
         self.tmp.path().join("home")
@@ -241,8 +250,7 @@ fn wake_line_only_never_mid_turn_draft_kept_and_submitted() {
     let sock = lab.tmux(&["display-message", "-p", "#{socket_path}"]);
     assert!(
         sock.contains(lab.tmp.path().to_str().unwrap_or("___")),
-        "refusing kill-server: socket {sock} not under temp"
+        "socket {sock} not under temp"
     );
-    // Wakers still polling (a-dperm) see their pane gone and exit.
-    lab.tmux(&["kill-server"]);
+    // `Lab`'s Drop kills the server; wakers still polling (a-dperm) then exit.
 }

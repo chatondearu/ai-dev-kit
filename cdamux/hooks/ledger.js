@@ -4,7 +4,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { execFileSync } = require('child_process');
+const { execFileSync, spawn } = require('child_process');
 
 const MAX_LINES = 500;
 
@@ -95,6 +95,19 @@ function setAgentSessionId(env, id, fromPid = process.ppid) {
   } catch (e) {
     fs.rmSync(tmp, { force: true });
     throw e;
+  }
+}
+
+// True when this hook belongs to the pane's top-level CLI, or runs outside tmux. A nested
+// CLI (`claude -p` from a tool call) inherits CDAMUX_AGENT_ID and TMUX: it must not take
+// the parent's inbox nor rewrite its status / turn. tmux or ps errors: false (no effect).
+function isTopLevelHook(env, fromPid = process.ppid) {
+  if (!env.TMUX) return true;
+  try {
+    const panePid = parseInt(tmuxDisplay(env, '#{pane_pid}'), 10);
+    return panePid > 1 && isPaneTopLevel(panePid, fromPid);
+  } catch (e) {
+    return false;
   }
 }
 
@@ -196,9 +209,24 @@ function setAgentStatus(env, status) {
   }
 }
 
+/// Fire-and-forget `cdamux state tick` (blocked-worker reminder, throttled in cdamux):
+/// hooks are the only periodic signal while no Fleet is open. Never waits, fail-open.
+/// An older binary without `state tick` just exits 2.
+function kickTick(env) {
+  try {
+    spawn('cdamux', ['state', 'tick'], { env, detached: true, stdio: 'ignore' })
+      .on('error', () => {})
+      .unref();
+  } catch (e) {
+    /* fail-open */
+  }
+}
+
 /// One `state append` with `status` (when stickiness allows it) and `turn` (`running` /
 /// `ended` / `exited`, never sticky: msg wake reads it to know a pane is safe to type
-/// into, ADR-018). 2.5 s budget (hooks get 5 s): a dropped `turn` write leaves a stale
+/// into, ADR-018). `--sticky` re-checks stickiness under the record lock (it drops only
+/// `status`, so `turn` still lands); an older binary without it exits 2 and gets the
+/// plain append. 2.5 s budget (hooks get 5 s): a dropped `turn` write leaves a stale
 /// value. Fail-open.
 function setAgentState(env, status, turn) {
   const id = resolveAgentId(env);
@@ -207,15 +235,46 @@ function setAgentState(env, status, turn) {
   if (status && stickyOk(readAgentStatus(env, id), status)) patch.status = status;
   if (turn) patch.turn = turn;
   if (!Object.keys(patch).length) return;
+  kickTick(env);
+  const args = ['state', 'append', 'agents', id, JSON.stringify(patch)];
+  const opts = { env, timeout: 2500, stdio: 'ignore' };
   try {
-    execFileSync('cdamux', ['state', 'append', 'agents', id, JSON.stringify(patch)], {
-      env,
-      timeout: 2500,
-      stdio: 'ignore',
-    });
+    execFileSync('cdamux', [...args, '--sticky'], opts);
+  } catch (e) {
+    if (e && e.status === 2) {
+      try {
+        execFileSync('cdamux', args, opts);
+      } catch (e2) {
+        /* fail-open */
+      }
+    }
+  }
+}
+
+// Consecutive Stop blocks per turn: past it the stop goes through and the rest waits for
+// the wake line, so a peer sending faster than turns end cannot keep an agent running.
+const MAX_STOP_BLOCKS = 3;
+
+/// May this Stop block? `continued` (stop_hook_active): the stop follows a block, so count
+/// it; a fresh stop resets. Counter: `inbox/<id>.stopblocks`. Fail-open to "may block".
+function takeStopBlock(env, continued) {
+  const id = resolveAgentId(env);
+  if (!id) return false;
+  const file = path.join(stateDir(env, 'inbox'), `${id}.stopblocks`);
+  let n = 0;
+  try {
+    if (continued) n = parseInt(fs.readFileSync(file, 'utf8'), 10) || 0;
+  } catch (e) {
+    n = 0;
+  }
+  if (n >= MAX_STOP_BLOCKS) return false;
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, String(n + 1));
   } catch (e) {
     /* fail-open */
   }
+  return true;
 }
 
 function readCursor(file) {
@@ -311,7 +370,10 @@ module.exports = {
   recordReply,
   drainSay,
   formatMessages,
+  isTopLevelHook,
+  kickTick,
   readAgentField,
+  takeStopBlock,
   setAgentState,
   setAgentStatus,
   readUnreadMessages,

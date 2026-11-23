@@ -142,8 +142,10 @@ same for workers and orchestrators. A message body is **never typed into a pane*
   a prompt. `turn: exited` (session end, the pane may be a shell) never wakes. Once the
   pane has been quiet for
   60 s (`CDAMUX_WAKE_QUIET_SECS`), the fixed line `📨 N messages` is typed with Enter,
-  never after `C-u` (a human draft gets the line appended and is submitted with it, never
-  wiped). Claude's `UserPromptSubmit` hook then injects the bodies and acks them. Clients
+  never after `C-u`: a human draft untouched for 60 s gets the line appended and is
+  submitted with it, never wiped. A non-empty input line is not detected: Claude Code's
+  grey prompt suggestion reads as typed text in a pane capture (#402), so skipping on
+  "text after the prompt" would hold the wake back on every idle Claude pane. Claude's `UserPromptSubmit` hook then injects the bodies and acks them. Clients
   that cannot inject (Cursor, codex, opencode, or no turn hooks) get
   `📨 N messages — cdamux msg read --ack`. Output `woken`.
 - **At rest, pane not quiet yet**: `msg send` starts a detached `cdamux msg wake <id>`

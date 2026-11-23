@@ -5,7 +5,7 @@
 
 use crate::orch_graph::is_live_run_status;
 use crate::session_registry::{self, SessionRecord};
-use crate::state::{state_get, state_list, state_set, StateKind};
+use crate::state::{state_get, state_list, state_update, StateKind};
 use crate::state_gc::{
     agent_has_no_host, archive_agent, archive_run, is_gc_agent_status, is_gc_run_status,
     is_resumable_dormant,
@@ -133,18 +133,23 @@ pub fn finalize_session_host(session: &str) -> io::Result<FinalizeReport> {
         if host_field(&value) != Some(session) {
             continue;
         }
+        // Re-check under the entity lock: a hook may have rewritten it since the scan.
         // Always clear host (name reuse); set error when not already terminal.
-        let next = if agent_already_terminal(&value) {
-            let mut v = value;
-            if let Some(obj) = v.as_object_mut() {
-                obj.insert("host".into(), Value::String(String::new()));
-            }
-            v
-        } else {
-            finalize_agent_value(value)
-        };
-        state_set(StateKind::Agents, &id, &next)?;
-        report.agents.push(id);
+        let wrote = state_update(StateKind::Agents, &id, |cur| {
+            let cur = cur.filter(|v| host_field(v) == Some(session))?;
+            Some(if agent_already_terminal(&cur) {
+                let mut v = cur;
+                if let Some(obj) = v.as_object_mut() {
+                    obj.insert("host".into(), Value::String(String::new()));
+                }
+                v
+            } else {
+                finalize_agent_value(cur)
+            })
+        })?;
+        if wrote {
+            report.agents.push(id);
+        }
     }
 
     for (id, _path, value) in state_list(StateKind::Runs) {
@@ -154,13 +159,97 @@ pub fn finalize_session_host(session: &str) -> io::Result<FinalizeReport> {
         if !run_is_live_doc(&value) {
             continue;
         }
-        state_set(StateKind::Runs, &id, &finalize_run_value(value, &ended))?;
-        report.runs.push(id);
+        if finalize_run(&id, &ended)? {
+            report.runs.push(id);
+        }
     }
 
     report.agents.sort();
     report.runs.sort();
     Ok(report)
+}
+
+/// Finalize one agent under its lock unless it already turned terminal; emits `finalize`.
+fn finalize_agent(id: &str, event: &str) -> io::Result<bool> {
+    let mut record = None;
+    let wrote = state_update(StateKind::Agents, id, |cur| {
+        let next = finalize_agent_value(cur.filter(|v| !agent_already_terminal(v))?);
+        record = Some(next.clone());
+        Some(next)
+    })?;
+    if wrote {
+        crate::events::emit_lifecycle(event, id, record.as_ref());
+    }
+    Ok(wrote)
+}
+
+/// Finalize one run under its lock while it is still live.
+fn finalize_run(id: &str, ended: &str) -> io::Result<bool> {
+    state_update(StateKind::Runs, id, |cur| {
+        Some(finalize_run_value(cur.filter(run_is_live_doc)?, ended))
+    })
+}
+
+/// Permanent kill shared by Fleet `x`, the navigator `x` and `cdamux worker kill`:
+/// kill the tmux session, forget its restore record (so `restore` never respawns it),
+/// finalize its agents and live runs, and emit one `kill` item per agent. A session
+/// already gone still finalizes; any other tmux error leaves the state untouched.
+pub fn kill_permanent(session: &str) -> io::Result<FinalizeReport> {
+    use crate::send::SendError;
+    match crate::session_manage::kill_tmux_session(session) {
+        Ok(()) | Err(SendError::SessionNotFound(_)) => {}
+        Err(e) => return Err(io::Error::other(e.to_string())),
+    }
+    session_registry::remove(session)?;
+    let records: Vec<(String, Value)> = state_list(StateKind::Agents)
+        .into_iter()
+        .filter(|(_, _, v)| host_field(v) == Some(session))
+        .map(|(id, _, v)| (id, v))
+        .collect();
+    let report = finalize_session_host(session)?;
+    for (id, v) in &records {
+        crate::events::emit_lifecycle("kill", id, Some(v));
+    }
+    Ok(report)
+}
+
+/// [`kill_permanent`] for one agent id; an agent with no host (its pane already
+/// reaped) is still finalized, forgotten by `restore` and gets its `kill` item.
+pub fn kill_agent_permanent(id: &str) -> io::Result<FinalizeReport> {
+    let value = state_get(StateKind::Agents, id)?
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("agent '{id}' not found")))?;
+    if let Some(host) = host_field(&value) {
+        return kill_permanent(host);
+    }
+    for rec in session_registry::load_all() {
+        if rec.cdamux_id.as_deref() == Some(id) {
+            session_registry::remove(&rec.name)?;
+        }
+    }
+    finalize_agent(id, "finalize")?;
+    crate::events::emit_lifecycle("kill", id, Some(&value));
+    Ok(FinalizeReport { agents: vec![id.to_string()], runs: Vec::new() })
+}
+
+/// `id` and every agent below it (`parent` chain), deepest first, `id` last.
+pub fn agent_subtree(id: &str) -> Vec<String> {
+    let agents: Vec<(String, Option<String>)> = state_list(StateKind::Agents)
+        .into_iter()
+        .map(|(aid, _, v)| (aid, v.get("parent").and_then(Value::as_str).map(str::to_string)))
+        .collect();
+    let mut order = vec![id.to_string()];
+    let mut i = 0;
+    while i < order.len() {
+        let cur = order[i].clone();
+        for (aid, parent) in &agents {
+            if parent.as_deref() == Some(cur.as_str()) && !order.contains(aid) {
+                order.push(aid.clone());
+            }
+        }
+        i += 1;
+    }
+    order.reverse();
+    order
 }
 
 /// Whether a non-terminal agent with a dead host should be finalized by sweep.
@@ -206,20 +295,18 @@ pub fn sweep_orphans(
         if !orphan_agent_eligible(&id, &value, host_alive, &registry) {
             continue;
         }
-        if !dry_run {
-            state_set(StateKind::Agents, &id, &finalize_agent_value(value))?;
+        if dry_run || finalize_agent(&id, "finalize")? {
+            report.agents.push(id);
         }
-        report.agents.push(id);
     }
 
     for (id, _path, value) in state_list(StateKind::Runs) {
         if !orphan_run_eligible(&value, host_alive) {
             continue;
         }
-        if !dry_run {
-            state_set(StateKind::Runs, &id, &finalize_run_value(value, &ended))?;
+        if dry_run || finalize_run(&id, &ended)? {
+            report.runs.push(id);
         }
-        report.runs.push(id);
     }
 
     report.agents.sort();
@@ -431,16 +518,14 @@ pub fn plan_dismiss_run(
 pub fn apply_dismiss(plan: &DismissPlan) -> io::Result<DismissPlan> {
     let ended = utc_now_iso();
     for id in &plan.finalize.agents {
-        if let Some(value) = state_get(StateKind::Agents, id)? {
-            state_set(StateKind::Agents, id, &finalize_agent_value(value))?;
-        }
+        finalize_agent(id, "finalize")?;
     }
     for id in &plan.finalize.runs {
-        if let Some(value) = state_get(StateKind::Runs, id)? {
-            state_set(StateKind::Runs, id, &finalize_run_value(value, &ended))?;
-        }
+        finalize_run(id, &ended)?;
     }
     for id in &plan.archive_agents {
+        let record = state_get(StateKind::Agents, id).ok().flatten();
+        crate::events::emit_lifecycle("dismiss", id, record.as_ref());
         archive_agent(id)?;
     }
     for id in &plan.archive_runs {
@@ -454,7 +539,7 @@ mod tests {
     use super::*;
     use crate::paths::env_lock;
     use crate::spawn::PaneLayout;
-    use crate::state::{state_get, StateKind};
+    use crate::state::{state_get, state_set, StateKind};
     use serde_json::json;
     use std::path::Path;
 
@@ -475,6 +560,88 @@ mod tests {
         std::env::set_var("CDAMUX_HOME", dir.path());
         f(dir.path());
         std::env::remove_var("CDAMUX_HOME");
+    }
+
+    fn lifecycle_events() -> Vec<(String, String)> {
+        crate::events::read_events(0)
+            .unwrap()
+            .into_iter()
+            .filter(|v| v["type"] == "lifecycle")
+            .map(|v| (v["event"].as_str().unwrap().into(), v["agent"].as_str().unwrap().into()))
+            .collect()
+    }
+
+    #[test]
+    fn finalize_emits_status_and_dismiss_emits_lifecycle_items() {
+        with_temp_home(|_| {
+            state_set(StateKind::Agents, "a-w", &json!({"id":"a-w","host":"c-w","status":"working","role":"worker","parent":"a-o"})).unwrap();
+            finalize_session_host("c-w").unwrap();
+            // #398: one `status` item error ← working, with role/parent.
+            let st: Vec<Value> = crate::events::read_events(0)
+                .unwrap()
+                .into_iter()
+                .filter(|v| v["type"] == "status")
+                .collect();
+            assert_eq!(st.len(), 2, "{st:?}");
+            assert_eq!((st[1]["status"].as_str(), st[1]["prev"].as_str()), (Some("error"), Some("working")));
+            assert_eq!(st[1]["parent"], "a-o");
+
+            state_set(StateKind::Agents, "a-d", &json!({"id":"a-d","host":"gone","status":"working"})).unwrap();
+            let plan = plan_dismiss_agent("a-d", &|_| false).unwrap();
+            apply_dismiss(&plan).unwrap();
+            assert_eq!(
+                lifecycle_events(),
+                [
+                    ("finalize".to_string(), "a-d".to_string()),
+                    ("dismiss".to_string(), "a-d".to_string()),
+                    ("archive".to_string(), "a-d".to_string())
+                ]
+            );
+        });
+    }
+
+    #[test]
+    fn kill_agent_without_host_finalizes_forgets_and_emits_kill() {
+        with_temp_home(|_| {
+            state_set(StateKind::Agents, "a-k", &json!({"id":"a-k","host":"","status":"blocked"})).unwrap();
+            session_registry::record(&SessionRecord {
+                name: "c-k".into(),
+                cwd: "/tmp".into(),
+                agent: "claude".into(),
+                agent_session_id: None,
+                cdamux_id: Some("a-k".into()),
+                parent: None,
+                role: "worker".into(),
+                layout: PaneLayout::Single,
+                created_ts: 1,
+                updated_ts: 1,
+            })
+            .unwrap();
+            let report = kill_agent_permanent("a-k").unwrap();
+            assert_eq!(report.agents, ["a-k"]);
+            assert_eq!(state_get(StateKind::Agents, "a-k").unwrap().unwrap()["status"], "error");
+            assert!(session_registry::load("c-k").is_none(), "restore must not respawn it");
+            assert_eq!(
+                lifecycle_events(),
+                [("finalize".to_string(), "a-k".to_string()), ("kill".to_string(), "a-k".to_string())]
+            );
+            assert!(kill_agent_permanent("a-missing").is_err());
+        });
+    }
+
+    #[test]
+    fn agent_subtree_lists_descendants_deepest_first() {
+        with_temp_home(|_| {
+            for (id, parent) in [("a-g", None), ("a-p", Some("a-g")), ("a-w1", Some("a-p")), ("a-w2", Some("a-g")), ("a-x", None)] {
+                state_set(StateKind::Agents, id, &json!({"id": id, "parent": parent})).unwrap();
+            }
+            let sub = agent_subtree("a-g");
+            assert_eq!(sub.last().map(String::as_str), Some("a-g"));
+            assert_eq!(sub.len(), 4);
+            let pos = |id: &str| sub.iter().position(|x| x == id).unwrap();
+            assert!(pos("a-w1") < pos("a-p"));
+            assert_eq!(agent_subtree("a-x"), ["a-x"]);
+        });
     }
 
     #[test]

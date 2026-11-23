@@ -13,7 +13,7 @@ use crate::keymap::{fit_footer, map_key_event, DashboardAction};
 use crate::refresh::{Interval, StatusCache};
 use crate::tui::TerminalGuard;
 use cdamux_core::{
-    build_project_session_tree_ex, default_client, ensure_nav_session, kill_tmux_session,
+    build_project_session_tree_ex, default_client, ensure_nav_session, kill_permanent,
     leave_nav_to_session, load_config, nav_return_or_home, toggle_nav_client, NAV_SESSION_NAME,
 };
 use crossterm::event::{self, Event, KeyCode, KeyModifiers, MouseButton, MouseEventKind};
@@ -282,8 +282,9 @@ fn run_nav() -> ExitCode {
                     }
                     DashboardAction::KillSession => {
                         if let Some(s) = session_at_row(&rows, selected_row) {
-                            match kill_tmux_session(&s.name) {
-                                Ok(()) => {
+                            // Same permanent kill as Fleet `x`: finalized, never restored.
+                            match kill_permanent(&s.name) {
+                                Ok(_) => {
                                     status_line = format!("killed {}", s.name);
                                     tree_dirty = true;
                                 }

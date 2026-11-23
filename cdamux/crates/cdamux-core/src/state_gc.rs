@@ -20,6 +20,8 @@ pub struct GcReport {
     pub archived_agents: Vec<String>,
     pub archived_runs: Vec<String>,
     pub skipped_dormant: Vec<String>,
+    /// Inbox files (`<id>.jsonl` / `.cursor`) of agents that no longer exist (M17).
+    pub archived_inboxes: Vec<String>,
 }
 
 /// Whether `status` is a terminal agent status eligible for GC.
@@ -183,7 +185,9 @@ pub fn archive_agent(id: &str) -> io::Result<()> {
             format!("agent '{id}' not found"),
         ));
     }
+    let record = crate::state::state_get(StateKind::Agents, id).ok().flatten();
     archive_then_remove(&path, "agents")?;
+    crate::events::emit_lifecycle("archive", id, record.as_ref());
     if let Some(dir) = cdamux_state_dir("inbox").filter(|_| valid_state_id(id)) {
         for ext in ["jsonl", "cursor"] {
             let file = dir.join(format!("{id}.{ext}"));
@@ -270,10 +274,43 @@ fn run_gc_ex(
         }
     }
 
+    report.archived_inboxes = gc_orphan_inboxes(now, days)?;
     report.archived_agents.sort();
     report.archived_runs.sort();
     report.skipped_dormant.sort();
     Ok(report)
+}
+
+/// Archive inbox files whose agent record is gone (archived with no inbox move, or
+/// never existed: a free-form `--from`), once untouched for the retention period.
+fn gc_orphan_inboxes(now: SystemTime, retention_days: u32) -> io::Result<Vec<String>> {
+    let (Some(inbox), Some(agents)) = (cdamux_state_dir("inbox"), cdamux_state_dir("agents"))
+    else {
+        return Ok(Vec::new());
+    };
+    let Ok(entries) = fs::read_dir(&inbox) else {
+        return Ok(Vec::new());
+    };
+    let mut out = Vec::new();
+    for path in entries.flatten().map(|e| e.path()) {
+        let (Some(stem), Some(ext)) = (
+            path.file_stem().and_then(|s| s.to_str()),
+            path.extension().and_then(|s| s.to_str()),
+        ) else {
+            continue;
+        };
+        if !matches!(ext, "jsonl" | "cursor")
+            || !valid_state_id(stem)
+            || agents.join(format!("{stem}.json")).exists()
+            || !(retention_days == 0 || older_than_retention(&path, now, retention_days))
+        {
+            continue;
+        }
+        archive_then_remove(&path, "inbox")?;
+        out.push(format!("{stem}.{ext}"));
+    }
+    out.sort();
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -304,6 +341,27 @@ mod tests {
         let path = cdamux_state_dir("runs").unwrap().join(format!("{id}.json"));
         let mtime = SystemTime::now() - Duration::from_secs(days_ago * 24 * 60 * 60);
         fs::File::open(&path).unwrap().set_modified(mtime).unwrap();
+    }
+
+    #[test]
+    fn gc_archives_orphan_inboxes_past_retention_only() {
+        with_temp_home(|home| {
+            let inbox = home.join("inbox");
+            fs::create_dir_all(&inbox).unwrap();
+            let old = SystemTime::now() - Duration::from_secs(15 * 24 * 60 * 60);
+            for name in ["a-gone.jsonl", "a-gone.cursor", "a-kept.jsonl", "a-fresh.jsonl"] {
+                fs::write(inbox.join(name), "{}\n").unwrap();
+                if name != "a-fresh.jsonl" {
+                    fs::File::open(inbox.join(name)).unwrap().set_modified(old).unwrap();
+                }
+            }
+            state_set(StateKind::Agents, "a-kept", &serde_json::json!({"id": "a-kept"})).unwrap();
+            let report = run_gc(14, SystemTime::now(), &|_| false).unwrap();
+            assert_eq!(report.archived_inboxes, ["a-gone.cursor", "a-gone.jsonl"]);
+            assert!(home.join("archive/inbox/a-gone.jsonl").is_file());
+            assert!(inbox.join("a-kept.jsonl").is_file());
+            assert!(inbox.join("a-fresh.jsonl").is_file());
+        });
     }
 
     #[test]

@@ -24,13 +24,14 @@ One JSON object per line. Every item has:
 | ----- | ------- |
 | `v` | Schema version, `1`. New optional fields may appear without a bump; a removed or retyped field bumps it. |
 | `cursor` | Opaque string; pass it back as `--since`. Today a sequence number that keeps counting across rotation. |
-| `type` | `msg`, `status`, `reply`, `human`. Ignore unknown types. |
+| `type` | `msg`, `status`, `lifecycle`, `reply`, `human`. Ignore unknown types. |
 | `ts` | Unix seconds. |
 
 | `type` | Fields | Written when |
 | ------ | ------ | ------------ |
 | `msg` | `id, from, to, kind, text, ref?` (the inbox line) | `cdamux msg send` appends to an **orchestrator's** inbox (role `orchestrator`); worker inboxes are not mirrored |
-| `status` | `agent, status, prev, role?, parent?` | `cdamux state append agents <id> {"status":…}` (hooks, `msg send` side effects) changes the value; `prev` is `null` for the first one. A full `state set` does not emit (#398). Emitted under the agent record lock, so journal order matches write order. |
+| `status` | `agent, status, prev, role?, parent?` | Any agent write changes the value — `state append`/`set` (hooks, `msg send` side effects), finalize, dismiss, kill, reap; `prev` is `null` for the first one. Emitted under the agent record lock, so journal order matches write order. |
+| `lifecycle` | `agent, event, role?, parent?, host?` | `event`: `spawn` (record created by a spawn), `finalize` (sweep / dismiss marked a dead agent `error`), `dismiss` (Fleet / nav `d`), `kill` (Fleet / nav `x`, `worker kill`), `archive` (record moved to `archive/` by gc, dismiss or `migrate-home`). The matching `status` item comes first. |
 | `reply` | `agent, text, turn_id, truncated?` | An orchestrator's turn ends (`Stop` hook): the assistant **text blocks** of the last turn joined by a blank line — no thinking, tool calls or tool results |
 | `human` | `id, agent, from, text` | `cdamux say` accepted a human prompt for orchestrator `agent` (`id` = the `say` message id), whether it was pasted or queued — see [`say.md`](say.md) |
 
@@ -46,8 +47,8 @@ Example:
 
 - `--agent <id>`: items whose `agent`, `to`, `from` or `parent` is `<id>` — an
   orchestrator's replies, its inbox traffic and its workers' status.
-- `--orchestrators`: every `msg` / `reply` / `human` item, and `status` items of
-  agents whose role is `orchestrator`.
+- `--orchestrators`: every `msg` / `reply` / `human` item, and `status` /
+  `lifecycle` items of agents whose role is `orchestrator`.
 
 ## Cursor semantics
 

@@ -1,6 +1,7 @@
 //! Spawn tmux sessions with configured agent commands.
 
 use crate::client_name::normalize_client_name;
+use crate::paths::cdamux_home;
 use crate::session_manage::is_home_session;
 use crate::session_registry::{self, now_secs, SessionRecord};
 use crate::state::{
@@ -148,6 +149,11 @@ pub fn spawn_tmux_session_ex(
     extra: SpawnExtra<'_>,
 ) -> Result<SpawnOutcome, SpawnError> {
     let agent_label = agent_label.map(normalize_client_name);
+    // A record still naming this free session is stale: finalize it so the new agent
+    // is the only one claiming the host (ghost orchestrators sharing `c-global`, Q8).
+    if agent_label.is_some() && !crate::send::tmux_has_session(session_name).unwrap_or(true) {
+        let _ = crate::state_finalize::finalize_session_host(session_name);
+    }
     let cdamux_id = agent_label.and_then(|_| generate_agent_id());
     let (primary_command, agent_session_id) =
         with_claude_session_id(primary_command, agent_label);
@@ -245,16 +251,15 @@ fn create_tmux_session(
     }
 
     let shell = default_shell_command();
-    let status = Command::new("tmux")
-        .args([
-            "new-session",
-            "-d",
-            "-s",
-            session_name,
-            "-c",
-            &path.to_string_lossy(),
-            &shell,
-        ])
+    let mut new_session = Command::new("tmux");
+    new_session.args(["new-session", "-d", "-s", session_name, "-c", &path.to_string_lossy()]);
+    // One state home for every pane (#391): the shell, its hooks and later panes all
+    // inherit the spawner's resolved home instead of whatever the tmux server had.
+    if let Some(home) = cdamux_home() {
+        new_session.arg("-e").arg(format!("CDAMUX_HOME={}", home.display()));
+    }
+    let status = new_session
+        .arg(&shell)
         .status()
         .map_err(|e| SpawnError::Tmux(e.to_string()))?;
 
@@ -297,10 +302,16 @@ fn create_tmux_session(
     Ok(())
 }
 
-/// Prefix the pane command so the agent process sees `CDAMUX_AGENT_ID` (and for
-/// orchestrators `CDA_ROLE`) even when the shell started before `set-environment`.
+/// Prefix the pane command so the agent process sees `CDAMUX_AGENT_ID`, the resolved
+/// `CDAMUX_HOME` (and for orchestrators `CDA_ROLE`) even when the shell started before
+/// `set-environment` or its rc files reset the env.
 fn with_agent_id_env(command: &str, cdamux_id: Option<&str>, role: Option<&str>) -> String {
     let mut prefix = String::new();
+    if let Some(home) = cdamux_id.filter(|s| !s.is_empty()).and(cdamux_home()) {
+        prefix.push_str("CDAMUX_HOME=");
+        prefix.push_str(&crate::worker::shell_single_quote(&home.to_string_lossy()));
+        prefix.push(' ');
+    }
     if role == Some("orchestrator") {
         prefix.push_str("CDA_ROLE=orchestrator ");
     }
@@ -348,7 +359,9 @@ fn write_agent_state(
             .as_object_mut()
             .map(|m| m.insert("name".into(), serde_json::Value::String(name.into())));
     }
-    let _ = state_set(StateKind::Agents, id, &value);
+    if state_set(StateKind::Agents, id, &value).is_ok() {
+        crate::events::emit_lifecycle("spawn", id, Some(&value));
+    }
 }
 
 /// On restore: refresh `host` and fill only missing baseline fields so keys added via
@@ -531,24 +544,32 @@ mod tests {
 
     #[test]
     fn agent_id_env_adds_cda_role_only_for_orchestrator() {
+        let _g = crate::paths::env_lock();
+        std::env::set_var("CDAMUX_HOME", "/st ate");
+        let h = "CDAMUX_HOME='/st ate' ";
         assert_eq!(
             with_agent_id_env("claude", Some("a-orch1"), Some("orchestrator")),
-            "CDA_ROLE=orchestrator CDAMUX_AGENT_ID=a-orch1 claude"
+            format!("{h}CDA_ROLE=orchestrator CDAMUX_AGENT_ID=a-orch1 claude")
         );
         assert_eq!(
             with_agent_id_env("claude", Some("a-work1"), Some("worker")),
-            "CDAMUX_AGENT_ID=a-work1 claude"
+            format!("{h}CDAMUX_AGENT_ID=a-work1 claude")
         );
         assert_eq!(
             with_agent_id_env("claude", Some("a-agent"), Some("agent")),
-            "CDAMUX_AGENT_ID=a-agent claude"
+            format!("{h}CDAMUX_AGENT_ID=a-agent claude")
         );
-        assert_eq!(with_agent_id_env("claude", Some("a-x"), None), "CDAMUX_AGENT_ID=a-x claude");
+        assert_eq!(
+            with_agent_id_env("claude", Some("a-x"), None),
+            format!("{h}CDAMUX_AGENT_ID=a-x claude")
+        );
+        // No agent id (plain shell spawn): no home prefix, the pane env carries it.
         assert_eq!(
             with_agent_id_env("claude", None, Some("orchestrator")),
             "CDA_ROLE=orchestrator claude"
         );
         assert_eq!(with_agent_id_env("claude", None, Some("worker")), "claude");
+        std::env::remove_var("CDAMUX_HOME");
     }
 
     #[test]

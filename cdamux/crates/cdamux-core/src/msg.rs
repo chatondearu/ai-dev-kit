@@ -496,7 +496,9 @@ fn set_status(id: &str, status: &str) -> Result<(), MsgError> {
 /// `error` keeps a sticky status: orch.sh reports its `blocked` workers as kind=error.
 fn apply_kind_status(kind: &str, from: &str, to: &str) -> Result<(), MsgError> {
     match kind {
-        "ask" => set_status(from, "blocked")?,
+        // Sticky: an ask never turns a finished `done`/`error` back into `blocked`.
+        "ask" => crate::state::state_append_sticky(StateKind::Agents, from, &json!({ "status": "blocked" }))
+            .map_err(|e| MsgError::Io(e.to_string()))?,
         "done" | "error" => {
             let known = state_get(StateKind::Agents, from)
                 .map_err(|e| MsgError::Io(e.to_string()))?

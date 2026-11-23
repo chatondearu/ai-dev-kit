@@ -60,11 +60,19 @@ pub fn global_orch_cwd() -> Result<PathBuf, OrchError> {
     Ok(dir)
 }
 
-/// `host` of an agent record when it names a live tmux session (non-empty + `has-session`).
+/// `host` of agent `id` when it names a live tmux session (non-empty + `has-session`)
+/// that is still its own: a session whose `@cdamux_id` names another agent was reused
+/// by a newer one, and this stale record must not look live (ghost orchestrators).
 /// Shared liveness rule for [`find_live_global_orchestrator`] and [`list_orchestrators`].
-fn live_host(v: &serde_json::Value) -> Option<&str> {
+fn live_host<'a>(id: &str, v: &'a serde_json::Value) -> Option<&'a str> {
     let host = v.get("host").and_then(|h| h.as_str()).filter(|h| !h.is_empty())?;
-    tmux_has_session(host).unwrap_or(false).then_some(host)
+    if !tmux_has_session(host).unwrap_or(false) {
+        return None;
+    }
+    match crate::tmux::tmux_user_option(host, "@cdamux_id") {
+        Some(owner) if !owner.is_empty() && owner != id => None,
+        _ => Some(host),
+    }
 }
 
 fn is_orchestrator(v: &serde_json::Value) -> bool {
@@ -80,7 +88,7 @@ pub fn find_live_global_orchestrator() -> Option<(String, String)> {
     state_list(StateKind::Agents)
         .into_iter()
         .filter(|(_, _, v)| is_orchestrator(v) && is_global_scope(v))
-        .find_map(|(id, _, v)| live_host(&v).map(|h| (id, h.to_string())))
+        .find_map(|(id, _, v)| live_host(&id, &v).map(|h| (id, h.to_string())))
 }
 
 /// One recorded orchestrator for `cdamux orch ls` (#388).
@@ -127,7 +135,7 @@ pub fn list_orchestrators() -> Vec<OrchEntry> {
                 scope: if global { ORCH_SCOPE_GLOBAL } else { ORCH_SCOPE_PROJECT },
                 repo,
                 status: str_field(&v, "status"),
-                live: live_host(&v).is_some(),
+                live: live_host(&id, &v).is_some(),
                 parent: str_field(&v, "parent"),
                 id,
             }
@@ -135,6 +143,19 @@ pub fn list_orchestrators() -> Vec<OrchEntry> {
         .collect();
     out.sort_by(|a, b| (a.scope != ORCH_SCOPE_GLOBAL, &a.id).cmp(&(b.scope != ORCH_SCOPE_GLOBAL, &b.id)));
     out
+}
+
+/// Live top-level project orchestrator whose run repo is `path` (same canonical dir).
+fn live_orchestrator_for_path(path: &Path) -> Option<OrchEntry> {
+    let want = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    list_orchestrators().into_iter().find(|e| {
+        e.live
+            && e.scope == ORCH_SCOPE_PROJECT
+            && e.parent.is_none()
+            && e.repo.as_deref().is_some_and(|r| {
+                std::fs::canonicalize(r).unwrap_or_else(|_| PathBuf::from(r)) == want
+            })
+    })
 }
 
 /// `scope` of an orchestrator agent record (`global` or `project`), for `cdamux list --json`.
@@ -170,6 +191,9 @@ pub enum OrchError {
     /// ADR-015: only a `scope=global` orchestrator may spawn a project orchestrator.
     #[error("{0}")]
     Depth(String),
+    /// Q8: a live orchestrator already runs there.
+    #[error("orchestrator {id} already live on {host} for {path}; attach to it (cdamux attach {host})")]
+    Exists { id: String, host: String, path: String },
     #[error("caller agent '{0}' not found")]
     CallerNotFound(String),
     #[error("caller has no host session")]
@@ -263,6 +287,18 @@ pub fn spawn_orchestrator(req: OrchNewRequest<'_>) -> Result<OrchNewResult, Orch
     } else {
         req.path.to_path_buf()
     };
+
+    // Q8: one live top-level orchestrator per project; a nested one (`--child`) is the
+    // global orchestrator's call (ADR-015).
+    if !req.global && req.parent_agent_id.is_none() {
+        if let Some(e) = live_orchestrator_for_path(&path) {
+            return Err(OrchError::Exists {
+                id: e.id,
+                host: e.host,
+                path: path.display().to_string(),
+            });
+        }
+    }
 
     let client = req
         .agent

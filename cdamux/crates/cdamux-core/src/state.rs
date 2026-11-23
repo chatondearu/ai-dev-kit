@@ -147,15 +147,17 @@ pub(crate) fn try_entity_lock(path: &Path) -> io::Result<Option<std::fs::File>> 
 
 /// Replace the entity file with `value` (pretty JSON).
 pub fn state_set(kind: StateKind, id: &str, value: &Value) -> io::Result<()> {
-    let path = entity_path(kind, id)?;
-    let bytes = serde_json::to_vec_pretty(value)?;
-    with_entity_lock(&path, || write_atomic(&path, &bytes))
+    state_update(kind, id, |_| Some(value.clone())).map(|_| ())
 }
 
 /// Read the entity file; `None` when missing.
 pub fn state_get(kind: StateKind, id: &str) -> io::Result<Option<Value>> {
     let path = entity_path(kind, id)?;
-    match std::fs::read_to_string(&path) {
+    read_entity(&path)
+}
+
+fn read_entity(path: &Path) -> io::Result<Option<Value>> {
+    match std::fs::read_to_string(path) {
         Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
         Err(e) => Err(e),
         Ok(text) => Ok(Some(serde_json::from_str(&text)?)),
@@ -165,26 +167,72 @@ pub fn state_get(kind: StateKind, id: &str) -> io::Result<Option<Value>> {
 /// Shallow-merge object keys from `patch` into the existing document (or create it).
 /// Non-object existing values are replaced by `patch` when `patch` is an object.
 pub fn state_append(kind: StateKind, id: &str, patch: &Value) -> io::Result<()> {
+    state_update(kind, id, |prev| {
+        Some(match prev {
+            None => patch.clone(),
+            Some(existing) => merge_shallow(existing, patch),
+        })
+    })
+    .map(|_| ())
+}
+
+/// [`state_append`] honouring status stickiness under the lock (ADR-011 §3): a `status`
+/// the current one may not be replaced by is dropped, the other keys still merge.
+/// Unknown status strings are refused (`InvalidInput`). A missing record is left
+/// missing: a stray hook (wrong home, unknown id) must not mint a ghost agent.
+pub fn state_append_sticky(kind: StateKind, id: &str, patch: &Value) -> io::Result<()> {
+    use crate::agent_status::{may_overwrite, parse_reported_status};
+    let next = match patch.get("status").and_then(Value::as_str) {
+        None => None,
+        Some(s) => Some(parse_reported_status(s).ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidInput, format!("unknown status '{s}'"))
+        })?),
+    };
+    state_update(kind, id, |prev| {
+        let existing = prev?;
+        let current = existing
+            .get("status")
+            .and_then(Value::as_str)
+            .and_then(parse_reported_status);
+        let mut patch = patch.clone();
+        if next.is_some_and(|n| !may_overwrite(current, n)) {
+            patch.as_object_mut().map(|m| m.remove("status"));
+        }
+        Some(merge_shallow(existing, &patch))
+    })
+    .map(|_| ())
+}
+
+/// Read-modify-write under the entity lock: `f` gets the current document (`None` when
+/// missing) and returns the new one, or `None` to leave the file untouched. Returns
+/// whether it wrote. Every agent write path goes through here, so a status change
+/// stamps `status_ts` and emits one events `status` item (fail-open), in write order.
+pub fn state_update(
+    kind: StateKind,
+    id: &str,
+    f: impl FnOnce(Option<Value>) -> Option<Value>,
+) -> io::Result<bool> {
     let path = entity_path(kind, id)?;
     with_entity_lock(&path, || {
-        let (prev, merged) = match std::fs::read_to_string(&path) {
-            Err(e) if e.kind() == io::ErrorKind::NotFound => (Value::Null, patch.clone()),
-            Err(e) => return Err(e),
-            Ok(text) => {
-                let existing: Value = serde_json::from_str(&text)?;
-                (existing["status"].clone(), merge_shallow(existing, patch))
-            }
+        let prev = read_entity(&path)?;
+        let prev_status = prev
+            .as_ref()
+            .and_then(|v| v.get("status")?.as_str().map(str::to_string));
+        let Some(mut next) = f(prev) else {
+            return Ok(false);
         };
-        let bytes = serde_json::to_vec_pretty(&merged)?;
-        write_atomic(&path, &bytes)?;
-        // Events feed: one `status` item per agent status change, emitted under the
-        // entity lock so the journal order matches the record's (fail-open).
-        if let (StateKind::Agents, Some(status)) = (kind, patch["status"].as_str()) {
-            if prev.as_str() != Some(status) {
-                crate::events::emit_status(id, status, prev.as_str(), &merged);
+        let status = next.get("status").and_then(Value::as_str).map(str::to_string);
+        let changed = kind == StateKind::Agents && status.is_some() && status != prev_status;
+        if changed {
+            if let Some(m) = next.as_object_mut() {
+                m.insert("status_ts".into(), Value::from(crate::session_registry::now_secs()));
             }
         }
-        Ok(())
+        write_atomic(&path, &serde_json::to_vec_pretty(&next)?)?;
+        if let (true, Some(status)) = (changed, status.as_deref()) {
+            crate::events::emit_status(id, status, prev_status.as_deref(), &next);
+        }
+        Ok(true)
     })
 }
 
@@ -345,6 +393,57 @@ mod tests {
                 .filter(|e| e.file_name().to_string_lossy().contains(".tmp."))
                 .count();
             assert_eq!(leftovers, 0);
+        });
+    }
+
+    #[test]
+    fn every_write_path_emits_one_status_item_on_change() {
+        with_temp_home(|_| {
+            let id = "a-ev1";
+            state_set(StateKind::Agents, id, &serde_json::json!({"id": id, "role": "worker"})).unwrap();
+            state_set(StateKind::Agents, id, &serde_json::json!({"id": id, "status": "working"})).unwrap();
+            state_append(StateKind::Agents, id, &serde_json::json!({"status": "working"})).unwrap();
+            state_update(StateKind::Agents, id, |v| {
+                let mut v = v?;
+                v["status"] = "error".into();
+                Some(v)
+            })
+            .unwrap();
+            // `None` from the closure writes nothing.
+            assert!(!state_update(StateKind::Agents, id, |_| None).unwrap());
+            let items: Vec<(String, Value)> = crate::events::read_events(0)
+                .unwrap()
+                .into_iter()
+                .filter(|v| v["type"] == "status")
+                .map(|v| (v["status"].as_str().unwrap().to_string(), v["prev"].clone()))
+                .collect();
+            assert_eq!(
+                items,
+                [
+                    ("working".to_string(), Value::Null),
+                    ("error".to_string(), Value::from("working"))
+                ]
+            );
+            let rec = state_get(StateKind::Agents, id).unwrap().unwrap();
+            assert!(rec["status_ts"].as_u64().is_some_and(|t| t > 0));
+        });
+    }
+
+    #[test]
+    fn sticky_append_keeps_finished_status_and_skips_missing_records() {
+        with_temp_home(|_| {
+            let id = "a-st1";
+            state_set(StateKind::Agents, id, &serde_json::json!({"id": id, "status": "done"})).unwrap();
+            state_append_sticky(StateKind::Agents, id, &serde_json::json!({"status": "blocked", "k": 1}))
+                .unwrap();
+            let rec = state_get(StateKind::Agents, id).unwrap().unwrap();
+            assert_eq!((rec["status"].as_str(), rec["k"].as_i64()), (Some("done"), Some(1)));
+            state_append_sticky(StateKind::Agents, id, &serde_json::json!({"status": "working"})).unwrap();
+            assert_eq!(state_get(StateKind::Agents, id).unwrap().unwrap()["status"], "working");
+            let bad = state_append_sticky(StateKind::Agents, id, &serde_json::json!({"status": "nope"}));
+            assert_eq!(bad.unwrap_err().kind(), io::ErrorKind::InvalidInput);
+            state_append_sticky(StateKind::Agents, "a-ghost", &serde_json::json!({"status": "idle"})).unwrap();
+            assert!(state_get(StateKind::Agents, "a-ghost").unwrap().is_none());
         });
     }
 

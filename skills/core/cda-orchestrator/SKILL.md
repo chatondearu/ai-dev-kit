@@ -148,6 +148,7 @@ Research only: say "change nothing in the repo" and give a report path.
 cdamux worker spawn <name> --prompt-file spec.md [--agent X] [--here] [--repo <path|project>]
 cdamux worker ls
 cdamux worker peek <name> [--lines N]
+cdamux worker kill <name> [--subtree]
 ```
 
 Default spawn creates a worktree + branch. The preamble already tells the
@@ -175,7 +176,8 @@ behind `--ref`.
    then answer the worker once they decide.
 
 `kind=ask` leaves the worker `blocked` (Fleet `?`) until an `answer` or a `relay`
-from you, or its own `done`.
+from you, or its own `done`. After 15 min blocked,
+cdamux sends you one `report` about it: answer, or escalate.
 
 ## Delivery
 
@@ -213,6 +215,13 @@ report it ready to merge. `blocked` / `error` → read the `ref`, then
    (writer self-review is not the ADR-006 gate).
 4. After the merge, offer to remove the worktree; never remove one with
    unpushed commits.
+
+## Killing workers
+
+`cdamux worker kill <name>` is permanent: session gone, state finalized, never
+respawned by `restore`. Kill your own worker only when its PR is merged or closed
+**and** it is `done` or `idle`; anything else → ask the maintainer. Always tell
+the maintainer what you killed (the `killed …` lines).
 
 On `error`: summarise the cause and the next step for the maintainer.
 Read `ref` paths instead of pasting bodies; do not dump JSON. Messages stay

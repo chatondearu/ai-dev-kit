@@ -192,6 +192,31 @@ Context: [PLAN-251](../../plans/PLAN-251-orch-cdamux-publish.md) shipped publish
 window is closed; writers and readers use `$CDAMUX_HOME` only (repo keeps work
 artefacts). Sub-run `parent` via `$CDAMUX_AGENT_ID` unchanged.
 
+## Amendment 2026-11-23 — one home, lifecycle events, permanent kill
+
+Context: orchestration audit (H2, H5, M1–M4, M10, M17) and owner decisions Q8, Q9,
+Q17, Q18, Q23 (2026-11-23 grill). Decisions:
+
+- **One home** (#391): the owner runs one `CDAMUX_HOME` (`/cda/cdamux` on the
+  maintainer host). Every spawned pane inherits the spawner's resolved home (tmux
+  `new-session -e` + agent command prefix). `cdamux state migrate-home` (dry-run by
+  default, the owner applies it) archives the legacy XDG tree and ghost orchestrator
+  records. `orch new` refuses a second live top-level orchestrator for the same
+  project; a record still naming a freed tmux session is finalized at spawn.
+- **Writes**: every agent write is one read-modify-write under the record lock
+  (`state_update`) and emits the events `status` item; `state append --sticky` moves
+  §3 stickiness under that lock for hooks (hook timeout 40 ms → 500 ms). A
+  `lifecycle` events item records spawn / finalize / dismiss / kill / archive (#398).
+- **Cap** (ADR-015): workers of a dead orchestrator never count; `idle` keeps its slot
+  10 min; dead panes are reaped inside the cap check.
+- **Kill**: `cdamux worker kill [--subtree]`, Fleet `x` and navigator `x` share one
+  permanent kill (finalize + forget the restore record). The orchestrator kills its own
+  worker only when the PR is merged/closed and the worker `done`/`idle`, and reports it.
+- **GC**: `state gc` runs at each `orch new` (14-day default retention) and archives
+  orphan inboxes; gc / sweep / prune abort when tmux cannot be listed.
+- **Blocked**: a worker blocked 15 min gets its orchestrator one reminder, checked on
+  pane-reaping passes (no background timer).
+
 ## References
 
 - Map [#228](https://github.com/chatondearu/ai-dev-kit/issues/228); research

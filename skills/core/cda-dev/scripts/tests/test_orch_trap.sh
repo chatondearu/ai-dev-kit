@@ -60,6 +60,10 @@ chmod +x "$STUB_BIN/gh"
 export PATH="$STUB_BIN:$PATH"
 
 inbox="$CDAMUX_HOME/inbox/a-parent.jsonl"
+# Board reconcile stub: records each call (orch.sh runs it at run start, before merges).
+mkdir -p "$R/foam/board"
+printf '#!/usr/bin/env bash\necho "$*" >>"%s/reconcile.log"\n' "$TMP" >"$STUB_BIN/foam-board.sh"
+export ORCH_FOAM_BOARD="$STUB_BIN/foam-board.sh"
 
 echo "# SIGTERM to the process group mid-run (Ctrl-C sends INT the same way)"
 export ORCH_RUN_ID="trap-term-1"
@@ -139,13 +143,13 @@ assert_contains "$(jq -r .text <<<"$msg")" "exited (code 1)" "crash: message nam
 rm -f "$R/.orch/worktrees"
 
 echo "# normal blocked run: one report, no extra error"
-before="$(wc -l <"$inbox" | tr -d ' ')"
+: >"$TMP/reconcile.log"
 export ORCH_RUN_ID="trap-none-1"
 set +e
 bash "$SCRIPTS/orch.sh" --repo "$R" --mode pr-fix --pr 77 --agent false >"$TMP/none.log" 2>&1
 set -e
 after="$(jq -c 'select(.text | contains("trap-none-1"))' "$inbox" | jq -r .kind | paste -sd, -)"
 assert_eq "$after" "report" "finished blocked run sends one report, not an error" || cat "$TMP/none.log" >&2
-: "$before"
+assert_eq "$(head -n 1 "$TMP/reconcile.log")" "reconcile --pr" "board reconcile runs at run start"
 
 summary

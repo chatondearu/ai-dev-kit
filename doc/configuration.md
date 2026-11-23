@@ -60,7 +60,7 @@ binaries (`all_compile = false` in `mise.toml`).
 | `ORCH_VERIFY` | unset | Override verify command (allowlisted under pr-fix) |
 | `ORCH_FRONTIER` | `auto` | `0` disables Blocked-by gating |
 | `ORCH_FORCE_CLEAN` | off | Remove worktrees after success |
-| `ORCH_BOARD_RECONCILE` | `1` | After an ADR-016 self-merge and at run end, `foam-board.sh reconcile --pr` moves cards whose PR merged to `done` via a foam-only self-merged PR; `0` = off ([ADR-016](../foam/decisions/ADR-016-foam-first-kanban.md) §3b) |
+| `ORCH_BOARD_RECONCILE` | `1` | At run start, after an ADR-016 self-merge and at run end, `foam-board.sh reconcile --pr` moves cards whose PR merged to `done` via a foam-only self-merged PR; `0` = off ([ADR-016](../foam/decisions/ADR-016-foam-first-kanban.md) §3b) |
 | `ORCH_MIN_FREE_GIB` | `40` | Refuse to create a worktree below this free space (plus the checkout size) on `.orch/`'s filesystem, or when `df` fails; `0` = off. At the end of a run orch.sh frees build dirs of finished `.orch/worktrees` with `cdamux worker clean` when cdamux is on PATH ([ADR-017](../foam/decisions/ADR-017-worktree-build-cache-cleanup.md)) |
 | `ORCH_REPO` | cwd / `--repo` | Target git tree (required in systemd env) |
 | `ORCH_FOAM_BOARD` | discovered | Path to `foam-board.sh` for orch-auto Ready listing |

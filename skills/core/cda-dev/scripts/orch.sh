@@ -620,6 +620,8 @@ case "$MODE" in
       orch_acquire_lock
       ORCH_RUN_LIVE=1
       orch_sync_default "$REPO" || exit 1
+      # Before any merge: repos with real CI land last run's reconcile PR here.
+      orch_board_reconcile "$REPO"
     fi
     any_blocked=0
     HELD_IDS=(); HELD_REASON=()
@@ -673,6 +675,8 @@ case "$MODE" in
         jq . "$GRAPH_PLAN" 2>/dev/null || cat "$GRAPH_PLAN"
         exit 0
       fi
+      # The exit handler marks in-flight workers from this list.
+      export ORCH_PROGRESS_IDS="${ISSUES[0]}"
       if ! orch_graph_plan_run "$GRAPH_PLAN" "${ISSUES[0]}"; then
         orch_graph_finish blocked
         exit 1
@@ -810,6 +814,8 @@ case "$MODE" in
       orch_acquire_lock
       ORCH_RUN_LIVE=1
       orch_sync_default "$REPO" || exit 1
+      # Before any merge: repos with real CI land last run's reconcile PR here.
+      orch_board_reconcile "$REPO"
       export ORCH_VERIFY_TRUST=untrusted
       pr_clean="${PR%/}"
       while [ "${pr_clean%/}" != "$pr_clean" ]; do

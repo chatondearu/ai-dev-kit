@@ -60,7 +60,8 @@ binaries (`all_compile = false` in `mise.toml`).
 | `ORCH_VERIFY` | unset | Override verify command (allowlisted under pr-fix) |
 | `ORCH_FRONTIER` | `auto` | `0` disables Blocked-by gating |
 | `ORCH_FORCE_CLEAN` | off | Remove worktrees after success |
-| `ORCH_MIN_FREE_GIB` | `40` | Refuse to create a worktree below this free space on `.orch/`'s filesystem; `0` = off. At the end of a run orch.sh frees build dirs of finished `.orch/worktrees` with `cdamux worker clean` when cdamux is on PATH ([ADR-017](../foam/decisions/ADR-017-worktree-build-cache-cleanup.md)) |
+| `ORCH_BOARD_RECONCILE` | `1` | After an ADR-016 self-merge and at run end, `foam-board.sh reconcile --pr` moves cards whose PR merged to `done` via a foam-only self-merged PR; `0` = off ([ADR-016](../foam/decisions/ADR-016-foam-first-kanban.md) §3b) |
+| `ORCH_MIN_FREE_GIB` | `40` | Refuse to create a worktree below this free space (plus the checkout size) on `.orch/`'s filesystem, or when `df` fails; `0` = off. At the end of a run orch.sh frees build dirs of finished `.orch/worktrees` with `cdamux worker clean` when cdamux is on PATH ([ADR-017](../foam/decisions/ADR-017-worktree-build-cache-cleanup.md)) |
 | `ORCH_REPO` | cwd / `--repo` | Target git tree (required in systemd env) |
 | `ORCH_FOAM_BOARD` | discovered | Path to `foam-board.sh` for orch-auto Ready listing |
 | `ORCH_GH_BOARD` | discovered | Legacy alias for `ORCH_FOAM_BOARD` |
@@ -114,10 +115,12 @@ live tmux host + live parent orchestrator, excluding status `done`/`error` — m
 status counts, `idle` keeps its slot for 10 min; dormant hosts and workers of a dead
 orchestrator never count; all projects). `cdamux worker kill <name> [--subtree]`
 frees a slot for good (never respawned by `restore`). Spawn also refuses below
-`[worktrees].min_free_gib` free on the worktree filesystem (default 40, `0` = off).
+`[worktrees].min_free_gib` free on the worktree filesystem plus the size of the checkout
+it is about to create (default 40, `0` = off), and when `df` cannot be read.
 `cdamux worker clean [--dry-run] [--root DIR]` deletes `[worktrees].disposable` build
 dirs (default `target`, `node_modules`, `.nuxt`, `.output`; git-ignored only) in
-cdamux/orch worktrees whose PR is merged or closed, or whose session is gone and own
+worktrees an agent of the cdamux registry ran in (its `cwd`/`repo`; never a hand-made
+worktree) whose PR is merged or closed, or whose session is gone and own
 commits are in the default branch — never with an open PR, a live unfinished session,
 or when tmux cannot be listed; each spawn also runs it in the background (one pass at a
 time, log `$CDAMUX_HOME/logs/worker-clean.log`, ADR-017). Small hosts: set

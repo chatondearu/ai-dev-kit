@@ -87,7 +87,30 @@ done
 # sourcing them from a test never installs it. Run orch in its own group (`setsid`, or `set -m`)
 # when launching it from a script that must survive an interrupt.
 # ORCH_TMUX=1 agents live in tmux, outside this group: kill their sessions too.
-trap '_orch_release_lock; orch_tmux_kill_run; trap - INT TERM; kill 0' INT TERM
+orch_on_signal() {
+  trap '' INT TERM
+  ORCH_ABORT_REASON="interrupted by SIG$1"
+  kill -TERM 0 2>/dev/null || true
+  orch_tmux_kill_run || true
+  exit 130
+}
+# Any non-zero exit after the lock that did not finish the run (crash, early block,
+# interrupt; Q12): the run must not stay `running` nor the parent wait forever. Mark it
+# blocked, tell the parent (kind error), free the build dirs
+# of finished worktrees (interrupted ones keep theirs for the retry), release the lock.
+orch_on_exit() {
+  local rc=$?
+  trap - EXIT
+  if [ "$rc" -ne 0 ] && [ -n "${ORCH_RUN_LIVE:-}" ] && [ -z "${ORCH_RUN_FINISHED:-}" ]; then
+    orch_graph_finish interrupted "${ORCH_ABORT_REASON:-exited (code $rc)}" || true
+    orch_free_build_dirs "$ORCH_REPO" || true
+  fi
+  _orch_release_lock
+  exit "$rc"
+}
+trap 'orch_on_signal INT' INT
+trap 'orch_on_signal TERM' TERM
+trap orch_on_exit EXIT
 
 export ORCH_MAX_PARALLEL="$MAX_P" ORCH_MAX_ITER="$MAX_I" ORCH_SANDBOX="$SANDBOX"
 export ORCH_FAIL_FAST="$FAIL_FAST" ORCH_FORCE_CLEAN="$FORCE_CLEAN" ORCH_ROOT="$ROOT"
@@ -296,7 +319,7 @@ orch_ready_pickup_one() {
   fi
 
   orch_progress_set "$id" worktree "creating ${path##*/}"
-  if ! orch_disk_guard "$ORCH_REPO/.orch"; then
+  if ! orch_disk_guard "$ORCH_REPO/.orch" "$ORCH_REPO"; then
     orch_progress_set "$id" error "low disk"
     echo 1 >"$rc_file"
     return 1
@@ -534,6 +557,7 @@ EOF
   orch_meta_try_merge "$pr_num" "$path" "$branch" || merge_rc=$?
   case "$merge_rc" in
     0)
+      orch_board_reconcile "$ORCH_REPO"
       orch_progress_set "$id" done "PR #${pr_num} merged (ADR-016 allowlist)"
       if ! orch_progress_enabled; then
         printf 'done: issue %s (PR %s merged, ADR-016 allowlist)\n' "$id" "$pr_num"
@@ -582,6 +606,7 @@ case "$MODE" in
     [ "${#ISSUES[@]}" -gt 0 ] || { echo "need --issue"; exit 2; }
     if [ "$DRY" != 1 ]; then
       orch_acquire_lock
+      ORCH_RUN_LIVE=1
       orch_sync_default "$REPO" || exit 1
     fi
     any_blocked=0
@@ -646,6 +671,7 @@ case "$MODE" in
       fi
       orch_graph_finish ok
       orch_cleanup_done "${ISSUES[0]}"
+      orch_board_reconcile "$REPO"
       exit 0
     fi
 
@@ -687,6 +713,7 @@ case "$MODE" in
           any_blocked=1
           if [ "$FAIL_FAST" = 1 ]; then
             orch_progress_dashboard_stop
+            orch_graph_finish blocked
             exit 1
           fi
         fi
@@ -709,6 +736,7 @@ case "$MODE" in
             if [ "$(cat "$rc_file")" != "0" ]; then
               orch_pool_drain
               orch_progress_dashboard_stop
+              orch_graph_finish blocked
               exit 1
             fi
           done
@@ -755,6 +783,7 @@ case "$MODE" in
     done
 
     orch_cleanup_done "${ISSUES[@]}"
+    orch_board_reconcile "$REPO"
 
     if [ "$any_blocked" -ne 0 ]; then
       orch_graph_finish blocked
@@ -767,6 +796,7 @@ case "$MODE" in
     echo "pr-fix pr=$PR dry=$DRY"
     if [ "$DRY" = 0 ]; then
       orch_acquire_lock
+      ORCH_RUN_LIVE=1
       orch_sync_default "$REPO" || exit 1
       export ORCH_VERIFY_TRUST=untrusted
       pr_clean="${PR%/}"
@@ -812,7 +842,7 @@ case "$MODE" in
 
       path="$(orch_worktree_path "$REPO" "pr-$num" "fix")"
       if [ ! -e "$path" ]; then
-        orch_disk_guard "$REPO/.orch" || exit 1
+        orch_disk_guard "$REPO/.orch" "$REPO" || exit 1
         mkdir -p "$(dirname "$path")"
         checked_out=0
         if command -v gh >/dev/null 2>&1; then
@@ -887,6 +917,7 @@ case "$MODE" in
         orch_worktree_remove "$REPO" "$path"
       fi
       orch_free_build_dirs "$REPO"
+      orch_board_reconcile "$REPO"
     fi
     ;;
   intake)

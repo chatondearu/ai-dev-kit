@@ -190,7 +190,8 @@ bash scripts/orch-cleanup.sh --repo DIR --apply
 | `ORCH_FRONTIER` | `auto` | Frontier gating on blocking edges; `0` = dispatch every requested issue regardless of blockers |
 | `ORCH_ALLOW_NO_CHECKS` | `0` | If `1`, empty `gh pr checks` counts as green. Else empty → fail-fast `none`. Also: `orch: allow-no-checks` in `AGENTS.md`. |
 | `ORCH_COPY_ENV` | `0` | If `1`, copy repo `.env` into each worktree |
-| `ORCH_MIN_FREE_GIB` | `40` | Refuse a new worktree below this free space (GiB); `0` = off (ADR-017) |
+| `ORCH_MIN_FREE_GIB` | `40` | Refuse a new worktree below this free space (GiB) plus the checkout size, or when `df` fails; `0` = off (ADR-017) |
+| `ORCH_BOARD_RECONCILE` | `1` | `foam-board.sh reconcile --pr` after an ADR-016 merge and at run end; `0` = off (ADR-016 §3b) |
 | `ORCH_VERIFY` | _(unset)_ | Override verify command (must be allowlisted when `ORCH_VERIFY_TRUST=untrusted`) |
 | `ORCH_VERIFY_TRUST` | `trusted` | `untrusted` in pr-fix: refuse non-allowlisted verify from the PR tree |
 | `ORCH_ALLOW_NO_VERIFY` | `0` | Set by orch from `orch: allow-no-verify` in the issue body (trusted author only): missing verify command → `true` instead of `blocked` |

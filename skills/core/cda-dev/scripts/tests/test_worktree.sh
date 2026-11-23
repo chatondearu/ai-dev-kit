@@ -88,4 +88,32 @@ else
 fi
 assert_contains "$(cat "$TMP/guard.err")" "cdamux worker clean" "guard names the clean command"
 
+# L8: unreadable df fails closed; the checkout about to be created counts.
+DFBIN="$(mktemp -d)"
+printf '#!/bin/sh\nexit 1\n' >"$DFBIN/df"
+chmod +x "$DFBIN/df"
+if PATH="$DFBIN:$PATH" ORCH_MIN_FREE_GIB=1 orch_disk_guard "$TMP" 2>"$TMP/guard.err"; then
+  FAILS=$((FAILS + 1))
+  printf 'FAIL disk guard must refuse when df fails\n' >&2
+else
+  PASSES=$((PASSES + 1))
+  printf 'ok   disk guard fails closed on df error\n'
+fi
+assert_contains "$(cat "$TMP/guard.err")" "cannot read free space" "df error message is explicit"
+# 1 GiB + 512 KiB free: enough without the repo, not with a 2 MiB checkout.
+printf '#!/bin/sh\necho "Filesystem 1024-blocks Used Available Capacity Mounted"\necho "/dev/x 9999999 1 1049088 1%% /"\n' >"$DFBIN/df"
+head -c 2097152 /dev/zero >"$TMP/big"
+git -C "$TMP" add big && git -C "$TMP" commit -qm big
+PATH="$DFBIN:$PATH" ORCH_MIN_FREE_GIB=1 orch_disk_guard "$TMP"
+assert_eq "$?" "0" "guard passes on free space alone"
+if PATH="$DFBIN:$PATH" ORCH_MIN_FREE_GIB=1 orch_disk_guard "$TMP" "$TMP" 2>"$TMP/guard.err"; then
+  FAILS=$((FAILS + 1))
+  printf 'FAIL disk guard must count the checkout\n' >&2
+else
+  PASSES=$((PASSES + 1))
+  printf 'ok   disk guard counts the checkout\n'
+fi
+assert_contains "$(cat "$TMP/guard.err")" "MiB for the checkout" "message names the checkout size"
+rm -rf "$DFBIN"
+
 summary

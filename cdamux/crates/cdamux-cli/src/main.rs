@@ -1037,20 +1037,26 @@ fn cmd_worker_clean(dry_run: bool, roots: Vec<PathBuf>) -> ExitCode {
     if sessions.is_none() {
         eprintln!("worker clean: cannot list tmux sessions; keeping every worktree");
     }
-    let status: std::collections::HashMap<String, String> =
-        cdamux_core::state_list(StateKind::Agents)
-            .into_iter()
-            .filter_map(|(_, _, v)| {
-                Some((
-                    v.get("host")?.as_str()?.to_string(),
-                    v.get("status")?.as_str()?.to_string(),
-                ))
-            })
-            .collect();
+    let agents: Vec<serde_json::Value> = cdamux_core::state_list(StateKind::Agents)
+        .into_iter()
+        .map(|(_, _, v)| v)
+        .collect();
+    let status: std::collections::HashMap<String, String> = agents
+        .iter()
+        .filter_map(|v| {
+            Some((
+                v.get("host")?.as_str()?.to_string(),
+                v.get("status")?.as_str()?.to_string(),
+            ))
+        })
+        .collect();
+    // Only worktrees an agent of the registry ran in (Q13): never branch-name guesses.
+    let registry = cdamux_core::registry_paths(agents.iter());
     let items = cdamux_core::clean_worktrees(
         &roots,
         &cfg.worktrees.disposable,
         dry_run,
+        &registry,
         sessions.as_deref(),
         &|h| status.get(h).cloned(),
         &cdamux_core::gh_pr_state,
@@ -2008,6 +2014,21 @@ fn cmd_board_refresh(pull: bool) -> ExitCode {
     match refresh_board_index(&home, &projects, &opts) {
         Ok(index) => match serde_json::to_string_pretty(&index) {
             Ok(raw) => {
+                // Read-only: report drift, never commit or open a PR from a refresh.
+                for p in index.projects.iter().filter(|p| !p.drift.is_empty()) {
+                    let cards: Vec<String> = p
+                        .drift
+                        .iter()
+                        .map(|d| format!("{} ({} PR #{})", d.slug, d.status, d.pr))
+                        .collect();
+                    eprintln!(
+                        "board: {}: {} card(s) still open with a merged PR: {}; fix: `foam-board.sh reconcile --pr` in {}",
+                        p.name,
+                        cards.len(),
+                        cards.join(", "),
+                        p.path
+                    );
+                }
                 println!("{raw}");
                 ExitCode::SUCCESS
             }

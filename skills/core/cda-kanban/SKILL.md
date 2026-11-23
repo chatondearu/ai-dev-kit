@@ -85,7 +85,7 @@ Pipeline context: `cda-plan` § End-to-end feature pipeline.
 6. Implement; commit with Conventional Commits; `Closes #N` only when `github_issue` is set
 7. Open PR (use `new-branch-and-pr` or `review-and-ship`)
 8. `foam-board.sh set-status <id> in-review` and commit the card
-9. After merge + CI green → `set-status <id> done` (and close the GitHub issue if `github_issue` + `Closes` did not)
+9. After merge → `foam-board.sh reconcile --pr` moves every in-progress/in-review card whose PR merged to `done` on a foam-only PR that self-merges (ADR-016 §3b) and closes its `github_issue` if still open. orch.sh runs it after its merges and at run end; run it by hand after a maintainer merge.
 
 ### C — Multi-agent coordination
 
@@ -219,6 +219,10 @@ Closes #N
 ```bash
 ./scripts/foam-board.sh set-status <id> in-progress   # also: ready | in-review | done | backlog
 # then: git add foam/board/<file> && git commit
+
+./scripts/foam-board.sh reconcile          # report cards whose PR merged (read-only)
+./scripts/foam-board.sh reconcile --write  # mark them done in this working tree
+./scripts/foam-board.sh reconcile --pr     # branch off origin/<default>, PR, ADR-016 self-merge
 ```
 
 Do not write GitHub Projects by default. `gh-board env` / `gh project item-edit`
@@ -278,7 +282,7 @@ Always sync board status when those skills change PR/issue state.
 | Architecture choice | `foam/decisions/ADR-NNN-*.md` |
 
 One-shot map of existing GH issues → cards: `cda-foam` `import-board.sh` (not a loop).
-After merge: update the card to `done`; add ADR when a new technical decision was made.
+After merge: `foam-board.sh reconcile --pr` moves the card to `done`; add ADR when a new technical decision was made.
 
 ## Output format
 

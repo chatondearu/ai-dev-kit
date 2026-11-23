@@ -15,17 +15,27 @@ orch_repo_root() {
   fi
 }
 
+# KiB a checkout of REPO's HEAD writes (tracked blob sizes; submodules count 0).
+orch_checkout_kib() {
+  git -C "$1" ls-tree -r -l HEAD 2>/dev/null | awk '{ s += $4 } END { print int(s / 1024) + 1 }'
+}
+
 # Refuse new worktrees when DIR's filesystem has less than ORCH_MIN_FREE_GIB free
-# (default 40, 0 = off). Fail-open when df is unreadable (ADR-017).
+# (default 40, 0 = off) plus, given REPO, the checkout about to be created.
+# Fails closed when df is unreadable (ADR-017).
 orch_disk_guard() {
-  local dir="$1" min="${ORCH_MIN_FREE_GIB:-40}" avail
+  local dir="$1" repo="${2:-}" min="${ORCH_MIN_FREE_GIB:-40}" avail checkout=0
   [ "$min" -gt 0 ] 2>/dev/null || return 0
   while [ ! -d "$dir" ] && [ "$dir" != / ]; do dir="$(dirname "$dir")"; done
   avail="$(df -Pk "$dir" 2>/dev/null | awk 'NR==2 { for (i = 2; i <= NF; i++) if ($i ~ /%$/) { print $(i-1); exit } }')"
-  case "$avail" in '' | *[!0-9]*) return 0 ;; esac
-  [ "$avail" -lt $((min * 1048576)) ] || return 0
-  printf 'low disk: %s GiB free on %s (< %s GiB, ORCH_MIN_FREE_GIB); free build caches with `cdamux worker clean --dry-run` (add --root <repo>/.orch/worktrees)\n' \
-    "$((avail / 1048576))" "$dir" "$min" >&2
+  case "$avail" in '' | *[!0-9]*)
+    printf 'disk guard: cannot read free space on %s (df failed); refusing to create a worktree (ORCH_MIN_FREE_GIB=0 turns the guard off)\n' "$dir" >&2
+    return 1 ;;
+  esac
+  [ -z "$repo" ] || checkout="$(orch_checkout_kib "$repo")"
+  [ "$avail" -lt $((min * 1048576 + checkout)) ] || return 0
+  printf 'low disk: %s GiB free on %s (< %s GiB, ORCH_MIN_FREE_GIB, + %s MiB for the checkout); free build caches with `cdamux worker clean --dry-run` (add --root <repo>/.orch/worktrees)\n' \
+    "$((avail / 1048576))" "$dir" "$min" "$((checkout / 1024))" >&2
   return 1
 }
 

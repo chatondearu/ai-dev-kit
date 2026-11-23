@@ -46,7 +46,8 @@ orch_acquire_lock() {
   printf '%s\n' "$$" >"$dir/pid"
   printf '%s\n' "${ORCH_RUN_ID:-unknown}" >"$dir/run"
   ORCH_LOCK_DIR="$dir"
-  trap _orch_release_lock EXIT
+  # Keep a caller's EXIT handler (orch.sh orch_on_exit releases the lock itself).
+  [ -n "$(trap -p EXIT)" ] || trap _orch_release_lock EXIT
 }
 
 # Per-repo merge lock (Q4): sibling workers of one run, other runs and manual merges

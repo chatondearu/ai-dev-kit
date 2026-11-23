@@ -131,7 +131,7 @@ orch_cdamux_publish_run_json() {
 # Args: worker_id phase [message] [optional agent jq object / phases from progress]
 orch_cdamux_publish_worker() {
   local wid="$1" phase="$2" msg="${3:-}" agent_extra="${4:-}"
-  local aid host client status parent run json tmux_session log prev
+  local aid host client status parent run json tmux_session log prev cwd=""
   [ -n "$agent_extra" ] || agent_extra='{}'
   orch_cdamux_available || return 0
   command -v jq >/dev/null 2>&1 || return 0
@@ -152,6 +152,11 @@ orch_cdamux_publish_worker() {
   status="$(orch_cdamux_status_from_phase "$phase")"
   parent="${CDAMUX_AGENT_ID:-}"
   run="${ORCH_RUN_ID:-}"
+  # Worktree path: `cdamux worker clean` only touches worktrees the registry knows (Q13).
+  if declare -F orch_worktree_path >/dev/null 2>&1; then
+    cwd="$(orch_worktree_path "${ORCH_REPO:-.}" "$wid" "issue-$wid")"
+    [ -d "$cwd" ] || cwd=""
+  fi
   json="$(jq -cn \
     --arg id "$aid" \
     --arg client "$client" \
@@ -164,6 +169,7 @@ orch_cdamux_publish_worker() {
     --arg message "$msg" \
     --arg tmux_session "$tmux_session" \
     --arg log "$log" \
+    --arg cwd "$cwd" \
     --arg updated_at "$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date -u)" \
     --argjson extra "$agent_extra" \
     '{id:$id, client:$client, host:(if $host=="" then null else $host end),
@@ -173,6 +179,7 @@ orch_cdamux_publish_worker() {
       updated_at:$updated_at}
      + (if $message=="" then {} else {message:$message} end)
      + (if $tmux_session=="" then {} else {tmux_session:$tmux_session, log:$log} end)
+     + (if $cwd=="" then {} else {cwd:$cwd} end)
      + ($extra | with_entries(select(.value != null)))')" || return 0
   # `state set` replaces the file: carry over the PR/issue links (orch, detection, override).
   prev="$(orch_cdamux_state_get agents "$aid" || true)"
@@ -252,8 +259,9 @@ orch_cdamux_parent_msg_worker() {
 }
 
 # One parent inbox msg at run end with ref to integrator report (ADR-011 §5).
+# Args: status [kind=report] [reason]; a reason replaces "finished" in the text.
 orch_cdamux_parent_msg_run_end() {
-  local status="${1:-ok}" parent ref marker dir text
+  local status="${1:-ok}" kind="${2:-report}" reason="${3:-}" parent ref marker dir text
   parent="${CDAMUX_AGENT_ID:-}"
   [ -n "$parent" ] || return 0
   orch_cdamux_available || return 0
@@ -266,7 +274,8 @@ orch_cdamux_parent_msg_run_end() {
   # Single-issue runs skip the integrator: no report, no ref.
   [ -f "$ref" ] || ref=""
   text="run $ORCH_RUN_ID finished: $status"
+  [ -z "$reason" ] || text="run $ORCH_RUN_ID $reason: $status"
   # from=parent: orch harness has no separate run Agent; inbox still gets the line.
-  orch_cdamux_msg_send "$parent" report "$text" "$parent" "$ref"
+  orch_cdamux_msg_send "$parent" "$kind" "$text" "$parent" "$ref"
   printf '%s\n' "$status" >"$marker"
 }

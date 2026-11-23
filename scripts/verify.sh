@@ -10,6 +10,7 @@ for t in skills/core/cda-dev/scripts/tests/test_*.sh \
   skills/core/cda-kanban/scripts/tests/test_closest_status.sh \
   skills/core/cda-kanban/scripts/tests/test_gh_board.sh \
   skills/core/cda-kanban/scripts/tests/test_foam_board.sh \
+  skills/core/cda-kanban/scripts/tests/test_foam_board_reconcile.sh \
   skills/quality/cda-kiss/hooks/test-install.sh \
   cdamux/hooks/test.sh \
   cdamux/hooks/test-wire.sh \

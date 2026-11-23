@@ -190,6 +190,11 @@ fn spawn_ls_peek_and_msg_by_name() {
         worker["repo"].as_str().map(std::path::Path::new),
         Some(repo.canonicalize().unwrap()).as_deref() // macOS: /tmp -> /private/tmp
     );
+    // The created worktree is registered: `worker clean` targets it, and only it (Q13).
+    assert_eq!(
+        worker["cwd"].as_str().map(std::path::Path::new),
+        Some(out.path.as_path())
+    );
 
     let rows = list_workers("a-orch1").unwrap();
     assert_eq!(rows.len(), 1);

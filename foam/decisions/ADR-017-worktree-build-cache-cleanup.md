@@ -23,10 +23,13 @@ maintainer's disk twice in one week. Node projects pile up `node_modules`, `.nux
    per-project list is not needed yet.
 2. **Only git-ignored dirs** — candidates come from `git ls-files --others --ignored
    --exclude-standard --directory`; each must resolve inside the worktree and not be a
-   symlink. Only worktrees cdamux or orch.sh created are scanned: linked (git dir ≠
-   common dir, so never a main checkout or a submodule) and on a managed branch
-   (`worker/…`, `feat/<id>-issue-<id>`, `orch/pr-<n>`; never a detached HEAD).
-   Tracked or untracked work, the worktree and its branch are never removed.
+   symlink. Only worktrees the cdamux registry knows are scanned: linked (git dir ≠
+   common dir, so never a main checkout or a submodule), on a branch (never a detached
+   HEAD), and an agent's `cwd` or `repo` is the worktree or a path inside it.
+   `cdamux worker spawn` records the worktree it creates as the agent `cwd`; orch.sh
+   records `.orch/worktrees/<id>-issue-<id>` the same way. A hand-made worktree is never
+   a candidate, whatever its branch name. Tracked or untracked work, the worktree and
+   its branch are never removed.
 3. **Finished for good** (pure `clean_verdict`): PR merged or closed (`gh pr list
    --head <branch> --state all`), or no PR, no live session and at least one commit of
    the branch's own (after its reflog creation point) already in the default branch —
@@ -40,16 +43,23 @@ maintainer's disk twice in one week. Node projects pile up `node_modules`, `.nux
    runs it on `.orch/worktrees` at the end of ready-pickup and pr-fix when cdamux is on
    PATH.
 5. **Disk guard** — `cdamux worker spawn` refuses when the worktree filesystem has less
-   than `[worktrees].min_free_gib` free (default 40, `0` = off), naming the clean
-   command. orch.sh applies the same check before creating a worktree
-   (`ORCH_MIN_FREE_GIB`). Both fail open when `df` cannot be read.
+   than `[worktrees].min_free_gib` free plus the checkout about to be written (tracked
+   blob sizes of the repo `HEAD`; `0` = off), naming the clean command. orch.sh applies
+   the same check before creating a worktree (`ORCH_MIN_FREE_GIB`). Both fail closed,
+   with a message naming the `0` bypass, when `df` cannot be read.
+6. **Crash / Ctrl-C** — orch.sh's exit handler, after a run started and before it
+   finished, marks the run `blocked`, sends the parent a `kind=error` message, runs
+   `orch_free_build_dirs` (finished worktrees only: an interrupted worktree keeps its
+   build dir for the retry) and releases the run lock.
 
 ## Alternatives considered
 
 | Alternative | Why rejected |
 | ----------- | ------------ |
 | Auto-detect by manifest (`Cargo.toml` → `target`) | Misses nested workspaces (`cdamux/target`) and monorepo `node_modules`; the git-ignored filter already makes a name list safe |
-| Shared `CARGO_TARGET_DIR` / sccache | Out of scope; Rust only; separate change |
+| Shared `CARGO_TARGET_DIR` / sccache | Owner decision (2026-11-23, Q12): parallel workers would serialize on cargo's build-dir lock; Rust only |
+| Branch-name heuristic for candidates (`worker/…`, `feat/<id>-issue-<id>`) | A hand-made worktree on such a branch was "managed"; replaced by the registry (Q13) |
+| Fail-open disk guard | A `df` error let spawns fill the disk silently (audit L8) |
 | Remove finished worktrees entirely | Loses inspectable state; a human decision (orch-cleanup.sh stays manual) |
 | Hook into `cdamux state gc` | Not run automatically; `gh` calls would slow a pure state pass |
 
@@ -61,6 +71,11 @@ maintainer's disk twice in one week. Node projects pile up `node_modules`, `.nux
   after its PR merged rebuilds from scratch.
 - **Constraint**: never delete outside the worktree; never touch an open PR or a live
   unfinished session.
+
+## Amendments
+
+- 2026-11-23 — owner decisions Q12, Q13 and audit L8: registry-scoped candidates, disk
+  guard counts the checkout and fails closed, crash handler (items 2, 5, 6).
 
 ## References
 

@@ -1,7 +1,8 @@
 //! Free build caches in finished worktrees (`cdamux worker clean`) and the spawn disk guard.
 //!
-//! Only git-ignored directories named in `[worktrees].disposable` are removed; the
-//! worktree, its branch and tracked or untracked work stay (ADR-017).
+//! Only git-ignored directories named in `[worktrees].disposable` are removed, and only
+//! in worktrees the cdamux registry knows (an agent's `cwd`/`repo`); the worktree, its
+//! branch and tracked or untracked work stay (ADR-017).
 
 use serde_json::Value;
 use std::fs;
@@ -113,28 +114,46 @@ pub fn free_bytes(path: &Path) -> Option<u64> {
     parse_df_avail_kib(&String::from_utf8_lossy(&out.stdout)).map(|k| k * 1024)
 }
 
-/// Refuse when `avail` is below `min_gib` GiB (`0` = off).
-pub fn disk_guard(avail: u64, min_gib: u64, path: &Path) -> Result<(), String> {
-    if min_gib == 0 || avail >= min_gib.saturating_mul(GIB) {
+/// Refuse when `avail` is below `min_gib` GiB plus `checkout` bytes about to be written
+/// (`min_gib = 0` = off).
+pub fn disk_guard(avail: u64, min_gib: u64, checkout: u64, path: &Path) -> Result<(), String> {
+    if min_gib == 0 || avail >= min_gib.saturating_mul(GIB).saturating_add(checkout) {
         return Ok(());
     }
     Err(format!(
-        "low disk: {} free on {} (< {min_gib} GiB, [worktrees].min_free_gib); \
+        "low disk: {} free on {} (< {min_gib} GiB, [worktrees].min_free_gib, + {} for the checkout); \
          free build caches with `cdamux worker clean --dry-run` then `cdamux worker clean`",
         format_bytes(avail),
-        path.display()
+        path.display(),
+        format_bytes(checkout)
     ))
 }
 
-/// `disk_guard` on the live filesystem; fail-open when `df` cannot be read.
-pub fn check_free_space(path: &Path, min_gib: u64) -> Result<(), String> {
+/// `disk_guard` on the live filesystem. Fails closed when `df` cannot be read.
+pub fn check_free_space(path: &Path, min_gib: u64, checkout: u64) -> Result<(), String> {
     if min_gib == 0 {
         return Ok(());
     }
     match free_bytes(path) {
-        Some(avail) => disk_guard(avail, min_gib, path),
-        None => Ok(()),
+        Some(avail) => disk_guard(avail, min_gib, checkout, path),
+        None => Err(format!(
+            "disk guard: cannot read free space on {} (df failed); refusing to create a worktree \
+             ([worktrees].min_free_gib = 0 turns the guard off)",
+            path.display()
+        )),
     }
+}
+
+/// Bytes a checkout of `rev` in `repo` writes: tracked blob sizes (`git ls-tree -r -l`).
+/// Unreadable → 0 (the free-space floor still applies).
+pub fn checkout_bytes(repo: &Path, rev: &str) -> u64 {
+    git_out(repo, &["ls-tree", "-r", "-l", rev])
+        .map(|out| {
+            out.lines()
+                .filter_map(|l| l.split_whitespace().nth(3)?.parse::<u64>().ok())
+                .sum()
+        })
+        .unwrap_or(0)
 }
 
 pub fn format_bytes(b: u64) -> String {
@@ -263,16 +282,27 @@ fn branch_name(wt: &Path) -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
-/// Branches cdamux and orch.sh create: `worker/<run>/<name>`, `feat/<id>-issue-<id>`,
-/// `orch/pr-<n>`. Anything else (hand-made worktree, detached HEAD) is never cleaned.
-pub fn managed_branch(branch: &str) -> bool {
-    if branch.starts_with("worker/") || branch.starts_with("orch/pr-") {
-        return true;
-    }
-    branch
-        .strip_prefix("feat/")
-        .and_then(|r| r.split_once("-issue-"))
-        .is_some_and(|(a, b)| !a.is_empty() && a == b)
+/// Agent `cwd` / `repo` paths of the cdamux registry (agent state docs).
+pub fn registry_paths<'a>(docs: impl IntoIterator<Item = &'a Value>) -> Vec<PathBuf> {
+    docs.into_iter()
+        .flat_map(|v| {
+            ["cwd", "repo"]
+                .into_iter()
+                .filter_map(move |k| v.get(k)?.as_str())
+        })
+        .map(PathBuf::from)
+        .collect()
+}
+
+fn canonical(p: &Path) -> PathBuf {
+    p.canonicalize().unwrap_or_else(|_| p.to_path_buf())
+}
+
+/// An agent of the registry ran in `wt`: its `cwd`/`repo` is the worktree or inside it.
+/// A hand-made worktree, whatever its branch name, is never a candidate.
+fn registered(wt: &Path, registry: &[PathBuf]) -> bool {
+    let root = canonical(wt);
+    registry.iter().any(|p| p.starts_with(&root))
 }
 
 /// Linked worktree: its git dir differs from the common dir (false for submodules and
@@ -378,23 +408,26 @@ impl CleanItem {
 }
 
 /// Scan `roots`, decide per worktree, remove disposable dirs of finished ones (unless `dry_run`).
-/// Only linked worktrees on a [`managed_branch`]; those with nothing to free are skipped
-/// without calling `pr_lookup`. `sessions` is `None` when tmux could not be listed: then
-/// every worktree is kept.
+/// Only linked worktrees on a branch and [`registered`] in `registry` (see [`registry_paths`]);
+/// those with nothing to free are skipped without calling `pr_lookup`. `sessions` is `None`
+/// when tmux could not be listed: then every worktree is kept.
+#[allow(clippy::too_many_arguments)]
 pub fn clean_worktrees(
     roots: &[PathBuf],
     patterns: &[String],
     dry_run: bool,
+    registry: &[PathBuf],
     sessions: Option<&[(String, PathBuf)]>,
     agent_status: &dyn Fn(&str) -> Option<String>,
     pr_lookup: &dyn Fn(&Path, &str) -> PrState,
 ) -> Vec<CleanItem> {
+    let registry: Vec<PathBuf> = registry.iter().map(|p| canonical(p)).collect();
     let mut items = Vec::new();
     for wt in roots.iter().flat_map(|r| find_worktrees(r)) {
-        if !is_linked_worktree(&wt) {
+        if !is_linked_worktree(&wt) || !registered(&wt, &registry) {
             continue;
         }
-        let Some(branch) = branch_name(&wt).filter(|b| managed_branch(b)) else {
+        let Some(branch) = branch_name(&wt) else {
             continue;
         };
         let found = disposable_dirs(&wt, patterns);
@@ -513,11 +546,33 @@ mod tests {
     #[test]
     fn disk_guard_threshold() {
         let p = Path::new("/wt");
-        assert!(disk_guard(0, 0, p).is_ok());
-        assert!(disk_guard(40 * GIB, 40, p).is_ok());
-        let err = disk_guard(39 * GIB, 40, p).unwrap_err();
+        assert!(disk_guard(0, 0, 0, p).is_ok());
+        assert!(disk_guard(40 * GIB, 40, 0, p).is_ok());
+        let err = disk_guard(39 * GIB, 40, 0, p).unwrap_err();
         assert!(err.contains("cdamux worker clean"), "{err}");
         assert!(err.contains("39.0 GiB"), "{err}");
+        // The checkout about to be created counts on top of the floor.
+        let err = disk_guard(40 * GIB, 40, 2 * GIB, p).unwrap_err();
+        assert!(err.contains("2.0 GiB for the checkout"), "{err}");
+        assert!(disk_guard(42 * GIB, 40, 2 * GIB, p).is_ok());
+    }
+
+    #[test]
+    fn free_space_fails_closed_without_df_and_checkout_counts_blobs() {
+        let tmp = tempfile::tempdir().unwrap();
+        // An empty path has no existing ancestor: `df` cannot run.
+        let err = check_free_space(Path::new(""), 1, 0).unwrap_err();
+        assert!(err.contains("cannot read free space"), "{err}");
+        assert!(check_free_space(Path::new(""), 0, 0).is_ok(), "0 turns it off");
+        let repo = tmp.path().join("r");
+        fs::create_dir_all(&repo).unwrap();
+        git(&repo, &["init", "-q", "-b", "main"]);
+        fs::write(repo.join("a"), vec![0u8; 3000]).unwrap();
+        fs::write(repo.join("b"), vec![0u8; 500]).unwrap();
+        git(&repo, &["add", "a", "b"]);
+        commit(&repo, "blobs");
+        assert_eq!(checkout_bytes(&repo, "HEAD"), 3500);
+        assert_eq!(checkout_bytes(&tmp.path().join("nope"), "HEAD"), 0);
     }
 
     fn git(dir: &Path, args: &[&str]) {
@@ -600,6 +655,7 @@ mod tests {
         std::os::unix::fs::symlink(&outside, wt.join("link")).unwrap();
 
         let pats = vec!["target".to_string(), "node_modules".into(), "link".into()];
+        let reg = vec![wt.clone()];
         let mut got = disposable_dirs(&wt, &pats);
         got.sort();
         assert_eq!(got, vec![wt.join("sub/target"), wt.join("target")]);
@@ -613,6 +669,7 @@ mod tests {
             &roots(tmp.path()),
             &pats,
             true,
+            &reg,
             Some(none),
             &|_| None,
             &merged,
@@ -626,6 +683,7 @@ mod tests {
             &roots(tmp.path()),
             &pats,
             false,
+            &reg,
             Some(&live),
             &|_| Some("working".into()),
             &merged,
@@ -638,6 +696,7 @@ mod tests {
             &roots(tmp.path()),
             &pats,
             false,
+            &reg,
             Some(none),
             &|_| None,
             &merged,
@@ -654,10 +713,12 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let (_, wt) = repo_with_worktree(tmp.path(), "wt", "worker/run/wt");
         let pats = vec!["target".to_string()];
+        let reg = vec![wt.clone()];
         let items = clean_worktrees(
             &roots(tmp.path()),
             &pats,
             false,
+            &reg,
             None,
             &|_| None,
             &|_, _| PrState::Merged,
@@ -671,6 +732,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let (main, wt) = repo_with_worktree(tmp.path(), "wt", "worker/run/wt");
         let pats = vec!["target".to_string()];
+        let reg = vec![wt.clone()];
         let none: &[(String, PathBuf)] = &[];
         let no_pr = |_: &Path, _: &str| PrState::None;
         // Zero commits ahead of its base: HEAD is in main, yet not finished.
@@ -679,6 +741,7 @@ mod tests {
             &roots(tmp.path()),
             &pats,
             false,
+            &reg,
             Some(none),
             &|_| None,
             &no_pr,
@@ -694,6 +757,7 @@ mod tests {
             &roots(tmp.path()),
             &pats,
             false,
+            &reg,
             Some(none),
             &|_| None,
             &no_pr,
@@ -706,19 +770,10 @@ mod tests {
     }
 
     #[test]
-    fn only_managed_linked_worktrees() {
-        for (b, ok) in [
-            ("worker/r-1/api", true),
-            ("orch/pr-12", true),
-            ("feat/42-issue-42", true),
-            ("feat/42-issue-43", false),
-            ("feat/login", false),
-            ("main", false),
-        ] {
-            assert_eq!(managed_branch(b), ok, "{b}");
-        }
+    fn only_registered_linked_worktrees() {
         let tmp = tempfile::tempdir().unwrap();
-        let (main, hand) = repo_with_worktree(tmp.path(), "hand", "my-branch");
+        let (main, hand) = repo_with_worktree(tmp.path(), "hand", "worker/r-1/hand");
+        let (_, agent) = repo_with_worktree(tmp.path(), "agent", "my-branch");
         // Submodule shape: `.git` file, but git dir == common dir.
         let sub = tmp.path().join("root").join("run").join("sub");
         git(
@@ -733,7 +788,7 @@ mod tests {
         );
         fs::write(sub.join(".gitignore"), "target/\n").unwrap();
         fs::create_dir_all(sub.join("target")).unwrap();
-        // Detached linked worktree.
+        // Detached linked worktree: no branch to look up.
         let det = tmp.path().join("root").join("run").join("det");
         git(
             &main,
@@ -743,17 +798,31 @@ mod tests {
         assert!(sub.join(".git").is_file() && !is_linked_worktree(&sub));
         assert!(is_linked_worktree(&hand));
 
+        // Registry: an agent ran inside `agent` (subdir cwd), plus the main repo, `sub`
+        // and `det`. `hand` sits on a cdamux-looking branch but no agent knows it.
+        let docs = [
+            serde_json::json!({ "cwd": agent.join("src").display().to_string() }),
+            serde_json::json!({ "repo": main.display().to_string() }),
+            serde_json::json!({ "repo": sub.display().to_string(), "cwd": det.display().to_string() }),
+            serde_json::json!({ "role": "orchestrator" }),
+        ];
+        let reg = registry_paths(docs.iter());
+        assert_eq!(reg.len(), 4);
+        fs::create_dir_all(agent.join("src")).unwrap();
         let pats = vec!["target".to_string()];
         let none: &[(String, PathBuf)] = &[];
         let items = clean_worktrees(
             &roots(tmp.path()),
             &pats,
             false,
+            &reg,
             Some(none),
             &|_| None,
             &|_, _| PrState::Merged,
         );
-        assert!(items.is_empty(), "{items:?}");
+        let cleaned: Vec<_> = items.iter().map(|i| i.worktree.clone()).collect();
+        assert_eq!(cleaned, vec![agent.clone()], "{items:?}");
+        assert!(!agent.join("target").exists());
         assert!(
             hand.join("target").exists()
                 && sub.join("target").exists()

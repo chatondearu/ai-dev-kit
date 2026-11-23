@@ -63,7 +63,9 @@ $CDAMUX_HOME/
 `cdamux board refresh` (default: `git fetch` + local files; `--pull` for
 `git pull --ff-only`). Read with `cat "$CDAMUX_HOME/board-index.json"` or
 `cdamux board`. Beamy names/paths/`beamysoftware/*` remotes are omitted;
-missing foam is a skip entry and refresh still exits 0.
+missing foam is a skip entry and refresh still exits 0. Read-only: an in-progress or
+in-review card whose PR is merged is listed under the project's `drift` and on stderr
+with the fix (`foam-board.sh reconcile --pr`); refresh never commits (ADR-016 §3b).
 
 Writers use `cdamux state set|get|append` and `cdamux msg send|read` (private JSON).
 `cdamux state gc` archives then removes `done`/`error` agents and finished runs
@@ -250,16 +252,17 @@ Requires `$CDAMUX_AGENT_ID` (caller must be an orchestrator session).
   build dirs (default `target`, `node_modules`, `.nuxt`, `.output`) in finished worktrees
   under `<root>` (`<root>/<name>` or `<root>/<run>/<name>`). Finished = PR merged or
   closed (`gh pr list --head`), or no PR, no live session and at least one own commit
-  of the branch already in the default branch. Scans only linked worktrees on a
-  cdamux/orch branch (`worker/…`, `feat/<id>-issue-<id>`, `orch/pr-<n>`). Keeps: a live
+  of the branch already in the default branch. Scans only linked worktrees on a branch
+  that the registry knows: an agent's `cwd` or `repo` is the worktree or inside it
+  (`worker spawn` records its worktree as `cwd`; orch.sh does the same). Keeps: a live
   tmux session rooted in the worktree whose agent is not `done`, an open PR, an
   unreadable PR state, or every worktree when tmux cannot be listed. Removes only git-ignored directories
   resolved inside the worktree (no symlinks); never the worktree or its branch. Prints
   `freed <size>` per worktree and a total; `--dry-run` deletes nothing. Needs no
   `$CDAMUX_AGENT_ID`. A successful `worker spawn` starts it in the background
   (`$CDAMUX_HOME/logs/worker-clean.log`); `logs/worker-clean.lock` keeps one pass at a time. Spawn refuses when the worktree
-  filesystem has less than `[worktrees].min_free_gib` free (default 40, `0` = off)
-  (ADR-017).
+  filesystem has less than `[worktrees].min_free_gib` free plus the checkout size
+  (default 40, `0` = off) or when `df` cannot be read (ADR-017).
 - `cdamux worker peek <name> [--lines N]` — last N pane lines.
 - `cdamux worker kill <name> [--subtree] [--orchestrator]` — permanent kill (see the
   kill table above): inside an agent only the caller's own workers, and only `done` /

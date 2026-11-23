@@ -64,6 +64,10 @@ pub struct BoardProject {
     pub in_review: Vec<BoardCard>,
     pub blocked_by: Vec<BoardCard>,
     pub open_prs: Vec<OpenPr>,
+    /// In-progress / in-review cards whose PR is merged (report only; the fix is
+    /// `foam-board.sh reconcile --pr`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub drift: Vec<BoardDrift>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub skip: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -87,6 +91,21 @@ pub struct OpenPr {
     pub number: u32,
     pub url: String,
     pub title: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BoardDrift {
+    pub slug: String,
+    pub status: String,
+    pub pr: u32,
+}
+
+/// Merged PR as `gh pr list --state merged` reports it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct MergedPr {
+    number: u32,
+    head: String,
+    closes: Vec<u64>,
 }
 
 /// `$CDAMUX_HOME/board-index.json`.
@@ -184,8 +203,33 @@ fn scan_project(project: &Project, remotes: &[String], opts: &RefreshOptions) ->
     }
     if opts.gh && should_query_gh(&cards, remotes) {
         row.open_prs = gh_open_prs(&project.path);
+        if !row.in_progress.is_empty() || !row.in_review.is_empty() {
+            row.drift = board_drift(&cards, &gh_merged_prs(&project.path));
+        }
     }
     row
+}
+
+/// Same rule as `foam-board.sh reconcile`: an in-progress|in-review card whose PR is merged.
+/// A card's PR: head `feat/<id>-issue-<id>` (id = github_issue, else slug), or a PR that
+/// closes its github_issue.
+fn board_drift(cards: &[BoardCard], merged: &[MergedPr]) -> Vec<BoardDrift> {
+    cards
+        .iter()
+        .filter(|c| matches!(c.status.as_str(), "in-progress" | "in-review"))
+        .filter_map(|c| {
+            let id = c.github_issue.map_or_else(|| c.slug.clone(), |n| n.to_string());
+            let branch = format!("feat/{id}-issue-{id}");
+            let pr = merged.iter().find(|p| {
+                p.head == branch || c.github_issue.is_some_and(|n| p.closes.contains(&n))
+            })?;
+            Some(BoardDrift {
+                slug: c.slug.clone(),
+                status: c.status.clone(),
+                pr: pr.number,
+            })
+        })
+        .collect()
 }
 
 fn empty_project(name: &str, path: &Path) -> BoardProject {
@@ -197,6 +241,7 @@ fn empty_project(name: &str, path: &Path) -> BoardProject {
         in_review: Vec::new(),
         blocked_by: Vec::new(),
         open_prs: Vec::new(),
+        drift: Vec::new(),
         skip: None,
         error: None,
     }
@@ -417,6 +462,25 @@ fn parse_open_prs(json: &str) -> Vec<OpenPr> {
     out
 }
 
+fn parse_merged_prs(json: &str) -> Vec<MergedPr> {
+    let Ok(serde_json::Value::Array(arr)) = serde_json::from_str::<serde_json::Value>(json) else {
+        return Vec::new();
+    };
+    arr.iter()
+        .filter_map(|pr| {
+            Some(MergedPr {
+                number: u32::try_from(pr.get("number")?.as_u64()?).ok()?,
+                head: pr.get("headRefName")?.as_str()?.to_string(),
+                closes: pr
+                    .get("closingIssuesReferences")
+                    .and_then(|v| v.as_array())
+                    .map(|a| a.iter().filter_map(|i| i.get("number")?.as_u64()).collect())
+                    .unwrap_or_default(),
+            })
+        })
+        .collect()
+}
+
 fn git_cmd(repo: &Path, args: &[&str]) -> Command {
     let mut cmd = Command::new("git");
     cmd.current_dir(repo)
@@ -489,6 +553,29 @@ fn gh_open_prs(repo: &Path) -> Vec<OpenPr> {
     parse_open_prs(&String::from_utf8_lossy(&out.stdout))
 }
 
+/// Best-effort; a failure means no drift is reported (never a write).
+fn gh_merged_prs(repo: &Path) -> Vec<MergedPr> {
+    let out = Command::new("gh")
+        .current_dir(repo)
+        .args([
+            "pr",
+            "list",
+            "--state",
+            "merged",
+            "--limit",
+            "200",
+            "--json",
+            "number,headRefName,closingIssuesReferences",
+        ])
+        .env("GH_PROMPT_DISABLED", "1")
+        .stdin(Stdio::null())
+        .output();
+    match out {
+        Ok(o) if o.status.success() => parse_merged_prs(&String::from_utf8_lossy(&o.stdout)),
+        _ => Vec::new(),
+    }
+}
+
 fn now_secs() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -555,6 +642,41 @@ mod tests {
             fetch: false,
             gh: false,
         }
+    }
+
+    #[test]
+    fn drift_is_in_flight_card_with_merged_pr() {
+        let card = |slug: &str, status: &str, gi: Option<u64>| BoardCard {
+            slug: slug.into(),
+            title: slug.into(),
+            status: status.into(),
+            priority: "P1".into(),
+            github_issue: gi,
+            blocked_by: Vec::new(),
+        };
+        let merged = parse_merged_prs(
+            r#"[{"number":7,"headRefName":"worker/r/x","closingIssuesReferences":[{"number":50}]},
+                {"number":8,"headRefName":"feat/foam-only-issue-foam-only","closingIssuesReferences":[]},
+                {"number":9,"headRefName":"feat/77-issue-77"},
+                {"oops":1}]"#,
+        );
+        assert_eq!(merged.len(), 3);
+        let cards = vec![
+            card("50-closed", "in-review", Some(50)),
+            card("foam-only", "in-progress", None),
+            card("60-open", "in-review", Some(60)),
+            card("77-ready", "ready", Some(77)),
+            card("78-done", "done", Some(78)),
+        ];
+        let got: Vec<(String, u32)> = board_drift(&cards, &merged)
+            .into_iter()
+            .map(|d| (d.slug, d.pr))
+            .collect();
+        assert_eq!(
+            got,
+            vec![("50-closed".to_string(), 7), ("foam-only".to_string(), 8)]
+        );
+        assert!(parse_merged_prs("not json").is_empty());
     }
 
     #[test]

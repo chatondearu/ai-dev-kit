@@ -182,8 +182,8 @@ pub use worktree::{
     worktree_add_new_branch, WorktreeEntry, WorktreeError,
 };
 pub use worktree_clean::{
-    check_free_space, clean_verdict, clean_worktrees, format_bytes, gh_pr_state, managed_branch,
-    CleanItem, PrState,
+    check_free_space, checkout_bytes, clean_verdict, clean_worktrees, format_bytes, gh_pr_state,
+    registry_paths, CleanItem, PrState,
     Verdict, WorktreeSession, DEFAULT_DISPOSABLE, DEFAULT_MIN_FREE_GIB,
 };
 pub use tmux::{

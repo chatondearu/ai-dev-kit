@@ -150,13 +150,16 @@ and `bash <kit>/…/doc-hygiene.sh --check <repo>`.
   refmap once rewrote main): in the hook's cwd (repo, global and system config),
   `push.default` unset / simple / current / upstream is the only `push.*` accepted; any
   `remote.pushDefault`, `remote.*.push*` (refmap, pushurl), `remote.*.mirror`,
-  `branch.*.pushRemote`, `url.*.insteadOf` / `pushInsteadOf` or `submodule.recurse`
+  `branch.*.pushRemote`, `url.*.insteadOf` / `pushInsteadOf`, `submodule.recurse`,
+  `core.sshCommand`, `remote.*.vcs` / `receivepack`, `protocol.ext.allow` or a credential
+  helper other than a stock one (`credential.helper` osxkeychain, manager, manager-core,
+  libsecret, wincred, cache, store; Homebrew git ships `osxkeychain` system-wide)
   refuses the push, and so does a symbolic `refs/heads/<own>`. Outside a git worktree,
   or when `git config` does not exit 0 or 1 (unreadable config, output past the 64 MB
   buffer; the old 1 MB exec buffer silently read as "no config"), the push is refused.
 - **Other refusals, by text**: `git` together with `alias.`, `--config-env`,
   `include.path` / `includeIf` (an alias or include could hide a push); `git` together
-  with `$`, a backtick, `xargs` or `eval` (a computed subcommand); `gh` together with
+  with `$`, a backtick, a glob (`*` `?` `[`), `xargs` or `eval` (a computed subcommand); `gh` together with
   `merge`, `git/refs` or a ref mutation. A false positive is a refusal, never a pass.
   The `gh` rule only holds while no user-level allow covers `gh api` (the template
   allows no `gh api`): an endpoint spelled without those words would pass the guard.
@@ -164,15 +167,17 @@ and `bash <kit>/…/doc-hygiene.sh --check <repo>`.
   is unknown) with their denies (`*--force`, `*--force *`, `-f`, `+`,
   `*heads/<default>*`, delete, mirror/all, `git -C|-c … push`) as a second layer. The
   hook runs `node … || exit 2`: a missing or crashing guard blocks every Bash call.
-- **The guard is the push authority, not a sandbox**: `git --exec-path`, upload-pack /
-  receive-pack overrides, abbreviated options and git hooks the worker can edit stay
-  accepted residual risks, as does code the worker writes and runs; branch protection on
-  the default branch is the backstop.
+- **The guard is the push authority, not a sandbox**: `git --exec-path`, upload-pack
+  overrides, abbreviated options, git hooks the worker can edit (`core.hooksPath`,
+  `pre-push`), a server-side symref that maps the own branch elsewhere, and code the
+  worker writes and runs stay accepted residual risks; branch protection on the default
+  branch is the backstop.
 - **Repo tooling, plain lines (P2 neomind denials)**: workers typed `mise exec -- cargo
   …`, `scripts/ci-local.sh`, `node <fixture>.js …`, `cdamux state get agents
   "$CDAMUX_AGENT_ID"`, `cargo … 2>&1 | tail`, `UPDATE_GOLDEN=1 cargo …`; none matched a
   rule (no runner rules, no bare `scripts/`, no `node`, `$`, pipes, env prefixes). Text
-  rules add `scripts/*`, `node *`, `mise exec -- *`, `nix develop -c|--command *`. A line
+  rules add `scripts/*`, `node *`, `mise exec -- *`, `nix develop -c|--command *` and
+  `UPDATE_GOLDEN=1 cargo *` (deny `UPDATE_GOLDEN=1 cargo *install*`). A line
   with a shell, `node`, `mise` or `nix` word (or a command-start `./` / `scripts/`) runs
   only as one plain line whose tool is cargo (not `install`), make, just, `npm
   run|test|ci|install`, `pnpm install|run|test|build|lint|typecheck` (no global flags),

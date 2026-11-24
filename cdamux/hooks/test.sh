@@ -315,6 +315,15 @@ echo "$out" | jq -e '.hookSpecificOutput.hookEventName=="UserPromptSubmit"
   and (.hookSpecificOutput.additionalContext|test("pr opened\nsecond line"))' >/dev/null \
   || fail "UserPromptSubmit must inject the bodies, got: $out"
 [ "$(cat "$INBOX/a-hook1.cursor")" != 0 ] || fail "UserPromptSubmit hand-over must ack"
+# Every hand-over decision above left one line in the production hook log: ids, no text, 0600.
+HL="$tmp/state/cdamux/logs/hooks.log"
+[ "$(stat -c %a "$HL" 2>/dev/null || stat -f %Lp "$HL")" = 600 ] || fail "hook log must be 0600"
+for d in stop_handover handover_ack_failed stop_block_cap prompt_handover; do
+  jq -e --arg d "$d" 'select(.decision==$d and .src=="hook" and .agent=="a-hook1")' "$HL" >/dev/null \
+    || fail "hook log has no $d line: $(cat "$HL")"
+done
+jq -e 'select(.decision=="stop_handover") | .ids==["m-1"]' "$HL" >/dev/null || fail "stop_handover must list the ids"
+grep -q 'pr opened' "$HL" && fail "hook log must never hold message text"
 # Other clients on Claude-shaped events (codex): unacked digest, the turn ends normally.
 seed_inbox
 printf '{"id":"a-hook1","client":"codex","status":"working","turn":"running"}\n' > "$AF"

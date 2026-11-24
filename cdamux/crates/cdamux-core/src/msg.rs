@@ -614,6 +614,12 @@ pub fn msg_send(
         }
         Ok(WakePlan::Never) | Err(_) => Delivery::Inbox,
     };
+    crate::hooklog::hook_log(
+        "msg",
+        &to,
+        delivery.as_str(),
+        serde_json::json!({ "id": msg.id, "kind": msg.kind, "from": msg.from }),
+    );
     Ok(SendOutcome { message: msg, delivery })
 }
 

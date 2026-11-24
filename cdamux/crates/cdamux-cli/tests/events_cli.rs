@@ -98,3 +98,33 @@ fn events_replay_follow_and_reply() {
     assert!(!bad.status.success());
     assert!(String::from_utf8_lossy(&bad.stderr).contains("ahead"));
 }
+
+/// Pinned for clients (neomind): a refused cursor exits 3 with a stable stderr prefix,
+/// distinct from an I/O error (1) and a malformed cursor (2).
+#[test]
+fn refused_cursor_has_its_own_exit_code() {
+    let tmp = tempfile::tempdir().unwrap();
+    let home = tmp.path().join("home");
+    let bin = env!("CARGO_BIN_EXE_cdamux");
+    let run = |args: &[&str]| Command::new(bin).args(args).env("CDAMUX_HOME", &home).output().unwrap();
+    let refused = |out: &std::process::Output| {
+        assert_eq!(out.status.code(), Some(3), "{}", String::from_utf8_lossy(&out.stderr));
+        assert!(out.stdout.is_empty());
+        let err = String::from_utf8_lossy(&out.stderr).into_owned();
+        assert!(err.starts_with("events: cursor refused: "), "{err}");
+        err
+    };
+
+    // Ahead of an empty journal (reset home), with and without --follow.
+    assert!(refused(&run(&["events", "--since", "5"])).contains("ahead"));
+    assert!(refused(&run(&["events", "--follow", "--since", "5", "--json"])).contains("ahead"));
+
+    // Expired: older than the oldest retained item (rotated-away segment).
+    std::fs::create_dir_all(&home).unwrap();
+    let line = |c: u64| format!("{{\"v\":1,\"cursor\":\"{c}\",\"type\":\"msg\",\"ts\":1}}\n");
+    std::fs::write(home.join("events.jsonl"), line(10) + &line(11)).unwrap();
+    assert!(refused(&run(&["events", "--since", "3"])).contains("expired"));
+    assert!(run(&["events", "--since", "9"]).status.success(), "just before oldest is fine");
+
+    assert_eq!(run(&["events", "--since", "x"]).status.code(), Some(2));
+}

@@ -165,7 +165,7 @@ function gitReason(args, ctx) {
     const k = spec.indexOf(':');
     let dst = k < 0 ? spec : spec.slice(k + 1);
     if (k === 0 || dst === '') return `deleting a ref (${spec}) is not allowed`;
-    dst = dst.replace(/^refs\/heads\//, '');
+    dst = short(dst);
     if (dst !== own) return `push to ${dst} is not allowed (own branch: ${own})`;
   }
   return null;
@@ -189,8 +189,8 @@ function ghReason(args) {
   return null;
 }
 
-// A word that may move the shell or point git elsewhere (`cd`, `GIT_DIR=`, `env -C` …).
-const MOVES = (w, next) => ['cd', 'pushd', 'popd'].includes(base(w)) || /^GIT_\w*=/.test(w)
+// A word that may move the shell or point git elsewhere (`cd`, `GIT_DIR=`, `HOME=`, `env -C` …).
+const MOVES = (w, next) => ['cd', 'pushd', 'popd'].includes(base(w)) || /^[A-Za-z_]\w*=/.test(w)
   || /^--chdir(=|$)/.test(w) || (base(w) === 'env' && (next ?? '').startsWith('-'));
 
 // Reason the whole command text is refused, or null. The argument of `sh -c` / `eval` and

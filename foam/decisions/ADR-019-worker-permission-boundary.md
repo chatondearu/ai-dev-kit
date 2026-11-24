@@ -149,8 +149,9 @@ and `bash <kit>/…/doc-hygiene.sh --check <repo>`.
 - **Refspec-less `git push [<remote>]`** passes the guard only from the hook's cwd on
   the own branch, with `branch.<own>.merge = refs/heads/<own>`, `push.default` unset /
   simple / current / upstream, and no `remote.*.push` / `remote.*.mirror`. A command that
-  may move or re-point git (`cd`, `pushd`, `GIT_*=`, `env -…`, `--chdir`, any `git`
-  option before `push`) must name the branch.
+  may move or re-point git (`cd`, `pushd`, any `VAR=` assignment such as `GIT_DIR=` or
+  `XDG_CONFIG_HOME=`, `env -…`, `--chdir`, any `git` option before `push`) must name the
+  branch.
 - **Kit scripts, explicit list**: placeholder `__KIT__` = the kit checkout (orch.sh:
   from the template path; cdamux: `<claude config dir>/skills/cda-kanban` resolved
   through the `install.sh` link; none found → no rule). Allowed: `bash

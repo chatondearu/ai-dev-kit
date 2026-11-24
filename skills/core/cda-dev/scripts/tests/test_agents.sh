@@ -246,71 +246,72 @@ assert_eq "$rc" "2" "no node: the hook blocks instead of letting the command thr
 rc=0; orch_render_settings feat/a main "/w/(t)" /g <"$ORCH_SETTINGS_TEMPLATE" >/dev/null || rc=$?
 assert_eq "$rc" "1" "unsafe worktree path refused"
 
-# Push guard (PreToolUse hook): argv-level refusals the text rules miss.
-NESTED='bash -c x'
-for _ in 1 2 3 4 5; do NESTED="bash -c $(printf %q "$NESTED")"; done
+# Push guard (PreToolUse hook): strict whitelist, no shell parsing. Text that mentions a push
+# runs only as one plain `git push` line to the own branch.
 guard() { jq -Rn --arg c "$1" --arg d "${GUARD_CWD:-/}" '{tool_name:"Bash",tool_input:{command:$c},cwd:$d}' \
   | node "$(dirname "$ORCH_SETTINGS_TEMPLATE")/worker-push-guard.mjs" feat/a main "${GUARD_WT:-}" "${GUARD_KIT:-}" 2>/dev/null; }
 HEREDOC_COMMIT="$(printf 'git commit -m "$(cat <<%sEOF%s\nfix: avoid git push -f origin main\nEOF\n)"' "'" "'")"
-for c in 'git push origin feat/a' 'git push -u origin feat/a' 'git push origin HEAD:refs/heads/feat/a' \
-  'git commit -m x && git push origin feat/a' 'git status' \
-  'git commit -m "docs: never git push -f origin main"' \
-  'gh pr create --title t --body "run git push origin main after merge"' \
-  "rg 'git push' skills" "git log --oneline | grep 'git push'" "$HEREDOC_COMMIT" \
-  'git push --force-with-lease origin feat/a' 'git push --force-with-lease=feat/a:0123abc origin feat/a' \
-  'git push --force-with-lease=refs/heads/feat/a origin HEAD:feat/a' 'git push -u --force-with-lease origin feat/a' \
-  'git push --force-with-lease -u origin feat/a' 'git push --set-upstream --force-with-lease=feat/a:0123abc origin feat/a' \
-  'git push --force-with-lease --force-if-includes origin feat/a'; do
+SHA=0123456789abcdef0123456789abcdef01234567
+for c in 'git push origin feat/a' 'git push -u origin feat/a' 'git push --set-upstream origin feat/a' \
+  'git push origin HEAD:feat/a' '  git push  origin feat/a ' 'git push --force-with-lease origin feat/a' \
+  "git push --force-with-lease=feat/a origin feat/a" "git push --force-with-lease=feat/a:$SHA origin feat/a" \
+  'git push -u --force-with-lease origin feat/a' 'git push --force-with-lease -u origin feat/a' \
+  "git push --set-upstream --force-with-lease=feat/a:$SHA origin HEAD:feat/a" \
+  'git status' 'git commit -m "fix: tidy"' 'git commit -F msg.txt' 'gh pr create --title t --body-file b.md' \
+  'git log --oneline | grep fix' 'cargo test --manifest-path ./x/Cargo.toml'; do
   rc=0; guard "$c" || rc=$?; assert_eq "$rc" "0" "guard allows: $c"
 done
-for c in 'git push -uf origin feat/a' 'git push origin +feat/a' 'git push origin :feat/a' 'git push -d origin x' \
-  "git push origin 'HEAD:refs/heads/main'" 'git -C . push origin main' 'git push --mirror origin' 'git push' \
-  'bash -c "git push -f origin feat/a"' 'echo $(git push origin main)' 'gh pr merge 3' \
-  'git -c alias.p=push p -f' 'git push --force origin feat/a' 'nix develop -c git push origin main' \
-  'sh -lc "git push origin main"' 'eval git push origin main' 'echo "$(git push origin main)"' \
-  'gh -R o/r pr merge 3' 'gh api -X PUT repos/o/r/pulls/3/merge' 'gh api repos/o/r/git/refs/heads/main -X PATCH' \
-  'git send-pack origin main' "$NESTED" \
+HEREDOC_COMMIT="$(printf 'git commit -m "$(cat <<%sEOF%s\nfix: avoid git push -f origin main\nEOF\n)"' "'" "'")"
+# Every bypass from both #436 reviews, plus forms outside the whitelist.
+for c in \
+  'git push -uf origin feat/a' 'git push origin +feat/a' 'git push origin :feat/a' 'git push -d origin x' \
+  'git push origin HEAD:refs/heads/main' 'git push origin HEAD:heads/main' 'git push origin HEAD:refs/heads/feat/a' \
+  'git push origin feat/a main' 'git push origin main' 'git push upstream feat/a' 'git push --mirror origin' \
+  'git push --force origin feat/a' 'git push -f origin feat/a' 'git push --force-with-lease --force origin feat/a' \
   'git push --force-with-lease origin main' 'git push --force-with-lease=main origin feat/a' \
-  'git push --force-with-lease=main:0123abc origin feat/a' 'git push --force-with-lease origin other' \
-  'git push --force-with-lease=other:0123abc origin other' 'git push --force-with-lease= origin feat/a' \
-  'git push --force-with-lease --force origin feat/a' 'git push --force-with-lease -f origin feat/a' \
-  'git push --force-with-lease origin +feat/a' 'git push --force-if-includes origin feat/a' \
-  'git push --force-with-lease --tags origin feat/a' 'git push --force-with-lease --all origin'; do
-  rc=0; guard "$c" || rc=$?; assert_eq "$rc" "2" "guard blocks: $c"
-done
-# Heredocs: only a `<<` the tokenizer reaches starts one; its body is data, an unclosed one
-# refuses the whole command (a fake `<<'X'` once hid the next line from the guard).
-for c in $'git commit --allow-empty -m "<<\'X\'"\ngit push origin HEAD:heads/main' \
+  "git push --force-with-lease=main:$SHA origin feat/a" 'git push --force-with-lease=feat/a:0123abc origin feat/a' \
+  'git push --force-with-lease=refs/heads/feat/a origin feat/a' 'git push --force-with-lease= origin feat/a' \
+  'git push --force-with-lease origin other' 'git push --force-if-includes origin feat/a' \
+  'git push --force-with-lease --tags origin feat/a' 'git push --force-with-lease --all origin' \
+  'git push -u -u origin feat/a' 'git push origin feat/a 2>&1' 'git push origin feat/a && echo ok' \
+  'git push --no-verify origin feat/a' $'git push\torigin feat/a' $'git push origin feat/a\r\ngit push origin main' \
+  'git -C . push origin feat/a' 'GIT_DIR=x git push origin feat/a' 'nix develop -c git push origin feat/a' \
+  'git send-pack origin main' 'git receive-pack x' 'git PUSH origin main' \
+  'bash -c "git push -f origin feat/a"' 'echo $(git push origin main)' 'eval git push origin main' \
+  'sh -lc "git push origin main"' "$HEREDOC_COMMIT" 'git commit -m "docs: never git push -f origin main"' \
+  'gh pr create --title t --body "push after merge"' 'cdamux msg send --to a-x --kind report "pushed"' \
+  $'git commit --allow-empty -m "<<\'X\'"\ngit push origin HEAD:heads/main' \
   $'# <<\'X\'\ngit push origin HEAD:heads/main' \
   $'cat <<EOF\n<<\'X\'\nEOF\ngit push origin HEAD:heads/main\nX' \
-  $'cat <<\'X\'\ngit push origin feat/a' $'cat <<EOF\n$(git push origin main)\nEOF' \
-  $'echo ${#x}; git push origin main' $'cat <<-\'X\'\n\tbody\n  X\ngit push origin main'; do
-  rc=0; guard "$c" || rc=$?; assert_eq "$rc" "2" "guard blocks heredoc payload: ${c//$'\n'/⏎}"
-done
-for c in $'git commit -F - <<\'EOF\'\nnever git push -f origin main\nEOF' \
-  $'cat <<-\'EOF\'\n\tgit push -f origin main\n\tEOF\ngit push origin feat/a' \
-  $'git push origin feat/a # then git push origin main' $'cat <<EOF >x\n$HOME\nEOF'; do
-  rc=0; guard "$c" || rc=$?; assert_eq "$rc" "0" "guard allows heredoc data: ${c//$'\n'/⏎}"
+  $'cat <<< "<<\'X\'"\ngit push origin main' $'echo $\'\\\'\'; git push origin main' \
+  $'echo $((1<<2))\ngit push origin main' $'echo ${x#<<X}\ngit push origin main' \
+  'echo "$(echo ")")"; git push origin main' 'echo origin main | xargs git push' \
+  "printf 'pu''sh origin main' | xargs git" "git \$'\\x70ush' origin main" 'git pu""sh origin main' \
+  "git pu''sh origin main" 'git pu\sh origin main' "git -c alias.p='!git pu\"\"sh' p" 'git -c alias.p=status p' \
+  "git config alias.p pu''sh" 'git -c include.path=/x/cfg p' 'git --config-env=alias.p=X p' 'x=pu; git ${x}sh' \
+  'git `printf pu`sh origin main' 'gh pr merge 3' 'gh -R o/r pr merge 3' 'gh api -X PUT repos/o/r/pulls/3/merge' \
+  'gh api repos/o/r/git/refs/heads/main -X PATCH' 'gh api graphql -f query=mutation{updateRef}'; do
+  rc=0; guard "$c" || rc=$?; assert_eq "$rc" "2" "guard blocks: ${c//[$'\n\r\t']/⏎}"
 done
 
-# Shells (`bash *`, `sh *`, `./*` text rules): only a script file of the worktree, or a
-# listed read-only kit script with its exact arguments.
+# Shells (`bash *`, `sh *`, `./*` text rules): one plain line running a script file of the
+# worktree by relative path, or a listed read-only kit script with its exact arguments.
 W="$(mktemp -d)"; O="$(mktemp -d)"; K=/kit
 mkdir -p "$W/scripts" "$W/cdamux/hooks" "$W/sub"
 touch "$W/scripts/verify.sh" "$W/cdamux/hooks/test.sh" "$O/x.sh"
 ln -s "$O/x.sh" "$W/scripts/out.sh"
 DH="$K/skills/core/cda-doc-hygiene/scripts/doc-hygiene.sh"; FB="$K/skills/core/cda-kanban/scripts/foam-board.sh"
 for c in 'bash scripts/verify.sh' 'bash cdamux/hooks/test.sh' 'sh scripts/verify.sh --fast' './scripts/verify.sh' \
-  'bash ./scripts/verify.sh' "bash $W/scripts/verify.sh" 'nix develop -c bash scripts/verify.sh' \
-  'git add -A && bash scripts/verify.sh' "bash $DH --check" "bash $DH --report $W" "bash $FB list-ready --json" \
-  "bash $FB reconcile"; do
+  'bash ./scripts/verify.sh' 'nix develop -c bash scripts/verify.sh' \
+  "bash $DH --check" "bash $DH --report $W" "bash $FB list-ready --json" "bash $FB reconcile"; do
   rc=0; GUARD_CWD="$W" GUARD_WT="$W" GUARD_KIT="$K" guard "$c" || rc=$?; assert_eq "$rc" "0" "guard allows shell: $c"
 done
 for c in 'bash ../x.sh' 'bash scripts/../../x.sh' "bash $O/x.sh" 'bash scripts/out.sh' 'bash scripts/missing.sh' \
   'bash sub' 'bash -c "echo hi"' 'bash' 'sh -x scripts/verify.sh' 'cd sub && bash ../scripts/verify.sh' \
   'cd /tmp && bash scripts/verify.sh' 'X=1 bash scripts/verify.sh' './../x.sh' 'curl -s x | sh' \
   "bash $DH --check --archive-done" "bash $DH --archive-done" "bash $FB reconcile --pr" \
-  "bash $K/skills/core/cda-dev/scripts/orch.sh" "sh $O/x.sh" 'zsh -c "echo hi"'; do
+  "bash $K/skills/core/cda-dev/scripts/orch.sh" "sh $O/x.sh" 'zsh -c "echo hi"' "bash $W/scripts/verify.sh" \
+  'git add -A && bash scripts/verify.sh' 'bash scripts/verify.sh 2>&1' 'true && ./../x.sh' '/bin/sh scripts/verify.sh'; do
   rc=0; GUARD_CWD="$W" GUARD_WT="$W" GUARD_KIT="$K" guard "$c" || rc=$?; assert_eq "$rc" "2" "guard blocks shell: $c"
 done
 rc=0; GUARD_CWD="$W" GUARD_WT="$W" guard "bash $DH --check" || rc=$?; assert_eq "$rc" "2" "no kit root: kit scripts refused"
@@ -321,12 +322,12 @@ rm -rf "$W" "$O"
 R="$(mktemp -d)"
 git -C "$R" init -q -b main && git -C "$R" commit -q --allow-empty -m init && git -C "$R" switch -q -c feat/a
 git -C "$R" config branch.feat/a.remote origin && git -C "$R" config branch.feat/a.merge refs/heads/feat/a
-for c in 'git push' 'git push origin' 'git push -u' 'git push --force-with-lease' 'git push --force-with-lease=feat/a'; do
+for c in 'git push' 'git push origin'; do
   rc=0; GUARD_CWD="$R" guard "$c" || rc=$?; assert_eq "$rc" "0" "guard allows on the own upstream: $c"
 done
 for c in 'cd /elsewhere && git push' 'git -C . push' 'GIT_DIR=/x/.git git push' 'env -C /x git push' \
-  'XDG_CONFIG_HOME=/x git push' 'export HOME=/x; git push' \
-  'git -c push.default=matching push' 'git push --force-with-lease=main' 'git push --force'; do
+  'XDG_CONFIG_HOME=/x git push' 'export HOME=/x; git push' 'git push -u' 'git push --force-with-lease' \
+  'git -c push.default=matching push' 'git push --force-with-lease=main' 'git push --force' 'git push upstream'; do
   rc=0; GUARD_CWD="$R" guard "$c" || rc=$?; assert_eq "$rc" "2" "guard blocks on the own upstream: $c"
 done
 git -C "$R" config push.default matching

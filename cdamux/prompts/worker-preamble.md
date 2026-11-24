@@ -13,7 +13,10 @@ nothing chained or substituted: the worker allowlist denies that (ADR-019).
 | Done | `cdamux msg send --to __PARENT__ --kind done "PR <url or none> · checks <green/pending/red/none> · <one line>"` |
 | Failure | `cdamux msg send --to __PARENT__ --kind error "…"` |
 
-Put durable detail behind `--ref` (a log or report file); keep `text` short.
+Put durable detail behind `--ref` (a log or report file); keep `text` short. The push
+guard refuses any command that mentions a push outside one plain `git push … origin
+<your branch>` line: keep that word out of message text (use `--ref`) and write such
+commit messages with `git commit -F <file>`.
 
 Before `done`: run your spec's `Acceptance` check. Code changes also: run the
 repo's verify command (its `AGENTS.md`), review your diff with skill

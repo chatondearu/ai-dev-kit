@@ -166,6 +166,18 @@ and `bash <kit>/…/doc-hygiene.sh --check <repo>`.
   receive-pack overrides, abbreviated options and git hooks the worker can edit stay
   accepted residual risks, as does code the worker writes and runs; branch protection on
   the default branch is the backstop.
+- **Repo tooling, plain lines (P2 neomind denials)**: workers typed `mise exec -- cargo
+  …`, `scripts/ci-local.sh`, `node <fixture>.js …`, `cdamux state get agents
+  "$CDAMUX_AGENT_ID"`, `cargo … 2>&1 | tail`, `UPDATE_GOLDEN=1 cargo …`; none matched a
+  rule (no runner rules, no bare `scripts/`, no `node`, `$`, pipes, env prefixes). Text
+  rules add `scripts/*`, `node *`, `mise exec -- *`, `nix develop -c|--command *`. A line
+  with a shell, `node`, `mise` or `nix` word (or a command-start `./` / `scripts/`) runs
+  only as one plain line whose tool is cargo (not `install`), make, just, `npm
+  run|test|ci|install`, `pnpm install|run|test|build|lint|typecheck` (no global flags),
+  `node <file in the worktree>` or a worktree script, optionally behind one `mise exec
+  --` or `nix develop -c|--command` (which replaces "no command runner" in point 3 for
+  these tools only). The hook runs node by absolute path (fail-closed hook, a worker PATH
+  may lack node). A worker pushes only the branch it was spawned on.
 - **Shell runs, same plain-line rule**: text rules `Bash(bash *)`, `Bash(sh *)`,
   `Bash(./*)` (a `*` cannot resolve a path). A text with a `bash`/`sh`/`zsh`… word or a
   `./` / `../` at a command start runs only as one plain line `[nix develop -c] bash|sh

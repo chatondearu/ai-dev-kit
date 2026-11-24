@@ -184,7 +184,7 @@ assert_eq "$(jq -r '.permissions.allow | index("Bash(git push *)") != null' <<<"
 assert_eq "$(jq -r '.permissions.deny | index("Bash(git push * main)") != null' <<<"$r")" "true" "push to default denied"
 assert_eq "$(jq -r '.permissions.deny | index("Bash(gh pr merge *)") != null' <<<"$r")" "true" "gh pr merge denied"
 assert_eq "$(grep -c '__' <<<"$r" | tr -d ' ')" "0" "no placeholder left"
-assert_eq "$(jq -r '.hooks.PreToolUse[0].hooks[0].command' <<<"$r")" "node '/g/guard.mjs' 'worker/r1/x' 'main' '/w/t' '' || exit 2" "no kit root: the guard gets an empty one"
+assert_eq "$(jq -r '.hooks.PreToolUse[0].hooks[0].command' <<<"$r")" "'node' '/g/guard.mjs' 'worker/r1/x' 'main' '/w/t' '' || exit 2" "no kit root: the guard gets an empty one"
 assert_eq "$(jq '[.permissions.allow[] | select(test("^Bash\\((bash|sh|\\./)"))] | sort' -c <<<"$r")" '["Bash(./*)","Bash(bash *)","Bash(sh *)"]' "shell runs: one rule each, the guard checks the script"
 # Text layer, Claude Code `*` ≈ shell glob: a lease is not denied, a plain force is.
 denied() { local p; while IFS= read -r p; do [[ "$1" == $p ]] && return 0; done \
@@ -198,7 +198,7 @@ for c in 'git push --force origin worker/r1/x' 'git push origin worker/r1/x --fo
   rc=0; denied "$c" || rc=$?; assert_eq "$rc" "0" "text rules deny: $c"
 done
 r="$(orch_render_settings feat/a main /w/t /g/guard.mjs /k <"$ORCH_SETTINGS_TEMPLATE")"
-assert_eq "$(jq -r '.hooks.PreToolUse[0].hooks[0].command' <<<"$r")" "node '/g/guard.mjs' 'feat/a' 'main' '/w/t' '/k' || exit 2" "guard gets the worktree and kit root"
+assert_eq "$(jq -r '.hooks.PreToolUse[0].hooks[0].command' <<<"$r")" "'node' '/g/guard.mjs' 'feat/a' 'main' '/w/t' '/k' || exit 2" "guard gets the worktree and kit root"
 assert_eq "$(jq '[.permissions.allow[] | select(test("foam-board.sh \\*|reconcile .|archive"))] | length' <<<"$r")" "0" "foam-board: no reconcile --pr / --write, no wildcard"
 r="$(render main main)"
 assert_eq "$(jq '[.permissions.allow[] | select(startswith("Bash(git push"))] | length' <<<"$r")" "0" "on the default branch: no push allowed"
@@ -213,6 +213,7 @@ sf="$(ORCH_REPO="$G" orch_agent_settings "$G")"
 assert_eq "$(jq -r '.permissions.deny | index("Bash(git push * dev)") != null' "$sf")" "true" "settings file denies push to dev"
 assert_eq "$(jq -r '.hooks.PreToolUse[0].hooks[0].command | contains("'"'feat/a' 'dev'"'")' "$sf")" "true" "settings file guards the own branch"
 KIT="$(cd "$TROOT/../../../../.." && pwd -P)"
+assert_eq "$(jq -r '.hooks.PreToolUse[0].hooks[0].command' "$sf" | grep -c "^'$(command -v node)' ")" "1" "hook runs node by absolute path"
 assert_eq "$(jq -r '.hooks.PreToolUse[0].hooks[0].command' "$sf" | grep -c "'$(cd "$G" && pwd -P)' '$KIT' ||")" "1" "settings file hands the guard the worktree and the kit root"
 mkdir -p "$G/tmp"
 sf="$(ORCH_REPO="$G" TMPDIR="$G/tmp/" orch_agent_settings "$G" reviewer)"
@@ -238,8 +239,8 @@ assert_eq "$(jq -r '.hooks.PreToolUse[0].hooks[0].command | contains("'"'feat/he
 r="$(render feat/a main)"
 assert_eq "$(jq -r '.permissions.allow | index("Edit(//w/t/**)") != null' <<<"$r")" "true" "edits allowed in the worktree only"
 assert_eq "$(jq -r '.permissions.allow | index("Bash(git merge origin/main)") != null' <<<"$r")" "true" "merge of the default branch allowed"
-assert_eq "$(jq -r '.hooks.PreToolUse[0].hooks[0].command' <<<"$r")" "node '/g/guard.mjs' 'feat/a' 'main' '/w/t' '' || exit 2" "push guard hook wired, fails closed"
-assert_eq "$(render "a'b" main | jq -r '.hooks.PreToolUse[0].hooks[0].command')" "node '/g/guard.mjs' '' 'main' '/w/t' '' || exit 2" "unsafe branch name: no push"
+assert_eq "$(jq -r '.hooks.PreToolUse[0].hooks[0].command' <<<"$r")" "'node' '/g/guard.mjs' 'feat/a' 'main' '/w/t' '' || exit 2" "push guard hook wired, fails closed"
+assert_eq "$(render "a'b" main | jq -r '.hooks.PreToolUse[0].hooks[0].command')" "'node' '/g/guard.mjs' '' 'main' '/w/t' '' || exit 2" "unsafe branch name: no push"
 hook="$(jq -r '.hooks.PreToolUse[0].hooks[0].command' <<<"$r")"
 rc=0; jq -n '{tool_name:"Bash",tool_input:{command:"git status"}}' | PATH=/nonexistent /bin/sh -c "$hook" 2>/dev/null || rc=$?
 assert_eq "$rc" "2" "no node: the hook blocks instead of letting the command through"
@@ -315,6 +316,26 @@ for c in 'bash ../x.sh' 'bash scripts/../../x.sh' "bash $O/x.sh" 'bash scripts/o
   "bash $K/skills/core/cda-dev/scripts/orch.sh" "sh $O/x.sh" 'zsh -c "echo hi"' "bash $W/scripts/verify.sh" \
   'git add -A && bash scripts/verify.sh' 'bash scripts/verify.sh 2>&1' 'true && ./../x.sh' '/bin/sh scripts/verify.sh'; do
   rc=0; GUARD_CWD="$W" GUARD_WT="$W" GUARD_KIT="$K" guard "$c" || rc=$?; assert_eq "$rc" "2" "guard blocks shell: $c"
+done
+# Repo tooling a neomind worker was denied (P2): the literal commands, as plain lines.
+mkdir -p "$W/crates/neomind/tests/fixtures" && touch "$W/scripts/ci-local.sh" "$W/crates/neomind/tests/fixtures/console-harness.js"
+for c in 'cargo fmt --check' 'cargo clippy --all-targets -- -D warnings' \
+  'cargo nextest run -j 1 -p neomind --test mesh_daemon_socket who_and_enrol' \
+  'mise exec -- cargo check --all-targets' 'mise exec -- cargo test -p neomind --lib cdamux::cli' \
+  'nix develop -c cargo test' 'nix develop --command cargo nextest run' 'nix develop -c bash scripts/ci-local.sh' \
+  'scripts/ci-local.sh' 'bash scripts/ci-local.sh' './scripts/ci-local.sh' \
+  'node crates/neomind/tests/fixtures/console-harness.js crates/neomind/src/console.html pc' \
+  'npm run build' 'pnpm run test' 'make check' 'just verify' 'mise exec -- npm run build' \
+  'mise exec -- make check' 'cdamux state get agents a-abc12' 'cdamux msg send --to a-x --kind report "ok"'; do
+  rc=0; GUARD_CWD="$W" GUARD_WT="$W" GUARD_KIT="$K" guard "$c" || rc=$?; assert_eq "$rc" "0" "guard allows tooling: $c"
+done
+for c in 'mise exec -- cargo test -p neomind --test console console_fil 2>&1 | tail -40' \
+  'mise exec -- rm -rf x' 'nix develop -c rm -rf x' 'nix develop -c mise exec -- cargo test' \
+  'mise exec -- cargo install ripgrep' 'nix develop -c cargo install x' 'node -e 1' 'node -e "1"' \
+  'node /tmp/x.js' 'node ../x.js' 'node crates/missing.js' 'mise exec -- npm exec foo' 'mise exec -- pnpm dlx x' \
+  'mise exec -- npm install -g x' 'scripts/../../x.sh' 'scripts/missing.sh' 'nix build .#neomind -L' \
+  'node crates/neomind/tests/fixtures/console-harness.js x | node -e x' 'mise exec -- python x.py'; do
+  rc=0; GUARD_CWD="$W" GUARD_WT="$W" GUARD_KIT="$K" guard "$c" || rc=$?; assert_eq "$rc" "2" "guard blocks tooling: $c"
 done
 rc=0; GUARD_CWD="$W" GUARD_WT="$W" guard "bash $DH --check" || rc=$?; assert_eq "$rc" "2" "no kit root: kit scripts refused"
 rc=0; GUARD_CWD="$W" guard 'bash scripts/verify.sh' || rc=$?; assert_eq "$rc" "2" "no worktree: no script runs"

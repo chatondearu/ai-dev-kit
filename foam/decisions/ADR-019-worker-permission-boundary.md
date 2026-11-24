@@ -147,11 +147,23 @@ and `bash <kit>/…/doc-hygiene.sh --check <repo>`.
   guard checks the branch. The hook runs `node … || exit 2`: a missing or crashing guard
   blocks every Bash call instead of letting a push through.
 - **Refspec-less `git push [<remote>]`** passes the guard only from the hook's cwd on
-  the own branch, with `branch.<own>.merge = refs/heads/<own>`, `push.default` unset /
-  simple / current / upstream, and no `remote.*.push` / `remote.*.mirror`. A command that
+  the own branch, with `branch.<own>.merge = refs/heads/<own>` and no push config it does
+  not model: `push.default` unset / simple / current / upstream is the only `push.*`
+  accepted; any `remote.*.push*`, `remote.*.mirror` or `url.*.pushInsteadOf` refuses it.
+  A command that
   may move or re-point git (`cd`, `pushd`, any `VAR=` assignment such as `GIT_DIR=` or
   `XDG_CONFIG_HOME=`, `env -…`, `--chdir`, any `git` option before `push`) must name the
   branch.
+- **Heredocs are parsed by the tokenizer**: only a `<<` reached outside quotes and
+  comments starts one; a quoted-delimiter body is data, an unquoted one is scanned for
+  `$(…)` / backticks, and a heredoc with no closing line refuses the whole command. (The
+  first version stripped `<<'X'` on raw text, so a fake one in a commit message or a
+  comment hid the next line, e.g. `git push origin HEAD:heads/main`.) Text layer: deny
+  `git push *heads/<default>*`.
+- **The guard is the push authority, not a sandbox**: `git --exec-path`, upload-pack /
+  receive-pack overrides, abbreviated options, spellings the tokenizer models differently
+  from bash (e.g. `$'…'`) and git hooks the worker can edit stay accepted residual risks;
+  branch protection on the default branch is the backstop.
 - **Kit scripts, explicit list**: placeholder `__KIT__` = the kit checkout (orch.sh:
   from the template path; cdamux: `<claude config dir>/skills/cda-kanban` resolved
   through the `install.sh` link; none found → no rule). Allowed: `bash

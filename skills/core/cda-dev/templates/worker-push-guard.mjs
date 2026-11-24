@@ -15,19 +15,6 @@ import { readFileSync } from 'node:fs';
 
 const [own = '', dflt = ''] = process.argv.slice(2);
 
-// Drop heredoc bodies with a quoted delimiter (`<<'EOF'`): their text is data, never run.
-function stripHeredocs(text) {
-  const lines = text.split('\n');
-  const out = [];
-  for (let i = 0; i < lines.length; i++) {
-    out.push(lines[i]);
-    const m = lines[i].match(/<<-?\s*(['"])(\w+)\1/);
-    if (!m) continue;
-    while (i + 1 < lines.length && lines[i + 1].trim() !== m[2]) i++;
-  }
-  return out.join('\n');
-}
-
 // Text of the `$(…)` starting at text[i] ('$'), and the index of its closing paren.
 function substitution(text, i) {
   let depth = 0;
@@ -38,20 +25,91 @@ function substitution(text, i) {
   return [text.slice(i + 2), text.length];
 }
 
+// Push the `$(…)` / backtick substitutions of `body` (data otherwise) to `subs`.
+function bodySubs(body, subs) {
+  for (let j = 0; j < body.length; j++) {
+    if (body[j] === '\\') {
+      j++;
+    } else if (body[j] === '$' && body[j + 1] === '(') {
+      const [sub, k] = substitution(body, j);
+      subs.push(sub);
+      j = k;
+    } else if (body[j] === '`') {
+      const k = body.indexOf('`', j + 1);
+      const end = k < 0 ? body.length : k;
+      subs.push(body.slice(j + 1, end));
+      j = end;
+    }
+  }
+}
+
+// Heredoc delimiter word starting at text[i]: [word without quotes, quoted?, last index].
+function delimiter(text, i) {
+  let d = '';
+  let quoted = false;
+  for (; i < text.length && !/[\s;&|()<>]/.test(text[i]); i++) {
+    if (text[i] === "'" || text[i] === '"') {
+      const j = text.indexOf(text[i], i + 1);
+      const end = j < 0 ? text.length : j;
+      d += text.slice(i + 1, end);
+      quoted = true;
+      i = end;
+    } else if (text[i] === '\\' && i + 1 < text.length) {
+      d += text[++i];
+      quoted = true;
+    } else {
+      d += text[i];
+    }
+  }
+  return [d, quoted, i - 1];
+}
+
 // Split shell text into simple commands of words. Quote-aware; operators, parens, braces
-// and unquoted `$(` / backticks separate commands. `$(…)` and backticks inside double
-// quotes run too: their text goes to `subs` to be scanned as commands. Other quoted text
-// (commit messages, PR bodies, grep patterns) is data.
+// and unquoted `$(` / backticks separate commands; `#` after a blank or operator (not
+// `${#`) comments to the end of the line. `$(…)` and backticks inside double quotes or
+// an unquoted-delimiter heredoc body run too: their text goes to `subs` to be scanned as
+// commands. Other quoted text (commit messages, PR bodies, grep patterns) and heredoc
+// bodies are data. Only a `<<` the tokenizer reaches outside quotes and comments starts
+// a heredoc; one with no closing line sets `unclosed` (the caller refuses the command).
 function commands(text) {
   const cmds = [];
   const subs = [];
+  const pending = [];
+  let unclosed = null;
   let words = [];
   let w = null;
   const flushWord = () => { if (w !== null) words.push(w); w = null; };
   const flushCmd = () => { flushWord(); if (words.length) cmds.push(words); words = []; };
   for (let i = 0; i < text.length; i++) {
     const c = text[i];
-    if (c === "'") {
+    if (c === '#' && w === null && (i === 0 || /[\s;&|()]/.test(text[i - 1]))) {
+      while (i + 1 < text.length && text[i + 1] !== '\n') i++;
+    } else if (c === '<' && text[i + 1] === '<' && text[i + 2] !== '<') {
+      flushWord();
+      let j = i + 2;
+      const dash = text[j] === '-';
+      if (dash) j++;
+      while (text[j] === ' ' || text[j] === '\t') j++;
+      const [delim, quoted, end] = delimiter(text, j);
+      pending.push({ delim, quoted, dash });
+      i = end;
+    } else if (c === '\n' && pending.length) {
+      flushCmd();
+      for (const h of pending.splice(0)) {
+        const body = [];
+        let found = false;
+        while (!found && i < text.length) {
+          let e = text.indexOf('\n', i + 1);
+          if (e < 0) e = text.length;
+          const line = text.slice(i + 1, e);
+          i = e;
+          if (h.delim && (h.dash ? line.replace(/^\t+/, '') : line) === h.delim) found = true;
+          else body.push(line);
+        }
+        if (!found) unclosed ??= h.delim || '(empty)';
+        else if (!h.quoted) bodySubs(body.join('\n'), subs);
+      }
+    } else if (c === "'") {
       const j = text.indexOf("'", i + 1);
       const end = j < 0 ? text.length : j;
       w = (w ?? '') + text.slice(i + 1, end);
@@ -90,7 +148,8 @@ function commands(text) {
     }
   }
   flushCmd();
-  return { cmds, subs };
+  if (pending.length) unclosed ??= pending[0].delim || '(empty)';
+  return { cmds, subs, unclosed };
 }
 
 const base = (word) => word.split('/').pop();
@@ -102,8 +161,9 @@ const short = (ref) => ref.replace(/^refs\/heads\//, '');
 
 // `git push [<remote>]` lets git pick what to push. Allowed only when that is provably the
 // own branch alone: run where the hook runs (`moved` = the command may change directory or
-// git config), on the own branch, upstream `refs/heads/<own>`, push.default not
-// matching/nothing, no `remote.*.push` / `remote.*.mirror`. Otherwise the branch must be named.
+// git config), on the own branch, upstream `refs/heads/<own>`, and no push config the guard
+// does not model (any `push.*` but `push.default` simple/current/upstream, any
+// `remote.*.push*` / `remote.*.mirror`, `url.*.pushInsteadOf`). Otherwise name the branch.
 function implicitPushReason(ctx) {
   const hint = `name the branch: git push origin ${own}`;
   if (ctx.moved) return hint;
@@ -116,8 +176,9 @@ function implicitPushReason(ctx) {
   };
   if (git('symbolic-ref', '--short', '-q', 'HEAD') !== own) return hint;
   if (git('config', `branch.${own}.merge`) !== `refs/heads/${own}`) return hint;
-  if (!['', 'simple', 'current', 'upstream'].includes(git('config', 'push.default'))) return hint;
-  if (git('config', '--get-regexp', '^remote\\..*\\.(push|mirror)$')) return hint;
+  const cfg = git('config', '--get-regexp', '^(push\\.|remote\\..*\\.(push|mirror)|url\\..*\\.pushinsteadof$)');
+  const modeled = /^push\.default (simple|current|upstream)$/i;
+  if (cfg && cfg.split('\n').some((l) => !modeled.test(l.trim()))) return hint;
   return null;
 }
 
@@ -197,7 +258,8 @@ const MOVES = (w, next) => ['cd', 'pushd', 'popd'].includes(base(w)) || /^[A-Za-
 // command substitutions are scanned again; deeper nesting than that is refused.
 function reason(text, cwd, depth = 0, movedOuter = false) {
   if (depth > 4) return 'command nesting is too deep to check';
-  const { cmds, subs } = commands(stripHeredocs(text));
+  const { cmds, subs, unclosed } = commands(text);
+  if (unclosed) return `heredoc <<${unclosed} has no closing line`;
   const moved = movedOuter || [...cmds, ...subs.map((s) => s.split(/\s+/))]
     .some((ws) => ws.some((w, j) => MOVES(w, ws[j + 1])));
   const ctx = { cwd, moved };

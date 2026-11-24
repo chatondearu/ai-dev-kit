@@ -85,7 +85,7 @@
       "Bash(git push * -d *)",
       "Bash(git push *--mirror*)",
       "Bash(git push *--all*)",
-      "Bash(git push *refs/heads/__DEFAULT__*)",
+      "Bash(git push *heads/__DEFAULT__*)",
       "Bash(git -C * push*)",
       "Bash(git -c * push*)",
       "Bash(git rebase *--exec*)",

@@ -120,9 +120,10 @@ Do not invent product decisions. Do not merge yourself. Do not start another chi
   on the dependency branch (or wait until it merges), do not race the same files
   from a stale `{{DEFAULT_BRANCH}}`.
 - Before opening the PR, `git fetch origin {{DEFAULT_BRANCH}}` and rebase onto the
-  current base (nothing pushed yet). Once the branch is pushed, a force push is denied
-  (ADR-019): if `gh pr view` reports `CONFLICTING` / `DIRTY`, merge the updated base
-  (`git merge --no-edit origin/{{DEFAULT_BRANCH}}`) into this branch, resolve, and push
+  current base (nothing pushed yet). Once the branch is pushed, publish a rebase with
+  `git push --force-with-lease origin <your branch>` (plain `--force` / `-f` / `+ref` are
+  denied, ADR-019); or, if `gh pr view` reports `CONFLICTING` / `DIRTY`, merge the
+  updated base (`git merge --no-edit origin/{{DEFAULT_BRANCH}}`), resolve, and push
   normally.
 - Prefer reporting `blocked` with reason `needs rebase onto {{DEFAULT_BRANCH}} / stack base`
   over leaving a dirty PR for the human to discover at merge time.

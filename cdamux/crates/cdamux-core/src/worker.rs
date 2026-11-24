@@ -153,12 +153,16 @@ const WORKER_PUSH_GUARD: &str =
     include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../config/worker-push-guard.mjs"));
 
 /// Render the template for a worker on `branch` in a repo whose default branch is
-/// `default`, editing `worktree`, guarded by the hook at `guard`: push only to its own
-/// branch, never to the default one (same rule as orch.sh `orch_render_settings`). A branch
-/// name outside `[A-Za-z0-9._/@+-]` counts as unknown; no push when either is unknown or
-/// they are equal. `None` when a path holds a quote, paren or `*` (rule syntax).
-pub fn worker_settings_json(branch: &str, default: &str, worktree: &str, guard: &str) -> Option<String> {
-    if worktree.is_empty() || guard.is_empty() || format!("{worktree}{guard}").contains(['\'', '"', '(', ')', '*']) {
+/// `default`, editing `worktree`, guarded by the hook at `guard`, with the read-only
+/// scripts of the kit at `kit`: push only to its own branch, never to the default one
+/// (same rule as orch.sh `orch_render_settings`). A branch name outside `[A-Za-z0-9._/@+-]`
+/// counts as unknown; no push when either is unknown or they are equal; no kit-script rule
+/// when `kit` is empty. `None` when a path holds a quote, paren or `*` (rule syntax).
+pub fn worker_settings_json(branch: &str, default: &str, worktree: &str, guard: &str, kit: &str) -> Option<String> {
+    if worktree.is_empty()
+        || guard.is_empty()
+        || format!("{worktree}{guard}{kit}").contains(['\'', '"', '(', ')', '*'])
+    {
         return None;
     }
     let safe = |b: &str| {
@@ -171,6 +175,7 @@ pub fn worker_settings_json(branch: &str, default: &str, worktree: &str, guard: 
             .replace("__DEFAULT__", &default)
             .replace("__WORKTREE__", worktree)
             .replace("__GUARD__", guard)
+            .replace("__KIT__", kit)
     };
     let mut v: Value = serde_json::from_str(WORKER_SETTINGS_TEMPLATE).expect("embedded template");
     for key in ["allow", "deny"] {
@@ -181,6 +186,7 @@ pub fn worker_settings_json(branch: &str, default: &str, worktree: &str, guard: 
             .filter_map(Value::as_str)
             .filter(|r| !branch.is_empty() || key == "deny" || !r.starts_with("Bash(git push"))
             .filter(|r| !default.is_empty() || !r.contains("__DEFAULT__"))
+            .filter(|r| !kit.is_empty() || !r.contains("__KIT__"))
             .map(|r| Value::from(fill(r)))
             .collect();
         v["permissions"][key] = Value::Array(rules);
@@ -193,6 +199,17 @@ pub fn worker_settings_json(branch: &str, default: &str, worktree: &str, guard: 
         }
     }
     serde_json::to_string_pretty(&v).ok()
+}
+
+/// The ai-dev-kit checkout, found through the skill link `install.sh` writes:
+/// `<claude config dir>/skills/cda-kanban` → `<kit>/skills/core/cda-kanban`.
+fn kit_root() -> Option<PathBuf> {
+    let claude = std::env::var_os("CLAUDE_CONFIG_DIR")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".claude")))?;
+    let skill = claude.join("skills/cda-kanban").canonicalize().ok()?;
+    let kit = skill.ancestors().nth(3)?;
+    kit.join("skills/core/cda-kanban/scripts/foam-board.sh").is_file().then(|| kit.to_path_buf())
 }
 
 /// Claude workers: write `$CDAMUX_HOME/settings/<host>.json` (and the push guard next to
@@ -214,7 +231,8 @@ pub(crate) fn with_worker_permissions(
     let guard = dir.join("worker-push-guard.mjs");
     crate::state::write_atomic(&guard, WORKER_PUSH_GUARD.as_bytes()).ok()?;
     let wt = worktree.canonicalize().ok()?;
-    let json = worker_settings_json(&branch, &default, &wt.to_string_lossy(), &guard.to_string_lossy())?;
+    let kit = kit_root().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
+    let json = worker_settings_json(&branch, &default, &wt.to_string_lossy(), &guard.to_string_lossy(), &kit)?;
     let file = dir.join(format!("{host}.json"));
     crate::state::write_atomic(&file, json.as_bytes()).ok()?;
     Some(format!(
@@ -863,29 +881,32 @@ mod tests {
 
     #[test]
     fn worker_settings_allow_own_branch_and_deny_default() {
-        let render = |b: &str, d: &str| worker_settings_json(b, d, "/w/t", "/g/guard.mjs").unwrap();
+        let render = |b: &str, d: &str| worker_settings_json(b, d, "/w/t", "/g/guard.mjs", "/k").unwrap();
         let v: Value = serde_json::from_str(&render("worker/r1/x", "dev")).unwrap();
         let has = |key: &str, rule: &str| {
             v["permissions"][key].as_array().unwrap().contains(&json!(rule))
         };
         assert!(has("allow", "Edit(//w/t/**)"));
-        assert!(has("allow", "Bash(git push origin worker/r1/x)"));
-        assert!(has("allow", "Bash(git push origin HEAD:worker/r1/x)"));
+        assert!(has("allow", "Bash(git push *)"), "the push guard checks the branch");
         assert!(has("allow", "Bash(git merge origin/dev)"));
+        assert!(has("allow", "Bash(bash /k/skills/core/cda-doc-hygiene/scripts/doc-hygiene.sh --check /w/t)"));
         assert!(has("deny", "Bash(git push * dev)"));
         assert!(has("deny", "Bash(gh pr merge *)"));
         assert_eq!(
             v["hooks"]["PreToolUse"][0]["hooks"][0]["command"],
-            "node '/g/guard.mjs' 'worker/r1/x' 'dev'"
+            "node '/g/guard.mjs' 'worker/r1/x' 'dev' || exit 2"
         );
         assert!(!v.to_string().contains("__"), "placeholder left: {v}");
         for (branch, default) in [("dev", "dev"), ("", "dev"), ("worker/r1/x", ""), ("a'b", "dev")] {
             let s = render(branch, default);
-            assert!(!s.contains("Bash(git push origin"), "push allowed for {branch:?}/{default:?}");
+            assert!(!s.contains("Bash(git push)"), "push allowed for {branch:?}/{default:?}");
+            assert!(!s.contains("Bash(git push *)"), "push allowed for {branch:?}/{default:?}");
             assert!(!s.contains("__"), "placeholder left for {branch:?}/{default:?}");
             assert!(!s.contains("a'b"), "unsafe branch kept");
         }
-        assert!(worker_settings_json("b", "dev", "/w/(t)", "/g").is_none(), "unsafe path refused");
+        let s = worker_settings_json("b", "dev", "/w/t", "/g", "").unwrap();
+        assert!(!s.contains("__KIT__") && !s.contains("doc-hygiene"), "no kit: no kit-script rule");
+        assert!(worker_settings_json("b", "dev", "/w/(t)", "/g", "").is_none(), "unsafe path refused");
     }
 
     #[test]

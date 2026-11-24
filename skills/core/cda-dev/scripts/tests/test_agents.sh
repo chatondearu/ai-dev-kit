@@ -180,14 +180,30 @@ for f in worker-settings.json worker-push-guard.mjs; do
 done
 render() { orch_render_settings "$1" "$2" /w/t /g/guard.mjs <"$ORCH_SETTINGS_TEMPLATE"; }
 r="$(render worker/r1/x main)"
-assert_eq "$(jq -r '.permissions.allow | index("Bash(git push origin worker/r1/x)") != null' <<<"$r")" "true" "push to own branch allowed"
+assert_eq "$(jq -r '.permissions.allow | index("Bash(git push *)") != null' <<<"$r")" "true" "push allowed by text, the guard checks the branch"
 assert_eq "$(jq -r '.permissions.deny | index("Bash(git push * main)") != null' <<<"$r")" "true" "push to default denied"
 assert_eq "$(jq -r '.permissions.deny | index("Bash(gh pr merge *)") != null' <<<"$r")" "true" "gh pr merge denied"
 assert_eq "$(grep -c '__' <<<"$r" | tr -d ' ')" "0" "no placeholder left"
+assert_eq "$(jq '[.permissions.allow[] | select(contains("__KIT__") or contains("doc-hygiene"))] | length' <<<"$r")" "0" "no kit root: no kit-script rule"
+# Text layer, Claude Code `*` ≈ shell glob: a lease is not denied, a plain force is.
+denied() { local p; while IFS= read -r p; do [[ "$1" == $p ]] && return 0; done \
+  < <(jq -r '.permissions.deny[] | select(startswith("Bash(git push")) | .[5:-1]' <<<"$r"); return 1; }
+for c in 'git push --force-with-lease' 'git push --force-with-lease origin worker/r1/x' \
+  'git push -u --force-with-lease=worker/r1/x:abc origin worker/r1/x'; do
+  rc=0; denied "$c" || rc=$?; assert_eq "$rc" "1" "text rules let the guard judge: $c"
+done
+for c in 'git push --force origin worker/r1/x' 'git push origin worker/r1/x --force' \
+  'git push --force-with-lease origin main' 'git push origin +worker/r1/x'; do
+  rc=0; denied "$c" || rc=$?; assert_eq "$rc" "0" "text rules deny: $c"
+done
+r="$(orch_render_settings feat/a main /w/t /g/guard.mjs /k <"$ORCH_SETTINGS_TEMPLATE")"
+assert_eq "$(jq -r '.permissions.allow | index("Bash(bash /k/skills/core/cda-doc-hygiene/scripts/doc-hygiene.sh --check /w/t)") != null' <<<"$r")" "true" "kit doc-hygiene --check allowed"
+assert_eq "$(jq -r '.permissions.allow | index("Bash(bash /k/skills/core/cda-kanban/scripts/foam-board.sh list-ready)") != null' <<<"$r")" "true" "kit foam-board list-ready allowed"
+assert_eq "$(jq '[.permissions.allow[] | select(test("foam-board.sh \\*|reconcile .|doc-hygiene.sh --(check|report) \\*|archive"))] | length' <<<"$r")" "0" "kit scripts: explicit read-only forms only (no reconcile --pr, no --archive-done)"
 r="$(render main main)"
 assert_eq "$(jq '[.permissions.allow[] | select(startswith("Bash(git push"))] | length' <<<"$r")" "0" "on the default branch: no push allowed"
 r="$(render worker/r1/x "")"
-assert_eq "$(jq '[.permissions.allow[], .permissions.deny[] | select(test("git push origin|git push \\* $"))] | length' <<<"$r")" "0" "unknown default: no push allowed, no empty deny"
+assert_eq "$(jq '[(.permissions.allow[] | select(startswith("Bash(git push"))), (.permissions.deny[] | select(test("git push \\* $")))] | length' <<<"$r")" "0" "unknown default: no push allowed, no empty deny"
 G="$(mktemp -d)"
 git -C "$G" init -q -b dev && git -C "$G" commit -q --allow-empty -m init
 git -C "$G" update-ref refs/remotes/origin/dev HEAD && git -C "$G" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/dev
@@ -195,14 +211,16 @@ git -C "$G" switch -q -c feat/a
 assert_eq "$(orch_default_branch "$G")" "dev" "default branch from origin/HEAD (not hardcoded main)"
 sf="$(ORCH_REPO="$G" orch_agent_settings "$G")"
 assert_eq "$(jq -r '.permissions.deny | index("Bash(git push * dev)") != null' "$sf")" "true" "settings file denies push to dev"
-assert_eq "$(jq -r '.permissions.allow | index("Bash(git push -u origin feat/a)") != null' "$sf")" "true" "settings file allows own branch"
+assert_eq "$(jq -r '.hooks.PreToolUse[0].hooks[0].command | contains("'"'feat/a' 'dev'"'")' "$sf")" "true" "settings file guards the own branch"
+KIT="$(cd "$TROOT/../../../../.." && pwd -P)"
+assert_eq "$(jq -r --arg r "Bash(bash $KIT/skills/core/cda-doc-hygiene/scripts/doc-hygiene.sh --check $(cd "$G" && pwd -P))" '.permissions.allow | index($r) != null' "$sf")" "true" "settings file allows the kit's doc-hygiene --check"
 mkdir -p "$G/tmp"
 sf="$(ORCH_REPO="$G" TMPDIR="$G/tmp/" orch_agent_settings "$G" reviewer)"
 assert_eq "$(jq -r --arg r "Edit(/$(cd "$G/tmp" && pwd -P)/orch-review.*/verdict)" '.permissions.allow | index($r) != null' "$sf")" "true" "reviewer may write its verdict outside the worktree"
 sf="$(ORCH_REPO="$G" TMPDIR="$G/tmp/" orch_agent_settings "$G" worker)"
 assert_eq "$(jq '[.permissions.allow[] | select(contains("orch-review"))] | length' "$sf")" "0" "worker gets no verdict rule"
 sf="$(ORCH_REPO="$G" ORCH_PUSH_BRANCH=pr-head orch_agent_settings "$G")"
-assert_eq "$(jq -r '.permissions.allow | index("Bash(git push origin HEAD:pr-head)") != null' "$sf")" "true" "ORCH_PUSH_BRANCH overrides the checked-out branch"
+assert_eq "$(jq -r '.hooks.PreToolUse[0].hooks[0].command | contains("'"'pr-head'"'")' "$sf")" "true" "ORCH_PUSH_BRANCH overrides the checked-out branch"
 rm -rf "$G"
 
 # Agents run in a child `bash -c` (orch_sandbox_wrap): the template path must reach it.
@@ -214,38 +232,72 @@ assert_eq "$rc" "1" "claude refuses to run without rendered settings"
 assert_eq "$(grep -c claude-ok <<<"$err" | tr -d ' ')" "0" "claude not started without settings"
 assert_contains "$err" "cannot render worker permission settings" "missing settings message"
 r="$(render feat/head main)"
-assert_eq "$(jq -r '.permissions.allow | index("Bash(git push origin HEAD:feat/head)") != null' <<<"$r")" "true" "pr-fix push to head ref allowed"
+assert_eq "$(jq -r '.hooks.PreToolUse[0].hooks[0].command | contains("'"'feat/head'"'")' <<<"$r")" "true" "pr-fix push to head ref allowed"
 
 # dontAsk needs explicit edit / read rules; the push guard hook is wired with the branches.
 r="$(render feat/a main)"
 assert_eq "$(jq -r '.permissions.allow | index("Edit(//w/t/**)") != null' <<<"$r")" "true" "edits allowed in the worktree only"
 assert_eq "$(jq -r '.permissions.allow | index("Bash(git merge origin/main)") != null' <<<"$r")" "true" "merge of the default branch allowed"
-assert_eq "$(jq -r '.hooks.PreToolUse[0].hooks[0].command' <<<"$r")" "node '/g/guard.mjs' 'feat/a' 'main'" "push guard hook wired"
-assert_eq "$(render "a'b" main | jq -r '.hooks.PreToolUse[0].hooks[0].command')" "node '/g/guard.mjs' '' 'main'" "unsafe branch name: no push"
+assert_eq "$(jq -r '.hooks.PreToolUse[0].hooks[0].command' <<<"$r")" "node '/g/guard.mjs' 'feat/a' 'main' || exit 2" "push guard hook wired, fails closed"
+assert_eq "$(render "a'b" main | jq -r '.hooks.PreToolUse[0].hooks[0].command')" "node '/g/guard.mjs' '' 'main' || exit 2" "unsafe branch name: no push"
+rc=0; jq -n '{tool_name:"Bash",tool_input:{command:"git status"}}' \
+  | PATH=/nonexistent /bin/sh -c "node /g/guard.mjs feat/a main || exit 2" 2>/dev/null || rc=$?
+assert_eq "$rc" "2" "no node: the hook blocks instead of letting the command through"
 rc=0; orch_render_settings feat/a main "/w/(t)" /g <"$ORCH_SETTINGS_TEMPLATE" >/dev/null || rc=$?
 assert_eq "$rc" "1" "unsafe worktree path refused"
 
 # Push guard (PreToolUse hook): argv-level refusals the text rules miss.
 NESTED='bash -c x'
 for _ in 1 2 3 4 5; do NESTED="bash -c $(printf %q "$NESTED")"; done
-guard() { jq -Rn --arg c "$1" '{tool_name:"Bash",tool_input:{command:$c}}' \
+guard() { jq -Rn --arg c "$1" --arg d "${GUARD_CWD:-/}" '{tool_name:"Bash",tool_input:{command:$c},cwd:$d}' \
   | node "$(dirname "$ORCH_SETTINGS_TEMPLATE")/worker-push-guard.mjs" feat/a main 2>/dev/null; }
 HEREDOC_COMMIT="$(printf 'git commit -m "$(cat <<%sEOF%s\nfix: avoid git push -f origin main\nEOF\n)"' "'" "'")"
 for c in 'git push origin feat/a' 'git push -u origin feat/a' 'git push origin HEAD:refs/heads/feat/a' \
   'git commit -m x && git push origin feat/a' 'git status' \
   'git commit -m "docs: never git push -f origin main"' \
   'gh pr create --title t --body "run git push origin main after merge"' \
-  "rg 'git push' skills" "git log --oneline | grep 'git push'" "$HEREDOC_COMMIT"; do
+  "rg 'git push' skills" "git log --oneline | grep 'git push'" "$HEREDOC_COMMIT" \
+  'git push --force-with-lease origin feat/a' 'git push --force-with-lease=feat/a:0123abc origin feat/a' \
+  'git push --force-with-lease=refs/heads/feat/a origin HEAD:feat/a' 'git push -u --force-with-lease origin feat/a' \
+  'git push --force-with-lease -u origin feat/a' 'git push --set-upstream --force-with-lease=feat/a:0123abc origin feat/a' \
+  'git push --force-with-lease --force-if-includes origin feat/a'; do
   rc=0; guard "$c" || rc=$?; assert_eq "$rc" "0" "guard allows: $c"
 done
 for c in 'git push -uf origin feat/a' 'git push origin +feat/a' 'git push origin :feat/a' 'git push -d origin x' \
   "git push origin 'HEAD:refs/heads/main'" 'git -C . push origin main' 'git push --mirror origin' 'git push' \
   'bash -c "git push -f origin feat/a"' 'echo $(git push origin main)' 'gh pr merge 3' \
-  'git -c alias.p=push p -f' 'git push --force-with-lease origin feat/a' 'nix develop -c git push origin main' \
+  'git -c alias.p=push p -f' 'git push --force origin feat/a' 'nix develop -c git push origin main' \
   'sh -lc "git push origin main"' 'eval git push origin main' 'echo "$(git push origin main)"' \
   'gh -R o/r pr merge 3' 'gh api -X PUT repos/o/r/pulls/3/merge' 'gh api repos/o/r/git/refs/heads/main -X PATCH' \
-  'git send-pack origin main' "$NESTED"; do
+  'git send-pack origin main' "$NESTED" \
+  'git push --force-with-lease origin main' 'git push --force-with-lease=main origin feat/a' \
+  'git push --force-with-lease=main:0123abc origin feat/a' 'git push --force-with-lease origin other' \
+  'git push --force-with-lease=other:0123abc origin other' 'git push --force-with-lease= origin feat/a' \
+  'git push --force-with-lease --force origin feat/a' 'git push --force-with-lease -f origin feat/a' \
+  'git push --force-with-lease origin +feat/a' 'git push --force-if-includes origin feat/a' \
+  'git push --force-with-lease --tags origin feat/a' 'git push --force-with-lease --all origin'; do
   rc=0; guard "$c" || rc=$?; assert_eq "$rc" "2" "guard blocks: $c"
 done
+
+# `git push` without a refspec: only from the own branch tracking refs/heads/<own>.
+R="$(mktemp -d)"
+git -C "$R" init -q -b main && git -C "$R" commit -q --allow-empty -m init && git -C "$R" switch -q -c feat/a
+git -C "$R" config branch.feat/a.remote origin && git -C "$R" config branch.feat/a.merge refs/heads/feat/a
+for c in 'git push' 'git push origin' 'git push -u' 'git push --force-with-lease' 'git push --force-with-lease=feat/a'; do
+  rc=0; GUARD_CWD="$R" guard "$c" || rc=$?; assert_eq "$rc" "0" "guard allows on the own upstream: $c"
+done
+for c in 'cd /elsewhere && git push' 'git -C . push' 'GIT_DIR=/x/.git git push' 'env -C /x git push' \
+  'git -c push.default=matching push' 'git push --force-with-lease=main' 'git push --force'; do
+  rc=0; GUARD_CWD="$R" guard "$c" || rc=$?; assert_eq "$rc" "2" "guard blocks on the own upstream: $c"
+done
+git -C "$R" config push.default matching
+rc=0; GUARD_CWD="$R" guard 'git push' || rc=$?; assert_eq "$rc" "2" "guard blocks git push with push.default=matching"
+git -C "$R" config --unset push.default && git -C "$R" config remote.origin.mirror true
+rc=0; GUARD_CWD="$R" guard 'git push origin' || rc=$?; assert_eq "$rc" "2" "guard blocks git push to a mirror remote"
+git -C "$R" config --unset remote.origin.mirror && git -C "$R" config branch.feat/a.merge refs/heads/main
+rc=0; GUARD_CWD="$R" guard 'git push' || rc=$?; assert_eq "$rc" "2" "guard blocks git push when upstream is another branch"
+git -C "$R" config branch.feat/a.merge refs/heads/feat/a && git -C "$R" switch -q main
+rc=0; GUARD_CWD="$R" guard 'git push' || rc=$?; assert_eq "$rc" "2" "guard blocks git push off the own branch"
+rm -rf "$R"
 
 summary

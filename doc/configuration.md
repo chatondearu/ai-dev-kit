@@ -174,8 +174,11 @@ Every Claude Code worker (orch.sh roles and `cdamux worker spawn`) runs
 `--permission-mode dontAsk --settings <file>` with the allowlist and `git push`
 guard hook in
 [`templates/worker-settings.json`](../skills/core/cda-dev/templates/worker-settings.json)
-(same file as `cdamux/config/worker-settings.json`): push only to its own branch, no
-merge, no force push, no push to the default branch, no `sudo`, no global install.
+(same file as `cdamux/config/worker-settings.json`): push only to its own branch
+(`-u`, plain `git push` on its upstream, and `--force-with-lease` to publish a rebase are
+fine), no merge, no plain force push, no push to the default branch, no `sudo`, no global
+install. Read-only kit scripts (`doc-hygiene.sh --check|--report`, `foam-board.sh
+list-ready|reconcile`) run from the kit checkout `install.sh` linked.
 Anything else is denied, headless and interactive alike (no dialog); the worker
 escalates to the maintainer, the orchestrator never relays an approval
 ([ADR-019](../foam/decisions/ADR-019-worker-permission-boundary.md)). Your own Claude

@@ -3,12 +3,14 @@
 // worker --settings file as `node worker-push-guard.mjs <own-branch> <default-branch>`.
 // Bash permission rules match command text; this parses argv so spellings the rules miss
 // (`-uf`, `:ref`, quoted refs, `git -C x push`, `bash -c "…"`) are still refused.
-// Blocks (exit 2, reason on stderr): any `git push` / `send-pack` that is not an explicit
-// push of the own branch (no force, delete, mirror/all/tags, no default branch),
-// `git -c alias.*`, `gh pr merge` and `gh api` merge / git-refs paths. Conservative: an
-// unquoted `git` word anywhere in a command is treated as a call.
+// Blocks (exit 2, reason on stderr): any `git push` / `send-pack` that does not update only
+// the own branch (no plain force, delete, mirror/all/tags, no default branch; a
+// `--force-with-lease` on the own branch is fine, for a rebased branch), `git -c alias.*`,
+// `gh pr merge` and `gh api` merge / git-refs paths. Conservative: an unquoted `git` word
+// anywhere in a command is treated as a call.
 // Text is not a sandbox: a script the worker writes can still push; branch protection is
 // the real guard.
+import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 
 const [own = '', dflt = ''] = process.argv.slice(2);
@@ -96,8 +98,31 @@ const OPT_WITH_VALUE = new Set(['-C', '-c', '--git-dir', '--work-tree', '--names
 const PUSH_OK_LONG = new Set(['--set-upstream', '--dry-run', '--quiet', '--verbose', '--progress',
   '--no-progress', '--no-verify', '--atomic', '--porcelain']);
 
+const short = (ref) => ref.replace(/^refs\/heads\//, '');
+
+// `git push [<remote>]` lets git pick what to push. Allowed only when that is provably the
+// own branch alone: run where the hook runs (`moved` = the command may change directory or
+// git config), on the own branch, upstream `refs/heads/<own>`, push.default not
+// matching/nothing, no `remote.*.push` / `remote.*.mirror`. Otherwise the branch must be named.
+function implicitPushReason(ctx) {
+  const hint = `name the branch: git push origin ${own}`;
+  if (ctx.moved) return hint;
+  const git = (...a) => {
+    try {
+      return execFileSync('git', a, { cwd: ctx.cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    } catch {
+      return '';
+    }
+  };
+  if (git('symbolic-ref', '--short', '-q', 'HEAD') !== own) return hint;
+  if (git('config', `branch.${own}.merge`) !== `refs/heads/${own}`) return hint;
+  if (!['', 'simple', 'current', 'upstream'].includes(git('config', 'push.default'))) return hint;
+  if (git('config', '--get-regexp', '^remote\\..*\\.(push|mirror)$')) return hint;
+  return null;
+}
+
 // Reason a `git` call (words after `git`) is refused, or null.
-function gitReason(args) {
+function gitReason(args, ctx) {
   let i = 0;
   for (; i < args.length && args[i].startsWith('-'); i++) {
     const [opt, val] = args[i].split(/=(.*)/s);
@@ -107,18 +132,34 @@ function gitReason(args) {
   }
   if (args[i] !== 'push' && args[i] !== 'send-pack') return null;
   const positional = [];
+  let lease = false;
+  let ifIncludes = false;
   for (const a of args.slice(i + 1)) {
     if (a === '-o' || a.startsWith('--push-option')) return 'push options are not allowed';
     if (a.startsWith('--')) {
-      if (!PUSH_OK_LONG.has(a.split('=')[0])) return `git push ${a} is not allowed`;
+      const [opt, val] = a.split(/=(.*)/s);
+      if (opt === '--force-with-lease') {
+        lease = true;
+        // `=<ref>[:<expect>]` must name the own branch; bare form leases what is pushed.
+        if (val !== undefined && short(val.split(':')[0]) !== own) {
+          return `lease ${a} is not allowed (own branch: ${own})`;
+        }
+      } else if (opt === '--force-if-includes') {
+        ifIncludes = true;
+      } else if (!PUSH_OK_LONG.has(opt)) {
+        return `git push ${a} is not allowed`;
+      }
     } else if (a.startsWith('-') && a.length > 1) {
       if (/[^unqv]/.test(a.slice(1))) return `git push ${a} is not allowed`;
     } else {
       positional.push(a);
     }
   }
+  if (ifIncludes && !lease) return '--force-if-includes needs --force-with-lease';
   if (!own || own === dflt) return 'this worker may not push (no own branch)';
-  if (positional.length < 2) return `name the branch: git push origin ${own}`;
+  if (positional.length < 2) {
+    return args[i] === 'push' && i === 0 ? implicitPushReason(ctx) : `name the branch: git push origin ${own}`;
+  }
   for (const spec of positional.slice(1)) {
     if (spec.startsWith('+')) return `force refspec ${spec} is not allowed`;
     const k = spec.indexOf(':');
@@ -148,13 +189,20 @@ function ghReason(args) {
   return null;
 }
 
+// A word that may move the shell or point git elsewhere (`cd`, `GIT_DIR=`, `env -C` …).
+const MOVES = (w, next) => ['cd', 'pushd', 'popd'].includes(base(w)) || /^GIT_\w*=/.test(w)
+  || /^--chdir(=|$)/.test(w) || (base(w) === 'env' && (next ?? '').startsWith('-'));
+
 // Reason the whole command text is refused, or null. The argument of `sh -c` / `eval` and
 // command substitutions are scanned again; deeper nesting than that is refused.
-function reason(text, depth = 0) {
+function reason(text, cwd, depth = 0, movedOuter = false) {
   if (depth > 4) return 'command nesting is too deep to check';
   const { cmds, subs } = commands(stripHeredocs(text));
+  const moved = movedOuter || [...cmds, ...subs.map((s) => s.split(/\s+/))]
+    .some((ws) => ws.some((w, j) => MOVES(w, ws[j + 1])));
+  const ctx = { cwd, moved };
   for (const sub of subs) {
-    const r = reason(sub, depth + 1);
+    const r = reason(sub, cwd, depth + 1, moved);
     if (r) return r;
   }
   for (const words of cmds) {
@@ -163,11 +211,11 @@ function reason(text, depth = 0) {
       let r = null;
       if (SHELLS.has(name)) {
         const k = words.findIndex((a, j) => j > i && /^-[a-z]*c[a-z]*$/.test(a));
-        if (k > 0 && k + 1 < words.length) r = reason(words[k + 1], depth + 1);
+        if (k > 0 && k + 1 < words.length) r = reason(words[k + 1], cwd, depth + 1, moved);
       } else if (name === 'eval') {
-        r = reason(words.slice(i + 1).join(' '), depth + 1);
+        r = reason(words.slice(i + 1).join(' '), cwd, depth + 1, moved);
       } else if (name === 'git') {
-        r = gitReason(words.slice(i + 1));
+        r = gitReason(words.slice(i + 1), ctx);
       } else if (name === 'gh') {
         r = ghReason(words.slice(i + 1));
       }
@@ -184,7 +232,7 @@ try {
   process.exit(0); // no hook payload: nothing to judge
 }
 const cmd = input?.tool_name === 'Bash' ? String(input?.tool_input?.command ?? '') : '';
-const r = cmd && reason(cmd);
+const r = cmd && reason(cmd, String(input?.cwd || process.cwd()));
 if (r) {
   process.stderr.write(`worker push guard: ${r} (ADR-019). A denied command is an escalation `
     + 'to the maintainer through the orchestrator; never work around it.\n');

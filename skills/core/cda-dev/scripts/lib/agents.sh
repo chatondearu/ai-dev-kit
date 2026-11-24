@@ -237,7 +237,7 @@ declare -F orch_default_branch >/dev/null || source "$(dirname "${BASH_SOURCE[0]
 # checked-out branch), never to the default one. Prints the settings file path; fails
 # without ORCH_REPO (the files never go inside the worktree), jq, node or the template.
 orch_agent_settings() {
-  local wt="$1" out dir branch="" default="" tdir
+  local wt="$1" out dir branch="" default="" tdir kit=""
   [ -n "${ORCH_REPO:-}" ] || return 1
   command -v jq >/dev/null 2>&1 && command -v node >/dev/null 2>&1 && [ -f "$ORCH_SETTINGS_TEMPLATE" ] || return 1
   dir="$ORCH_REPO/.orch/run"
@@ -248,7 +248,9 @@ orch_agent_settings() {
     branch="${ORCH_PUSH_BRANCH:-$(git -C "$wt" branch --show-current 2>/dev/null || true)}"
     default="$(orch_default_branch "$wt")" || default=""
   fi
-  orch_render_settings "$branch" "$default" "$(cd "$wt" && pwd -P)" "$dir/worker-push-guard.mjs" \
+  # Kit root (templates live in <kit>/skills/core/cda-dev/templates): its read-only scripts.
+  [ -f "$tdir/../../cda-kanban/scripts/foam-board.sh" ] && kit="$(cd "$tdir/../../../.." && pwd -P)"
+  orch_render_settings "$branch" "$default" "$(cd "$wt" && pwd -P)" "$dir/worker-push-guard.mjs" "$kit" \
     <"$ORCH_SETTINGS_TEMPLATE" >"$out" || return 1
   # The reviewer writes its verdict in a mktemp dir outside the worktree (orch.sh review
   # gate): allow that one file by glob, so the settings never name the random dir.
@@ -261,21 +263,25 @@ orch_agent_settings() {
   printf '%s\n' "$out"
 }
 
-# Template on stdin → settings on stdout for branch $1, default branch $2, worktree $3 and
-# push guard $4 (same rule as cdamux `worker_settings_json`). A branch or default branch
-# outside [A-Za-z0-9._/@+-] counts as unknown; no push is allowed when either is unknown
-# or they are equal. A path with a quote, paren or `*` is refused.
+# Template on stdin → settings on stdout for branch $1, default branch $2, worktree $3,
+# push guard $4 and kit root $5 (same rule as cdamux `worker_settings_json`). A branch or
+# default branch outside [A-Za-z0-9._/@+-] counts as unknown; no push is allowed when either
+# is unknown or they are equal. No kit root: no kit-script rules. A path with a quote,
+# paren or `*` is refused.
 orch_render_settings() {
-  local b="$1" d="$2" ref='^[A-Za-z0-9._/@+-]+$'
-  case "$3$4" in *[\'\"\(\)\*]*|'') return 1;; esac
+  local b="$1" d="$2" k="${5:-}" ref='^[A-Za-z0-9._/@+-]+$'
+  case "$3$4$k" in *[\'\"\(\)\*]*) return 1;; esac
+  [ -n "$3" ] && [ -n "$4" ] || return 1
   [[ "$b" =~ $ref ]] || b=""
   [[ "$d" =~ $ref ]] || d=""
   { [ -n "$d" ] && [ "$b" != "$d" ]; } || b=""
-  jq --arg b "$b" --arg d "$d" --arg w "$3" --arg g "$4" '
+  jq --arg b "$b" --arg d "$d" --arg w "$3" --arg g "$4" --arg k "$k" '
     (if $d == "" then .permissions |= map_values(map(select(contains("__DEFAULT__") | not))) else . end)
+    | (if $k == "" then .permissions |= map_values(map(select(contains("__KIT__") | not))) else . end)
     | (if $b == "" then .permissions.allow |= map(select(startswith("Bash(git push") | not)) else . end)
     | walk(if type == "string"
            then gsub("__BRANCH__"; $b) | gsub("__DEFAULT__"; $d) | gsub("__WORKTREE__"; $w) | gsub("__GUARD__"; $g)
+             | gsub("__KIT__"; $k)
            else . end)'
 }
 

@@ -15,10 +15,8 @@
       "Bash(git merge origin/__DEFAULT__)",
       "Bash(git merge --no-edit origin/__DEFAULT__)",
       "Bash(git merge origin/__DEFAULT__ --no-edit)",
-      "Bash(git push origin __BRANCH__)",
-      "Bash(git push -u origin __BRANCH__)",
-      "Bash(git push --set-upstream origin __BRANCH__)",
-      "Bash(git push origin HEAD:__BRANCH__)",
+      "Bash(git push)",
+      "Bash(git push *)",
       "Bash(gh pr create *)",
       "Bash(gh pr view *)",
       "Bash(gh pr checks *)",
@@ -29,7 +27,19 @@
       "Bash(cdamux msg *)",
       "Bash(cdamux state get *)",
       "Bash(jq *)",
-      "Bash(foam-board.sh *)",
+      "Bash(foam-board.sh list-ready)",
+      "Bash(foam-board.sh list-ready --json)",
+      "Bash(foam-board.sh path *)",
+      "Bash(foam-board.sh reconcile)",
+      "Bash(foam-board.sh claim *)",
+      "Bash(foam-board.sh set-status *)",
+      "Bash(bash __KIT__/skills/core/cda-kanban/scripts/foam-board.sh list-ready)",
+      "Bash(bash __KIT__/skills/core/cda-kanban/scripts/foam-board.sh list-ready --json)",
+      "Bash(bash __KIT__/skills/core/cda-kanban/scripts/foam-board.sh reconcile)",
+      "Bash(bash __KIT__/skills/core/cda-doc-hygiene/scripts/doc-hygiene.sh --check)",
+      "Bash(bash __KIT__/skills/core/cda-doc-hygiene/scripts/doc-hygiene.sh --check __WORKTREE__)",
+      "Bash(bash __KIT__/skills/core/cda-doc-hygiene/scripts/doc-hygiene.sh --report)",
+      "Bash(bash __KIT__/skills/core/cda-doc-hygiene/scripts/doc-hygiene.sh --report __WORKTREE__)",
       "Bash(bash scripts/*)",
       "Bash(sh scripts/*)",
       "Bash(./scripts/*)",
@@ -64,7 +74,8 @@
       "Read(~/.aws/**)",
       "Read(~/.config/gh/**)",
       "Bash(gh pr merge *)",
-      "Bash(git push *--force*)",
+      "Bash(git push *--force)",
+      "Bash(git push *--force *)",
       "Bash(git push -d *)",
       "Bash(git push -f *)",
       "Bash(git push * -f)",
@@ -115,7 +126,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node '__GUARD__' '__BRANCH__' '__DEFAULT__'"
+            "command": "node '__GUARD__' '__BRANCH__' '__DEFAULT__' || exit 2"
           }
         ]
       }

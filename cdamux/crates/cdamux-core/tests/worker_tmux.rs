@@ -236,7 +236,8 @@ fn spawn_ls_peek_and_msg_by_name() {
         .unwrap()
         .contains(&serde_json::json!("Bash(gh pr merge *)")));
     // No origin → default branch unknown → no push allowed (fail closed).
-    assert!(!rendered.to_string().contains("git push origin"), "{rendered}");
+    let allow = rendered["permissions"]["allow"].as_array().unwrap();
+    assert!(!allow.iter().any(|r| r.as_str().unwrap().starts_with("Bash(git push")), "{rendered}");
     // L4: state is owner-only.
     let mode = |p: &std::path::Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
     assert_eq!(mode(&tmp.path().join("cdamux")), 0o700);

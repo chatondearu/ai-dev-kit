@@ -50,17 +50,18 @@ review of #433 the owner chose `dontAsk` over `acceptEdits` (2026-11-23).
      (a glob, so the settings never name the random review dir).
    - **allow** (Q24): `git add/commit/restore/rm/mv/fetch/rebase/merge-base`,
      `git merge [--no-edit] origin/<default>`;
-     `git push [-u|--set-upstream] origin <own branch>` and `git push origin HEAD:<own
-     branch>` (exact match; pr-fix renders its PR head ref as own branch);
+     `git push` / `git push *` (the push guard decides the branch, see below and the
+     2026-11-24 amendment; pr-fix renders its PR head ref as own branch);
      `gh pr create/view/checks/diff/list`, `gh issue view`, `gh repo view`;
-     `cdamux msg`, `cdamux state get`, `jq`, `foam-board.sh`; the repo's own tooling run
+     `cdamux msg`, `cdamux state get`, `jq`, `foam-board.sh list-ready|path|reconcile|
+     claim|set-status` and the listed read-only kit scripts; the repo's own tooling run
      inside the worktree: `bash|sh|./scripts/*`, `cargo`, `pnpm install/run/test/build/
      lint/typecheck`, `npm run/test/ci/install`, `yarn install/run/test`, `make`, `just`,
      `mise run`, `go test/build/vet`, `pytest`, `uv run pytest`, `nix develop -c bash
      scripts/*|cargo` (last resort, nix-develop-shell). No command runner that takes an
      arbitrary command (`mise exec`, `pnpm exec/dlx`, `uv run <any>`, `nix develop -c <any>`).
    - **deny**: `gh pr merge` (orch.sh itself merges ADR-016 foam-only PRs, not the
-     worker), any force push (`--force*`, `-f`, `+refspec`), push to the default branch
+     worker), any plain force push (`--force`, `-f`, `+refspec`), push to the default branch
      (`… <default>`, `…:<default>`, `refs/heads/<default>`), ref deletion (`--delete`,
      `-d`), `--mirror`, `--all`, `git -C|-c … push`, `git rebase --exec|-x`,
      `sudo`, global installs (`npm|pnpm -g/--global` anywhere, `npm --location/--prefix`,
@@ -74,16 +75,19 @@ review of #433 the owner chose `dontAsk` over `acceptEdits` (2026-11-23).
      quoted refs and wrappers such as `nix develop -c`. Other quoted text (commit
      messages, PR bodies, grep patterns) and quoted-delimiter heredoc bodies are data.
      Any `git push` / `send-pack` must name a remote and only the own branch as
-     destination (`HEAD:`, `refs/heads/` accepted); force (`-f`, `-uf`, `--force*`,
-     `+ref`), delete (`-d`, `--delete`, `:ref`), `--mirror/--all/--tags`, other long
+     destination (`HEAD:`, `refs/heads/` accepted), or be a refspec-less `git push
+     [<remote>]` that provably pushes only the own branch (amendment); force (`-f`,
+     `-uf`, `--force`, `+ref`, `--force-if-includes` without a lease), delete (`-d`,
+     `--delete`, `:ref`), `--mirror/--all/--tags`, other long
      options, `git -c alias.*`, `gh [-R repo] pr merge`, `gh api` paths ending in
      `/merge` or under `/git/refs`, and nesting deeper than four levels exit 2. Text rules
      alone miss those spellings.
    - Anything else is denied. The worker then asks through the orchestrator (point 1).
      orch.sh refuses to start Claude when the settings cannot be rendered (no jq, node or
      template), rather than run on user scope alone.
-   - Once a branch is pushed the worker merges the updated base instead of rebasing
-     (force push is denied); orch.sh's own rebase step (Q4) is not an agent command.
+   - Once a branch is pushed the worker publishes a rebase with `--force-with-lease` on
+     its own branch, or merges the updated base (amendment 2026-11-24); orch.sh's own
+     rebase step (Q4) is not an agent command.
 4. **Delivery mechanism: `--settings <file>`**, not `.claude/settings.local.json` in the
    worktree. In a git worktree Claude Code reads and writes the local settings file at
    the main checkout's root, and a hand-written file would be an untracked file a
@@ -123,6 +127,41 @@ review of #433 the owner chose `dontAsk` over `acceptEdits` (2026-11-23).
    plain shells, `cdamux-nav`). The owner's Mac sets `listen_tailnet = false` (nix-beam).
 8. **State permissions (L4)**: `$CDAMUX_HOME` and every state dir cdamux creates are
    0700; state, inbox, events, say queue, prompt and settings files are created 0600.
+
+## Amendment 2026-11-24 — leased push, upstream push, kit scripts
+
+Owner decision 2026-11-24: the merge rule (Q4) asks workers to rebase on the default
+branch, and a rebased branch can only be published with a leased force push; two neomind
+workers were blocked on it. Live `dontAsk` runs also denied `git push -u origin <own>`
+and `bash <kit>/…/doc-hygiene.sh --check <repo>`.
+
+- **Lease on the own branch is allowed**: `--force-with-lease` bare or
+  `=<ref>[:<expect>]` with `<ref>` the own branch (`refs/heads/` accepted), with any
+  `-u`/`--set-upstream` order, plus `--force-if-includes` next to it. Still refused:
+  `--force`, `-f`, `+ref`, `--force-if-includes` alone, a lease naming another branch or
+  the default one, any destination but the own branch, deletes, `--mirror/--all/--tags`.
+- **Push authority moves to the guard.** Text rules cannot express "the own branch
+  whatever the flag order", so the allowlist has `Bash(git push)` and `Bash(git push *)`
+  (still dropped when the branch is unknown) and keeps its denies (`*--force`,
+  `*--force *`, `-f`, `+`, default branch, delete, mirror/all, `git -C|-c … push`); the
+  guard checks the branch. The hook runs `node … || exit 2`: a missing or crashing guard
+  blocks every Bash call instead of letting a push through.
+- **Refspec-less `git push [<remote>]`** passes the guard only from the hook's cwd on
+  the own branch, with `branch.<own>.merge = refs/heads/<own>`, `push.default` unset /
+  simple / current / upstream, and no `remote.*.push` / `remote.*.mirror`. A command that
+  may move or re-point git (`cd`, `pushd`, `GIT_*=`, `env -…`, `--chdir`, any `git`
+  option before `push`) must name the branch.
+- **Kit scripts, explicit list**: placeholder `__KIT__` = the kit checkout (orch.sh:
+  from the template path; cdamux: `<claude config dir>/skills/cda-kanban` resolved
+  through the `install.sh` link; none found → no rule). Allowed: `bash
+  <kit>/skills/core/cda-doc-hygiene/scripts/doc-hygiene.sh --check|--report [<worktree>]`
+  and `bash <kit>/skills/core/cda-kanban/scripts/foam-board.sh list-ready [--json] |
+  reconcile` (read-only). The former `foam-board.sh *` is narrowed to `list-ready
+  [--json]`, `path`, `reconcile` (report only), `claim`, `set-status`: `reconcile --pr`
+  merges a PR and is not a worker command.
+- Known gap: the reporting line of the worker preamble (`cdamux msg send --to "$(…)"`)
+  is itself denied under `dontAsk` (command substitution); workers send to the literal
+  parent id until the preamble renders it.
 
 ## Alternatives considered
 

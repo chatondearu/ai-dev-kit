@@ -103,6 +103,6 @@ else
   FAILS=$((FAILS + 1)); printf 'FAIL same-repo PR must reach the agent\n%s\n' "$out" >&2
 fi
 WT="$(cd "$R" && pwd -P)/.orch/worktrees"
-assert_contains "$(cat "$WT"/pr-44*/.orch/pr-fix-prompt.md)" "git push origin HEAD:feat/x" "prompt pushes to the PR head ref"
+assert_contains "$(cat "$WT"/pr-44*/.orch/pr-fix-prompt.md)" "git push origin HEAD:refs/heads/feat/x" "prompt pushes to the PR head ref"
 
 summary

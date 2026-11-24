@@ -249,14 +249,15 @@ assert_eq "$rc" "1" "unsafe worktree path refused"
 # Push guard (PreToolUse hook): strict whitelist, no shell parsing. Text that mentions a push
 # runs only as one plain `git push` line to the own branch.
 guard() { jq -Rn --arg c "$1" --arg d "${GUARD_CWD:-/}" '{tool_name:"Bash",tool_input:{command:$c},cwd:$d}' \
-  | node "$(dirname "$ORCH_SETTINGS_TEMPLATE")/worker-push-guard.mjs" feat/a main "${GUARD_WT:-}" "${GUARD_KIT:-}" 2>/dev/null; }
+  | GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
+    node "$(dirname "$ORCH_SETTINGS_TEMPLATE")/worker-push-guard.mjs" "${GUARD_OWN:-feat/a}" main "${GUARD_WT:-}" "${GUARD_KIT:-}" 2>/dev/null; }
 HEREDOC_COMMIT="$(printf 'git commit -m "$(cat <<%sEOF%s\nfix: avoid git push -f origin main\nEOF\n)"' "'" "'")"
 SHA=0123456789abcdef0123456789abcdef01234567
 for c in 'git push origin feat/a' 'git push -u origin feat/a' 'git push --set-upstream origin feat/a' \
-  'git push origin HEAD:feat/a' '  git push  origin feat/a ' 'git push --force-with-lease origin feat/a' \
+  'git push origin HEAD:refs/heads/feat/a' '  git push  origin feat/a ' 'git push --force-with-lease origin feat/a' \
   "git push --force-with-lease=feat/a origin feat/a" "git push --force-with-lease=feat/a:$SHA origin feat/a" \
   'git push -u --force-with-lease origin feat/a' 'git push --force-with-lease -u origin feat/a' \
-  "git push --set-upstream --force-with-lease=feat/a:$SHA origin HEAD:feat/a" \
+  "git push --set-upstream --force-with-lease=feat/a:$SHA origin HEAD:refs/heads/feat/a" \
   'git status' 'git commit -m "fix: tidy"' 'git commit -F msg.txt' 'gh pr create --title t --body-file b.md' \
   'git log --oneline | grep fix' 'cargo test --manifest-path ./x/Cargo.toml'; do
   rc=0; guard "$c" || rc=$?; assert_eq "$rc" "0" "guard allows: $c"
@@ -265,7 +266,8 @@ HEREDOC_COMMIT="$(printf 'git commit -m "$(cat <<%sEOF%s\nfix: avoid git push -f
 # Every bypass from both #436 reviews, plus forms outside the whitelist.
 for c in \
   'git push -uf origin feat/a' 'git push origin +feat/a' 'git push origin :feat/a' 'git push -d origin x' \
-  'git push origin HEAD:refs/heads/main' 'git push origin HEAD:heads/main' 'git push origin HEAD:refs/heads/feat/a' \
+  'git push origin HEAD:refs/heads/main' 'git push origin HEAD:heads/main' 'git push origin HEAD:feat/a' \
+  'git push origin HEAD:refs/tags/feat/a' 'git push origin refs/heads/feat/a' \
   'git push origin feat/a main' 'git push origin main' 'git push upstream feat/a' 'git push --mirror origin' \
   'git push --force origin feat/a' 'git push -f origin feat/a' 'git push --force-with-lease --force origin feat/a' \
   'git push --force-with-lease origin main' 'git push --force-with-lease=main origin feat/a' \
@@ -335,11 +337,25 @@ rc=0; GUARD_CWD="$R" guard 'git push' || rc=$?; assert_eq "$rc" "2" "guard block
 git -C "$R" config --unset push.default && git -C "$R" config remote.origin.mirror true
 rc=0; GUARD_CWD="$R" guard 'git push origin' || rc=$?; assert_eq "$rc" "2" "guard blocks git push to a mirror remote"
 git -C "$R" config --unset remote.origin.mirror
+# Push-redirecting config refuses every form, named ones included (a remote.origin.push
+# refmap once force-rewrote main through `git push --force-with-lease origin <own>`).
 for kv in push.followTags=true push.recurseSubmodules=on-demand url.git@x:.pushInsteadOf=https://x/ \
-  remote.origin.pushurl=/elsewhere push.default=nothing; do
+  url.git@x:.insteadOf=https://x/ remote.origin.pushurl=/elsewhere push.default=nothing \
+  remote.origin.push=refs/heads/feat/a:refs/heads/main remote.origin.mirror=true \
+  remote.pushDefault=other branch.feat/a.pushRemote=other; do
   git -C "$R" config "${kv%%=*}" "${kv#*=}"
-  rc=0; GUARD_CWD="$R" guard 'git push' || rc=$?; assert_eq "$rc" "2" "guard blocks git push with $kv"
+  for c in 'git push' 'git push origin feat/a' 'git push --force-with-lease origin feat/a' \
+    'git push -u origin HEAD:refs/heads/feat/a'; do
+    rc=0; GUARD_CWD="$R" guard "$c" || rc=$?; assert_eq "$rc" "2" "guard blocks '$c' with $kv"
+  done
   git -C "$R" config --unset "${kv%%=*}"
+done
+rc=0; GUARD_CWD="$R" guard 'git push --force-with-lease origin feat/a' || rc=$?
+assert_eq "$rc" "0" "named push allowed once the config is clean"
+# The own branch must be a plain branch name: a refs/, heads/, tags/ or remotes/ prefix
+# would land elsewhere (HEAD:heads/main reached main).
+for o in heads/main refs/heads/x tags/v1 remotes/origin/x +x -x; do
+  rc=0; GUARD_OWN="$o" guard "git push origin $o" || rc=$?; assert_eq "$rc" "2" "guard refuses own branch $o"
 done
 git -C "$R" config push.default simple
 rc=0; GUARD_CWD="$R" guard 'git push' || rc=$?; assert_eq "$rc" "0" "guard allows git push with push.default=simple"

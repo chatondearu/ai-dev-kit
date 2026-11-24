@@ -5,7 +5,8 @@
 // bypasses). A command whose text mentions push / send-pack / receive-pack (quotes and
 // backslashes removed, any case) runs only as one plain line without shell metacharacters:
 //   git push [-u|--set-upstream] [--force-with-lease[=<own>[:<40-hex sha>]]] origin <own>
-//   (or origin HEAD:<own>), or bare `git push` / `git push origin` on the own upstream.
+//   (or origin HEAD:refs/heads/<own>), or bare `git push` / `git push origin` on the own
+//   upstream; every form only with no push-redirecting git config (pushConfigReason).
 // Shell script runs (`bash|sh <relative path in the worktree> [args]`, `./<path>`) follow
 // the same plain-line rule; read-only kit scripts run only in their listed forms. Git with
 // $, backticks, xargs or eval, git alias / config-env / include, and `gh` merge or ref
@@ -26,35 +27,49 @@ try {
 
 // Any of these makes a line more than one plain command.
 const META = /[$`'"\\;&|<>(){}#\n\r\t]/;
-const PUSH_FORM = `git push [-u] [--force-with-lease[=${own}[:<sha>]]] origin ${own}`;
+const PUSH_FORM = `git push [-u] [--force-with-lease[=${own}[:<sha>]]] `
+  + `origin ${own}|HEAD:refs/heads/${own}`;
 
-// `git push [origin]` lets git pick what to push: only from the hook's cwd on the own
-// branch, upstream `refs/heads/<own>`, and no push config the guard does not model (any
-// `push.*` but `push.default` simple/current/upstream, `remote.*.push*`, `remote.*.mirror`,
-// `url.*.pushInsteadOf`).
+const gitIn = (cwd, ...a) => {
+  try {
+    return execFileSync('git', a, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+  } catch {
+    return '';
+  }
+};
+
+// Git config that can redirect any push (named or bare) and that the guard does not model:
+// any `push.*` but `push.default` simple/current/upstream, `remote.pushDefault`,
+// `remote.*.push*` (refmap, pushurl), `remote.*.mirror`, `branch.*.pushRemote`,
+// `url.*.insteadOf` / `pushInsteadOf`. Read in the hook's cwd (repo, global, system).
+const PUSH_CONFIG = '^(push\\.|remote\\.pushdefault$|remote\\..*\\.(push|mirror)'
+  + '|branch\\..*\\.pushremote$|url\\..*\\.(push)?insteadof$)';
+function pushConfigReason(cwd) {
+  const cfg = gitIn(cwd, 'config', '--get-regexp', PUSH_CONFIG);
+  const modeled = /^push\.default (simple|current|upstream)$/i;
+  const bad = cfg && cfg.split('\n').find((l) => !modeled.test(l.trim()));
+  return bad ? `git config ${bad.split(' ')[0]} can redirect a push; the guard refuses it` : null;
+}
+
+// Bare `git push [origin]` lets git pick what to push: only from the hook's cwd on the own
+// branch with upstream `refs/heads/<own>`.
 function implicitPushReason(cwd) {
   const hint = `name the branch: git push origin ${own}`;
-  const git = (...a) => {
-    try {
-      return execFileSync('git', a, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
-    } catch {
-      return '';
-    }
-  };
-  if (git('symbolic-ref', '--short', '-q', 'HEAD') !== own) return hint;
-  if (git('config', `branch.${own}.merge`) !== `refs/heads/${own}`) return hint;
-  const cfg = git('config', '--get-regexp', '^(push\\.|remote\\..*\\.(push|mirror)|url\\..*\\.pushinsteadof$)');
-  const modeled = /^push\.default (simple|current|upstream)$/i;
-  if (cfg && cfg.split('\n').some((l) => !modeled.test(l.trim()))) return hint;
+  if (gitIn(cwd, 'symbolic-ref', '--short', '-q', 'HEAD') !== own) return hint;
+  if (gitIn(cwd, 'config', `branch.${own}.merge`) !== `refs/heads/${own}`) return hint;
   return null;
 }
 
 // Reason a line that mentions a push is refused, or null.
 function pushReason(t, cwd) {
-  if (!own || own === dflt || /^[+-]/.test(own)) return 'this worker may not push (no own branch)';
+  if (!own || own === dflt || /^([+-]|(refs|heads|tags|remotes)\/)/.test(own)) {
+    return 'this worker may not push (no own branch)';
+  }
   if (META.test(t)) return `a push must be one plain line: ${PUSH_FORM}`;
   const [git, sub, ...rest] = t.split(/ +/);
   if (git !== 'git' || sub !== 'push') return `a push must be one plain line: ${PUSH_FORM}`;
+  const cfg = pushConfigReason(cwd);
+  if (cfg) return cfg;
   if (rest.length === 0 || (rest.length === 1 && rest[0] === 'origin')) return implicitPushReason(cwd);
   const seen = new Set();
   const pos = [];
@@ -78,7 +93,8 @@ function pushReason(t, cwd) {
     if (flag && seen.has(flag)) return `git push ${a} repeated`;
     if (flag) seen.add(flag);
   }
-  if (pos.length !== 2 || pos[0] !== 'origin' || (pos[1] !== own && pos[1] !== `HEAD:${own}`)) {
+  const dst = pos[1] === `HEAD:refs/heads/${own}` ? own : pos[1];
+  if (pos.length !== 2 || pos[0] !== 'origin' || dst !== own) {
     return `push only to the own branch: ${PUSH_FORM}`;
   }
   return null;

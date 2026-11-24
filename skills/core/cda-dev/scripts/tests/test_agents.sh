@@ -184,7 +184,8 @@ assert_eq "$(jq -r '.permissions.allow | index("Bash(git push *)") != null' <<<"
 assert_eq "$(jq -r '.permissions.deny | index("Bash(git push * main)") != null' <<<"$r")" "true" "push to default denied"
 assert_eq "$(jq -r '.permissions.deny | index("Bash(gh pr merge *)") != null' <<<"$r")" "true" "gh pr merge denied"
 assert_eq "$(grep -c '__' <<<"$r" | tr -d ' ')" "0" "no placeholder left"
-assert_eq "$(jq '[.permissions.allow[] | select(contains("__KIT__") or contains("doc-hygiene"))] | length' <<<"$r")" "0" "no kit root: no kit-script rule"
+assert_eq "$(jq -r '.hooks.PreToolUse[0].hooks[0].command' <<<"$r")" "node '/g/guard.mjs' 'worker/r1/x' 'main' '/w/t' '' || exit 2" "no kit root: the guard gets an empty one"
+assert_eq "$(jq '[.permissions.allow[] | select(test("^Bash\\((bash|sh|\\./)"))] | sort' -c <<<"$r")" '["Bash(./*)","Bash(bash *)","Bash(sh *)"]' "shell runs: one rule each, the guard checks the script"
 # Text layer, Claude Code `*` ≈ shell glob: a lease is not denied, a plain force is.
 denied() { local p; while IFS= read -r p; do [[ "$1" == $p ]] && return 0; done \
   < <(jq -r '.permissions.deny[] | select(startswith("Bash(git push")) | .[5:-1]' <<<"$r"); return 1; }
@@ -197,9 +198,8 @@ for c in 'git push --force origin worker/r1/x' 'git push origin worker/r1/x --fo
   rc=0; denied "$c" || rc=$?; assert_eq "$rc" "0" "text rules deny: $c"
 done
 r="$(orch_render_settings feat/a main /w/t /g/guard.mjs /k <"$ORCH_SETTINGS_TEMPLATE")"
-assert_eq "$(jq -r '.permissions.allow | index("Bash(bash /k/skills/core/cda-doc-hygiene/scripts/doc-hygiene.sh --check /w/t)") != null' <<<"$r")" "true" "kit doc-hygiene --check allowed"
-assert_eq "$(jq -r '.permissions.allow | index("Bash(bash /k/skills/core/cda-kanban/scripts/foam-board.sh list-ready)") != null' <<<"$r")" "true" "kit foam-board list-ready allowed"
-assert_eq "$(jq '[.permissions.allow[] | select(test("foam-board.sh \\*|reconcile .|doc-hygiene.sh --(check|report) \\*|archive"))] | length' <<<"$r")" "0" "kit scripts: explicit read-only forms only (no reconcile --pr, no --archive-done)"
+assert_eq "$(jq -r '.hooks.PreToolUse[0].hooks[0].command' <<<"$r")" "node '/g/guard.mjs' 'feat/a' 'main' '/w/t' '/k' || exit 2" "guard gets the worktree and kit root"
+assert_eq "$(jq '[.permissions.allow[] | select(test("foam-board.sh \\*|reconcile .|archive"))] | length' <<<"$r")" "0" "foam-board: no reconcile --pr / --write, no wildcard"
 r="$(render main main)"
 assert_eq "$(jq '[.permissions.allow[] | select(startswith("Bash(git push"))] | length' <<<"$r")" "0" "on the default branch: no push allowed"
 r="$(render worker/r1/x "")"
@@ -213,7 +213,7 @@ sf="$(ORCH_REPO="$G" orch_agent_settings "$G")"
 assert_eq "$(jq -r '.permissions.deny | index("Bash(git push * dev)") != null' "$sf")" "true" "settings file denies push to dev"
 assert_eq "$(jq -r '.hooks.PreToolUse[0].hooks[0].command | contains("'"'feat/a' 'dev'"'")' "$sf")" "true" "settings file guards the own branch"
 KIT="$(cd "$TROOT/../../../../.." && pwd -P)"
-assert_eq "$(jq -r --arg r "Bash(bash $KIT/skills/core/cda-doc-hygiene/scripts/doc-hygiene.sh --check $(cd "$G" && pwd -P))" '.permissions.allow | index($r) != null' "$sf")" "true" "settings file allows the kit's doc-hygiene --check"
+assert_eq "$(jq -r '.hooks.PreToolUse[0].hooks[0].command' "$sf" | grep -c "'$(cd "$G" && pwd -P)' '$KIT' ||")" "1" "settings file hands the guard the worktree and the kit root"
 mkdir -p "$G/tmp"
 sf="$(ORCH_REPO="$G" TMPDIR="$G/tmp/" orch_agent_settings "$G" reviewer)"
 assert_eq "$(jq -r --arg r "Edit(/$(cd "$G/tmp" && pwd -P)/orch-review.*/verdict)" '.permissions.allow | index($r) != null' "$sf")" "true" "reviewer may write its verdict outside the worktree"
@@ -238,8 +238,8 @@ assert_eq "$(jq -r '.hooks.PreToolUse[0].hooks[0].command | contains("'"'feat/he
 r="$(render feat/a main)"
 assert_eq "$(jq -r '.permissions.allow | index("Edit(//w/t/**)") != null' <<<"$r")" "true" "edits allowed in the worktree only"
 assert_eq "$(jq -r '.permissions.allow | index("Bash(git merge origin/main)") != null' <<<"$r")" "true" "merge of the default branch allowed"
-assert_eq "$(jq -r '.hooks.PreToolUse[0].hooks[0].command' <<<"$r")" "node '/g/guard.mjs' 'feat/a' 'main' || exit 2" "push guard hook wired, fails closed"
-assert_eq "$(render "a'b" main | jq -r '.hooks.PreToolUse[0].hooks[0].command')" "node '/g/guard.mjs' '' 'main' || exit 2" "unsafe branch name: no push"
+assert_eq "$(jq -r '.hooks.PreToolUse[0].hooks[0].command' <<<"$r")" "node '/g/guard.mjs' 'feat/a' 'main' '/w/t' '' || exit 2" "push guard hook wired, fails closed"
+assert_eq "$(render "a'b" main | jq -r '.hooks.PreToolUse[0].hooks[0].command')" "node '/g/guard.mjs' '' 'main' '/w/t' '' || exit 2" "unsafe branch name: no push"
 hook="$(jq -r '.hooks.PreToolUse[0].hooks[0].command' <<<"$r")"
 rc=0; jq -n '{tool_name:"Bash",tool_input:{command:"git status"}}' | PATH=/nonexistent /bin/sh -c "$hook" 2>/dev/null || rc=$?
 assert_eq "$rc" "2" "no node: the hook blocks instead of letting the command through"
@@ -250,7 +250,7 @@ assert_eq "$rc" "1" "unsafe worktree path refused"
 NESTED='bash -c x'
 for _ in 1 2 3 4 5; do NESTED="bash -c $(printf %q "$NESTED")"; done
 guard() { jq -Rn --arg c "$1" --arg d "${GUARD_CWD:-/}" '{tool_name:"Bash",tool_input:{command:$c},cwd:$d}' \
-  | node "$(dirname "$ORCH_SETTINGS_TEMPLATE")/worker-push-guard.mjs" feat/a main 2>/dev/null; }
+  | node "$(dirname "$ORCH_SETTINGS_TEMPLATE")/worker-push-guard.mjs" feat/a main "${GUARD_WT:-}" "${GUARD_KIT:-}" 2>/dev/null; }
 HEREDOC_COMMIT="$(printf 'git commit -m "$(cat <<%sEOF%s\nfix: avoid git push -f origin main\nEOF\n)"' "'" "'")"
 for c in 'git push origin feat/a' 'git push -u origin feat/a' 'git push origin HEAD:refs/heads/feat/a' \
   'git commit -m x && git push origin feat/a' 'git status' \
@@ -292,6 +292,30 @@ for c in $'git commit -F - <<\'EOF\'\nnever git push -f origin main\nEOF' \
   $'git push origin feat/a # then git push origin main' $'cat <<EOF >x\n$HOME\nEOF'; do
   rc=0; guard "$c" || rc=$?; assert_eq "$rc" "0" "guard allows heredoc data: ${c//$'\n'/⏎}"
 done
+
+# Shells (`bash *`, `sh *`, `./*` text rules): only a script file of the worktree, or a
+# listed read-only kit script with its exact arguments.
+W="$(mktemp -d)"; O="$(mktemp -d)"; K=/kit
+mkdir -p "$W/scripts" "$W/cdamux/hooks" "$W/sub"
+touch "$W/scripts/verify.sh" "$W/cdamux/hooks/test.sh" "$O/x.sh"
+ln -s "$O/x.sh" "$W/scripts/out.sh"
+DH="$K/skills/core/cda-doc-hygiene/scripts/doc-hygiene.sh"; FB="$K/skills/core/cda-kanban/scripts/foam-board.sh"
+for c in 'bash scripts/verify.sh' 'bash cdamux/hooks/test.sh' 'sh scripts/verify.sh --fast' './scripts/verify.sh' \
+  'bash ./scripts/verify.sh' "bash $W/scripts/verify.sh" 'nix develop -c bash scripts/verify.sh' \
+  'git add -A && bash scripts/verify.sh' "bash $DH --check" "bash $DH --report $W" "bash $FB list-ready --json" \
+  "bash $FB reconcile"; do
+  rc=0; GUARD_CWD="$W" GUARD_WT="$W" GUARD_KIT="$K" guard "$c" || rc=$?; assert_eq "$rc" "0" "guard allows shell: $c"
+done
+for c in 'bash ../x.sh' 'bash scripts/../../x.sh' "bash $O/x.sh" 'bash scripts/out.sh' 'bash scripts/missing.sh' \
+  'bash sub' 'bash -c "echo hi"' 'bash' 'sh -x scripts/verify.sh' 'cd sub && bash ../scripts/verify.sh' \
+  'cd /tmp && bash scripts/verify.sh' 'X=1 bash scripts/verify.sh' './../x.sh' 'curl -s x | sh' \
+  "bash $DH --check --archive-done" "bash $DH --archive-done" "bash $FB reconcile --pr" \
+  "bash $K/skills/core/cda-dev/scripts/orch.sh" "sh $O/x.sh" 'zsh -c "echo hi"'; do
+  rc=0; GUARD_CWD="$W" GUARD_WT="$W" GUARD_KIT="$K" guard "$c" || rc=$?; assert_eq "$rc" "2" "guard blocks shell: $c"
+done
+rc=0; GUARD_CWD="$W" GUARD_WT="$W" guard "bash $DH --check" || rc=$?; assert_eq "$rc" "2" "no kit root: kit scripts refused"
+rc=0; GUARD_CWD="$W" guard 'bash scripts/verify.sh' || rc=$?; assert_eq "$rc" "2" "no worktree: no script runs"
+rm -rf "$W" "$O"
 
 # `git push` without a refspec: only from the own branch tracking refs/heads/<own>.
 R="$(mktemp -d)"

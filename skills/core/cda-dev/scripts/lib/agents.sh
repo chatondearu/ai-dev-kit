@@ -248,7 +248,8 @@ orch_agent_settings() {
     branch="${ORCH_PUSH_BRANCH:-$(git -C "$wt" branch --show-current 2>/dev/null || true)}"
     default="$(orch_default_branch "$wt")" || default=""
   fi
-  # Kit root (templates live in <kit>/skills/core/cda-dev/templates): its read-only scripts.
+  # Kit root (templates live in <kit>/skills/core/cda-dev/templates): the guard lets its
+  # read-only scripts run.
   [ -f "$tdir/../../cda-kanban/scripts/foam-board.sh" ] && kit="$(cd "$tdir/../../../.." && pwd -P)"
   orch_render_settings "$branch" "$default" "$(cd "$wt" && pwd -P)" "$dir/worker-push-guard.mjs" "$kit" \
     <"$ORCH_SETTINGS_TEMPLATE" >"$out" || return 1
@@ -266,8 +267,8 @@ orch_agent_settings() {
 # Template on stdin → settings on stdout for branch $1, default branch $2, worktree $3,
 # push guard $4 and kit root $5 (same rule as cdamux `worker_settings_json`). A branch or
 # default branch outside [A-Za-z0-9._/@+-] counts as unknown; no push is allowed when either
-# is unknown or they are equal. No kit root: no kit-script rules. A path with a quote,
-# paren or `*` is refused.
+# is unknown or they are equal. The guard gets the worktree and kit root (empty: no kit
+# script runs). A path with a quote, paren or `*` is refused.
 orch_render_settings() {
   local b="$1" d="$2" k="${5:-}" ref='^[A-Za-z0-9._/@+-]+$'
   case "$3$4$k" in *[\'\"\(\)\*]*) return 1;; esac
@@ -277,7 +278,6 @@ orch_render_settings() {
   { [ -n "$d" ] && [ "$b" != "$d" ]; } || b=""
   jq --arg b "$b" --arg d "$d" --arg w "$3" --arg g "$4" --arg k "$k" '
     (if $d == "" then .permissions |= map_values(map(select(contains("__DEFAULT__") | not))) else . end)
-    | (if $k == "" then .permissions |= map_values(map(select(contains("__KIT__") | not))) else . end)
     | (if $b == "" then .permissions.allow |= map(select(startswith("Bash(git push") | not)) else . end)
     | walk(if type == "string"
            then gsub("__BRANCH__"; $b) | gsub("__DEFAULT__"; $d) | gsub("__WORKTREE__"; $w) | gsub("__GUARD__"; $g)

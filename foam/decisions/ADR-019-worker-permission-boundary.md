@@ -71,18 +71,10 @@ review of #433 the owner chose `dontAsk` over `acceptEdits` (2026-11-23).
      The denies matter because allow rules add up across scopes: a user-level
      `Bash(git:*)` would otherwise allow any push.
    - **push guard**: a `PreToolUse` hook on Bash in the same settings file
-     (`node worker-push-guard.mjs <own> <default>`) parses the command's argv: the
-     argument of `sh|bash -c` and `eval`, `$(…)` / backticks (also inside double quotes),
-     quoted refs and wrappers such as `nix develop -c`. Other quoted text (commit
-     messages, PR bodies, grep patterns) and quoted-delimiter heredoc bodies are data.
-     Any `git push` / `send-pack` must name a remote and only the own branch as
-     destination (`HEAD:`, `refs/heads/` accepted), or be a refspec-less `git push
-     [<remote>]` that provably pushes only the own branch (amendment); force (`-f`,
-     `-uf`, `--force`, `+ref`, `--force-if-includes` without a lease), delete (`-d`,
-     `--delete`, `:ref`), `--mirror/--all/--tags`, other long
-     options, `git -c alias.*`, `gh [-R repo] pr merge`, `gh api` paths ending in
-     `/merge` or under `/git/refs`, and nesting deeper than four levels exit 2. Text rules
-     alone miss those spellings.
+     (`node worker-push-guard.mjs <own> <default> <worktree> <kit>`): a strict
+     plain-line whitelist for any text that mentions a push, without shell parsing (see
+     the 2026-11-24 amendment; the first argv-parsing version was bypassed). Text rules
+     alone miss spellings such as `-uf`, `:ref`, quoted refs or `bash -c`.
    - Anything else is denied. The worker then asks through the orchestrator (point 1).
      orch.sh refuses to start Claude when the settings cannot be rendered (no jq, node or
      template), rather than run on user scope alone.
@@ -129,48 +121,48 @@ review of #433 the owner chose `dontAsk` over `acceptEdits` (2026-11-23).
 8. **State permissions (L4)**: `$CDAMUX_HOME` and every state dir cdamux creates are
    0700; state, inbox, events, say queue, prompt and settings files are created 0600.
 
-## Amendment 2026-11-24 — leased push, upstream push, kit scripts
+## Amendment 2026-11-24 — leased push, plain-line push whitelist, scripts
 
 Owner decision 2026-11-24: the merge rule (Q4) asks workers to rebase on the default
 branch, and a rebased branch can only be published with a leased force push; two neomind
 workers were blocked on it. Live `dontAsk` runs also denied `git push -u origin <own>`
 and `bash <kit>/…/doc-hygiene.sh --check <repo>`.
 
-- **Lease on the own branch is allowed**: `--force-with-lease` bare or
-  `=<ref>[:<expect>]` with `<ref>` the own branch (`refs/heads/` accepted), with any
-  `-u`/`--set-upstream` order, plus `--force-if-includes` next to it. Still refused:
-  `--force`, `-f`, `+ref`, `--force-if-includes` alone, a lease naming another branch or
-  the default one, any destination but the own branch, deletes, `--mirror/--all/--tags`.
-- **Push authority moves to the guard.** Text rules cannot express "the own branch
-  whatever the flag order", so the allowlist has `Bash(git push)` and `Bash(git push *)`
-  (still dropped when the branch is unknown) and keeps its denies (`*--force`,
-  `*--force *`, `-f`, `+`, default branch, delete, mirror/all, `git -C|-c … push`); the
-  guard checks the branch. The hook runs `node … || exit 2`: a missing or crashing guard
-  blocks every Bash call instead of letting a push through.
-- **Refspec-less `git push [<remote>]`** passes the guard only from the hook's cwd on
-  the own branch, with `branch.<own>.merge = refs/heads/<own>` and no push config it does
-  not model: `push.default` unset / simple / current / upstream is the only `push.*`
+- **Strict whitelist, no shell parsing (owner decision, second review of #436).** Two
+  tokenizer versions (heredoc stripping, then heredoc / comment / substitution parsing)
+  were bypassed: a fake `<<'X'` in a message or comment, `<<<`, `$'…'`, `$((1<<2))`,
+  `${x#<<X}`, CRLF, quoted parens inside `$(…)`, `xargs`. The guard no longer parses
+  bash. If the command text mentions `push`, `send-pack` or `receive-pack` (any case,
+  after removing quotes and backslashes, so `pu''sh` / `pu\sh` count, even inside a
+  message), it runs only when the whole trimmed text is one plain line with no shell
+  metacharacter (`$` `` ` `` `'` `"` `\` `;` `&` `|` `<` `>` `(` `)` `{` `}` `#`, newline,
+  CR, tab) of the form `git push [-u|--set-upstream] [--force-with-lease[=<own>[:<40-hex
+  sha>]]] origin <own>` (flags in any order, each once; `origin HEAD:<own>` for pr-fix),
+  or bare `git push` / `git push origin`. Everything else that mentions a push is
+  refused: workers write such commit messages with `git commit -F <file>`, PR bodies with
+  `--body-file`, reports behind `--ref`.
+- **Bare `git push` / `git push origin`** run only from the hook's cwd on the own branch,
+  with `branch.<own>.merge = refs/heads/<own>` and no push config the guard does not
+  model: `push.default` unset / simple / current / upstream is the only `push.*`
   accepted; any `remote.*.push*`, `remote.*.mirror` or `url.*.pushInsteadOf` refuses it.
-  A command that
-  may move or re-point git (`cd`, `pushd`, any `VAR=` assignment such as `GIT_DIR=` or
-  `XDG_CONFIG_HOME=`, `env -…`, `--chdir`, any `git` option before `push`) must name the
-  branch.
-- **Heredocs are parsed by the tokenizer**: only a `<<` reached outside quotes and
-  comments starts one; a quoted-delimiter body is data, an unquoted one is scanned for
-  `$(…)` / backticks, and a heredoc with no closing line refuses the whole command. (The
-  first version stripped `<<'X'` on raw text, so a fake one in a commit message or a
-  comment hid the next line, e.g. `git push origin HEAD:heads/main`.) Text layer: deny
-  `git push *heads/<default>*`.
+- **Other refusals, by text**: `git` together with `alias.`, `--config-env`,
+  `include.path` / `includeIf` (an alias or include could hide a push); `git` together
+  with `$`, a backtick, `xargs` or `eval` (a computed subcommand); `gh` together with
+  `merge`, `git/refs` or a ref mutation. A false positive is a refusal, never a pass.
+- **Text rules**: `Bash(git push)` and `Bash(git push *)` (still dropped when the branch
+  is unknown) with their denies (`*--force`, `*--force *`, `-f`, `+`,
+  `*heads/<default>*`, delete, mirror/all, `git -C|-c … push`) as a second layer. The
+  hook runs `node … || exit 2`: a missing or crashing guard blocks every Bash call.
 - **The guard is the push authority, not a sandbox**: `git --exec-path`, upload-pack /
-  receive-pack overrides, abbreviated options, spellings the tokenizer models differently
-  from bash (e.g. `$'…'`) and git hooks the worker can edit stay accepted residual risks;
-  branch protection on the default branch is the backstop.
-- **Shell runs are judged by the guard**: text rules `Bash(bash *)`, `Bash(sh *)`,
-  `Bash(./*)` (a `*` cannot resolve a path, and `bash */test.sh` would match
-  `bash -c … x/test.sh`). The hook gets `<worktree>` and `<kit>`; any `bash`/`sh`/`zsh`…
-  word or a leading `./x` must run a file that resolves (symlinks included) inside the
-  worktree, without `..`, options (`-c`, `-x`…), stdin, `cd` or `VAR=` in the command:
-  `bash scripts/verify.sh`, `bash cdamux/hooks/test.sh`, `./scripts/x.sh` run.
+  receive-pack overrides, abbreviated options and git hooks the worker can edit stay
+  accepted residual risks, as does code the worker writes and runs; branch protection on
+  the default branch is the backstop.
+- **Shell runs, same plain-line rule**: text rules `Bash(bash *)`, `Bash(sh *)`,
+  `Bash(./*)` (a `*` cannot resolve a path). A text with a `bash`/`sh`/`zsh`… word or a
+  `./` / `../` at a command start runs only as one plain line `[nix develop -c] bash|sh
+  <relative path> [args]` or `./<path> [args]`, the path a file that resolves (symlinks
+  included) inside `<worktree>` (hook argument), no `..`, no shell option: `bash
+  scripts/verify.sh`, `bash cdamux/hooks/test.sh`, `./scripts/x.sh` run.
 - **Kit scripts, explicit list in the guard**: `<kit>` = the kit checkout (orch.sh: from
   the template path; cdamux: `<claude config dir>/skills/cda-kanban` resolved through the
   `install.sh` link; none found → none run). Allowed with exactly these arguments: `bash

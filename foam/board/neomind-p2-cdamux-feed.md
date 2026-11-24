@@ -25,7 +25,7 @@ Epic: [neomind `audit-p2-orch-chats-debuggability`](https://github.com/chatondea
 6. Refused cursor (expired / ahead): exit 3, stderr prefix `events: cursor refused: `.
 7. `say` / `msg answer` read the text from stdin with `-` or no text argument.
 
-Schema stays `v: 1` (additive). Docs: [[../../cdamux/docs/events|events.md]], [[../../cdamux/docs/say|say.md]].
+Schema stays `v: 1` (additive). Docs: [events.md](../../cdamux/docs/events.md), [say.md](../../cdamux/docs/say.md).
 
 ## Acceptance
 

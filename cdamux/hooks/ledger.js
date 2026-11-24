@@ -47,6 +47,33 @@ const stateDir = (env, sub) => path.join(
   sub,
 );
 
+// Production hook log, same file and line shape as the Rust writer (cdamux-core hooklog.rs,
+// docs/events.md): {ts, src, agent, decision, ...extra}. Ids, kinds and counts only, never
+// message text. 0600, rotated to hooks.log.1 past HOOK_LOG_MAX_BYTES. Fail-open.
+const HOOK_LOG_MAX_BYTES = 256 * 1024;
+
+function hookLog(env, agent, decision, extra = {}) {
+  try {
+    const dir = stateDir(env, 'logs');
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    const file = path.join(dir, 'hooks.log');
+    try {
+      if (fs.statSync(file).size >= HOOK_LOG_MAX_BYTES) fs.renameSync(file, `${file}.1`);
+    } catch (e) {
+      /* no log yet */
+    }
+    const line = { ts: Math.floor(Date.now() / 1000), src: 'hook', agent: agent || null, decision, ...extra };
+    const fd = fs.openSync(file, 'a', 0o600);
+    try {
+      fs.writeSync(fd, JSON.stringify(line) + '\n');
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch (e) {
+    /* fail-open */
+  }
+}
+
 function trim(file) {
   const lines = fs.readFileSync(file, 'utf8').split('\n').filter(Boolean);
   if (lines.length <= MAX_LINES) return;
@@ -160,13 +187,17 @@ function recordReply(env, input) {
   try {
     call(input);
   } catch (e) {
-    if (!replyTimedOut(e)) return;
+    if (!replyTimedOut(e)) {
+      hookLog(env, id, 'reply_failed', { exit: e && e.status });
+      return;
+    }
     try {
       const fast = input && typeof input === 'object' ? { ...input } : {};
       delete fast.transcript_path;
       call(fast);
+      hookLog(env, id, 'reply_retried_without_transcript');
     } catch (e2) {
-      /* fail-open */
+      hookLog(env, id, 'reply_failed', { exit: e2 && e2.status, timeout: replyTimedOut(e2) });
     }
   }
 }
@@ -181,7 +212,7 @@ function drainSay(env) {
     // The paste waits 300 ms between its tmux writes: leave room.
     execFileSync('cdamux', ['msg', 'drain', id], { env, timeout: 3000, stdio: 'ignore' });
   } catch (e) {
-    /* fail-open */
+    if (e && e.code !== 'ENOENT') hookLog(env, id, 'drain_failed', { timeout: replyTimedOut(e) });
   }
 }
 
@@ -357,6 +388,7 @@ module.exports = {
   recordReply,
   drainSay,
   formatMessages,
+  hookLog,
   isTopLevelHook,
   kickTick,
   readAgentField,

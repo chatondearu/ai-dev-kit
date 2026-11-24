@@ -23,6 +23,10 @@ const REPLY_TRANSCRIPT_TAIL_BYTES: u64 = 512 * 1024;
 /// Bytes read from a segment end to find its last cursor (one line is ≤ ~9 KiB).
 const LAST_CURSOR_TAIL_BYTES: u64 = 64 * 1024;
 
+/// Exit code of `cdamux events` when it refuses `--since` ([`EventsError::is_cursor_refused`]);
+/// stderr then starts with `events: cursor refused: `. Pinned for clients (`docs/events.md`).
+pub const EXIT_CURSOR_REFUSED: u8 = 3;
+
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum EventsError {
     #[error("invalid cursor '{0}'")]
@@ -33,6 +37,13 @@ pub enum EventsError {
     Ahead { since: u64, last: u64 },
     #[error("io: {0}")]
     Io(String),
+}
+
+impl EventsError {
+    /// The cursor itself is refused (expired, or ahead of a reset journal), not an I/O error.
+    pub fn is_cursor_refused(&self) -> bool {
+        matches!(self, EventsError::Expired { .. } | EventsError::Ahead { .. })
+    }
 }
 
 impl From<io::Error> for EventsError {
@@ -172,16 +183,44 @@ pub fn emit_lifecycle(event: &str, agent: &str, record: Option<&Value>) {
 /// before the rotated one, so a rotation in between duplicates items (merged by
 /// cursor) instead of hiding them.
 fn read_at(live: &Path, since: u64) -> Result<Vec<Value>, EventsError> {
+    read_with_pos(live, since).map(|(items, _)| items)
+}
+
+/// Where the next incremental read of the live segment starts: its inode and the offset
+/// just past its last complete line.
+type LivePos = (u64, u64);
+
+/// Items of a byte range. A line still being written or torn by a failed write (even
+/// mid UTF-8 sequence) does not parse and is skipped; the rest stays readable.
+fn parse_lines(bytes: &[u8]) -> Vec<Value> {
+    String::from_utf8_lossy(bytes)
+        .lines()
+        .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+        .collect()
+}
+
+/// Length of `bytes` up to and including its last newline.
+fn complete_len(bytes: &[u8]) -> usize {
+    bytes.iter().rposition(|&b| b == b'\n').map_or(0, |i| i + 1)
+}
+
+/// [`read_at`], plus the live segment position the bytes read end at.
+fn read_with_pos(live: &Path, since: u64) -> Result<(Vec<Value>, Option<LivePos>), EventsError> {
+    use std::io::Read;
+    use std::os::unix::fs::MetadataExt;
     let mut items = BTreeMap::new();
+    let mut pos = None;
     for p in [live.to_path_buf(), rotated_path(live)] {
-        let bytes = match std::fs::read(&p) {
+        let mut f = match std::fs::File::open(&p) {
             Err(e) if e.kind() == io::ErrorKind::NotFound => continue,
             r => r?,
         };
-        // A line still being written or torn by a failed write (even mid UTF-8
-        // sequence) does not parse and is skipped; the rest stays readable.
-        let text = String::from_utf8_lossy(&bytes);
-        for v in text.lines().filter_map(|l| serde_json::from_str::<Value>(l).ok()) {
+        let mut bytes = Vec::new();
+        f.read_to_end(&mut bytes)?;
+        if p == live {
+            pos = Some((f.metadata()?.ino(), complete_len(&bytes) as u64));
+        }
+        for v in parse_lines(&bytes) {
             if let Some(c) = line_cursor(&v) {
                 items.insert(c, v);
             }
@@ -195,7 +234,77 @@ fn read_at(live: &Path, since: u64) -> Result<Vec<Value>, EventsError> {
     if since > 0 && oldest > since + 1 {
         return Err(EventsError::Expired { since, oldest });
     }
-    Ok(items.into_iter().filter(|(c, _)| *c > since).map(|(_, v)| v).collect())
+    let items = items.into_iter().filter(|(c, _)| *c > since).map(|(_, v)| v).collect();
+    Ok((items, pos))
+}
+
+/// Complete lines appended to the live segment since `pos`, and the new position;
+/// `None` when the segment was rotated or replaced (other inode, shorter, gone).
+fn read_appended(live: &Path, (ino, off): LivePos) -> io::Result<Option<(Vec<Value>, LivePos)>> {
+    use std::io::{Read, Seek, SeekFrom};
+    use std::os::unix::fs::MetadataExt;
+    let mut f = match std::fs::File::open(live) {
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+        r => r?,
+    };
+    let meta = f.metadata()?;
+    if meta.ino() != ino || meta.len() < off {
+        return Ok(None);
+    }
+    if meta.len() == off {
+        return Ok(Some((Vec::new(), (ino, off))));
+    }
+    f.seek(SeekFrom::Start(off))?;
+    let mut bytes = Vec::new();
+    f.read_to_end(&mut bytes)?;
+    let end = complete_len(&bytes);
+    Ok(Some((parse_lines(&bytes[..end]), (ino, off + end as u64))))
+}
+
+/// `events --follow` reader: one full read, then only the lines appended to the live
+/// segment (one `open` + `fstat` per poll when nothing changed). A rotation or a replaced
+/// journal falls back to a full read, which reports an expired / ahead cursor.
+pub struct EventTail {
+    live: PathBuf,
+    since: u64,
+    pos: Option<LivePos>,
+}
+
+impl EventTail {
+    pub fn new(since: u64) -> Result<Self, EventsError> {
+        Ok(Self::at(journal_path()?, since))
+    }
+
+    fn at(live: PathBuf, since: u64) -> Self {
+        Self { live, since, pos: None }
+    }
+
+    /// Items with a cursor after the last one returned (after `since` on the first call).
+    pub fn poll(&mut self) -> Result<Vec<Value>, EventsError> {
+        let appended = match self.pos {
+            Some(pos) => read_appended(&self.live, pos)?,
+            None => None,
+        };
+        let items = match appended {
+            Some((items, pos)) => {
+                self.pos = Some(pos);
+                items
+            }
+            None => {
+                let (items, pos) = read_with_pos(&self.live, self.since)?;
+                self.pos = pos;
+                items
+            }
+        };
+        // A line parsed at the end of a full read is read again once its newline lands.
+        let since = self.since;
+        let items: Vec<Value> =
+            items.into_iter().filter(|v| line_cursor(v).is_some_and(|c| c > since)).collect();
+        if let Some(c) = items.last().and_then(line_cursor) {
+            self.since = c;
+        }
+        Ok(items)
+    }
 }
 
 /// Parse a `--since` cursor (`0` replays every retained item).
@@ -205,12 +314,6 @@ pub fn parse_cursor(s: &str) -> Result<u64, EventsError> {
 
 pub fn read_events(since: u64) -> Result<Vec<Value>, EventsError> {
     read_at(&journal_path()?, since)
-}
-
-/// Lengths of both segments: unchanged means no new item since the last read.
-pub fn journal_stamp() -> (u64, u64) {
-    let len = |p: &Path| std::fs::metadata(p).map_or(0, |m| m.len());
-    journal_path().map_or((0, 0), |live| (len(&rotated_path(&live)), len(&live)))
 }
 
 /// Feed filter: `agent` keeps that agent's items, its inbox traffic and its workers'
@@ -296,9 +399,6 @@ fn cap_text(text: &str) -> (String, bool) {
     (text[..end].to_string(), true)
 }
 
-/// Journal text when an orchestrator turn ends with no assistant prose.
-const TOOL_ONLY_REPLY: &str = "tool-only turn";
-
 fn text_field<'a>(payload: &'a Value, key: &str) -> Option<&'a str> {
     payload[key].as_str().map(str::trim).filter(|s| !s.is_empty())
 }
@@ -324,17 +424,27 @@ fn tool_only_turn_id(payload: &Value) -> String {
 
 /// Turn-end hook (`cdamux events reply`): emit one `reply` item for an orchestrator.
 /// `payload` is the client hook JSON (`transcript_path`, else `last_assistant_message`).
-/// No prose (empty last message, transcript missing or without assistant text) still
-/// writes [`TOOL_ONLY_REPLY`]. A turn already recorded (same `turn_id` in
-/// `last_reply_turn`) is skipped, including a real reply stored under the same
-/// `generation_id`.
+/// No prose (empty last message, transcript missing or without assistant text) writes a
+/// `status` item with `tool_only: true` instead, never a `reply`. A turn already recorded
+/// (same `turn_id` in `last_reply_turn`) is skipped, including a real reply stored under
+/// the same `generation_id`.
 /// Returns whether an item was written.
 pub fn record_reply(agent: &str, payload: &Value) -> io::Result<bool> {
-    let Some(rec) = state_get(StateKind::Agents, agent)? else {
+    let Some((decision, turn_id)) = record_reply_inner(agent, payload)? else {
         return Ok(false);
     };
+    crate::hooklog::hook_log("reply", agent, decision, json!({ "turn_id": turn_id }));
+    Ok(matches!(decision, "reply" | "tool_only"))
+}
+
+/// [`record_reply`]'s decision (`reply`, `tool_only`, `duplicate`, `unwritten`) and turn id;
+/// `None` for an agent that is not an orchestrator.
+fn record_reply_inner(agent: &str, payload: &Value) -> io::Result<Option<(&'static str, String)>> {
+    let Some(rec) = state_get(StateKind::Agents, agent)? else {
+        return Ok(None);
+    };
     if rec.get("role").and_then(Value::as_str) != Some("orchestrator") {
-        return Ok(false);
+        return Ok(None);
     }
     let last_msg = text_field(payload, "last_assistant_message");
     let from_transcript = payload["transcript_path"]
@@ -348,15 +458,14 @@ pub fn record_reply(agent: &str, payload: &Value) -> io::Result<bool> {
     let reply = from_transcript
         .or_else(|| last_msg.map(|t| (t.to_string(), format!("h-{:016x}", fnv1a(t)))));
     // generation_id is the turn key, so a tool-only retry dedupes a real reply.
-    let (text, turn_id) = match reply {
-        Some((text, turn_id)) => {
-            let id = text_field(payload, "generation_id").unwrap_or(&turn_id);
-            (text, id.to_string())
-        }
-        None => (TOOL_ONLY_REPLY.to_string(), tool_only_turn_id(payload)),
+    let Some((text, turn_id)) = reply.map(|(text, turn_id)| {
+        let id = text_field(payload, "generation_id").unwrap_or(&turn_id).to_string();
+        (text, id)
+    }) else {
+        return record_tool_only(agent, tool_only_turn_id(payload));
     };
     if rec.get("last_reply_turn").and_then(Value::as_str) == Some(turn_id.as_str()) {
-        return Ok(false);
+        return Ok(Some(("duplicate", turn_id)));
     }
     let (text, truncated) = cap_text(&text);
     let mut item = json!({
@@ -367,10 +476,41 @@ pub fn record_reply(agent: &str, payload: &Value) -> io::Result<bool> {
     }
     // Unwritten item: leave the turn unrecorded so a later turn end can retry it.
     if !emit(item) {
-        return Ok(false);
+        return Ok(Some(("unwritten", turn_id)));
     }
     state_append(StateKind::Agents, agent, &json!({ "last_reply_turn": turn_id }))?;
-    Ok(true)
+    Ok(Some(("reply", turn_id)))
+}
+
+/// A turn with no assistant prose: one `status` item (`tool_only: true`, `status` = `prev`
+/// = the recorded status) so no client renders it as prose. Emitted and recorded under
+/// the agent record lock, so it never lands between a status change and its own item.
+fn record_tool_only(agent: &str, turn_id: String) -> io::Result<Option<(&'static str, String)>> {
+    let mut decision = "duplicate";
+    crate::state::state_update(StateKind::Agents, agent, |rec| {
+        let mut rec = rec?;
+        if rec.get("last_reply_turn").and_then(Value::as_str) == Some(turn_id.as_str()) {
+            return None;
+        }
+        let status = rec.get("status").and_then(Value::as_str).unwrap_or("idle").to_string();
+        let mut item = json!({
+            "type": "status", "ts": now_ts(), "agent": agent, "status": status, "prev": status,
+            "turn_id": turn_id, "tool_only": true,
+        });
+        for key in ["role", "parent"] {
+            if let Some(v) = rec.get(key).and_then(Value::as_str) {
+                item[key] = json!(v);
+            }
+        }
+        if !emit(item) {
+            decision = "unwritten";
+            return None;
+        }
+        decision = "tool_only";
+        rec.as_object_mut()?.insert("last_reply_turn".into(), json!(turn_id));
+        Some(rec)
+    })?;
+    Ok(Some((decision, turn_id)))
 }
 
 #[cfg(test)]
@@ -536,11 +676,12 @@ mod tests {
     }
 
     #[test]
-    fn tool_only_stop_writes_one_reply() {
+    fn tool_only_stop_writes_one_status_never_a_reply() {
         let _g = env_lock();
         let dir = tempfile::tempdir().unwrap();
         std::env::set_var("CDAMUX_HOME", dir.path());
-        state_set(StateKind::Agents, "a-o", &json!({"id":"a-o","role":"orchestrator"})).unwrap();
+        let orch = json!({"id":"a-o","role":"orchestrator","status":"idle","parent":"a-g"});
+        state_set(StateKind::Agents, "a-o", &orch).unwrap();
         state_set(StateKind::Agents, "a-w", &json!({"id":"a-w","role":"worker"})).unwrap();
 
         // Cursor stop: no assistant prose, no transcript.
@@ -550,15 +691,19 @@ mod tests {
             "last_assistant_message": "",
             "status": "completed",
         });
-        assert!(!record_reply("a-w", &stop).unwrap(), "workers emit no reply");
-        assert!(record_reply("a-o", &stop).unwrap(), "tool-only stop writes a reply");
+        assert!(!record_reply("a-w", &stop).unwrap(), "workers emit nothing");
+        assert!(record_reply("a-o", &stop).unwrap(), "tool-only stop writes one item");
         assert!(!record_reply("a-o", &stop).unwrap(), "same turn twice → one item");
-        let replies: Vec<Value> =
-            read_events(0).unwrap().into_iter().filter(|v| v["type"] == "reply").collect();
-        assert_eq!(replies.len(), 1);
-        assert_eq!(replies[0]["agent"], "a-o");
-        assert_eq!(replies[0]["text"], TOOL_ONLY_REPLY);
-        assert_eq!(replies[0]["turn_id"], "g-tool");
+        let all = read_events(0).unwrap();
+        assert!(all.iter().all(|v| v["type"] != "reply"), "{all:?}");
+        let tool: Vec<&Value> = all.iter().filter(|v| v["tool_only"] == true).collect();
+        assert_eq!(tool.len(), 1, "{all:?}");
+        assert_eq!(tool[0]["type"], "status");
+        assert_eq!(tool[0]["agent"], "a-o");
+        assert_eq!((tool[0]["status"].as_str(), tool[0]["prev"].as_str()), (Some("idle"), Some("idle")));
+        assert_eq!((tool[0]["role"].as_str(), tool[0]["parent"].as_str()), (Some("orchestrator"), Some("a-g")));
+        assert_eq!(tool[0]["turn_id"], "g-tool");
+        assert!(tool[0].get("text").is_none());
 
         // Transcript of a tool call only: still no assistant prose.
         let tp = dir.path().join("tools.jsonl");
@@ -573,7 +718,7 @@ mod tests {
             "last_assistant_message": "  ",
             "transcript_path": tp,
         });
-        assert!(record_reply("a-o", &tools).unwrap(), "tool transcript still leaves a line");
+        assert!(record_reply("a-o", &tools).unwrap(), "tool transcript still leaves a status");
 
         // Real prose for a generation wins; a later empty stop of that turn does not.
         let prose = json!({
@@ -588,20 +733,67 @@ mod tests {
             "last_assistant_message": "",
         });
         assert!(!record_reply("a-o", &again).unwrap(), "real reply already recorded");
-        let texts: Vec<String> = read_events(0)
+        let kinds: Vec<String> = read_events(0)
             .unwrap()
             .into_iter()
-            .filter(|v| v["type"] == "reply")
-            .map(|v| v["text"].as_str().unwrap().to_string())
+            .filter(|v| v["type"] == "reply" || v["tool_only"] == true)
+            .map(|v| match v["type"].as_str() {
+                Some("reply") => v["text"].as_str().unwrap().to_string(),
+                _ => format!("status:{}", v["turn_id"].as_str().unwrap_or("-")),
+            })
             .collect();
-        assert_eq!(
-            texts,
-            vec![
-                TOOL_ONLY_REPLY.to_string(),
-                TOOL_ONLY_REPLY.to_string(),
-                "All merged.".to_string(),
-            ]
-        );
+        assert_eq!(kinds, ["status:g-tool", "status:g-bash", "All merged."]);
+
+        // Every decision lands in the hook log, without the reply text.
+        let log = std::fs::read_to_string(dir.path().join("logs/hooks.log")).unwrap();
+        let decisions: Vec<String> = log
+            .lines()
+            .map(|l| serde_json::from_str::<Value>(l).unwrap()["decision"].as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(decisions, ["tool_only", "duplicate", "tool_only", "reply", "duplicate"]);
+        assert!(!log.contains("All merged."));
         std::env::remove_var("CDAMUX_HOME");
+    }
+
+    #[test]
+    fn tail_reads_only_appended_lines_and_survives_rotation() {
+        let dir = tempfile::tempdir().unwrap();
+        let live = dir.path().join("events.jsonl");
+        let cursors = |v: Vec<Value>| v.iter().map(|v| line_cursor(v).unwrap()).collect::<Vec<_>>();
+        for _ in 0..3 {
+            append_at(&live, item("msg"), SEGMENT_MAX_BYTES).unwrap();
+        }
+        let mut tail = EventTail::at(live.clone(), 1);
+        assert_eq!(cursors(tail.poll().unwrap()), [2, 3]);
+        assert_eq!(tail.pos.unwrap().1, std::fs::metadata(&live).unwrap().len());
+        assert!(tail.poll().unwrap().is_empty());
+
+        // Incremental: rewriting an already-read line in place is not seen again.
+        let text = std::fs::read_to_string(&live).unwrap();
+        std::fs::write(&live, text.replacen("\"msg\"", "\"xxx\"", 1)).unwrap();
+        append_at(&live, item("reply"), SEGMENT_MAX_BYTES).unwrap();
+        let got = tail.poll().unwrap();
+        assert_eq!(cursors(got.clone()), [4]);
+        assert_eq!(got[0]["type"], "reply");
+
+        // A line without its newline yet waits for the next poll.
+        let mut f = std::fs::OpenOptions::new().append(true).open(&live).unwrap();
+        f.write_all(br#"{"v":1,"cursor":"5","type":"msg","ts":1}"#).unwrap();
+        assert!(tail.poll().unwrap().is_empty());
+        f.write_all(b"\n").unwrap();
+        assert_eq!(cursors(tail.poll().unwrap()), [5]);
+
+        // Rotation (new live inode): full read from the last cursor, nothing lost or doubled.
+        append_at(&live, item("msg"), 1).unwrap();
+        append_at(&live, item("msg"), 1).unwrap();
+        assert_eq!(cursors(tail.poll().unwrap()), [6, 7]);
+
+        // Journal emptied (reset home): the cursor is refused.
+        std::fs::remove_file(rotated_path(&live)).unwrap();
+        std::fs::write(&live, b"").unwrap();
+        let e = tail.poll().unwrap_err();
+        assert_eq!(e, EventsError::Ahead { since: 7, last: 0 });
+        assert!(e.is_cursor_refused());
+        assert!(!EventsError::Io("x".into()).is_cursor_refused());
     }
 }

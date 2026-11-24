@@ -13,7 +13,13 @@ safe human-to-orchestrator path.
 cdamux say a-xxxxx --from alice "what is the state of the PR?"   # → m-ab12c delivered
 cdamux say c-orch  --from alice --json "stop after this task"
 # {"v":1,"id":"m-ab12c","target":"a-xxxxx","outcome":"queued"}
+printf %s "$TEXT" | cdamux say a-xxxxx --from alice --json -     # text on stdin
 ```
+
+- **Text on stdin**: with `-` as the only text argument, or no text argument at all
+  (stdin not a terminal), the text is read from stdin and trailing newlines are dropped.
+  Bridges should use it so human text never sits on argv (visible in `ps`). Same rules
+  as argv text (empty, control characters, 2 KB → exit 2). Same for `msg answer`.
 
 - The target (agent id, or tmux / registry session name) must be an **orchestrator**.
   A worker → exit 2, with a message pointing to `msg send`. Unknown or ambiguous → exit 2.
@@ -35,7 +41,11 @@ cdamux say c-orch  --from alice --json "stop after this task"
 - A local draft left untouched for ≥ 10 s on an idle orchestrator gets the paste
   appended, and Enter submits both (the inbox wake line does the same after 60 s, ADR-018).
 - Every accepted `say` appends one `human` item to the [events feed](events.md)
-  (`id, agent, from, text`), at call time, delivered or queued.
+  (`id, agent, from, text`), at call time, delivered or queued. The paste itself — at
+  once, or at a later turn end for a queued prompt — appends a `delivered` item
+  (`id, agent`, same `id`): a `human` without one is still waiting in the queue.
+- Each decision (`delivered` / `queued`, then `pasted` / `not_ready` / `paste_failed`)
+  is traced by id in `$CDAMUX_HOME/logs/hooks.log` ([events.md](events.md#hook-log-cdamux_homelogshookslog)).
 
 Output: `<msg-id> delivered|queued`; `--json` prints
 `{"v":1,"id","target","outcome"}` (`target`: the resolved agent id). Exit 0 on success,
@@ -71,10 +81,12 @@ Answers a worker's pending `ask` on a human's behalf (the ask id appears in
   tailnet reply) still answers every earlier ask from that worker to its sender.
 - The orchestrator that received the ask gets a `relay` message in its inbox
   (`from` = `human`, `ref` = the ask id, text `[<label>] answered <worker>'s ask <id>: …`),
-  so it stops waiting on that ask. If only this copy fails, the answer still stands and a
-  warning goes to stderr.
+  so it stops waiting on that ask. If only this copy fails, the answer still stands
+  (exit 0), a warning goes to stderr and `--json` says `"relayed": false`: the caller
+  should tell the orchestrator itself.
 - Unknown id, a message that is not an `ask`, or an ask already answered → exit 2.
   The check and the answer run under one lock: of two concurrent answers, one wins.
 - Output: `<answer-msg-id> answered`; `--json` prints
-  `{"v":1,"id","ask","worker","outcome":"answered"}`.
+  `{"v":1,"id","ask","worker","outcome":"answered","relayed":true|false}`.
+- Text: argv, or stdin with `-` / no text argument (see `say` above).
 - Messages are capped at 2 KB per inbox line, so a long answer fails with exit 2.

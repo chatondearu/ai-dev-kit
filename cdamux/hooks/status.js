@@ -8,9 +8,10 @@
 // Other clients on these events (codex) keep the unacked digest: `msg read --ack` is theirs.
 // Only the pane's top-level CLI has effects: a nested `claude -p` (tool call) inherits the
 // agent id and must not take the parent's inbox nor flip its status / turn.
-// Turn end of an orchestrator also records its reply in the events feed (docs/events.md),
-// including a tool-only stop that has no assistant prose,
+// Turn end of an orchestrator also records its reply in the events feed (docs/events.md;
+// a tool-only stop with no assistant prose becomes a `status` item, never a `reply`),
 // and pastes the next queued `cdamux say` prompt (docs/say.md).
+// Hand-over decisions go to the production hook log `$CDAMUX_HOME/logs/hooks.log`.
 // Fail-open, local, fast; no-op without CDAMUX_AGENT_ID / @cdamux_id or without
 // `cdamux` on PATH. Stickiness: done/error/blocked stay until the next `working`.
 //
@@ -31,6 +32,7 @@ const {
   unreadDigest,
   takeUnread,
   formatMessages,
+  hookLog,
   isTopLevelHook,
   readUnreadMessages,
   takeStopBlock,
@@ -95,18 +97,18 @@ function main() {
   // Taken (acked) before `turn: ended` is written, so nothing typed lands mid-turn; a line
   // appended after this read is left to the `msg wake` backstop. At most MAX_STOP_BLOCKS
   // in a row; then the turn ends and the rest waits for the wake line.
-  if (
-    event === 'Stop'
-    && claude
-    && readUnreadMessages(process.env, id).length
-    && takeStopBlock(process.env, !!input.stop_hook_active)
-  ) {
+  const unread = event === 'Stop' && claude ? readUnreadMessages(process.env, id).length : 0;
+  if (unread && !takeStopBlock(process.env, !!input.stop_hook_active)) {
+    hookLog(process.env, id, 'stop_block_cap', { unread });
+  } else if (unread) {
     const msgs = takeUnread(process.env);
     if (msgs.length) {
       writeJson({ decision: 'block', reason: formatMessages(msgs) });
+      hookLog(process.env, id, 'stop_handover', { ids: msgs.map((m) => m.id) });
       recordReply(process.env, input);
       return;
     }
+    hookLog(process.env, id, 'handover_ack_failed', { unread });
   }
   const digest = event === 'stop' || !claude ? unreadDigest(process.env) : '';
   if (event === 'stop' && digest && (Number(input.loop_count) || 0) === 0) {
@@ -133,6 +135,8 @@ function main() {
     const context = msgs.length ? formatMessages(msgs) : digest;
     if (context) {
       writeJson({ hookSpecificOutput: { hookEventName: event, additionalContext: context } });
+      if (msgs.length) hookLog(process.env, id, 'prompt_handover', { event, ids: msgs.map((m) => m.id) });
+      else hookLog(process.env, id, 'digest', { event });
     }
     return;
   }
@@ -142,6 +146,7 @@ function main() {
     const loop = Number(input.loop_count) || 0;
     if (digest && loop === 0) {
       writeJson({ followup_message: digest });
+      hookLog(process.env, id, 'followup_digest');
     } else {
       writeJson({});
     }

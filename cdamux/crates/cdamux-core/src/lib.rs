@@ -9,6 +9,7 @@ mod diff;
 mod events;
 mod foam;
 mod home_migrate;
+mod hooklog;
 mod markdown;
 mod notes;
 mod issue_ref;
@@ -48,8 +49,8 @@ use thiserror::Error;
 
 pub use daemon::{grouped_for_list, grouped_for_list_ex};
 pub use events::{
-    journal_stamp, last_turn_reply, parse_cursor, read_events, record_reply, EventFilter,
-    EventsError, EVENTS_SCHEMA_VERSION, MAX_REPLY_BYTES,
+    last_turn_reply, parse_cursor, read_events, record_reply, EventFilter, EventTail,
+    EventsError, EVENTS_SCHEMA_VERSION, EXIT_CURSOR_REFUSED, MAX_REPLY_BYTES,
 };
 pub use diff::{
     format_review_prompt, git_diff_unified, parse_unified_diff, DiffError, DiffHunk,

@@ -4,6 +4,7 @@
 
 use crate::agent_status::load_reported_status;
 use crate::events::emit;
+use crate::hooklog::hook_log;
 use crate::msg::{
     agent_role_and_host, ask_answered, check_text, find_message, generate_msg_id, inbox_path,
     msg_send, read_inbox_all, resolve_agent_id, should_paste, MsgError,
@@ -82,15 +83,17 @@ fn queue_push(orch: &str, q: &Queued) -> Result<(), MsgError> {
     Ok(())
 }
 
-/// Paste the oldest queued prompt into `host` when `ready()` (checked under the queue lock)
-/// and drop it from the queue; returns its id. The lock spans the check, the paste and the
-/// drop, and the drop only follows a successful paste: a hook killed mid-way repeats a
-/// prompt rather than losing it, and two callers never paste twice. A pasted prompt marks
-/// a hooked orchestrator at rest (`idle`, sticky `done` / `error`) `working` under the same
-/// lock, so a concurrent `say` or drain queues until the turn's `Stop` hook reports `idle`.
+/// Paste (`paste`: pastes into the orchestrator pane, `true` on success) the oldest queued
+/// prompt when `ready()` (checked under the queue lock) and drop it from the queue; returns
+/// its id. The lock spans the check, the paste and the drop, and the drop only follows a
+/// successful paste: a hook killed mid-way repeats a prompt rather than losing it, and two
+/// callers never paste twice. A paste emits one `delivered` item (the `say` id). A pasted
+/// prompt marks a hooked orchestrator at rest (`idle`, sticky `done` / `error`) `working`
+/// under the same lock, so a concurrent `say` or drain queues until the turn's `Stop` hook
+/// reports `idle`.
 fn deliver_next(
     orch: &str,
-    host: &str,
+    paste: impl FnOnce(&str) -> bool,
     ready: impl FnOnce() -> bool,
 ) -> Result<Option<String>, MsgError> {
     let path = queue_path(orch)?;
@@ -103,14 +106,19 @@ fn deliver_next(
         let Some(q) = lines.find_map(|l| serde_json::from_str::<Queued>(l).ok()) else {
             return Ok(None);
         };
+        let log = |decision| hook_log("say", orch, decision, json!({ "id": q.id }));
         if !ready() {
+            log("not_ready");
             return Ok(None);
         }
-        if send_to_session(host, &format!("[{}] {}", q.from, q.text), true).is_err() {
+        if !paste(&format!("[{}] {}", q.from, q.text)) {
+            log("paste_failed");
             return Ok(None);
         }
         let rest: String = lines.map(|l| format!("{l}\n")).collect();
         write_atomic(&path, rest.as_bytes())?;
+        emit(json!({ "type": "delivered", "ts": now_ts(), "id": q.id, "agent": orch }));
+        log("pasted");
         if matches!(
             load_reported_status(orch),
             Some(SessionState::Idle | SessionState::Done | SessionState::Error)
@@ -194,14 +202,21 @@ pub fn say(
         should_paste(status, idle, quiet_secs)
     };
     let delivered = match host.as_deref().filter(|_| should_paste(status, idle, quiet_secs)) {
-        Some(h) => deliver_next(&to, h, ready)?.as_deref() == Some(id.as_str()),
+        Some(h) => deliver_next(&to, |t| paste_into(h, t), ready)?.as_deref() == Some(id.as_str()),
         None => false,
     };
-    Ok(SayResult {
-        id,
-        target: to,
-        outcome: if delivered { SayOutcome::Delivered } else { SayOutcome::Queued },
-    })
+    let outcome = if delivered { SayOutcome::Delivered } else { SayOutcome::Queued };
+    hook_log(
+        "say",
+        &to,
+        outcome.as_str(),
+        json!({ "id": id, "status": status, "idle": idle, "host": host.is_some() }),
+    );
+    Ok(SayResult { id, target: to, outcome })
+}
+
+fn paste_into(host: &str, text: &str) -> bool {
+    send_to_session(host, text, true).is_ok()
 }
 
 /// Turn-end hook (`cdamux msg drain`): paste the oldest queued prompt of an orchestrator
@@ -213,7 +228,7 @@ pub fn say_drain(agent: &str) -> Result<Option<String>, MsgError> {
         return Ok(None);
     }
     let idle = || load_reported_status(agent) == Some(SessionState::Idle);
-    host.map_or(Ok(None), |h| deliver_next(agent, &h, idle))
+    host.map_or(Ok(None), |h| deliver_next(agent, |t| paste_into(&h, t), idle))
 }
 
 /// Answer one `ask` message on the human's behalf: the worker gets an `answer` from the
@@ -249,6 +264,12 @@ pub fn answer_ask(ask_id: &str, from: &str, text: &str) -> Result<AnswerResult, 
         "human", &ask.to, "relay", &relay, Some(ask_id), None,
     )
     .is_ok();
+    hook_log(
+        "answer",
+        &ask.to,
+        if relayed { "answered" } else { "relay_failed" },
+        json!({ "id": out.message.id, "ask": ask_id, "worker": ask.from }),
+    );
     Ok(AnswerResult { id: out.message.id, ask: ask_id.into(), worker: ask.from, relayed })
 }
 
@@ -332,6 +353,65 @@ mod tests {
             state_append(StateKind::Agents, "a-so2", &json!({"status": "idle"})).unwrap();
             assert_eq!(say_drain("a-so2").unwrap(), None);
             assert_eq!(queue_len("a-so2"), 2);
+        });
+    }
+
+    #[test]
+    fn paste_emits_one_delivered_item_with_the_say_id() {
+        with_home(|| {
+            agent("a-so5", "orchestrator", None, "working");
+            let a = say("a-so5", "alice", "first", 10, Some(Some(99))).unwrap();
+            let b = say("a-so5", "bob", "second", 10, Some(Some(99))).unwrap();
+            let delivered = || -> Vec<Value> {
+                crate::events::read_events(0)
+                    .unwrap()
+                    .into_iter()
+                    .filter(|v| v["type"] == "delivered")
+                    .collect()
+            };
+            assert!(delivered().is_empty(), "queued is not delivered");
+
+            // Not ready, or a failed paste: nothing popped, no item.
+            assert_eq!(deliver_next("a-so5", |_| true, || false).unwrap(), None);
+            assert_eq!(deliver_next("a-so5", |_| false, || true).unwrap(), None);
+            assert!(delivered().is_empty());
+            assert_eq!(queue_len("a-so5"), 2);
+
+            let mut pasted = Vec::new();
+            let got = deliver_next("a-so5", |t| { pasted.push(t.to_string()); true }, || true);
+            assert_eq!(got.unwrap().as_deref(), Some(a.id.as_str()));
+            assert_eq!(pasted, ["[alice] first"]);
+            assert_eq!(queue_len("a-so5"), 1);
+            let d = delivered();
+            assert_eq!(d.len(), 1);
+            assert_eq!((d[0]["id"].as_str(), d[0]["agent"].as_str()), (Some(a.id.as_str()), Some("a-so5")));
+            assert!(d[0].get("text").is_none(), "the human item already carries the text");
+
+            deliver_next("a-so5", |_| true, || true).unwrap();
+            let ids: Vec<Value> = delivered().into_iter().map(|v| v["id"].clone()).collect();
+            assert_eq!(ids, [json!(a.id), json!(b.id)]);
+
+            // The hook log traces each decision by id, never the text.
+            let log = std::fs::read_to_string(
+                crate::paths::cdamux_state_dir("logs").unwrap().join("hooks.log"),
+            )
+            .unwrap();
+            let decisions: Vec<String> = log
+                .lines()
+                .map(|l| serde_json::from_str::<Value>(l).unwrap())
+                .map(|v| format!("{}:{}", v["decision"].as_str().unwrap(), v["id"].as_str().unwrap()))
+                .collect();
+            let (a, b) = (&a.id, &b.id);
+            let want = [
+                format!("queued:{a}"),
+                format!("queued:{b}"),
+                format!("not_ready:{a}"),
+                format!("paste_failed:{a}"),
+                format!("pasted:{a}"),
+                format!("pasted:{b}"),
+            ];
+            assert_eq!(decisions, want);
+            assert!(!log.contains("first") && !log.contains("second"));
         });
     }
 

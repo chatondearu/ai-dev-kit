@@ -208,7 +208,7 @@ enum Commands {
     },
     /// Deliver a labelled human prompt to an orchestrator: pasted when idle, else queued
     /// until its next turn end. Prints `<msg-id> delivered|queued`. See `docs/say.md`.
-    #[command(after_help = "Examples:\n  cdamux say a-xxxxx --from alice \"status of the PR?\"\n  cdamux say c-orch --from alice --json -- \"-v please\"\n\nExit 2: target is a worker (use `msg send`), unknown or ambiguous.")]
+    #[command(after_help = "Examples:\n  cdamux say a-xxxxx --from alice \"status of the PR?\"\n  cdamux say c-orch --from alice --json -- \"-v please\"\n  printf %s \"$TEXT\" | cdamux say a-xxxxx --from alice -\n\nExit 2: target is a worker (use `msg send`), unknown or ambiguous.")]
     Say {
         /// Orchestrator agent id (`a-xxxxx`) or its tmux session name.
         target: String,
@@ -218,12 +218,15 @@ enum Commands {
         /// Print `{"v":1,"id","target","outcome"}`.
         #[arg(long)]
         json: bool,
-        /// Prompt text (words joined with spaces).
+        /// Prompt text (words joined with spaces); `-` or none: read it from stdin.
         text: Vec<String>,
     },
     /// Read-only events feed: orchestrator inbox msgs, status changes, orchestrator replies.
     /// Schema `v: 1` in `docs/events.md`; never moves an inbox ack cursor.
-    #[command(args_conflicts_with_subcommands = true)]
+    #[command(
+        args_conflicts_with_subcommands = true,
+        after_help = "Exit 3: --since refused (expired, or ahead of a reset journal); stderr starts with `events: cursor refused: `.\nExit 2: invalid cursor. Exit 1: I/O error."
+    )]
     Events {
         #[command(subcommand)]
         command: Option<EventsCommands>,
@@ -441,10 +444,10 @@ enum MsgCommands {
         /// Who is answering; the worker sees `[<from>] text`.
         #[arg(long)]
         from: String,
-        /// Print `{"v":1,"id","ask","worker","outcome"}`.
+        /// Print `{"v":1,"id","ask","worker","outcome","relayed"}`.
         #[arg(long)]
         json: bool,
-        /// Answer text (words joined with spaces).
+        /// Answer text (words joined with spaces); `-` or none: read it from stdin.
         text: Vec<String>,
     },
     /// Turn-end hook: paste the next queued `say` prompt into an idle orchestrator.
@@ -1232,8 +1235,32 @@ fn msg_exit(e: &cdamux_core::MsgError) -> ExitCode {
     ExitCode::from(if matches!(e, cdamux_core::MsgError::Io(_)) { 1 } else { 2 })
 }
 
+/// Text from argv, or from stdin when it is `-` or absent, so a caller never has to put
+/// human text on argv (visible in `ps`). Trailing newlines from stdin are dropped.
+fn text_arg(cmd: &str, text: &[String]) -> Result<String, ExitCode> {
+    use std::io::IsTerminal;
+    if !(text.is_empty() || text == ["-"]) {
+        return Ok(text.join(" "));
+    }
+    if text.is_empty() && io::stdin().is_terminal() {
+        eprintln!("{cmd}: text required (as arguments, or on stdin with `-`)");
+        return Err(ExitCode::from(2));
+    }
+    let mut buf = String::new();
+    // Well above the 2 KB message cap, which then rejects the text with exit 2.
+    if let Err(e) = io::stdin().take(64 * 1024).read_to_string(&mut buf) {
+        eprintln!("{cmd}: stdin: {e}");
+        return Err(ExitCode::from(2));
+    }
+    Ok(buf.trim_end_matches(['\n', '\r']).to_string())
+}
+
 fn cmd_say(target: &str, from: &str, json: bool, text: &[String]) -> ExitCode {
-    match cdamux_core::say(target, from, &text.join(" "), DEFAULT_NUDGE_QUIET_SECS, None) {
+    let text = match text_arg("say", text) {
+        Ok(t) => t,
+        Err(c) => return c,
+    };
+    match cdamux_core::say(target, from, &text, DEFAULT_NUDGE_QUIET_SECS, None) {
         Ok(r) if json => {
             let out = serde_json::json!({
                 "v": 1, "id": r.id, "target": r.target, "outcome": r.outcome.as_str(),
@@ -1253,7 +1280,11 @@ fn cmd_say(target: &str, from: &str, json: bool, text: &[String]) -> ExitCode {
 }
 
 fn cmd_msg_answer(ask_id: &str, from: &str, json: bool, text: &[String]) -> ExitCode {
-    match cdamux_core::answer_ask(ask_id, from, &text.join(" ")) {
+    let text = match text_arg("msg answer", text) {
+        Ok(t) => t,
+        Err(c) => return c,
+    };
+    match cdamux_core::answer_ask(ask_id, from, &text) {
         Ok(r) => {
             if !r.relayed {
                 eprintln!("msg answer: answered, but the relay copy to the orchestrator failed");
@@ -1261,6 +1292,7 @@ fn cmd_msg_answer(ask_id: &str, from: &str, json: bool, text: &[String]) -> Exit
             if json {
                 let out = serde_json::json!({
                     "v": 1, "id": r.id, "ask": r.ask, "worker": r.worker, "outcome": "answered",
+                    "relayed": r.relayed,
                 });
                 println!("{out}");
             } else {
@@ -1322,42 +1354,43 @@ fn event_line(v: &serde_json::Value, json: bool) -> String {
 }
 
 fn cmd_events(follow: bool, since: &str, filter: cdamux_core::EventFilter, json: bool) -> ExitCode {
-    let mut since = match cdamux_core::parse_cursor(since) {
-        Ok(c) => c,
+    let failed = |e: cdamux_core::EventsError| {
+        if e.is_cursor_refused() {
+            eprintln!("events: cursor refused: {e}");
+            ExitCode::from(cdamux_core::EXIT_CURSOR_REFUSED)
+        } else {
+            eprintln!("events: {e}");
+            ExitCode::from(1)
+        }
+    };
+    let mut tail = match cdamux_core::parse_cursor(since) {
+        Ok(c) => match cdamux_core::EventTail::new(c) {
+            Ok(t) => t,
+            Err(e) => return failed(e),
+        },
         Err(e) => {
             eprintln!("events: {e}");
             return ExitCode::from(2);
         }
     };
-    let mut stamp = None;
     loop {
-        let now = cdamux_core::journal_stamp();
-        if stamp != Some(now) {
-            stamp = Some(now);
-            let items = match cdamux_core::read_events(since) {
-                Ok(items) => items,
-                Err(e) => {
-                    eprintln!("events: {e}");
-                    return ExitCode::from(1);
-                }
-            };
-            let mut out = io::stdout().lock();
-            for v in &items {
-                if let Some(c) = v["cursor"].as_str().and_then(|c| c.parse().ok()) {
-                    since = c;
-                }
-                if filter.matches(v) && writeln!(out, "{}", event_line(v, json)).is_err() {
-                    return ExitCode::SUCCESS; // reader went away
-                }
+        let items = match tail.poll() {
+            Ok(items) => items,
+            Err(e) => return failed(e),
+        };
+        let mut out = io::stdout().lock();
+        for v in items.iter().filter(|v| filter.matches(v)) {
+            if writeln!(out, "{}", event_line(v, json)).is_err() {
+                return ExitCode::SUCCESS; // reader went away
             }
-            if out.flush().is_err() {
-                return ExitCode::SUCCESS;
-            }
+        }
+        if out.flush().is_err() {
+            return ExitCode::SUCCESS;
         }
         if !follow {
             return ExitCode::SUCCESS;
         }
-        // shortcut: 500 ms poll on segment sizes; switch to fs notify if latency matters.
+        // shortcut: 500 ms poll (one open + fstat when idle); switch to fs notify if latency matters.
         std::thread::sleep(std::time::Duration::from_millis(500));
     }
 }

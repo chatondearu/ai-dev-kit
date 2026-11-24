@@ -153,11 +153,11 @@ const WORKER_PUSH_GUARD: &str =
     include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../config/worker-push-guard.mjs"));
 
 /// Render the template for a worker on `branch` in a repo whose default branch is
-/// `default`, editing `worktree`, guarded by the hook at `guard`, with the read-only
-/// scripts of the kit at `kit`: push only to its own branch, never to the default one
-/// (same rule as orch.sh `orch_render_settings`). A branch name outside `[A-Za-z0-9._/@+-]`
-/// counts as unknown; no push when either is unknown or they are equal; no kit-script rule
-/// when `kit` is empty. `None` when a path holds a quote, paren or `*` (rule syntax).
+/// `default`, editing `worktree`, guarded by the hook at `guard`, which also lets the
+/// read-only scripts of the kit at `kit` run (none when empty): push only to its own
+/// branch, never to the default one (same rule as orch.sh `orch_render_settings`). A branch
+/// name outside `[A-Za-z0-9._/@+-]` counts as unknown; no push when either is unknown or
+/// they are equal. `None` when a path holds a quote, paren or `*` (rule syntax).
 pub fn worker_settings_json(branch: &str, default: &str, worktree: &str, guard: &str, kit: &str) -> Option<String> {
     if worktree.is_empty()
         || guard.is_empty()
@@ -186,7 +186,6 @@ pub fn worker_settings_json(branch: &str, default: &str, worktree: &str, guard: 
             .filter_map(Value::as_str)
             .filter(|r| !branch.is_empty() || key == "deny" || !r.starts_with("Bash(git push"))
             .filter(|r| !default.is_empty() || !r.contains("__DEFAULT__"))
-            .filter(|r| !kit.is_empty() || !r.contains("__KIT__"))
             .map(|r| Value::from(fill(r)))
             .collect();
         v["permissions"][key] = Value::Array(rules);
@@ -891,12 +890,12 @@ mod tests {
         assert!(has("allow", "Edit(//w/t/**)"));
         assert!(has("allow", "Bash(git push *)"), "the push guard checks the branch");
         assert!(has("allow", "Bash(git merge origin/dev)"));
-        assert!(has("allow", "Bash(bash /k/skills/core/cda-doc-hygiene/scripts/doc-hygiene.sh --check /w/t)"));
+        assert!(has("allow", "Bash(bash *)"), "the push guard checks the script path");
         assert!(has("deny", "Bash(git push * dev)"));
         assert!(has("deny", "Bash(gh pr merge *)"));
         assert_eq!(
             v["hooks"]["PreToolUse"][0]["hooks"][0]["command"],
-            "node '/g/guard.mjs' 'worker/r1/x' 'dev' || exit 2"
+            "node '/g/guard.mjs' 'worker/r1/x' 'dev' '/w/t' '/k' || exit 2"
         );
         assert!(!v.to_string().contains("__"), "placeholder left: {v}");
         for (branch, default) in [("dev", "dev"), ("", "dev"), ("worker/r1/x", ""), ("a'b", "dev")] {
@@ -907,7 +906,7 @@ mod tests {
             assert!(!s.contains("a'b"), "unsafe branch kept");
         }
         let s = worker_settings_json("b", "dev", "/w/t", "/g", "").unwrap();
-        assert!(!s.contains("__KIT__") && !s.contains("doc-hygiene"), "no kit: no kit-script rule");
+        assert!(s.contains("'/w/t' '' || exit 2"), "no kit: the guard gets an empty kit root: {s}");
         assert!(worker_settings_json("b", "dev", "/w/(t)", "/g", "").is_none(), "unsafe path refused");
     }
 

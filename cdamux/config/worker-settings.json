@@ -33,16 +33,9 @@
       "Bash(foam-board.sh reconcile)",
       "Bash(foam-board.sh claim *)",
       "Bash(foam-board.sh set-status *)",
-      "Bash(bash __KIT__/skills/core/cda-kanban/scripts/foam-board.sh list-ready)",
-      "Bash(bash __KIT__/skills/core/cda-kanban/scripts/foam-board.sh list-ready --json)",
-      "Bash(bash __KIT__/skills/core/cda-kanban/scripts/foam-board.sh reconcile)",
-      "Bash(bash __KIT__/skills/core/cda-doc-hygiene/scripts/doc-hygiene.sh --check)",
-      "Bash(bash __KIT__/skills/core/cda-doc-hygiene/scripts/doc-hygiene.sh --check __WORKTREE__)",
-      "Bash(bash __KIT__/skills/core/cda-doc-hygiene/scripts/doc-hygiene.sh --report)",
-      "Bash(bash __KIT__/skills/core/cda-doc-hygiene/scripts/doc-hygiene.sh --report __WORKTREE__)",
-      "Bash(bash scripts/*)",
-      "Bash(sh scripts/*)",
-      "Bash(./scripts/*)",
+      "Bash(bash *)",
+      "Bash(sh *)",
+      "Bash(./*)",
       "Bash(cargo *)",
       "Bash(pnpm install *)",
       "Bash(pnpm run *)",
@@ -126,7 +119,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node '__GUARD__' '__BRANCH__' '__DEFAULT__' || exit 2"
+            "command": "node '__GUARD__' '__BRANCH__' '__DEFAULT__' '__WORKTREE__' '__KIT__' || exit 2"
           }
         ]
       }

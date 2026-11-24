@@ -1,19 +1,27 @@
 #!/usr/bin/env node
 // Worker push guard (ADR-019): Claude Code PreToolUse hook on Bash, wired by the rendered
-// worker --settings file as `node worker-push-guard.mjs <own-branch> <default-branch>`.
+// worker --settings file as `node worker-push-guard.mjs <own> <default> <worktree> <kit>`.
 // Bash permission rules match command text; this parses argv so spellings the rules miss
 // (`-uf`, `:ref`, quoted refs, `git -C x push`, `bash -c "…"`) are still refused.
 // Blocks (exit 2, reason on stderr): any `git push` / `send-pack` that does not update only
 // the own branch (no plain force, delete, mirror/all/tags, no default branch; a
 // `--force-with-lease` on the own branch is fine, for a rebased branch), `git -c alias.*`,
-// `gh pr merge` and `gh api` merge / git-refs paths. Conservative: an unquoted `git` word
-// anywhere in a command is treated as a call.
+// `gh pr merge` and `gh api` merge / git-refs paths, and any shell (`bash`, `sh`, `./x`)
+// that does not run a script file of the worktree or a listed read-only kit script.
+// Conservative: an unquoted `git` or shell word anywhere in a command is treated as a call.
 // Text is not a sandbox: a script the worker writes can still push; branch protection is
 // the real guard.
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync, statSync } from 'node:fs';
+import { resolve, sep } from 'node:path';
 
-const [own = '', dflt = ''] = process.argv.slice(2);
+const [own = '', dflt = '', worktree = '', kit = ''] = process.argv.slice(2);
+let root = '';
+try {
+  root = worktree && realpathSync(worktree);
+} catch {
+  root = ''; // unknown worktree: no script may run
+}
 
 // Text of the `$(…)` starting at text[i] ('$'), and the index of its closing paren.
 function substitution(text, i) {
@@ -250,12 +258,45 @@ function ghReason(args) {
   return null;
 }
 
+// Read-only kit scripts a worker may run by absolute path, with exactly these arguments
+// (doc-hygiene may add the worktree path).
+const KIT_FORMS = [
+  ['skills/core/cda-doc-hygiene/scripts/doc-hygiene.sh', '--check'],
+  ['skills/core/cda-doc-hygiene/scripts/doc-hygiene.sh', '--report'],
+  ['skills/core/cda-kanban/scripts/foam-board.sh', 'list-ready'],
+  ['skills/core/cda-kanban/scripts/foam-board.sh', 'list-ready', '--json'],
+  ['skills/core/cda-kanban/scripts/foam-board.sh', 'reconcile'],
+];
+const kitForm = (args) => Boolean(kit) && KIT_FORMS.some(([p, ...a]) => args[0] === `${kit}/${p}`
+  && [a, p.endsWith('doc-hygiene.sh') ? [...a, worktree] : null]
+    .some((f) => f && f.join('\0') === args.slice(1).join('\0')));
+
+// Reason a shell call is refused, or null: `args` = words after `bash`/`sh` (or the `./x`
+// word alone). Only a script file inside the worktree (resolved, symlinks included, no
+// `..`, run where the hook runs) or a KIT_FORMS line; no `-c`, no options, no stdin.
+function scriptReason(args, ctx, viaShell) {
+  const p = args[0] ?? '';
+  if (viaShell && kitForm(args)) return null;
+  if (!p || p.startsWith('-')) return 'a shell may only run a script file of the worktree';
+  if (ctx.moved) return `run ${p} from the worktree, without cd or VAR=`;
+  if (p.split('/').includes('..')) return `script path ${p} contains ..`;
+  let real;
+  try {
+    real = realpathSync(resolve(ctx.cwd, p));
+    if (!statSync(real).isFile()) throw new Error('not a file');
+  } catch {
+    return `script ${p} is not a file`;
+  }
+  const inside = root && (real === root || real.startsWith(root + sep));
+  return inside ? null : `script ${p} is outside the worktree`;
+}
+
 // A word that may move the shell or point git elsewhere (`cd`, `GIT_DIR=`, `HOME=`, `env -C` …).
 const MOVES = (w, next) => ['cd', 'pushd', 'popd'].includes(base(w)) || /^[A-Za-z_]\w*=/.test(w)
   || /^--chdir(=|$)/.test(w) || (base(w) === 'env' && (next ?? '').startsWith('-'));
 
-// Reason the whole command text is refused, or null. The argument of `sh -c` / `eval` and
-// command substitutions are scanned again; deeper nesting than that is refused.
+// Reason the whole command text is refused, or null. The argument of `eval` and command
+// substitutions are scanned again; deeper nesting than that is refused.
 function reason(text, cwd, depth = 0, movedOuter = false) {
   if (depth > 4) return 'command nesting is too deep to check';
   const { cmds, subs, unclosed } = commands(text);
@@ -268,12 +309,16 @@ function reason(text, cwd, depth = 0, movedOuter = false) {
     if (r) return r;
   }
   for (const words of cmds) {
+    const head = words.find((w) => !/^[A-Za-z_]\w*=/.test(w)) ?? '';
+    if (head.startsWith('./')) {
+      const r = scriptReason([head], ctx, false);
+      if (r) return r;
+    }
     for (let i = 0; i < words.length; i++) {
       const name = base(words[i]);
       let r = null;
       if (SHELLS.has(name)) {
-        const k = words.findIndex((a, j) => j > i && /^-[a-z]*c[a-z]*$/.test(a));
-        if (k > 0 && k + 1 < words.length) r = reason(words[k + 1], cwd, depth + 1, moved);
+        r = scriptReason(words.slice(i + 1), ctx, true);
       } else if (name === 'eval') {
         r = reason(words.slice(i + 1).join(' '), cwd, depth + 1, moved);
       } else if (name === 'git') {

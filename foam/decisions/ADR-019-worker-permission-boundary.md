@@ -55,7 +55,8 @@ review of #433 the owner chose `dontAsk` over `acceptEdits` (2026-11-23).
      `gh pr create/view/checks/diff/list`, `gh issue view`, `gh repo view`;
      `cdamux msg`, `cdamux state get`, `jq`, `foam-board.sh list-ready|path|reconcile|
      claim|set-status` and the listed read-only kit scripts; the repo's own tooling run
-     inside the worktree: `bash|sh|./scripts/*`, `cargo`, `pnpm install/run/test/build/
+     inside the worktree: `bash|sh|./` + a script file of the worktree (guard-checked,
+     amendment), `cargo`, `pnpm install/run/test/build/
      lint/typecheck`, `npm run/test/ci/install`, `yarn install/run/test`, `make`, `just`,
      `mise run`, `go test/build/vet`, `pytest`, `uv run pytest`, `nix develop -c bash
      scripts/*|cargo` (last resort, nix-develop-shell). No command runner that takes an
@@ -164,9 +165,15 @@ and `bash <kit>/…/doc-hygiene.sh --check <repo>`.
   receive-pack overrides, abbreviated options, spellings the tokenizer models differently
   from bash (e.g. `$'…'`) and git hooks the worker can edit stay accepted residual risks;
   branch protection on the default branch is the backstop.
-- **Kit scripts, explicit list**: placeholder `__KIT__` = the kit checkout (orch.sh:
-  from the template path; cdamux: `<claude config dir>/skills/cda-kanban` resolved
-  through the `install.sh` link; none found → no rule). Allowed: `bash
+- **Shell runs are judged by the guard**: text rules `Bash(bash *)`, `Bash(sh *)`,
+  `Bash(./*)` (a `*` cannot resolve a path, and `bash */test.sh` would match
+  `bash -c … x/test.sh`). The hook gets `<worktree>` and `<kit>`; any `bash`/`sh`/`zsh`…
+  word or a leading `./x` must run a file that resolves (symlinks included) inside the
+  worktree, without `..`, options (`-c`, `-x`…), stdin, `cd` or `VAR=` in the command:
+  `bash scripts/verify.sh`, `bash cdamux/hooks/test.sh`, `./scripts/x.sh` run.
+- **Kit scripts, explicit list in the guard**: `<kit>` = the kit checkout (orch.sh: from
+  the template path; cdamux: `<claude config dir>/skills/cda-kanban` resolved through the
+  `install.sh` link; none found → none run). Allowed with exactly these arguments: `bash
   <kit>/skills/core/cda-doc-hygiene/scripts/doc-hygiene.sh --check|--report [<worktree>]`
   and `bash <kit>/skills/core/cda-kanban/scripts/foam-board.sh list-ready [--json] |
   reconcile` (read-only). The former `foam-board.sh *` is narrowed to `list-ready

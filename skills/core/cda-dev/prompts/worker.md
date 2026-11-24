@@ -121,15 +121,16 @@ Do not invent product decisions. Do not merge yourself. Do not start another chi
   from a stale `{{DEFAULT_BRANCH}}`.
 - Before opening the PR, `git fetch origin {{DEFAULT_BRANCH}}` and rebase onto the
   current base (nothing pushed yet). Once the branch is pushed, publish a rebase with
-  `git push --force-with-lease origin <your branch>` (plain `--force` / `-f` / `+ref` are
-  denied, ADR-019); or, if `gh pr view` reports `CONFLICTING` / `DIRTY`, merge the
-  updated base (`git merge --no-edit origin/{{DEFAULT_BRANCH}}`), resolve, and push
-  normally.
-- The push guard (ADR-019) refuses any command whose text mentions a push (even inside
-  a message) unless it is one plain line `git push [-u] [--force-with-lease[=<branch>[:<sha>]]]
-  origin <branch>` (or `origin HEAD:refs/heads/<branch>`), alone, with no `&&`, pipe,
-  redirect or quotes. Write commit messages
-  that mention it to a file and use `git commit -F <file>`; PR bodies via `--body-file`.
+  `git push --force-with-lease origin HEAD:refs/heads/<your branch>` (plain `--force` /
+  `-f` / `+ref` are denied, ADR-019); or, if `gh pr view` reports `CONFLICTING` /
+  `DIRTY`, merge the updated base (`git merge --no-edit origin/{{DEFAULT_BRANCH}}`),
+  resolve, and push normally.
+- The push guard (ADR-019) accepts exactly one push form, typed alone with no `&&`, pipe,
+  redirect or quotes: `git push [-u] [--force-with-lease[=refs/heads/<branch>[:<40-hex
+  sha>]]] origin HEAD:refs/heads/<branch>` (`<branch>` = the branch you were spawned on).
+  `git push`, `git push origin <branch>` and any other text that mentions a push (even
+  inside a message) are refused: write such commit messages to a file and use
+  `git commit -F <file>`; PR bodies via `--body-file`.
 - Prefer reporting `blocked` with reason `needs rebase onto {{DEFAULT_BRANCH}} / stack base`
   over leaving a dirty PR for the human to discover at merge time.
 

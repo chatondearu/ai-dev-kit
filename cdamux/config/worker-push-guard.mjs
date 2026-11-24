@@ -4,9 +4,10 @@
 // Strict whitelist, no shell parsing (owner decision 2026-11-24: every tokenizer had
 // bypasses). A command whose text mentions push / send-pack / receive-pack (quotes and
 // backslashes removed, any case) runs only as one plain line without shell metacharacters:
-//   git push [-u|--set-upstream] [--force-with-lease[=<own>[:<40-hex sha>]]] origin <own>
-//   (or origin HEAD:refs/heads/<own>), or bare `git push` / `git push origin` on the own
-//   upstream; every form only with no push-redirecting git config (pushConfigReason).
+//   git push [-u|--set-upstream] [--force-with-lease[=refs/heads/<own>[:<40-hex sha>]]]
+//     origin HEAD:refs/heads/<own>
+//   only (an explicit destination: no refmap, symref or upstream picks it), and only with
+//   no push-redirecting git state (pushStateReason, fail closed).
 // Repo tooling with a shell, node or a command runner in it (`bash|sh|./|scripts/<file>`,
 // `node <file>`, `mise exec --` / `nix develop -c` + cargo, make, just, npm|pnpm run …)
 // follows the same plain-line rule, files inside the worktree; read-only kit scripts run
@@ -14,7 +15,7 @@
 // / include, and `gh` merge or ref updates are refused. Exit 2 with the reason on stderr.
 // Text is not a sandbox: a script the worker writes can still push; branch protection is
 // the real guard.
-import { execFileSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { readFileSync, realpathSync, statSync } from 'node:fs';
 import { resolve, sep } from 'node:path';
 
@@ -28,36 +29,37 @@ try {
 
 // Any of these makes a line more than one plain command.
 const META = /[$`'"\\;&|<>(){}#\n\r\t]/;
-const PUSH_FORM = `git push [-u] [--force-with-lease[=${own}[:<sha>]]] `
-  + `origin ${own}|HEAD:refs/heads/${own}`;
+const DST = `HEAD:refs/heads/${own}`;
+const LEASE = `--force-with-lease[=refs/heads/${own}[:<40-hex sha>]]`;
+const PUSH_FORM = `git push [-u] [${LEASE}] origin ${DST}`;
 
-const gitIn = (cwd, ...a) => {
-  try {
-    return execFileSync('git', a, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
-  } catch {
-    return '';
-  }
+// Run git in `cwd`: { status, out }; status -1 when git cannot run or its output overflows.
+const gitRun = (cwd, ...a) => {
+  const opts = { cwd, encoding: 'utf8', maxBuffer: 64 << 20, stdio: ['ignore', 'pipe', 'ignore'] };
+  const r = spawnSync('git', a, opts);
+  return { status: r.error ? -1 : r.status, out: (r.stdout ?? '').trim() };
 };
 
-// Git config that can redirect any push (named or bare) and that the guard does not model:
-// any `push.*` but `push.default` simple/current/upstream, `remote.pushDefault`,
-// `remote.*.push*` (refmap, pushurl), `remote.*.mirror`, `branch.*.pushRemote`,
-// `url.*.insteadOf` / `pushInsteadOf`. Read in the hook's cwd (repo, global, system).
+// Git state that can still redirect an explicit `HEAD:refs/heads/<own>` push, or that the
+// guard does not model: any `push.*` but `push.default` simple/current/upstream,
+// `remote.pushDefault`, `remote.*.push*` (refmap, pushurl), `remote.*.mirror`,
+// `branch.*.pushRemote`, `url.*.insteadOf` / `pushInsteadOf`, `submodule.recurse`, and a
+// symbolic `refs/heads/<own>`. Fails closed: outside a git worktree, or when git config
+// cannot be read in full (status other than 0 or 1), the push is refused.
 const PUSH_CONFIG = '^(push\\.|remote\\.pushdefault$|remote\\..*\\.(push|mirror)'
-  + '|branch\\..*\\.pushremote$|url\\..*\\.(push)?insteadof$)';
-function pushConfigReason(cwd) {
-  const cfg = gitIn(cwd, 'config', '--get-regexp', PUSH_CONFIG);
+  + '|branch\\..*\\.pushremote$|url\\..*\\.(push)?insteadof$|submodule\\.recurse$)';
+function pushStateReason(cwd) {
+  if (gitRun(cwd, 'rev-parse', '--is-inside-work-tree').out !== 'true') {
+    return 'push from inside the worktree';
+  }
+  const { status, out } = gitRun(cwd, 'config', '--get-regexp', PUSH_CONFIG);
+  if (status !== 0 && status !== 1) return 'git config could not be read in full; push refused';
   const modeled = /^push\.default (simple|current|upstream)$/i;
-  const bad = cfg && cfg.split('\n').find((l) => !modeled.test(l.trim()));
-  return bad ? `git config ${bad.split(' ')[0]} can redirect a push; the guard refuses it` : null;
-}
-
-// Bare `git push [origin]` lets git pick what to push: only from the hook's cwd on the own
-// branch with upstream `refs/heads/<own>`.
-function implicitPushReason(cwd) {
-  const hint = `name the branch: git push origin ${own}`;
-  if (gitIn(cwd, 'symbolic-ref', '--short', '-q', 'HEAD') !== own) return hint;
-  if (gitIn(cwd, 'config', `branch.${own}.merge`) !== `refs/heads/${own}`) return hint;
+  const bad = out && out.split('\n').find((l) => !modeled.test(l.trim()));
+  if (bad) return `git config ${bad.split(' ')[0]} can redirect a push; push refused`;
+  if (gitRun(cwd, 'symbolic-ref', '-q', `refs/heads/${own}`).status !== 1) {
+    return `refs/heads/${own} is a symbolic ref (or unreadable); push refused`;
+  }
   return null;
 }
 
@@ -69,9 +71,6 @@ function pushReason(t, cwd) {
   if (META.test(t)) return `a push must be one plain line: ${PUSH_FORM}`;
   const [git, sub, ...rest] = t.split(/ +/);
   if (git !== 'git' || sub !== 'push') return `a push must be one plain line: ${PUSH_FORM}`;
-  const cfg = pushConfigReason(cwd);
-  if (cfg) return cfg;
-  if (rest.length === 0 || (rest.length === 1 && rest[0] === 'origin')) return implicitPushReason(cwd);
   const seen = new Set();
   const pos = [];
   for (const a of rest) {
@@ -82,8 +81,9 @@ function pushReason(t, cwd) {
       flag = 'lease';
     } else if (a.startsWith('--force-with-lease=')) {
       const [ref, sha, ...more] = a.slice('--force-with-lease='.length).split(':');
-      if (ref !== own || more.length || (sha !== undefined && !/^[0-9a-f]{40}$/.test(sha))) {
-        return `lease ${a} is not allowed: --force-with-lease[=${own}[:<40-hex sha>]]`;
+      const badSha = sha !== undefined && !/^[0-9a-f]{40}$/.test(sha);
+      if (ref !== `refs/heads/${own}` || more.length || badSha) {
+        return `lease ${a} is not allowed: ${LEASE}`;
       }
       flag = 'lease';
     } else if (a.startsWith('-')) {
@@ -94,11 +94,11 @@ function pushReason(t, cwd) {
     if (flag && seen.has(flag)) return `git push ${a} repeated`;
     if (flag) seen.add(flag);
   }
-  const dst = pos[1] === `HEAD:refs/heads/${own}` ? own : pos[1];
-  if (pos.length !== 2 || pos[0] !== 'origin' || dst !== own) {
-    return `push only to the own branch: ${PUSH_FORM}`;
+  // Only an explicit refs/heads destination: refmaps and symrefs cannot redirect it.
+  if (pos.length !== 2 || pos[0] !== 'origin' || pos[1] !== DST) {
+    return `push only with an explicit destination: ${PUSH_FORM}`;
   }
-  return null;
+  return pushStateReason(cwd);
 }
 
 // Read-only kit scripts a worker may run by absolute path, with exactly these arguments

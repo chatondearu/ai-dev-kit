@@ -193,7 +193,7 @@ for c in 'git push --force-with-lease' 'git push --force-with-lease origin worke
   rc=0; denied "$c" || rc=$?; assert_eq "$rc" "1" "text rules let the guard judge: $c"
 done
 for c in 'git push --force origin worker/r1/x' 'git push origin worker/r1/x --force' \
-  'git push --force-with-lease origin main' 'git push origin +worker/r1/x'; do
+  'git push --force-with-lease origin main' 'git push origin +worker/r1/x' 'git push origin HEAD:heads/main'; do
   rc=0; denied "$c" || rc=$?; assert_eq "$rc" "0" "text rules deny: $c"
 done
 r="$(orch_render_settings feat/a main /w/t /g/guard.mjs /k <"$ORCH_SETTINGS_TEMPLATE")"
@@ -278,6 +278,20 @@ for c in 'git push -uf origin feat/a' 'git push origin +feat/a' 'git push origin
   'git push --force-with-lease --tags origin feat/a' 'git push --force-with-lease --all origin'; do
   rc=0; guard "$c" || rc=$?; assert_eq "$rc" "2" "guard blocks: $c"
 done
+# Heredocs: only a `<<` the tokenizer reaches starts one; its body is data, an unclosed one
+# refuses the whole command (a fake `<<'X'` once hid the next line from the guard).
+for c in $'git commit --allow-empty -m "<<\'X\'"\ngit push origin HEAD:heads/main' \
+  $'# <<\'X\'\ngit push origin HEAD:heads/main' \
+  $'cat <<EOF\n<<\'X\'\nEOF\ngit push origin HEAD:heads/main\nX' \
+  $'cat <<\'X\'\ngit push origin feat/a' $'cat <<EOF\n$(git push origin main)\nEOF' \
+  $'echo ${#x}; git push origin main' $'cat <<-\'X\'\n\tbody\n  X\ngit push origin main'; do
+  rc=0; guard "$c" || rc=$?; assert_eq "$rc" "2" "guard blocks heredoc payload: ${c//$'\n'/⏎}"
+done
+for c in $'git commit -F - <<\'EOF\'\nnever git push -f origin main\nEOF' \
+  $'cat <<-\'EOF\'\n\tgit push -f origin main\n\tEOF\ngit push origin feat/a' \
+  $'git push origin feat/a # then git push origin main' $'cat <<EOF >x\n$HOME\nEOF'; do
+  rc=0; guard "$c" || rc=$?; assert_eq "$rc" "0" "guard allows heredoc data: ${c//$'\n'/⏎}"
+done
 
 # `git push` without a refspec: only from the own branch tracking refs/heads/<own>.
 R="$(mktemp -d)"
@@ -295,7 +309,16 @@ git -C "$R" config push.default matching
 rc=0; GUARD_CWD="$R" guard 'git push' || rc=$?; assert_eq "$rc" "2" "guard blocks git push with push.default=matching"
 git -C "$R" config --unset push.default && git -C "$R" config remote.origin.mirror true
 rc=0; GUARD_CWD="$R" guard 'git push origin' || rc=$?; assert_eq "$rc" "2" "guard blocks git push to a mirror remote"
-git -C "$R" config --unset remote.origin.mirror && git -C "$R" config branch.feat/a.merge refs/heads/main
+git -C "$R" config --unset remote.origin.mirror
+for kv in push.followTags=true push.recurseSubmodules=on-demand url.git@x:.pushInsteadOf=https://x/ \
+  remote.origin.pushurl=/elsewhere push.default=nothing; do
+  git -C "$R" config "${kv%%=*}" "${kv#*=}"
+  rc=0; GUARD_CWD="$R" guard 'git push' || rc=$?; assert_eq "$rc" "2" "guard blocks git push with $kv"
+  git -C "$R" config --unset "${kv%%=*}"
+done
+git -C "$R" config push.default simple
+rc=0; GUARD_CWD="$R" guard 'git push' || rc=$?; assert_eq "$rc" "0" "guard allows git push with push.default=simple"
+git -C "$R" config --unset push.default && git -C "$R" config branch.feat/a.merge refs/heads/main
 rc=0; GUARD_CWD="$R" guard 'git push' || rc=$?; assert_eq "$rc" "2" "guard blocks git push when upstream is another branch"
 git -C "$R" config branch.feat/a.merge refs/heads/feat/a && git -C "$R" switch -q main
 rc=0; GUARD_CWD="$R" guard 'git push' || rc=$?; assert_eq "$rc" "2" "guard blocks git push off the own branch"

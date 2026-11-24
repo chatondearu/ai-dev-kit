@@ -79,7 +79,8 @@ fn say_and_answer_read_text_from_stdin() {
         let mut child = c.spawn().expect("spawn cdamux");
         let mut pipe = child.stdin.take().unwrap();
         if let Some(s) = stdin {
-            pipe.write_all(s.as_bytes()).unwrap();
+            // The child may exit without reading (no `-`): a broken pipe is fine.
+            let _ = pipe.write_all(s.as_bytes());
         }
         drop(pipe);
         child.wait_with_output().unwrap()
@@ -94,10 +95,12 @@ fn say_and_answer_read_text_from_stdin() {
     ok(&["state", "set", "agents", "a-so", r#"{"id":"a-so","role":"orchestrator","status":"working"}"#], None);
     ok(&["state", "set", "agents", "a-sw", r#"{"id":"a-sw","role":"worker","parent":"a-so","status":"working"}"#], None);
 
-    // `-` and no text argument both read stdin; trailing newlines are dropped.
+    // Only an explicit `-` reads stdin; trailing newlines are dropped.
     let a = json(&ok(&["say", "a-so", "--from", "alice", "--json", "-"], Some("line one\nline \"two\"\n")));
-    let b = json(&ok(&["say", "a-so", "--from", "alice", "--json"], Some("-v --from bob\n")));
+    let b = json(&ok(&["say", "a-so", "--from", "alice", "--json", "--", "-"], Some("-v --from bob\n")));
     assert_eq!((a["outcome"].as_str(), b["outcome"].as_str()), (Some("queued"), Some("queued")));
+    // No text argument never reads stdin (a pipe that never closes would block): exit 2.
+    assert_eq!(run(&["say", "a-so", "--from", "alice"], Some("ignored\n")).status.code(), Some(2));
     // Empty stdin is an empty text: exit 2, nothing queued.
     assert_eq!(run(&["say", "a-so", "--from", "alice", "-"], Some("\n")).status.code(), Some(2));
     let events = ok(&["events", "--since", "0", "--json"], None);

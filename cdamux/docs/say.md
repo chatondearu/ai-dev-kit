@@ -16,9 +16,10 @@ cdamux say c-orch  --from alice --json "stop after this task"
 printf %s "$TEXT" | cdamux say a-xxxxx --from alice --json -     # text on stdin
 ```
 
-- **Text on stdin**: with `-` as the only text argument, or no text argument at all
-  (stdin not a terminal), the text is read from stdin and trailing newlines are dropped.
-  Bridges should use it so human text never sits on argv (visible in `ps`). Same rules
+- **Text on stdin**: only with `-` as the only text argument (after `--` if needed);
+  the text is read from stdin and trailing newlines are dropped. No text argument never
+  reads stdin (a pipe that never closes would block): it is an empty text, exit 2.
+  Bridges should use `-` so human text never sits on argv (visible in `ps`). Same rules
   as argv text (empty, control characters, 2 KB → exit 2). Same for `msg answer`.
 
 - The target (agent id, or tmux / registry session name) must be an **orchestrator**.
@@ -43,7 +44,8 @@ printf %s "$TEXT" | cdamux say a-xxxxx --from alice --json -     # text on stdin
 - Every accepted `say` appends one `human` item to the [events feed](events.md)
   (`id, agent, from, text`), at call time, delivered or queued. The paste itself — at
   once, or at a later turn end for a queued prompt — appends a `delivered` item
-  (`id, agent`, same `id`): a `human` without one is still waiting in the queue.
+  (`id, agent`, same `id`), always after the `human` one. Best effort: a `human` without
+  a `delivered` is probably still queued; the hook log below is authoritative.
 - Each decision (`delivered` / `queued`, then `pasted` / `not_ready` / `paste_failed`)
   is traced by id in `$CDAMUX_HOME/logs/hooks.log` ([events.md](events.md#hook-log-cdamux_homelogshookslog)).
 
@@ -88,5 +90,5 @@ Answers a worker's pending `ask` on a human's behalf (the ask id appears in
   The check and the answer run under one lock: of two concurrent answers, one wins.
 - Output: `<answer-msg-id> answered`; `--json` prints
   `{"v":1,"id","ask","worker","outcome":"answered","relayed":true|false}`.
-- Text: argv, or stdin with `-` / no text argument (see `say` above).
+- Text: argv, or stdin with an explicit `-` (see `say` above).
 - Messages are capped at 2 KB per inbox line, so a long answer fails with exit 2.

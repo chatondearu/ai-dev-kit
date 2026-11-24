@@ -151,7 +151,9 @@ fn check_label(s: &str) -> Result<(), MsgError> {
 /// Deliver `text` to an orchestrator as a human prompt `[from] text`: pasted when it is
 /// at rest (reported `idle`, sticky `done` / `error`, or no status, and a quiet pane), else queued for its next turn
 /// end ([`say_drain`]). A `needs_input` orchestrator waits on a permission prompt, where
-/// the paste's Enter would answer it, so that is queued too. One `human` event per call.
+/// the paste's Enter would answer it, so that is queued too. One `human` event per call,
+/// written before the prompt is queued (a failed queue write leaves it without a
+/// `delivered`).
 ///
 /// `quiet_secs` / `idle_override` are injectable for tests like in [`msg_send`].
 pub fn say(
@@ -172,13 +174,15 @@ pub fn say(
         )));
     }
     let id = generate_msg_id().ok_or_else(|| MsgError::Io("urandom unavailable".into()))?;
+    // Before the push: a concurrent drain may paste it at once, and its `delivered` item
+    // must follow this one in the journal.
+    emit(json!({
+        "type": "human", "ts": now_ts(), "id": id, "agent": to, "from": from, "text": text,
+    }));
     queue_push(
         &to,
         &Queued { id: id.clone(), ts: now_ts(), from: from.into(), text: text.into() },
     )?;
-    emit(json!({
-        "type": "human", "ts": now_ts(), "id": id, "agent": to, "from": from, "text": text,
-    }));
 
     let snapshot = || {
         let idle = idle_override.unwrap_or_else(|| {

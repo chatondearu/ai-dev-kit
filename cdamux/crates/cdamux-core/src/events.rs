@@ -239,8 +239,14 @@ fn read_with_pos(live: &Path, since: u64) -> Result<(Vec<Value>, Option<LivePos>
 }
 
 /// Complete lines appended to the live segment since `pos`, and the new position;
-/// `None` when the segment was rotated or replaced (other inode, shorter, gone).
-fn read_appended(live: &Path, (ino, off): LivePos) -> io::Result<Option<(Vec<Value>, LivePos)>> {
+/// `None` when the segment was rotated or replaced: other inode, shorter, gone, or
+/// rewritten in place (reused inode, regrown past `off`) — the line at `off` does not
+/// parse, or a cursor is not after `since`.
+fn read_appended(
+    live: &Path,
+    (ino, off): LivePos,
+    since: u64,
+) -> io::Result<Option<(Vec<Value>, LivePos)>> {
     use std::io::{Read, Seek, SeekFrom};
     use std::os::unix::fs::MetadataExt;
     let mut f = match std::fs::File::open(live) {
@@ -258,7 +264,17 @@ fn read_appended(live: &Path, (ino, off): LivePos) -> io::Result<Option<(Vec<Val
     let mut bytes = Vec::new();
     f.read_to_end(&mut bytes)?;
     let end = complete_len(&bytes);
-    Ok(Some((parse_lines(&bytes[..end]), (ino, off + end as u64))))
+    let mut items = Vec::new();
+    for (i, line) in String::from_utf8_lossy(&bytes[..end]).lines().enumerate() {
+        match serde_json::from_str::<Value>(line) {
+            Ok(v) if line_cursor(&v).is_some_and(|c| c > since) => items.push(v),
+            // A cursor not after `since`, or `off` mid-line: rewritten in place.
+            Ok(_) => return Ok(None),
+            Err(_) if i == 0 => return Ok(None),
+            Err(_) => {} // torn line, skipped like a full read does
+        }
+    }
+    Ok(Some((items, (ino, off + end as u64))))
 }
 
 /// `events --follow` reader: one full read, then only the lines appended to the live
@@ -282,7 +298,7 @@ impl EventTail {
     /// Items with a cursor after the last one returned (after `since` on the first call).
     pub fn poll(&mut self) -> Result<Vec<Value>, EventsError> {
         let appended = match self.pos {
-            Some(pos) => read_appended(&self.live, pos)?,
+            Some(pos) => read_appended(&self.live, pos, self.since)?,
             None => None,
         };
         let items = match appended {
@@ -753,6 +769,29 @@ mod tests {
         assert_eq!(decisions, ["tool_only", "duplicate", "tool_only", "reply", "duplicate"]);
         assert!(!log.contains("All merged."));
         std::env::remove_var("CDAMUX_HOME");
+    }
+
+    #[test]
+    fn tail_refuses_an_in_place_reset_regrown_past_its_offset() {
+        let dir = tempfile::tempdir().unwrap();
+        let live = dir.path().join("events.jsonl");
+        for _ in 0..3 {
+            append_at(&live, item("msg"), SEGMENT_MAX_BYTES).unwrap();
+        }
+        let mut tail = EventTail::at(live.clone(), 0);
+        assert_eq!(tail.poll().unwrap().len(), 3);
+        // Same inode, longer than the old offset: `off` lands mid-line.
+        let long = format!("{{\"v\":1,\"cursor\":\"1\",\"type\":\"msg\",\"ts\":1,\"text\":\"{}\"}}\n", "x".repeat(400));
+        std::fs::write(&live, long).unwrap();
+        assert_eq!(tail.poll().unwrap_err(), EventsError::Ahead { since: 3, last: 1 });
+
+        // Regrown on a line boundary with old cursors: refused too.
+        let mut tail = EventTail::at(live.clone(), 0);
+        assert_eq!(tail.poll().unwrap().len(), 1);
+        let line = |c: u64| format!("{{\"v\":1,\"cursor\":\"{c}\",\"type\":\"msg\",\"ts\":1}}\n");
+        let text = std::fs::read_to_string(&live).unwrap();
+        std::fs::write(&live, text + &line(1)).unwrap();
+        assert!(tail.poll().unwrap().is_empty(), "full read: nothing after cursor 1");
     }
 
     #[test]

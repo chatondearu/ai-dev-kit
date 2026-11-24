@@ -218,7 +218,7 @@ enum Commands {
         /// Print `{"v":1,"id","target","outcome"}`.
         #[arg(long)]
         json: bool,
-        /// Prompt text (words joined with spaces); `-` or none: read it from stdin.
+        /// Prompt text (words joined with spaces); `-`: read it from stdin.
         text: Vec<String>,
     },
     /// Read-only events feed: orchestrator inbox msgs, status changes, orchestrator replies.
@@ -447,7 +447,7 @@ enum MsgCommands {
         /// Print `{"v":1,"id","ask","worker","outcome","relayed"}`.
         #[arg(long)]
         json: bool,
-        /// Answer text (words joined with spaces); `-` or none: read it from stdin.
+        /// Answer text (words joined with spaces); `-`: read it from stdin.
         text: Vec<String>,
     },
     /// Turn-end hook: paste the next queued `say` prompt into an idle orchestrator.
@@ -1235,16 +1235,12 @@ fn msg_exit(e: &cdamux_core::MsgError) -> ExitCode {
     ExitCode::from(if matches!(e, cdamux_core::MsgError::Io(_)) { 1 } else { 2 })
 }
 
-/// Text from argv, or from stdin when it is `-` or absent, so a caller never has to put
-/// human text on argv (visible in `ps`). Trailing newlines from stdin are dropped.
+/// Text from argv, or from stdin when it is exactly `-`, so a caller never has to put
+/// human text on argv (visible in `ps`). Never read implicitly: a stdin pipe that never
+/// closes would block forever. Trailing newlines from stdin are dropped.
 fn text_arg(cmd: &str, text: &[String]) -> Result<String, ExitCode> {
-    use std::io::IsTerminal;
-    if !(text.is_empty() || text == ["-"]) {
+    if text != ["-"] {
         return Ok(text.join(" "));
-    }
-    if text.is_empty() && io::stdin().is_terminal() {
-        eprintln!("{cmd}: text required (as arguments, or on stdin with `-`)");
-        return Err(ExitCode::from(2));
     }
     let mut buf = String::new();
     // Well above the 2 KB message cap, which then rejects the text with exit 2.

@@ -128,3 +128,46 @@ fn refused_cursor_has_its_own_exit_code() {
 
     assert_eq!(run(&["events", "--since", "x"]).status.code(), Some(2));
 }
+
+/// `--follow` notices a journal reset in place (same inode) that regrew past its read
+/// offset before the next poll, and refuses its cursor instead of streaming garbage.
+#[test]
+fn follow_refuses_an_in_place_reset() {
+    let tmp = tempfile::tempdir().unwrap();
+    let home = tmp.path().join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    let journal = home.join("events.jsonl");
+    let line = |c: u64, text: &str| {
+        format!("{{\"v\":1,\"cursor\":\"{c}\",\"type\":\"msg\",\"ts\":1,\"text\":\"{text}\"}}\n")
+    };
+    std::fs::write(&journal, line(1, "a") + &line(2, "b") + &line(3, "c")).unwrap();
+    let mut follow = Command::new(env!("CARGO_BIN_EXE_cdamux"))
+        .args(["events", "--follow", "--json", "--since", "0"])
+        .env("CDAMUX_HOME", &home)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut out = BufReader::new(follow.stdout.take().unwrap());
+    for _ in 0..3 {
+        let mut l = String::new();
+        out.read_line(&mut l).unwrap();
+        assert!(l.contains("\"cursor\""), "{l}");
+    }
+    std::fs::write(&journal, line(1, &"x".repeat(400))).unwrap();
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    let status = loop {
+        if let Some(s) = follow.try_wait().unwrap() {
+            break Some(s);
+        }
+        if std::time::Instant::now() > deadline {
+            let _ = follow.kill();
+            break None;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    let mut err = String::new();
+    std::io::Read::read_to_string(&mut follow.stderr.take().unwrap(), &mut err).unwrap();
+    assert_eq!(status.and_then(|s| s.code()), Some(3), "stderr: {err}");
+    assert!(err.starts_with("events: cursor refused: ") && err.contains("ahead"), "{err}");
+}

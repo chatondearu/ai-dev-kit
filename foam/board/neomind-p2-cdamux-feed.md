@@ -23,7 +23,7 @@ Epic: [neomind `audit-p2-orch-chats-debuggability`](https://github.com/chatondea
 4. `msg answer --json` gains `relayed` (L4).
 5. A tool-only turn is a `status` item (`tool_only: true`), never a `reply` (M1).
 6. Refused cursor (expired / ahead): exit 3, stderr prefix `events: cursor refused: `.
-7. `say` / `msg answer` read the text from stdin with `-` or no text argument.
+7. `say` / `msg answer` read the text from stdin with an explicit `-`.
 
 Schema stays `v: 1` (additive). Docs: [events.md](../../cdamux/docs/events.md), [say.md](../../cdamux/docs/say.md).
 

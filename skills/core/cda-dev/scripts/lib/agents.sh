@@ -251,8 +251,9 @@ orch_agent_settings() {
   # Kit root (templates live in <kit>/skills/core/cda-dev/templates): the guard lets its
   # read-only scripts run.
   [ -f "$tdir/../../cda-kanban/scripts/foam-board.sh" ] && kit="$(cd "$tdir/../../../.." && pwd -P)"
+  # Absolute node: the hook fails closed (`|| exit 2`), and a worker PATH may lack node.
   orch_render_settings "$branch" "$default" "$(cd "$wt" && pwd -P)" "$dir/worker-push-guard.mjs" "$kit" \
-    <"$ORCH_SETTINGS_TEMPLATE" >"$out" || return 1
+    "$(command -v node)" <"$ORCH_SETTINGS_TEMPLATE" >"$out" || return 1
   # The reviewer writes its verdict in a mktemp dir outside the worktree (orch.sh review
   # gate): allow that one file by glob, so the settings never name the random dir.
   if [ "${2:-}" = reviewer ]; then
@@ -265,23 +266,24 @@ orch_agent_settings() {
 }
 
 # Template on stdin → settings on stdout for branch $1, default branch $2, worktree $3,
-# push guard $4 and kit root $5 (same rule as cdamux `worker_settings_json`). A branch or
-# default branch outside [A-Za-z0-9._/@+-] counts as unknown; no push is allowed when either
-# is unknown or they are equal. The guard gets the worktree and kit root (empty: no kit
-# script runs). A path with a quote, paren or `*` is refused.
+# push guard $4, kit root $5 and node binary $6 (default `node`; same rule as cdamux
+# `worker_settings_json`). A branch or default branch outside [A-Za-z0-9._/@+-] counts as
+# unknown; no push is allowed when either is unknown or they are equal. The guard gets the
+# worktree and kit root (empty: no kit script runs). A path with a quote, paren or `*` is
+# refused.
 orch_render_settings() {
-  local b="$1" d="$2" k="${5:-}" ref='^[A-Za-z0-9._/@+-]+$'
-  case "$3$4$k" in *[\'\"\(\)\*]*) return 1;; esac
+  local b="$1" d="$2" k="${5:-}" n="${6:-node}" ref='^[A-Za-z0-9._/@+-]+$'
+  case "$3$4$k$n" in *[\'\"\(\)\*]*) return 1;; esac
   [ -n "$3" ] && [ -n "$4" ] || return 1
   [[ "$b" =~ $ref ]] || b=""
   [[ "$d" =~ $ref ]] || d=""
   { [ -n "$d" ] && [ "$b" != "$d" ]; } || b=""
-  jq --arg b "$b" --arg d "$d" --arg w "$3" --arg g "$4" --arg k "$k" '
+  jq --arg b "$b" --arg d "$d" --arg w "$3" --arg g "$4" --arg k "$k" --arg n "$n" '
     (if $d == "" then .permissions |= map_values(map(select(contains("__DEFAULT__") | not))) else . end)
     | (if $b == "" then .permissions.allow |= map(select(startswith("Bash(git push") | not)) else . end)
     | walk(if type == "string"
            then gsub("__BRANCH__"; $b) | gsub("__DEFAULT__"; $d) | gsub("__WORKTREE__"; $w) | gsub("__GUARD__"; $g)
-             | gsub("__KIT__"; $k)
+             | gsub("__KIT__"; $k) | gsub("__NODE__"; $n)
            else . end)'
 }
 

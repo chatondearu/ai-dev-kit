@@ -58,8 +58,11 @@
       "Bash(go vet *)",
       "Bash(pytest *)",
       "Bash(uv run pytest *)",
-      "Bash(nix develop -c bash scripts/*)",
-      "Bash(nix develop -c cargo *)"
+      "Bash(scripts/*)",
+      "Bash(node *)",
+      "Bash(mise exec -- *)",
+      "Bash(nix develop -c *)",
+      "Bash(nix develop --command *)"
     ],
     "deny": [
       "Read(~/.ssh/**)",
@@ -119,7 +122,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node '__GUARD__' '__BRANCH__' '__DEFAULT__' '__WORKTREE__' '__KIT__' || exit 2"
+            "command": "'__NODE__' '__GUARD__' '__BRANCH__' '__DEFAULT__' '__WORKTREE__' '__KIT__' || exit 2"
           }
         ]
       }

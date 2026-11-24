@@ -7,10 +7,11 @@
 //   git push [-u|--set-upstream] [--force-with-lease[=<own>[:<40-hex sha>]]] origin <own>
 //   (or origin HEAD:refs/heads/<own>), or bare `git push` / `git push origin` on the own
 //   upstream; every form only with no push-redirecting git config (pushConfigReason).
-// Shell script runs (`bash|sh <relative path in the worktree> [args]`, `./<path>`) follow
-// the same plain-line rule; read-only kit scripts run only in their listed forms. Git with
-// $, backticks, xargs or eval, git alias / config-env / include, and `gh` merge or ref
-// updates are refused. Exit 2 with the reason on stderr.
+// Repo tooling with a shell, node or a command runner in it (`bash|sh|./|scripts/<file>`,
+// `node <file>`, `mise exec --` / `nix develop -c` + cargo, make, just, npm|pnpm run …)
+// follows the same plain-line rule, files inside the worktree; read-only kit scripts run
+// only in their listed forms. Git with $, backticks, xargs or eval, git alias / config-env
+// / include, and `gh` merge or ref updates are refused. Exit 2 with the reason on stderr.
 // Text is not a sandbox: a script the worker writes can still push; branch protection is
 // the real guard.
 import { execFileSync } from 'node:child_process';
@@ -113,30 +114,55 @@ const kitForm = (args) => Boolean(kit) && KIT_FORMS.some(([p, ...a]) => args[0] 
   && [a, p.endsWith('doc-hygiene.sh') ? [...a, worktree] : null]
     .some((f) => f && f.join(' ') === args.slice(1).join(' ')));
 
-// Reason a line that runs a shell or `./x` is refused, or null: one plain line
-// `[nix develop -c] bash|sh <relative path> [args]` or `./<path> [args]`, the path a file
-// inside the worktree (symlinks resolved, no `..`), or a KIT_FORMS line.
-function scriptReason(t, cwd) {
-  const form = 'run a script as one plain line: bash|sh <path in the worktree> [args]';
-  if (META.test(t)) return form;
-  let w = t.split(/ +/);
-  if (w.slice(0, 3).join(' ') === 'nix develop -c') w = w.slice(3);
-  const viaShell = w[0] === 'bash' || w[0] === 'sh';
-  if (!viaShell && !(w[0] ?? '').startsWith('./')) return form;
-  const args = viaShell ? w.slice(1) : w;
-  if (viaShell && kitForm(args)) return null;
-  const p = args[0] ?? '';
-  if (!p || p.startsWith('-') || p.startsWith('/')) return form;
-  if (p.split('/').includes('..')) return `script path ${p} contains ..`;
+const TOOL_FORM = 'run repo tooling as one plain line, no pipe/redirect/$/quotes: cargo …, '
+  + 'make|just …, npm|pnpm run …, node <file>, bash|sh|./|scripts/<script> …, optionally '
+  + 'behind mise exec -- or nix develop -c';
+
+// Reason `p` is not a file inside the worktree (relative, symlinks resolved, no `..`).
+function pathReason(p, cwd) {
+  if (!p || p.startsWith('-') || p.startsWith('/')) {
+    return `name a file of the worktree by relative path: ${p}`;
+  }
+  if (p.split('/').includes('..')) return `path ${p} contains ..`;
   let real;
   try {
     real = realpathSync(resolve(cwd, p));
     if (!statSync(real).isFile()) throw new Error('not a file');
   } catch {
-    return `script ${p} is not a file`;
+    return `${p} is not a file`;
   }
   const inside = root && (real === root || real.startsWith(root + sep));
-  return inside ? null : `script ${p} is outside the worktree`;
+  return inside ? null : `${p} is outside the worktree`;
+}
+
+// npm / pnpm subcommands a worker may run (no exec/dlx: they run any package).
+const NPM_SUBS = {
+  npm: ['run', 'test', 'ci', 'install'],
+  pnpm: ['install', 'run', 'test', 'build', 'lint', 'typecheck'],
+};
+
+// Reason the words of one plain line are not a repo tool run, or null. `mise exec --` and
+// `nix develop -c|--command` may wrap one tool (not each other): they run anything else.
+function toolReason(w, cwd, wrapped = false) {
+  const [cmd = '', ...args] = w;
+  if (!wrapped && cmd === 'mise' && args[0] === 'exec' && args[1] === '--') {
+    return toolReason(args.slice(2), cwd, true);
+  }
+  const nixDevelop = cmd === 'nix' && args[0] === 'develop' && ['-c', '--command'].includes(args[1]);
+  if (!wrapped && nixDevelop) {
+    return toolReason(args.slice(2), cwd, true);
+  }
+  if (cmd === 'cargo') return args.includes('install') ? 'cargo install is not allowed' : null;
+  if (cmd === 'make' || cmd === 'just') return null;
+  if (Object.hasOwn(NPM_SUBS, cmd)) {
+    const global = args.some((a) => /^(-g$|--global|--prefix|--location)/.test(a));
+    const ok = NPM_SUBS[cmd].includes(args[0]) && !global;
+    return ok ? null : `${cmd} ${args[0] ?? ''} is not allowed`;
+  }
+  if (cmd === 'node') return pathReason(args[0], cwd);
+  if (cmd === 'bash' || cmd === 'sh') return kitForm(args) ? null : pathReason(args[0], cwd);
+  if (cmd.startsWith('./') || cmd.startsWith('scripts/')) return pathReason(cmd, cwd);
+  return TOOL_FORM;
 }
 
 // Reason the command text is refused, or null.
@@ -154,8 +180,10 @@ function reason(cmd, cwd) {
   if (/\bgh\b/.test(flat) && /merge|git\/refs|updateref|deleteref|createref/i.test(flat)) {
     return 'gh merge / ref updates are not allowed';
   }
-  if (/(^|[^\w.-])(bash|sh|zsh|dash|ksh)\b/.test(flat) || /(^|[;&|(){}\n`]\s*)\.\.?\//.test(t)) {
-    return scriptReason(t, cwd);
+  // A shell, a runner or node anywhere, or a `./` / `scripts/` path at a command start.
+  if (/(^|[^\w.-])(bash|sh|zsh|dash|ksh|node|mise|nix)\b/.test(flat)
+    || /(^|[;&|(){}\n`]\s*)(\.\.?\/|scripts\/)/.test(t)) {
+    return META.test(t) ? TOOL_FORM : toolReason(t.split(/ +/), cwd);
   }
   return null;
 }

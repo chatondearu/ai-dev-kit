@@ -157,11 +157,20 @@ const WORKER_PUSH_GUARD: &str =
 /// read-only scripts of the kit at `kit` run (none when empty): push only to its own
 /// branch, never to the default one (same rule as orch.sh `orch_render_settings`). A branch
 /// name outside `[A-Za-z0-9._/@+-]` counts as unknown; no push when either is unknown or
-/// they are equal. `None` when a path holds a quote, paren or `*` (rule syntax).
-pub fn worker_settings_json(branch: &str, default: &str, worktree: &str, guard: &str, kit: &str) -> Option<String> {
+/// they are equal. The hook runs `node` (absolute path: it fails closed). `None` when a
+/// path holds a quote, paren or `*` (rule syntax).
+pub fn worker_settings_json(
+    branch: &str,
+    default: &str,
+    worktree: &str,
+    guard: &str,
+    kit: &str,
+    node: &str,
+) -> Option<String> {
     if worktree.is_empty()
         || guard.is_empty()
-        || format!("{worktree}{guard}{kit}").contains(['\'', '"', '(', ')', '*'])
+        || node.is_empty()
+        || format!("{worktree}{guard}{kit}{node}").contains(['\'', '"', '(', ')', '*'])
     {
         return None;
     }
@@ -176,6 +185,7 @@ pub fn worker_settings_json(branch: &str, default: &str, worktree: &str, guard: 
             .replace("__WORKTREE__", worktree)
             .replace("__GUARD__", guard)
             .replace("__KIT__", kit)
+            .replace("__NODE__", node)
     };
     let mut v: Value = serde_json::from_str(WORKER_SETTINGS_TEMPLATE).expect("embedded template");
     for key in ["allow", "deny"] {
@@ -211,6 +221,22 @@ fn kit_root() -> Option<PathBuf> {
     kit.join("skills/core/cda-kanban/scripts/foam-board.sh").is_file().then(|| kit.to_path_buf())
 }
 
+/// `node` for the guard hook: first on `PATH`, else the one packaged with the cdamux hooks
+/// (`${XDG_DATA_HOME:-~/.local/share}/cdamux/hooks/node`), else plain `node`.
+fn node_bin() -> PathBuf {
+    let on_path = std::env::var_os("PATH")
+        .into_iter()
+        .flat_map(|p| std::env::split_paths(&p).collect::<Vec<_>>())
+        .map(|d| d.join("node"));
+    let data = std::env::var_os("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share")));
+    on_path
+        .chain(data.map(|d| d.join("cdamux/hooks/node")))
+        .find(|p| p.is_file())
+        .unwrap_or_else(|| PathBuf::from("node"))
+}
+
 /// Claude workers: write `$CDAMUX_HOME/settings/<host>.json` (and the push guard next to
 /// it) and append `--permission-mode dontAsk --settings <file>` to `command`. Other
 /// clients keep their own interactive approvals (ADR-019). `None` when the files cannot be
@@ -231,7 +257,8 @@ pub(crate) fn with_worker_permissions(
     crate::state::write_atomic(&guard, WORKER_PUSH_GUARD.as_bytes()).ok()?;
     let wt = worktree.canonicalize().ok()?;
     let kit = kit_root().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
-    let json = worker_settings_json(&branch, &default, &wt.to_string_lossy(), &guard.to_string_lossy(), &kit)?;
+    let node = node_bin().to_string_lossy().into_owned();
+    let json = worker_settings_json(&branch, &default, &wt.to_string_lossy(), &guard.to_string_lossy(), &kit, &node)?;
     let file = dir.join(format!("{host}.json"));
     crate::state::write_atomic(&file, json.as_bytes()).ok()?;
     Some(format!(
@@ -882,7 +909,7 @@ mod tests {
 
     #[test]
     fn worker_settings_allow_own_branch_and_deny_default() {
-        let render = |b: &str, d: &str| worker_settings_json(b, d, "/w/t", "/g/guard.mjs", "/k").unwrap();
+        let render = |b: &str, d: &str| worker_settings_json(b, d, "/w/t", "/g/guard.mjs", "/k", "/n/node").unwrap();
         let v: Value = serde_json::from_str(&render("worker/r1/x", "dev")).unwrap();
         let has = |key: &str, rule: &str| {
             v["permissions"][key].as_array().unwrap().contains(&json!(rule))
@@ -895,7 +922,7 @@ mod tests {
         assert!(has("deny", "Bash(gh pr merge *)"));
         assert_eq!(
             v["hooks"]["PreToolUse"][0]["hooks"][0]["command"],
-            "node '/g/guard.mjs' 'worker/r1/x' 'dev' '/w/t' '/k' || exit 2"
+            "'/n/node' '/g/guard.mjs' 'worker/r1/x' 'dev' '/w/t' '/k' || exit 2"
         );
         assert!(!v.to_string().contains("__"), "placeholder left: {v}");
         for (branch, default) in [("dev", "dev"), ("", "dev"), ("worker/r1/x", ""), ("a'b", "dev")] {
@@ -905,10 +932,9 @@ mod tests {
             assert!(!s.contains("__"), "placeholder left for {branch:?}/{default:?}");
             assert!(!s.contains("a'b"), "unsafe branch kept");
         }
-        let s = worker_settings_json("b", "dev", "/w/t", "/g", "").unwrap();
+        let s = worker_settings_json("b", "dev", "/w/t", "/g", "", "node").unwrap();
         assert!(s.contains("'/w/t' '' || exit 2"), "no kit: the guard gets an empty kit root: {s}");
-        assert!(worker_settings_json("b", "dev", "/w/(t)", "/g", "").is_none(), "unsafe path refused");
-    }
+        assert!(worker_settings_json("b", "dev", "/w/(t)", "/g", "", "node").is_none(), "unsafe path refused");    }
 
     #[test]
     fn here_refusal_follows_the_repo_default_branch() {

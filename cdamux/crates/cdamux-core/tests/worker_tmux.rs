@@ -220,7 +220,7 @@ fn spawn_ls_peek_and_msg_by_name() {
         "first --prompt-file message missing from pane: {prompt_pane}"
     );
     assert!(
-        prompt_pane.contains("cdamux msg"),
+        prompt_pane.contains("(ADR-019)"),
         "worker preamble missing from pane: {prompt_pane}"
     );
     // ADR-019: claude workers start in dontAsk with the rendered allowlist + push guard.

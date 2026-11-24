@@ -272,21 +272,23 @@ fn slug_session(name: &str) -> String {
     format!("c-{}", if safe.is_empty() { "worker" } else { &safe })
 }
 
-/// Default first-message prefix for `worker spawn` (cdamux msg reporting).
-pub fn worker_preamble() -> &'static str {
+/// Default first-message prefix for `worker spawn` (cdamux msg reporting), with the
+/// parent agent id written in literally: the worker allowlist denies `$(…)` (ADR-019).
+pub fn worker_preamble(parent: &str) -> String {
     include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../prompts/worker-preamble.md"
     ))
     .trim()
+    .replace("__PARENT__", parent)
 }
 
 /// Preamble alone, or preamble + user prompt from `--prompt-file`.
-pub fn compose_worker_first_prompt(user: Option<&str>) -> String {
-    let preamble = worker_preamble();
+pub fn compose_worker_first_prompt(parent: &str, user: Option<&str>) -> String {
+    let preamble = worker_preamble(parent);
     match user.map(str::trim).filter(|s| !s.is_empty()) {
         Some(u) => format!("{preamble}\n\n{u}"),
-        None => preamble.to_string(),
+        None => preamble,
     }
 }
 
@@ -744,7 +746,7 @@ pub fn spawn_worker(req: WorkerSpawnRequest<'_>) -> Result<WorkerSpawnResult, Wo
         Some(p) => Some(fs::read_to_string(p).map_err(|e| WorkerError::Io(e.to_string()))?),
         None => None,
     };
-    let prompt = compose_worker_first_prompt(user_prompt.as_deref());
+    let prompt = compose_worker_first_prompt(req.caller_id, user_prompt.as_deref());
 
     // Run stays on the caller's orchestrator cwd even when `--repo` retargets the worktree.
     let caller_cwd = resolve_caller_cwd(&caller, req.cwd);
@@ -1223,12 +1225,29 @@ mod tests {
 
     #[test]
     fn worker_preamble_mentions_cdamux_msg() {
-        let p = worker_preamble();
+        let p = worker_preamble("a-orch1");
         assert!(p.contains("cdamux msg"), "{p}");
         assert!(p.contains("--kind ask"), "{p}");
-        let composed = compose_worker_first_prompt(Some("do the thing"));
-        assert!(composed.starts_with(p));
+        let composed = compose_worker_first_prompt("a-orch1", Some("do the thing"));
+        assert!(composed.starts_with(&p));
         assert!(composed.contains("do the thing"));
-        assert_eq!(compose_worker_first_prompt(None), p);
+        assert_eq!(compose_worker_first_prompt("a-orch1", None), p);
+    }
+
+    #[test]
+    fn worker_preamble_report_lines_pass_the_allowlist() {
+        let p = worker_preamble("a-orch1");
+        assert!(!p.contains("__PARENT__") && !p.contains("$("), "{p}");
+        assert!(WORKER_SETTINGS_TEMPLATE.contains("\"Bash(cdamux msg *)\""));
+        // Commands are the backticked `cdamux msg send …` cells of the table.
+        let lines: Vec<&str> = p
+            .split('`')
+            .filter(|s| s.starts_with("cdamux msg send"))
+            .collect();
+        assert_eq!(lines.len(), 4, "{p}");
+        for l in lines {
+            assert!(l.starts_with("cdamux msg send --to a-orch1 --kind "), "{l}");
+            assert!(!l.contains(['$', '|', ';', '&']), "not a plain command: {l}");
+        }
     }
 }

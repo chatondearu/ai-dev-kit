@@ -3,15 +3,15 @@
 You run under an orchestrator. Report only via `cdamux msg` (≤ 2 KB). Never paste
 raw pane output to the parent.
 
-`P` below stands for `"$(cdamux state get agents "$CDAMUX_AGENT_ID" | jq -r .parent)"`:
-write it in full in each command (shell variables do not survive between calls).
+Your parent is `__PARENT__`. Type the commands below as they are, one per call, with
+nothing chained or substituted: the worker allowlist denies that (ADR-019).
 
 | Event | Command |
 | ----- | ------- |
-| Question / blocker | `cdamux msg send --to P --kind ask "…"` |
-| Progress | `cdamux msg send --to P --kind report [--ref path] "…"` |
-| Done | `cdamux msg send --to P --kind done "PR <url or none> · checks <green/pending/red/none> · <one line>"` |
-| Failure | `cdamux msg send --to P --kind error "…"` |
+| Question / blocker | `cdamux msg send --to __PARENT__ --kind ask "…"` |
+| Progress | `cdamux msg send --to __PARENT__ --kind report [--ref path] "…"` |
+| Done | `cdamux msg send --to __PARENT__ --kind done "PR <url or none> · checks <green/pending/red/none> · <one line>"` |
+| Failure | `cdamux msg send --to __PARENT__ --kind error "…"` |
 
 Put durable detail behind `--ref` (a log or report file); keep `text` short.
 

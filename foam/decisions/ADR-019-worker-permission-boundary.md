@@ -160,9 +160,10 @@ and `bash <kit>/…/doc-hygiene.sh --check <repo>`.
   reconcile` (read-only). The former `foam-board.sh *` is narrowed to `list-ready
   [--json]`, `path`, `reconcile` (report only), `claim`, `set-status`: `reconcile --pr`
   merges a PR and is not a worker command.
-- Known gap: the reporting line of the worker preamble (`cdamux msg send --to "$(…)"`)
-  is itself denied under `dontAsk` (command substitution); workers send to the literal
-  parent id until the preamble renders it.
+- **Preamble report lines are plain commands**: `cdamux worker spawn` writes the parent
+  agent id into the preamble (`__PARENT__`), so each line is `cdamux msg send --to
+  <parent> …`, matched by `Bash(cdamux msg *)`; the former `--to "$(cdamux state get …
+  | jq …)"` was denied under `dontAsk` (command substitution).
 
 ## Alternatives considered
 

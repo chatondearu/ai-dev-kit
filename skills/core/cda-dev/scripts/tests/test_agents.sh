@@ -240,8 +240,8 @@ assert_eq "$(jq -r '.permissions.allow | index("Edit(//w/t/**)") != null' <<<"$r
 assert_eq "$(jq -r '.permissions.allow | index("Bash(git merge origin/main)") != null' <<<"$r")" "true" "merge of the default branch allowed"
 assert_eq "$(jq -r '.hooks.PreToolUse[0].hooks[0].command' <<<"$r")" "node '/g/guard.mjs' 'feat/a' 'main' || exit 2" "push guard hook wired, fails closed"
 assert_eq "$(render "a'b" main | jq -r '.hooks.PreToolUse[0].hooks[0].command')" "node '/g/guard.mjs' '' 'main' || exit 2" "unsafe branch name: no push"
-rc=0; jq -n '{tool_name:"Bash",tool_input:{command:"git status"}}' \
-  | PATH=/nonexistent /bin/sh -c "node /g/guard.mjs feat/a main || exit 2" 2>/dev/null || rc=$?
+hook="$(jq -r '.hooks.PreToolUse[0].hooks[0].command' <<<"$r")"
+rc=0; jq -n '{tool_name:"Bash",tool_input:{command:"git status"}}' | PATH=/nonexistent /bin/sh -c "$hook" 2>/dev/null || rc=$?
 assert_eq "$rc" "2" "no node: the hook blocks instead of letting the command through"
 rc=0; orch_render_settings feat/a main "/w/(t)" /g <"$ORCH_SETTINGS_TEMPLATE" >/dev/null || rc=$?
 assert_eq "$rc" "1" "unsafe worktree path refused"
@@ -287,6 +287,7 @@ for c in 'git push' 'git push origin' 'git push -u' 'git push --force-with-lease
   rc=0; GUARD_CWD="$R" guard "$c" || rc=$?; assert_eq "$rc" "0" "guard allows on the own upstream: $c"
 done
 for c in 'cd /elsewhere && git push' 'git -C . push' 'GIT_DIR=/x/.git git push' 'env -C /x git push' \
+  'XDG_CONFIG_HOME=/x git push' 'export HOME=/x; git push' \
   'git -c push.default=matching push' 'git push --force-with-lease=main' 'git push --force'; do
   rc=0; GUARD_CWD="$R" guard "$c" || rc=$?; assert_eq "$rc" "2" "guard blocks on the own upstream: $c"
 done

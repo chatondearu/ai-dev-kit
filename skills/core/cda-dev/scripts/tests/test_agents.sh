@@ -252,20 +252,35 @@ assert_eq "$rc" "1" "unsafe worktree path refused"
 guard() { jq -Rn --arg c "$1" --arg d "${GUARD_CWD:-/}" '{tool_name:"Bash",tool_input:{command:$c},cwd:$d}' \
   | GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
     node "$(dirname "$ORCH_SETTINGS_TEMPLATE")/worker-push-guard.mjs" "${GUARD_OWN:-feat/a}" main "${GUARD_WT:-}" "${GUARD_KIT:-}" 2>/dev/null; }
-HEREDOC_COMMIT="$(printf 'git commit -m "$(cat <<%sEOF%s\nfix: avoid git push -f origin main\nEOF\n)"' "'" "'")"
 SHA=0123456789abcdef0123456789abcdef01234567
-for c in 'git push origin feat/a' 'git push -u origin feat/a' 'git push --set-upstream origin feat/a' \
-  'git push origin HEAD:refs/heads/feat/a' '  git push  origin feat/a ' 'git push --force-with-lease origin feat/a' \
-  "git push --force-with-lease=feat/a origin feat/a" "git push --force-with-lease=feat/a:$SHA origin feat/a" \
-  'git push -u --force-with-lease origin feat/a' 'git push --force-with-lease -u origin feat/a' \
-  "git push --set-upstream --force-with-lease=feat/a:$SHA origin HEAD:refs/heads/feat/a" \
-  'git status' 'git commit -m "fix: tidy"' 'git commit -F msg.txt' 'gh pr create --title t --body-file b.md' \
+R="$(mktemp -d)"
+git -C "$R" init -q -b main && git -C "$R" commit -q --allow-empty -m init && git -C "$R" switch -q -c feat/a
+# The one accepted push: explicit refs/heads destination, from inside the worktree.
+for c in 'git push origin HEAD:refs/heads/feat/a' '  git push  origin HEAD:refs/heads/feat/a ' \
+  'git push -u origin HEAD:refs/heads/feat/a' 'git push --set-upstream origin HEAD:refs/heads/feat/a' \
+  'git push --force-with-lease origin HEAD:refs/heads/feat/a' \
+  'git push --force-with-lease=refs/heads/feat/a origin HEAD:refs/heads/feat/a' \
+  "git push --force-with-lease=refs/heads/feat/a:$SHA origin HEAD:refs/heads/feat/a" \
+  'git push -u --force-with-lease origin HEAD:refs/heads/feat/a' \
+  "git push --force-with-lease=refs/heads/feat/a:$SHA --set-upstream origin HEAD:refs/heads/feat/a"; do
+  rc=0; GUARD_CWD="$R" guard "$c" || rc=$?; assert_eq "$rc" "0" "guard allows: $c"
+done
+for c in 'git status' 'git commit -m "fix: tidy"' 'git commit -F msg.txt' 'gh pr create --title t --body-file b.md' \
   'git log --oneline | grep fix' 'cargo test --manifest-path ./x/Cargo.toml'; do
   rc=0; guard "$c" || rc=$?; assert_eq "$rc" "0" "guard allows: $c"
 done
+for c in 'git push origin HEAD:refs/heads/feat/a' 'git push -u origin HEAD:refs/heads/feat/a'; do
+  rc=0; guard "$c" || rc=$?; assert_eq "$rc" "2" "guard refuses a push outside a git worktree: $c"
+done
 HEREDOC_COMMIT="$(printf 'git commit -m "$(cat <<%sEOF%s\nfix: avoid git push -f origin main\nEOF\n)"' "'" "'")"
-# Every bypass from both #436 reviews, plus forms outside the whitelist.
+# Every bypass from the #436 reviews, plus forms outside the whitelist (colon-less and bare
+# destinations included: local git state picks where they land).
 for c in \
+  'git push' 'git push origin' 'git push origin feat/a' 'git push -u origin feat/a' \
+  'git push --set-upstream origin feat/a' 'git push --force-with-lease origin feat/a' \
+  "git push --force-with-lease=feat/a:$SHA origin HEAD:refs/heads/feat/a" \
+  'git push --force-with-lease=feat/a origin HEAD:refs/heads/feat/a' 'git push origin HEAD:refs/heads/feat/a:x' \
+  'git push origin HEAD:refs/heads/feat/a HEAD:refs/heads/main' 'git push upstream HEAD:refs/heads/feat/a' \
   'git push -uf origin feat/a' 'git push origin +feat/a' 'git push origin :feat/a' 'git push -d origin x' \
   'git push origin HEAD:refs/heads/main' 'git push origin HEAD:heads/main' 'git push origin HEAD:feat/a' \
   'git push origin HEAD:refs/tags/feat/a' 'git push origin refs/heads/feat/a' \
@@ -294,7 +309,7 @@ for c in \
   "git config alias.p pu''sh" 'git -c include.path=/x/cfg p' 'git --config-env=alias.p=X p' 'x=pu; git ${x}sh' \
   'git `printf pu`sh origin main' 'gh pr merge 3' 'gh -R o/r pr merge 3' 'gh api -X PUT repos/o/r/pulls/3/merge' \
   'gh api repos/o/r/git/refs/heads/main -X PATCH' 'gh api graphql -f query=mutation{updateRef}'; do
-  rc=0; guard "$c" || rc=$?; assert_eq "$rc" "2" "guard blocks: ${c//[$'\n\r\t']/⏎}"
+  rc=0; GUARD_CWD="$R" guard "$c" || rc=$?; assert_eq "$rc" "2" "guard blocks: ${c//[$'\n\r\t']/⏎}"
 done
 
 # Shells (`bash *`, `sh *`, `./*` text rules): one plain line running a script file of the
@@ -341,49 +356,49 @@ rc=0; GUARD_CWD="$W" GUARD_WT="$W" guard "bash $DH --check" || rc=$?; assert_eq 
 rc=0; GUARD_CWD="$W" guard 'bash scripts/verify.sh' || rc=$?; assert_eq "$rc" "2" "no worktree: no script runs"
 rm -rf "$W" "$O"
 
-# `git push` without a refspec: only from the own branch tracking refs/heads/<own>.
-R="$(mktemp -d)"
-git -C "$R" init -q -b main && git -C "$R" commit -q --allow-empty -m init && git -C "$R" switch -q -c feat/a
-git -C "$R" config branch.feat/a.remote origin && git -C "$R" config branch.feat/a.merge refs/heads/feat/a
-for c in 'git push' 'git push origin'; do
-  rc=0; GUARD_CWD="$R" guard "$c" || rc=$?; assert_eq "$rc" "0" "guard allows on the own upstream: $c"
+# Git state that could still redirect the explicit push, or that the guard cannot read,
+# refuses it (fail closed). Every accepted form is probed under each key.
+P_ALL=('git push origin HEAD:refs/heads/feat/a' 'git push -u origin HEAD:refs/heads/feat/a'
+  'git push --force-with-lease origin HEAD:refs/heads/feat/a')
+for c in 'cd /elsewhere && git push origin HEAD:refs/heads/feat/a' 'git -C . push origin HEAD:refs/heads/feat/a' \
+  'GIT_DIR=/x/.git git push origin HEAD:refs/heads/feat/a' 'env -C /x git push origin HEAD:refs/heads/feat/a' \
+  'git -c push.default=matching push origin HEAD:refs/heads/feat/a'; do
+  rc=0; GUARD_CWD="$R" guard "$c" || rc=$?; assert_eq "$rc" "2" "guard blocks: $c"
 done
-for c in 'cd /elsewhere && git push' 'git -C . push' 'GIT_DIR=/x/.git git push' 'env -C /x git push' \
-  'XDG_CONFIG_HOME=/x git push' 'export HOME=/x; git push' 'git push -u' 'git push --force-with-lease' \
-  'git -c push.default=matching push' 'git push --force-with-lease=main' 'git push --force' 'git push upstream'; do
-  rc=0; GUARD_CWD="$R" guard "$c" || rc=$?; assert_eq "$rc" "2" "guard blocks on the own upstream: $c"
-done
-git -C "$R" config push.default matching
-rc=0; GUARD_CWD="$R" guard 'git push' || rc=$?; assert_eq "$rc" "2" "guard blocks git push with push.default=matching"
-git -C "$R" config --unset push.default && git -C "$R" config remote.origin.mirror true
-rc=0; GUARD_CWD="$R" guard 'git push origin' || rc=$?; assert_eq "$rc" "2" "guard blocks git push to a mirror remote"
-git -C "$R" config --unset remote.origin.mirror
-# Push-redirecting config refuses every form, named ones included (a remote.origin.push
-# refmap once force-rewrote main through `git push --force-with-lease origin <own>`).
-for kv in push.followTags=true push.recurseSubmodules=on-demand url.git@x:.pushInsteadOf=https://x/ \
-  url.git@x:.insteadOf=https://x/ remote.origin.pushurl=/elsewhere push.default=nothing \
-  remote.origin.push=refs/heads/feat/a:refs/heads/main remote.origin.mirror=true \
-  remote.pushDefault=other branch.feat/a.pushRemote=other; do
+for kv in push.followTags=true push.recurseSubmodules=on-demand submodule.recurse=true \
+  url.git@x:.pushInsteadOf=https://x/ url.git@x:.insteadOf=https://x/ remote.origin.pushurl=/elsewhere \
+  push.default=nothing push.default=matching remote.origin.push=refs/heads/feat/a:refs/heads/main \
+  remote.origin.mirror=true remote.pushDefault=other branch.feat/a.pushRemote=other; do
   git -C "$R" config "${kv%%=*}" "${kv#*=}"
-  for c in 'git push' 'git push origin feat/a' 'git push --force-with-lease origin feat/a' \
-    'git push -u origin HEAD:refs/heads/feat/a'; do
+  for c in "${P_ALL[@]}"; do
     rc=0; GUARD_CWD="$R" guard "$c" || rc=$?; assert_eq "$rc" "2" "guard blocks '$c' with $kv"
   done
   git -C "$R" config --unset "${kv%%=*}"
 done
-rc=0; GUARD_CWD="$R" guard 'git push --force-with-lease origin feat/a' || rc=$?
-assert_eq "$rc" "0" "named push allowed once the config is clean"
+git -C "$R" config push.default simple
+rc=0; GUARD_CWD="$R" guard "${P_ALL[2]}" || rc=$?; assert_eq "$rc" "0" "push.default=simple is modeled"
+git -C "$R" config --unset push.default
+# More than the old 1 MB exec buffer of config output: read in full, the refmap is found.
+cp "$R/.git/config" "$R/config.bak"
+{ printf '[push]\n\tdefault = simple\n%.0s' $(seq 60000)
+  printf '[remote "origin"]\n\tpush = refs/heads/feat/a:refs/heads/main\n'; } >>"$R/.git/config"
+rc=0; GUARD_CWD="$R" guard "${P_ALL[0]}" || rc=$?; assert_eq "$rc" "2" "guard reads >1 MB of config and refuses the refmap"
+printf '[broken\n' >>"$R/.git/config"
+rc=0; GUARD_CWD="$R" guard "${P_ALL[0]}" || rc=$?; assert_eq "$rc" "2" "unreadable git config: push refused"
+mv "$R/config.bak" "$R/.git/config"
+rc=0; GUARD_CWD="$R" guard "${P_ALL[0]}" || rc=$?; assert_eq "$rc" "0" "clean config: explicit push allowed"
+# A symbolic refs/heads/<own> would land the push on its target.
+S="$(mktemp -d)"
+git -C "$S" init -q -b main && git -C "$S" commit -q --allow-empty -m init
+git -C "$S" symbolic-ref refs/heads/feat/a refs/heads/main
+rc=0; GUARD_CWD="$S" guard "${P_ALL[0]}" || rc=$?; assert_eq "$rc" "2" "symbolic refs/heads/<own>: push refused"
+rm -rf "$S"
 # The own branch must be a plain branch name: a refs/, heads/, tags/ or remotes/ prefix
 # would land elsewhere (HEAD:heads/main reached main).
 for o in heads/main refs/heads/x tags/v1 remotes/origin/x +x -x; do
-  rc=0; GUARD_OWN="$o" guard "git push origin $o" || rc=$?; assert_eq "$rc" "2" "guard refuses own branch $o"
+  rc=0; GUARD_CWD="$R" GUARD_OWN="$o" guard "git push origin HEAD:refs/heads/$o" || rc=$?
+  assert_eq "$rc" "2" "guard refuses own branch $o"
 done
-git -C "$R" config push.default simple
-rc=0; GUARD_CWD="$R" guard 'git push' || rc=$?; assert_eq "$rc" "0" "guard allows git push with push.default=simple"
-git -C "$R" config --unset push.default && git -C "$R" config branch.feat/a.merge refs/heads/main
-rc=0; GUARD_CWD="$R" guard 'git push' || rc=$?; assert_eq "$rc" "2" "guard blocks git push when upstream is another branch"
-git -C "$R" config branch.feat/a.merge refs/heads/feat/a && git -C "$R" switch -q main
-rc=0; GUARD_CWD="$R" guard 'git push' || rc=$?; assert_eq "$rc" "2" "guard blocks git push off the own branch"
 rm -rf "$R"
 
 summary

@@ -15,7 +15,8 @@ nothing chained or substituted: the worker allowlist denies that (ADR-019).
 
 Put durable detail behind `--ref` (a log or report file); keep `text` short. One plain
 command per call (no pipe, `2>&1`, `cd … &&`, `VAR=`, `$VAR`); the word "push" only in
-`git push … origin <your spawn branch>` (else `--ref`, `git commit -F <file>`).
+`git push [-u] [--force-with-lease] origin HEAD:refs/heads/<your spawn branch>` (else
+`--ref`, `git commit -F <file>`).
 
 Before `done`: run your spec's `Acceptance` check. Code changes also: run the
 repo's verify command (its `AGENTS.md`), review your diff with skill

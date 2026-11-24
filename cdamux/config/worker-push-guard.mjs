@@ -11,8 +11,9 @@
 // Repo tooling with a shell, node or a command runner in it (`bash|sh|./|scripts/<file>`,
 // `node <file>`, `mise exec --` / `nix develop -c` + cargo, make, just, npm|pnpm run …)
 // follows the same plain-line rule, files inside the worktree; read-only kit scripts run
-// only in their listed forms. Git with $, backticks, xargs or eval, git alias / config-env
-// / include, and `gh` merge or ref updates are refused. Exit 2 with the reason on stderr.
+// only in their listed forms. Git with $, backticks, globs, xargs or eval, git alias /
+// config-env / include, and `gh` merge or ref updates are refused. Exit 2 with the reason
+// on stderr.
 // Text is not a sandbox: a script the worker writes can still push; branch protection is
 // the real guard.
 import { spawnSync } from 'node:child_process';
@@ -43,19 +44,26 @@ const gitRun = (cwd, ...a) => {
 // Git state that can still redirect an explicit `HEAD:refs/heads/<own>` push, or that the
 // guard does not model: any `push.*` but `push.default` simple/current/upstream,
 // `remote.pushDefault`, `remote.*.push*` (refmap, pushurl), `remote.*.mirror`,
-// `branch.*.pushRemote`, `url.*.insteadOf` / `pushInsteadOf`, `submodule.recurse`, and a
-// symbolic `refs/heads/<own>`. Fails closed: outside a git worktree, or when git config
-// cannot be read in full (status other than 0 or 1), the push is refused.
+// `branch.*.pushRemote`, `url.*.insteadOf` / `pushInsteadOf`, `submodule.recurse`,
+// `core.sshCommand`, `remote.*.vcs` / `receivepack`, `protocol.ext.allow`, a credential
+// helper other than a stock one, and a symbolic `refs/heads/<own>`. Fails closed: outside
+// a git worktree, or when git config cannot be read in full (status other than 0 or 1),
+// the push is refused.
 const PUSH_CONFIG = '^(push\\.|remote\\.pushdefault$|remote\\..*\\.(push|mirror)'
-  + '|branch\\..*\\.pushremote$|url\\..*\\.(push)?insteadof$|submodule\\.recurse$)';
+  + '|branch\\..*\\.pushremote$|url\\..*\\.(push)?insteadof$|submodule\\.recurse$'
+  + '|core\\.sshcommand$|credential\\..*helper$|remote\\..*\\.(vcs|receivepack)$'
+  + '|protocol\\.ext\\.allow$)';
+const MODELED = [
+  /^push\.default (simple|current|upstream)$/i,
+  /^credential\.helper (osxkeychain|manager|manager-core|libsecret|wincred|cache|store)$/i,
+];
 function pushStateReason(cwd) {
   if (gitRun(cwd, 'rev-parse', '--is-inside-work-tree').out !== 'true') {
     return 'push from inside the worktree';
   }
   const { status, out } = gitRun(cwd, 'config', '--get-regexp', PUSH_CONFIG);
   if (status !== 0 && status !== 1) return 'git config could not be read in full; push refused';
-  const modeled = /^push\.default (simple|current|upstream)$/i;
-  const bad = out && out.split('\n').find((l) => !modeled.test(l.trim()));
+  const bad = out && out.split('\n').find((l) => !MODELED.some((m) => m.test(l.trim())));
   if (bad) return `git config ${bad.split(' ')[0]} can redirect a push; push refused`;
   if (gitRun(cwd, 'symbolic-ref', '-q', `refs/heads/${own}`).status !== 1) {
     return `refs/heads/${own} is a symbolic ref (or unreadable); push refused`;
@@ -174,8 +182,8 @@ function reason(cmd, cwd) {
     return 'git aliases, --config-env and config includes are not allowed';
   }
   if (/push|send-pack|receive-pack/i.test(flat)) return pushReason(t, cwd);
-  if (git && (/[$`]/.test(t) || /\b(xargs|eval)\b/.test(flat))) {
-    return 'git with $, backticks, xargs or eval cannot be checked';
+  if (git && (/[$`*?[]/.test(t) || /\b(xargs|eval)\b/.test(flat))) {
+    return 'git with $, backticks, globs, xargs or eval cannot be checked';
   }
   if (/\bgh\b/.test(flat) && /merge|git\/refs|updateref|deleteref|createref/i.test(flat)) {
     return 'gh merge / ref updates are not allowed';

@@ -308,7 +308,8 @@ for c in \
   "git pu''sh origin main" 'git pu\sh origin main' "git -c alias.p='!git pu\"\"sh' p" 'git -c alias.p=status p' \
   "git config alias.p pu''sh" 'git -c include.path=/x/cfg p' 'git --config-env=alias.p=X p' 'x=pu; git ${x}sh' \
   'git `printf pu`sh origin main' 'gh pr merge 3' 'gh -R o/r pr merge 3' 'gh api -X PUT repos/o/r/pulls/3/merge' \
-  'gh api repos/o/r/git/refs/heads/main -X PATCH' 'gh api graphql -f query=mutation{updateRef}'; do
+  'gh api repos/o/r/git/refs/heads/main -X PATCH' 'gh api graphql -f query=mutation{updateRef}' \
+  'git pu* origin HEAD:refs/heads/main' 'git pu? origin HEAD:refs/heads/main' 'git p[u]sh origin HEAD:refs/heads/main'; do
   rc=0; GUARD_CWD="$R" guard "$c" || rc=$?; assert_eq "$rc" "2" "guard blocks: ${c//[$'\n\r\t']/⏎}"
 done
 
@@ -368,16 +369,18 @@ done
 for kv in push.followTags=true push.recurseSubmodules=on-demand submodule.recurse=true \
   url.git@x:.pushInsteadOf=https://x/ url.git@x:.insteadOf=https://x/ remote.origin.pushurl=/elsewhere \
   push.default=nothing push.default=matching remote.origin.push=refs/heads/feat/a:refs/heads/main \
-  remote.origin.mirror=true remote.pushDefault=other branch.feat/a.pushRemote=other; do
+  remote.origin.mirror=true remote.pushDefault=other branch.feat/a.pushRemote=other \
+  core.sshCommand=/x/ssh 'credential.helper=!/x/helper' credential.https://x.helper=store \
+  remote.origin.vcs=x remote.origin.receivepack=/x/rp protocol.ext.allow=always; do
   git -C "$R" config "${kv%%=*}" "${kv#*=}"
   for c in "${P_ALL[@]}"; do
     rc=0; GUARD_CWD="$R" guard "$c" || rc=$?; assert_eq "$rc" "2" "guard blocks '$c' with $kv"
   done
   git -C "$R" config --unset "${kv%%=*}"
 done
-git -C "$R" config push.default simple
-rc=0; GUARD_CWD="$R" guard "${P_ALL[2]}" || rc=$?; assert_eq "$rc" "0" "push.default=simple is modeled"
-git -C "$R" config --unset push.default
+git -C "$R" config push.default simple && git -C "$R" config credential.helper osxkeychain
+rc=0; GUARD_CWD="$R" guard "${P_ALL[2]}" || rc=$?; assert_eq "$rc" "0" "push.default=simple and a stock credential helper are modeled"
+git -C "$R" config --unset push.default && git -C "$R" config --unset credential.helper
 # More than the old 1 MB exec buffer of config output: read in full, the refmap is found.
 cp "$R/.git/config" "$R/config.bak"
 { printf '[push]\n\tdefault = simple\n%.0s' $(seq 60000)

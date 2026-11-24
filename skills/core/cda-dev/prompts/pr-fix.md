@@ -6,7 +6,8 @@ You fix an existing PR until local verify and remote CI are green.
 - PR: {{PR}}
 - Worktree: {{WORKTREE}} (already checked out)
 - Head ref / upstream: {{HEAD_REF}}
-- Push hint: git push origin HEAD:{{HEAD_REF}} (push to PR head ref)
+- Push hint: git push origin HEAD:refs/heads/{{HEAD_REF}} (push to PR head ref; the
+  worker push guard accepts only this full-ref form, ADR-019)
 - orch only runs this for same-repo PRs whose head is not the default branch. Never push
   to any other ref (default branch, fork remote); if the push is rejected, stop BLOCKED.
 - Do not merge. Do not change unrelated files.
@@ -15,7 +16,7 @@ You fix an existing PR until local verify and remote CI are green.
 Use `{{WORKTREE}}` as cwd for all commands (branch already checked out).
 1. Read `gh pr view {{PR}} --json title,body,statusCheckRollup`
 2. Reproduce failures (`gh pr checks`, local verify)
-3. Fix, commit (conventional), push to PR head ref (`git push origin HEAD:{{HEAD_REF}}`)
+3. Fix, commit (conventional), push to PR head ref (`git push origin HEAD:refs/heads/{{HEAD_REF}}`)
 4. Re-run verify + checks
 5. Stop when green or BLOCKED (need human)
 

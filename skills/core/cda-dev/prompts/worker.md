@@ -127,7 +127,8 @@ Do not invent product decisions. Do not merge yourself. Do not start another chi
   normally.
 - The push guard (ADR-019) refuses any command whose text mentions a push (even inside
   a message) unless it is one plain line `git push [-u] [--force-with-lease[=<branch>[:<sha>]]]
-  origin <branch>`, alone, with no `&&`, pipe, redirect or quotes. Write commit messages
+  origin <branch>` (or `origin HEAD:refs/heads/<branch>`), alone, with no `&&`, pipe,
+  redirect or quotes. Write commit messages
   that mention it to a file and use `git commit -F <file>`; PR bodies via `--body-file`.
 - Prefer reporting `blocked` with reason `needs rebase onto {{DEFAULT_BRANCH}} / stack base`
   over leaving a dirty PR for the human to discover at merge time.

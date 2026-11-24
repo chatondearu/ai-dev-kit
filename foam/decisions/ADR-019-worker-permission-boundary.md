@@ -137,18 +137,27 @@ and `bash <kit>/…/doc-hygiene.sh --check <repo>`.
   message), it runs only when the whole trimmed text is one plain line with no shell
   metacharacter (`$` `` ` `` `'` `"` `\` `;` `&` `|` `<` `>` `(` `)` `{` `}` `#`, newline,
   CR, tab) of the form `git push [-u|--set-upstream] [--force-with-lease[=<own>[:<40-hex
-  sha>]]] origin <own>` (flags in any order, each once; `origin HEAD:<own>` for pr-fix),
-  or bare `git push` / `git push origin`. Everything else that mentions a push is
+  sha>]]] origin <own>` (flags in any order, each once; `origin HEAD:refs/heads/<own>`
+  for pr-fix, never `HEAD:<own>`, which can resolve to a tag), or bare `git push` /
+  `git push origin`. `<own>` must be a plain branch name: one starting with `refs/`,
+  `heads/`, `tags/`, `remotes/`, `+` or `-` gets no push (`HEAD:heads/main` reached
+  main). Everything else that mentions a push is
   refused: workers write such commit messages with `git commit -F <file>`, PR bodies with
   `--body-file`, reports behind `--ref`.
-- **Bare `git push` / `git push origin`** run only from the hook's cwd on the own branch,
-  with `branch.<own>.merge = refs/heads/<own>` and no push config the guard does not
-  model: `push.default` unset / simple / current / upstream is the only `push.*`
-  accepted; any `remote.*.push*`, `remote.*.mirror` or `url.*.pushInsteadOf` refuses it.
+- **Push config is checked for every accepted form**, named ones included (a
+  `remote.origin.push` refmap made `git push --force-with-lease origin <own>` rewrite
+  main): in the hook's cwd (repo, global and system config), `push.default` unset /
+  simple / current / upstream is the only `push.*` accepted; any `remote.pushDefault`,
+  `remote.*.push*` (refmap, pushurl), `remote.*.mirror`, `branch.*.pushRemote`,
+  `url.*.insteadOf` or `url.*.pushInsteadOf` refuses the push.
+- **Bare `git push` / `git push origin`** also need the hook's cwd on the own branch with
+  `branch.<own>.merge = refs/heads/<own>`.
 - **Other refusals, by text**: `git` together with `alias.`, `--config-env`,
   `include.path` / `includeIf` (an alias or include could hide a push); `git` together
   with `$`, a backtick, `xargs` or `eval` (a computed subcommand); `gh` together with
   `merge`, `git/refs` or a ref mutation. A false positive is a refusal, never a pass.
+  The `gh` rule only holds while no user-level allow covers `gh api` (the template
+  allows no `gh api`): an endpoint spelled without those words would pass the guard.
 - **Text rules**: `Bash(git push)` and `Bash(git push *)` (still dropped when the branch
   is unknown) with their denies (`*--force`, `*--force *`, `-f`, `+`,
   `*heads/<default>*`, delete, mirror/all, `git -C|-c … push`) as a second layer. The

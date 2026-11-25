@@ -1,6 +1,6 @@
 ---
 title: "fix(cdamux): pass cursor-agent --trust so workers skip workspace-trust prompt"
-status: in-progress
+status: in-review
 priority: P1
 updated: 2026-11-25
 github_issue: 441

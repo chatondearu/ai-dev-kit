@@ -60,11 +60,20 @@
             inherit pkgs lib cdamuxPkg;
             a = config.cda.aitools;
           };
+          Environment = lib.optional (config.cda.aitools.cdamux.home != null)
+            "CDAMUX_HOME=${config.cda.aitools.cdamux.home}";
         };
       }
       // lib.optionalAttrs (config.cda.aitools.systemdUser.conditionUser != null) {
         unitConfig.ConditionUser = config.cda.aitools.systemdUser.conditionUser;
       };
+    })
+    (lib.mkIf (
+      config.cda.aitools.enable && config.cda.aitools.cdamux.home != null
+    ) {
+      # Graphical sessions (pam) and user systemd do not source /etc/profile.
+      environment.sessionVariables.CDAMUX_HOME = config.cda.aitools.cdamux.home;
+      systemd.user.sessionVariables.CDAMUX_HOME = config.cda.aitools.cdamux.home;
     })
     (lib.mkIf (
       config.cda.aitools.enable
@@ -77,6 +86,7 @@
           lib.optionalAttrs (config.cda.aitools.systemdUser.conditionUser != null) {
             unitConfig.ConditionUser = config.cda.aitools.systemdUser.conditionUser;
           };
+        cdamuxHome = config.cda.aitools.cdamux.home;
       in {
         systemd.user.services.cdamuxd = {
           description = "cdamux daemon (tmux session cache + tailnet API)";
@@ -86,9 +96,11 @@
             ExecStart = "${cdamuxPkg}/bin/cdamuxd";
             Restart = "on-failure";
             RestartSec = 3;
-            Environment = [
-              "PATH=%h/.local/bin:/run/current-system/sw/bin:/usr/bin:/bin"
-            ];
+            Environment =
+              [
+                "PATH=%h/.local/bin:/run/current-system/sw/bin:/usr/bin:/bin"
+              ]
+              ++ lib.optional (cdamuxHome != null) "CDAMUX_HOME=${cdamuxHome}";
           };
         }
         // cond;

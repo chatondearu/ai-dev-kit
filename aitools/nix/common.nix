@@ -66,6 +66,19 @@
       example = "/path/to/projects";
     };
 
+    home = lib.mkOption {
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      description = ''
+        Absolute path exported as CDAMUX_HOME (state root: agents, runs, inbox).
+        Null leaves the variable unset so the CLI falls back to
+        ''${XDG_STATE_HOME:-~/.local/state}/cdamux. Set this on every Nix host
+        so shells, systemd/launchd units, and spawned panes share one home
+        (#391 / ADR-011).
+      '';
+      example = "/cda/cdamux";
+    };
+
     hooks = {
       enable = lib.mkEnableOption ''
         cdamux agent hooks (sub-agent ledger + session id capture) for Claude Code,

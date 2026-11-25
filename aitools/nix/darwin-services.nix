@@ -48,6 +48,9 @@
           }}"];
           RunAtLoad = true;
           KeepAlive = false;
+          EnvironmentVariables = lib.optionalAttrs (config.cda.aitools.cdamux.home != null) {
+            CDAMUX_HOME = config.cda.aitools.cdamux.home;
+          };
         };
       };
     })
@@ -67,9 +70,13 @@
             KeepAlive = { SuccessfulExit = false; };
             # Nix tmux lives under /run/current-system/sw/bin — without it
             # cdamuxd cannot poll and session STATE stays unknown.
-            EnvironmentVariables = {
-              PATH = "/run/current-system/sw/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/Users/${a.user}/.local/bin:/usr/bin:/bin";
-            };
+            EnvironmentVariables =
+              {
+                PATH = "/run/current-system/sw/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/Users/${a.user}/.local/bin:/usr/bin:/bin";
+              }
+              // lib.optionalAttrs (a.cdamux.home != null) {
+                CDAMUX_HOME = a.cdamux.home;
+              };
           };
         };
       }

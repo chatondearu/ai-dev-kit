@@ -1,6 +1,6 @@
 ---
 title: "fix(cdamux): wake live Cursor after kind=done instead of inbox"
-status: in-progress
+status: in-review
 priority: P1
 updated: 2026-11-25
 github_issue: 444

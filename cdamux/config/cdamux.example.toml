@@ -47,8 +47,7 @@ default = "cursor"
 # `resume = ""` disables resume for that agent.
 
 [agents.cursor]
-# Do not inherit the Cursor CLI model picker (~/.cursor/cli-config.json); Opus included quota is a trap.
-command = "cursor-agent --model grok-4.7-high-fast"
+command = "cursor-agent"
 
 [agents.opencode]
 command = "opencode"

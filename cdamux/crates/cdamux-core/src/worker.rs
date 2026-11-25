@@ -238,17 +238,22 @@ fn node_bin() -> PathBuf {
 }
 
 /// Claude workers: write `$CDAMUX_HOME/settings/<host>.json` (and the push guard next to
-/// it) and append `--permission-mode dontAsk --settings <file>` to `command`. Other
-/// clients keep their own interactive approvals (ADR-019). `None` when the files cannot be
-/// written: the caller refuses to spawn rather than run Claude without the allowlist.
+/// it) and append `--permission-mode dontAsk --settings <file>` to `command`. Cursor
+/// workers get `--trust` so a new worktree does not prompt "Trust this workspace"
+/// (`--trust` is not `--force`; ADR-019). Other clients keep their own interactive
+/// approvals. `None` when the files cannot be written: the caller refuses to spawn
+/// rather than run Claude without the allowlist.
 pub(crate) fn with_worker_permissions(
     command: &str,
     client: &str,
     host: &str,
     worktree: &Path,
 ) -> Option<String> {
-    if normalize_client_name(client) != "claude" {
-        return Some(command.to_string());
+    match normalize_client_name(client) {
+        "claude" => {}
+        // Spawn and restore share this wrap so a resumed Cursor worker keeps --trust.
+        "cursor" => return Some(format!("{command} --trust")),
+        _ => return Some(command.to_string()),
     }
     let branch = current_branch(worktree).filter(|b| b != "HEAD").unwrap_or_default();
     let default = crate::worktree::default_branch(worktree).unwrap_or_default();
@@ -945,9 +950,18 @@ mod tests {
     }
 
     #[test]
-    fn non_claude_workers_keep_their_command() {
+    fn cursor_workers_get_workspace_trust() {
         let cmd = with_worker_permissions("cursor-agent", "cursor", "c-x", Path::new("/nonexistent"));
-        assert_eq!(cmd.as_deref(), Some("cursor-agent"));
+        assert_eq!(cmd.as_deref(), Some("cursor-agent --trust"));
+        let resume = with_worker_permissions(
+            "cursor-agent --resume=c1",
+            "agent",
+            "c-x",
+            Path::new("/nonexistent"),
+        );
+        assert_eq!(resume.as_deref(), Some("cursor-agent --resume=c1 --trust"));
+        let other = with_worker_permissions("opencode", "opencode", "c-x", Path::new("/nonexistent"));
+        assert_eq!(other.as_deref(), Some("opencode"));
     }
 
     #[test]

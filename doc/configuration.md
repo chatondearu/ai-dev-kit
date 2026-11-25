@@ -192,7 +192,8 @@ allow rules still add up (a template deny always wins). This stops typed command
 code a worker writes and runs through the repo's tooling: branch protection on the
 default branch is the real guard. `cdamux worker spawn --here` lets the worker edit
 that checkout; prefer a worktree. codex
-runs `exec --sandbox workspace-write`, cursor-agent `-p` without `--force`; their
+runs `exec --sandbox workspace-write`, cursor-agent `-p --trust` without `--force`
+(`--trust` skips the workspace-trust prompt, not command approval); their
 allowlists live in their own CLI config.
 
 ## Systemd env file

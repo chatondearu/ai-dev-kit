@@ -122,7 +122,7 @@ assert_contains "$out_t" "--model sonnet --effort low" "integrator runs small"
 out_t="$(PATH="$P2" ORCH_AGENT=claude ORCH_TIER_REVIEWER=large ORCH_ROLE=reviewer orch_agent_run "$FAKE" "$PROMPT")"
 assert_contains "$out_t" "--model opus --effort high" "ORCH_TIER_REVIEWER=large"
 out_t="$(PATH="$P2" ORCH_AGENT=cursor-agent orch_agent_run "$FAKE" "$PROMPT" </dev/null)"
-assert_contains "$out_t" "cursor-agent-ok -p --model auto hi" "cursor medium flags before prompt"
+assert_contains "$out_t" "cursor-agent-ok -p --trust --model auto hi" "cursor --trust then medium flags before prompt"
 
 # --model in the agent command → pinned, no tier flags.
 out_t="$(PATH="$P2" ORCH_AGENT="claude --model haiku" orch_agent_run "$FAKE" "$PROMPT")"

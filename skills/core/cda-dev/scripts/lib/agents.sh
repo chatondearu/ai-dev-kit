@@ -317,9 +317,10 @@ _orch_agent_exec() {
       (cd "$wt" && "${bin[@]}" exec --sandbox workspace-write ${tf[@]+"${tf[@]}"} - <"$prompt_file")
       ;;
     agent|cursor-agent)
-      # --print, no bypass flag: unapproved shell commands are rejected; the allowlist
-      # lives in the user's ~/.cursor/cli-config.json (ADR-019 gap: no per-branch rules).
-      (cd "$wt" && "${bin[@]}" -p ${tf[@]+"${tf[@]}"} "$(cat "$prompt_file")")
+      # --print --trust: skip the workspace-trust prompt; never a bypass flag (ADR-019).
+      # Unapproved shell commands are still rejected; the allowlist lives in
+      # ~/.cursor/cli-config.json (no per-branch rules).
+      (cd "$wt" && "${bin[@]}" -p --trust ${tf[@]+"${tf[@]}"} "$(cat "$prompt_file")")
       ;;
     *)
       (cd "$wt" && "${bin[@]}" <"$prompt_file")

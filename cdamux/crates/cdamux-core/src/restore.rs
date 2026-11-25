@@ -151,8 +151,10 @@ fn restore_plan_run(
     live: bool,
 ) -> Result<RestoreOutcome, RestoreError> {
     // A respawned worker keeps the ADR-019 permission boundary it was spawned with.
+    // Cursor sessions (worker or not) keep --trust so a restored worktree does not
+    // re-prompt "Trust this workspace".
     let guard = |cmd: String| -> Result<String, RestoreError> {
-        if rec.role != "worker" {
+        if rec.role != "worker" && normalize_client_name(&rec.agent) != "cursor" {
             return Ok(cmd);
         }
         crate::worker::with_worker_permissions(&cmd, &rec.agent, &rec.name, &rec.cwd)

@@ -15,14 +15,18 @@ through the `cdamux` CLI (ADR-011).
 
 ## Hard rules
 
-- Never edit, commit, or run verify/tests in a repo. Never `gh pr checkout`.
+- Never edit, commit, merge, or run verify/tests in a repo. Never `gh pr checkout`
+  or other git that changes branch/history.
+- Exception: `git fetch` and `git pull --ff-only` on the current checkout when
+  the human asks or Ready listing would be stale.
 - Every change goes to a worker. Quick lookups and answers only — no coding.
 - You are a dispatcher: question round + GO, then spawn / `orch.sh`, then stop.
 
 ## Session retro
 
-Do not audit, diagnose, or edit a repo in this pane. Git, sudo, screenshots,
-and reading product source to fix a bug go to a worker. After a long session
+Do not audit, diagnose, or edit a repo in this pane. Git that changes branch or
+history, sudo, screenshots, and reading product source to fix a bug go to a
+worker. `git fetch` and `git pull --ff-only` stay here (Hard rules). After a long session
 (missed replies, cap full, or you were about to do that work), spawn one
 worker whose spec says: read and follow `skills/core/cda-orch-improve/SKILL.md`.
 Then end the turn.

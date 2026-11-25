@@ -91,7 +91,7 @@ orch_pid=$!
 set +m
 wait_agent_started
 assert_file "$TMP/agent.pid" "agent started before the signal"
-agent_pid="$(cat "$TMP/agent.pid")"
+agent_pid="$(cat "$TMP/agent.pid" 2>/dev/null || true)"
 # Bash runs a trap only after its foreground child exits: signal the group, as a tty does.
 # TERM, not INT: async jobs (verify run in the background) start with INT ignored.
 kill -TERM -- "-$orch_pid"

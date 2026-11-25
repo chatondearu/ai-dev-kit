@@ -33,7 +33,7 @@ mkdir -p "$TMP/bin" "$TMP/repo" "$TMP/tmpdir"
 printf '#!/bin/sh\nexec %s -L %s "$@"\n' "$REAL_TMUX" "$SRV" >"$TMP/bin/tmux"
 STUB_BASH="$(command -v bash)"
 # Stub named cursor-agent: proves @cdamux_agent stores the product name, not the binary.
-# Match the cursor CLI argv shape (-p --force … prompt); do not read stdin (would hang).
+# Match the cursor CLI argv shape (-p --trust … prompt); do not read stdin (would hang).
 cat >"$TMP/bin/cursor-agent" <<EOF
 #!$STUB_BASH
 tmux show-options -t "\$(tmux display -p '#{session_name}'):" | grep cdamux >"$TMP/opts"

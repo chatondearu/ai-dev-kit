@@ -63,7 +63,12 @@
       "Bash(node *)",
       "Bash(mise exec -- *)",
       "Bash(nix develop -c *)",
-      "Bash(nix develop --command *)"
+      "Bash(nix develop --command *)",
+      "Bash(nix flake update *)",
+      "Bash(nix flake lock --update-input *)",
+      "Bash(nix flake check)",
+      "Bash(nix build .#*)",
+      "Bash(nix eval .#*)"
     ],
     "deny": [
       "Read(~/.ssh/**)",
@@ -114,7 +119,14 @@
       "Bash(pip install *)",
       "Bash(brew *)",
       "Bash(nix profile *)",
-      "Bash(nix-env *)"
+      "Bash(nix-env *)",
+      "Bash(nix run *)",
+      "Bash(nix shell *)",
+      "Bash(nix copy *)",
+      "Bash(nix *--override-input*)",
+      "Bash(nix *--commit-lock-file*)",
+      "Bash(darwin-rebuild *)",
+      "Bash(nixos-rebuild *)"
     ]
   },
   "hooks": {

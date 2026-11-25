@@ -181,7 +181,10 @@ default branch, no `sudo`, no global install. Repo tooling runs as plain lines: 
 make, just, `npm|pnpm run`, `node <file>`, worktree scripts (`bash|sh|./|scripts/`),
 optionally behind `mise exec --` / `nix develop -c`, plus the read-only kit scripts
 (`doc-hygiene.sh --check|--report`, `foam-board.sh list-ready|reconcile`) of the kit
-checkout `install.sh` linked.
+checkout `install.sh` linked, and flake maintenance in the worktree (`nix flake update
+<input>`, `nix flake lock --update-input <input>`, `nix flake check`, `nix build .#<attr>
+[--no-link] [-L] [--dry-run]`, `nix eval .#<attr> [--raw|--json]`; no `nix run|shell|
+profile|copy`, `darwin-rebuild`, `nixos-rebuild`).
 Anything else is denied, headless and interactive alike (no dialog); the worker
 escalates to the maintainer, the orchestrator never relays an approval
 ([ADR-019](../foam/decisions/ADR-019-worker-permission-boundary.md)). Your own Claude

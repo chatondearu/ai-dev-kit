@@ -32,7 +32,8 @@ fn events_replay_follow_and_reply() {
     run(&["state", "set", "agents", "a-ew", r#"{"id":"a-ew","role":"worker","parent":"a-eo"}"#]);
     run(&["state", "append", "agents", "a-ew", r#"{"status":"working"}"#]);
     run(&["msg", "send", "--to", "a-eo", "--kind", "done", "PR ready"]);
-    // Orchestrator → worker: not an orchestrator inbox, no msg item.
+    // Orchestrator → worker: not an orchestrator inbox, no msg item. The relay does lift
+    // the worker's sticky `done` to `idle` (ADR-018 amendment, #444): one status item.
     run(&["msg", "send", "--from", "a-eo", "--to", "a-ew", "--kind", "relay", "thanks"]);
 
     let transcript = tmp.path().join("t.jsonl");
@@ -58,10 +59,11 @@ fn events_replay_follow_and_reply() {
     let all = items("0");
     assert!(all.iter().all(|v| v["v"] == 1 && v["cursor"].is_string()), "{all:?}");
     let types: Vec<&str> = all.iter().map(|v| v["type"].as_str().unwrap()).collect();
-    assert_eq!(types, ["status", "status", "msg", "reply"], "{all:?}");
+    assert_eq!(types, ["status", "status", "msg", "status", "reply"], "{all:?}");
     assert_eq!((all[1]["status"].as_str(), all[1]["prev"].as_str()), (Some("done"), Some("working")));
     assert_eq!(all[2]["text"], "PR ready");
-    assert_eq!(all[3]["text"], "One PR ready.");
+    assert_eq!((all[3]["status"].as_str(), all[3]["prev"].as_str()), (Some("idle"), Some("done")));
+    assert_eq!(all[4]["text"], "One PR ready.");
     // Reading the feed never moves an inbox cursor.
     assert_eq!(run(&["msg", "read", "--agent", "a-eo"]), unread_before);
     assert!(unread_before.contains("PR ready"));

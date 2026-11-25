@@ -181,7 +181,7 @@ pub use worker::{
 };
 pub use worktree::{
     current_branch, git_toplevel, list_local_branches, list_worktrees, resolve_worktree_dest,
-    worktree_add_new_branch, WorktreeEntry, WorktreeError,
+    worktree_add_new_branch, SpawnBase, WorktreeEntry, WorktreeError,
 };
 pub use worktree_clean::{
     check_free_space, checkout_bytes, clean_verdict, clean_worktrees, format_bytes, gh_pr_state,

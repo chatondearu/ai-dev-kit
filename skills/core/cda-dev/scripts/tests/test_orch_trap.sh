@@ -39,10 +39,28 @@ MARK="orch-trap-sleeper-$$"
 cat >"$STUB_BIN/$MARK" <<EOF
 #!/usr/bin/env bash
 cat >/dev/null
-touch "$TMP/agent-started"
+echo \$\$ >"$TMP/agent.pid.tmp" && mv "$TMP/agent.pid.tmp" "$TMP/agent.pid"
 while :; do sleep 1; done
 EOF
 chmod +x "$STUB_BIN/$MARK"
+
+# Wait on events, not a wall-clock budget: orch reaches the agent in ~1 s idle but over
+# 10 s on a loaded machine (parallel workers, cargo). Stop as soon as the agent wrote its
+# pid or orch died; the cap only guards against a hang.
+wait_agent_started() {
+  local end=$((SECONDS + 300))
+  while [ ! -s "$TMP/agent.pid" ] && kill -0 "$orch_pid" 2>/dev/null && [ "$SECONDS" -lt "$end" ]; do
+    sleep 0.1
+  done
+}
+# True once process $1 is gone (a killed agent may linger until it is reaped).
+wait_gone() {
+  local end=$((SECONDS + 30))
+  while kill -0 "$1" 2>/dev/null; do
+    [ "$SECONDS" -lt "$end" ] || return 1
+    sleep 0.1
+  done
+}
 
 cat >"$STUB_BIN/gh" <<'EOF'
 #!/usr/bin/env bash
@@ -71,20 +89,19 @@ set -m
 bash "$SCRIPTS/orch.sh" --repo "$R" --mode pr-fix --pr 77 --agent "$STUB_BIN/$MARK" >"$TMP/term.log" 2>&1 &
 orch_pid=$!
 set +m
-for _ in $(seq 100); do [ -f "$TMP/agent-started" ] && break; sleep 0.1; done
-assert_file "$TMP/agent-started" "agent started before the signal"
+wait_agent_started
+assert_file "$TMP/agent.pid" "agent started before the signal"
+agent_pid="$(cat "$TMP/agent.pid")"
 # Bash runs a trap only after its foreground child exits: signal the group, as a tty does.
 # TERM, not INT: async jobs (verify run in the background) start with INT ignored.
 kill -TERM -- "-$orch_pid"
 rc=0
-for _ in $(seq 100); do kill -0 "$orch_pid" 2>/dev/null || break; sleep 0.1; done
 wait "$orch_pid" 2>/dev/null || rc=$?
 orch_pid=""
 assert_eq "$rc" "130" "orch exits 130 on SIGTERM"
-sleep 0.3
-if pgrep -f "$MARK" >/dev/null; then
+if ! wait_gone "$agent_pid"; then
   FAILS=$((FAILS + 1)); printf 'FAIL agent survived SIGTERM\n' >&2
-  pkill -KILL -f "$MARK" || true
+  kill -KILL "$agent_pid" 2>/dev/null || true
 else
   PASSES=$((PASSES + 1)); printf 'ok   agent stopped\n'
 fi
@@ -106,16 +123,15 @@ export ORCH_RUN_ID="trap-rp-1"
 mkdir -p "$R/plans"
 printf '# PLAN-30\n' >"$R/plans/PLAN-30-trap.md"
 git -C "$R" add plans && git -C "$R" commit -qm plan
-rm -f "$TMP/agent-started"
+rm -f "$TMP/agent.pid"
 set -m
 ORCH_FRONTIER=0 bash "$SCRIPTS/orch.sh" --repo "$R" --mode ready-pickup --issue 30 \
   --agent "$STUB_BIN/$MARK" >"$TMP/rp.log" 2>&1 &
 orch_pid=$!
 set +m
-for _ in $(seq 100); do [ -f "$TMP/agent-started" ] && break; sleep 0.1; done
-assert_file "$TMP/agent-started" "ready-pickup agent started"
+wait_agent_started
+assert_file "$TMP/agent.pid" "ready-pickup agent started"
 kill -TERM -- "-$orch_pid"
-for _ in $(seq 100); do kill -0 "$orch_pid" 2>/dev/null || break; sleep 0.1; done
 wait "$orch_pid" 2>/dev/null || true
 orch_pid=""
 aid="$(cat "$R/.orch/run/30.agent_id" 2>/dev/null || true)"

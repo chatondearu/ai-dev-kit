@@ -196,6 +196,15 @@ anything else → escalate to the maintainer. A permission prompt or a denied
 command is an escalation to the maintainer; never relay an approval, never run
 it yourself (ADR-019).
 
+## PR status
+
+1. Every PR listing prints `state` (`OPEN` / `MERGED` / `CLOSED`):
+   `gh pr list --state all --json number,state,title`. Never chain two
+   listings in one command without a header line between them.
+2. Before calling a PR stuck, blocked or unmerged, read it on that PR:
+   `gh pr view <n> --json state,mergedAt,mergeable`. `mergeable: UNKNOWN` on a
+   `MERGED` PR is normal, not a signal.
+
 ## Done → ready to merge
 
 **Pre-merge rule** — the same one `orch.sh` applies before its own merges

@@ -89,6 +89,8 @@ pub struct WorkerSpawnResult {
     pub path: PathBuf,
     pub run: String,
     pub outcome: SpawnOutcome,
+    /// Base of the new worktree branch; `None` for `--here`.
+    pub base: Option<crate::worktree::SpawnBase>,
 }
 
 #[derive(Debug, Clone)]
@@ -815,7 +817,6 @@ pub fn spawn_worker(req: WorkerSpawnRequest<'_>) -> Result<WorkerSpawnResult, Wo
     } else {
         let root = worktree_root.ok_or(WorkerError::NoWorktreeRoot)?;
         let repo = target_repo.clone().ok_or(WorkerError::NotGit)?;
-        let base_branch = current_branch(&repo).unwrap_or_else(|| "HEAD".into());
         let branch = format!("worker/{run}/{name}");
         let dest = resolve_worktree_dest(&root.join(&run), &name);
         if dest.exists() {
@@ -825,7 +826,9 @@ pub fn spawn_worker(req: WorkerSpawnRequest<'_>) -> Result<WorkerSpawnResult, Wo
         if crate::worktree::list_local_branches(&repo).contains(&branch) {
             return Err(WorkerError::Exists(format!("branch {branch}")));
         }
-        if let Err(e) = worktree_add_new_branch(&repo, &dest, &branch, &base_branch) {
+        // Fresh `origin/<default>`, not a possibly stale local checkout.
+        let spawn_base = crate::worktree::resolve_spawn_base(&repo);
+        if let Err(e) = worktree_add_new_branch(&repo, &dest, &branch, &spawn_base.rev) {
             // A failed or timed-out add can leave a half checkout and the branch; an
             // "already exists" means a concurrent spawn owns them, so leave them alone.
             if !e.to_string().contains("already exists") {
@@ -835,7 +838,7 @@ pub fn spawn_worker(req: WorkerSpawnRequest<'_>) -> Result<WorkerSpawnResult, Wo
         }
         // `worker clean` candidate even after this agent's state is GC'd (ADR-017).
         let _ = crate::worktree_clean::mark_managed(&dest);
-        (dest.clone(), Some((repo, dest, branch)))
+        (dest.clone(), Some((repo, dest, branch, spawn_base)))
     };
 
     let session_base = if req.here {
@@ -876,7 +879,7 @@ pub fn spawn_worker(req: WorkerSpawnRequest<'_>) -> Result<WorkerSpawnResult, Wo
                     .args(["kill-session", "-t", &format!("={host}")])
                     .status();
             }
-            if let Some((repo, dest, branch)) = &new_worktree {
+            if let Some((repo, dest, branch, _)) = &new_worktree {
                 crate::worktree::remove_new_worktree(repo, dest, branch);
             }
             return Err(e.into());
@@ -905,6 +908,7 @@ pub fn spawn_worker(req: WorkerSpawnRequest<'_>) -> Result<WorkerSpawnResult, Wo
         path: spawn_path,
         run,
         outcome,
+        base: new_worktree.map(|(_, _, _, base)| base),
     })
 }
 

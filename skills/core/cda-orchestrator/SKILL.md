@@ -152,7 +152,9 @@ cdamux worker peek <name> [--lines N]
 cdamux worker kill <name> [--subtree]
 ```
 
-Default spawn creates a worktree + branch. The preamble already tells the
+Default spawn creates a worktree + branch from a freshly fetched `origin/<default>`
+(output `base=<rev>@<commit>`); a `warning:` line means the fetch failed and the
+base is the local default, possibly stale. The preamble already tells the
 worker how to report, verify, self-review and open a PR.
 
 ## Relay (maintainer → worker)

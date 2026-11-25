@@ -240,7 +240,11 @@ Requires `$CDAMUX_AGENT_ID` (caller must be an orchestrator session).
   — tmux host with `role=worker`, `parent` = caller id, `run` = caller's long-lived run
   (minted if missing). Default: new git worktree `<root>/<run>/<name>` + branch
   `worker/<run>/<name>`, with `<root>` = `[worktrees].root` or `$CDAMUX_HOME/worktrees`
-  (per-run, so two orchestrators can each spawn `api`). `--prompt-file` is read before
+  (per-run, so two orchestrators can each spawn `api`). The branch starts from a fresh
+  `origin/<default>` (`git fetch origin <default>`; default = remote HEAD, else `gh`,
+  else cached `origin/HEAD`, as orch.sh W2) with `--no-track`; the spawn line prints
+  `base=<rev>@<commit>`. Fetch failure (offline) falls back to the local default branch
+  and prints a `warning:` line; no `origin` remote uses the current branch. `--prompt-file` is read before
   the worktree is created. `--here` reuses the target repo root (no worktree). `--repo`
   selects that repo: an existing directory (git toplevel) or a unique discovered
   project name (`cdamux projects`); without it, the caller's cwd repo is used. Worker

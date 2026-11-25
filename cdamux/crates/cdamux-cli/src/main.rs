@@ -946,8 +946,13 @@ fn cmd_worker_spawn(
     match spawn_worker(req) {
         Ok(r) => {
             kick_background_clean();
+            let base = r
+                .base
+                .as_ref()
+                .map(|b| format!(" base={}@{}", b.rev, b.commit))
+                .unwrap_or_default();
             println!(
-                "spawned worker '{}' id={} host={} run={} path={} home={}{}",
+                "spawned worker '{}' id={} host={} run={} path={}{base} home={}{}",
                 r.name,
                 r.agent_id,
                 r.host,
@@ -956,6 +961,9 @@ fn cmd_worker_spawn(
                 home_display(),
                 r.outcome.note()
             );
+            if let Some(w) = r.base.and_then(|b| b.warning) {
+                println!("warning: {w}");
+            }
             ExitCode::SUCCESS
         }
         Err(e) => {

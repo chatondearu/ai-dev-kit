@@ -55,17 +55,75 @@ pub fn current_branch(repo: &Path) -> Option<String> {
 
 /// Default branch of `repo` (`origin/HEAD`, else `gh repo view`); `None` when unknown.
 pub fn default_branch(repo: &Path) -> Option<String> {
+    cached_default_branch(repo).or_else(|| gh_default_branch(repo))
+}
+
+fn cached_default_branch(repo: &Path) -> Option<String> {
     git_stdout(repo, &["symbolic-ref", "--short", "refs/remotes/origin/HEAD"])
         .map(|r| r.trim_start_matches("origin/").to_string())
-        .or_else(|| {
-            let out = Command::new("gh")
-                .args(["repo", "view", "--json", "defaultBranchRef", "-q", ".defaultBranchRef.name"])
-                .current_dir(repo)
-                .output()
-                .ok()?;
-            let b = String::from_utf8_lossy(&out.stdout).trim().to_string();
-            (out.status.success() && !b.is_empty()).then_some(b)
+}
+
+fn gh_default_branch(repo: &Path) -> Option<String> {
+    let out = Command::new("gh")
+        .args(["repo", "view", "--json", "defaultBranchRef", "-q", ".defaultBranchRef.name"])
+        .current_dir(repo)
+        .output()
+        .ok()?;
+    let b = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    (out.status.success() && !b.is_empty()).then_some(b)
+}
+
+/// Origin's default branch as orch.sh resolves it (W2): the remote's HEAD, else `gh`,
+/// else the cached `origin/HEAD`.
+fn remote_default_branch(repo: &Path) -> Option<String> {
+    git_stdout(repo, &["ls-remote", "--symref", "origin", "HEAD"])
+        .and_then(|out| {
+            out.lines().find_map(|l| {
+                l.strip_prefix("ref: refs/heads/")?
+                    .split_whitespace()
+                    .next()
+                    .map(str::to_string)
+            })
         })
+        .or_else(|| gh_default_branch(repo))
+        .or_else(|| cached_default_branch(repo))
+}
+
+/// Where a new worker branch starts.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SpawnBase {
+    /// Revision given to `git worktree add`: `origin/<default>`, a local branch, or `HEAD`.
+    pub rev: String,
+    /// Short commit id of `rev` (empty when it cannot be read).
+    pub commit: String,
+    /// Set when the base is not a freshly fetched `origin/<default>`.
+    pub warning: Option<String>,
+}
+
+/// Fetch origin's default branch so a worker starts from `origin/<default>`, not from a
+/// stale local checkout. Fetch failure (offline) or unknown default: the local default
+/// branch (else the current branch) with a warning. No `origin` remote: the current branch.
+pub fn resolve_spawn_base(repo: &Path) -> SpawnBase {
+    let current = || current_branch(repo).unwrap_or_else(|| "HEAD".into());
+    let (rev, warning) = if git_stdout(repo, &["remote", "get-url", "origin"]).is_none() {
+        (current(), None)
+    } else if let Some(d) = remote_default_branch(repo) {
+        let refspec = format!("+refs/heads/{d}:refs/remotes/origin/{d}");
+        if git_output(repo, &["fetch", "-q", "origin", &refspec]).is_ok() {
+            (format!("origin/{d}"), None)
+        } else {
+            let r = if list_local_branches(repo).contains(&d) { d.clone() } else { current() };
+            let w = format!("git fetch origin {d} failed; worker based on local {r}, which may be stale");
+            (r, Some(w))
+        }
+    } else {
+        let r = current();
+        let w = format!("cannot resolve origin's default branch; worker based on local {r}");
+        (r, Some(w))
+    };
+    let commit = git_stdout(repo, &["rev-parse", "--short", &format!("{rev}^{{commit}}")])
+        .unwrap_or_default();
+    SpawnBase { rev, commit, warning }
 }
 
 pub fn list_worktrees(repo: &Path) -> Result<Vec<WorktreeEntry>, WorktreeError> {
@@ -143,6 +201,8 @@ pub fn worktree_add_new_branch(
         .arg(repo)
         .arg("worktree")
         .arg("add")
+        // A worker branch based on `origin/<default>` must not push back to it.
+        .arg("--no-track")
         .arg("-b")
         .arg(new_branch)
         .arg(dest)
@@ -254,6 +314,8 @@ fn git_output(path: &Path, args: &[&str]) -> Result<String, WorktreeError> {
         .arg("-C")
         .arg(path)
         .args(args)
+        // A credential prompt would hang a spawn driven from an agent pane.
+        .env("GIT_TERMINAL_PROMPT", "0")
         .output()
         .map_err(|e| WorktreeError::Git(e.to_string()))?;
     if !out.status.success() {
@@ -312,6 +374,51 @@ mod tests {
         assert!(!list_local_branches(&repo).contains(&"worker/r/w1".to_string()));
         // Retry with the same name works again (M10).
         worktree_add_new_branch(&repo, &dest, "worker/r/w1", "main").unwrap();
+    }
+
+    #[test]
+    fn spawn_base_is_fetched_origin_default_with_offline_fallback() {
+        let tmp = tempfile::tempdir().unwrap();
+        let git = |dir: &Path, args: &[&str]| -> String {
+            let out = Command::new("git").arg("-C").arg(dir).args(args).output().unwrap();
+            assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+            String::from_utf8_lossy(&out.stdout).trim().to_string()
+        };
+        let commit = |dir: &Path, msg: &str| {
+            git(dir, &["-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false",
+                "commit", "--allow-empty", "-m", msg]);
+        };
+        let (seed, origin, repo) =
+            (tmp.path().join("seed"), tmp.path().join("origin.git"), tmp.path().join("repo"));
+        std::fs::create_dir(&seed).unwrap();
+        git(&seed, &["init", "-b", "main"]);
+        commit(&seed, "one");
+        git(tmp.path(), &["clone", "-q", "--bare", &seed.to_string_lossy(), &origin.to_string_lossy()]);
+        git(tmp.path(), &["clone", "-q", &origin.to_string_lossy(), &repo.to_string_lossy()]);
+        // Origin moves ahead; the local main stays stale.
+        commit(&seed, "two");
+        git(&seed, &["push", "-q", &origin.to_string_lossy(), "main"]);
+        let ahead = git(&seed, &["rev-parse", "--short", "HEAD"]);
+        let stale = git(&repo, &["rev-parse", "--short", "main"]);
+
+        let base = resolve_spawn_base(&repo);
+        assert_eq!(base, SpawnBase { rev: "origin/main".into(), commit: ahead.clone(), warning: None });
+        let dest = tmp.path().join("wt/w1");
+        worktree_add_new_branch(&repo, &dest, "worker/r/w1", &base.rev).unwrap();
+        assert_eq!(git(&dest, &["rev-parse", "--short", "HEAD"]), ahead);
+        let upstream = Command::new("git").arg("-C").arg(&repo)
+            .args(["config", "branch.worker/r/w1.merge"]).output().unwrap();
+        assert!(!upstream.status.success(), "worker branch must not track origin/main");
+
+        // Offline: fetch fails, fall back to the local default branch with a warning.
+        git(&repo, &["remote", "set-url", "origin", &tmp.path().join("gone.git").to_string_lossy()]);
+        let base = resolve_spawn_base(&repo);
+        assert_eq!((base.rev.as_str(), base.commit.as_str()), ("main", stale.as_str()));
+        assert!(base.warning.unwrap().contains("git fetch origin main failed"));
+
+        // No origin remote: the current branch, silently.
+        git(&repo, &["remote", "remove", "origin"]);
+        assert_eq!(resolve_spawn_base(&repo), SpawnBase { rev: "main".into(), commit: stale, warning: None });
     }
 
     #[test]

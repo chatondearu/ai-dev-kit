@@ -218,6 +218,10 @@ and `bash <kit>/…/doc-hygiene.sh --check <repo>`.
   run|shell|profile|copy`, `nix-env`, `darwin-rebuild`, `nixos-rebuild` and `sudo` stay
   denied. Residual risk: building the worktree flake runs its derivations (unsandboxed on
   macOS by default); activation stays with the owner.
+- A neomind worker was denied `nix develop .#android -c scripts/android-build.sh`: a named
+  devShell is the same repo tooling as `nix develop -c`. Text rule `nix develop .#*`; the
+  guard accepts `nix develop .#<attr> -c|--command <tool>` (`#` only in that word), and the
+  wrapped tool passes the same plain-line checks as behind `nix develop -c`.
 
 ## Alternatives considered
 

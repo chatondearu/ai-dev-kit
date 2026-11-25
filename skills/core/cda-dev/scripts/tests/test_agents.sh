@@ -349,9 +349,40 @@ for c in 'mise exec -- cargo test -p neomind --test console console_fil 2>&1 | t
   'mise exec -- rm -rf x' 'nix develop -c rm -rf x' 'nix develop -c mise exec -- cargo test' \
   'mise exec -- cargo install ripgrep' 'nix develop -c cargo install x' 'node -e 1' 'node -e "1"' \
   'node /tmp/x.js' 'node ../x.js' 'node crates/missing.js' 'mise exec -- npm exec foo' 'mise exec -- pnpm dlx x' \
-  'mise exec -- npm install -g x' 'scripts/../../x.sh' 'scripts/missing.sh' 'nix build .#neomind -L' \
+  'mise exec -- npm install -g x' 'scripts/../../x.sh' 'scripts/missing.sh' 'nix build github:x/y#neomind -L' \
   'node crates/neomind/tests/fixtures/console-harness.js x | node -e x' 'mise exec -- python x.py'; do
   rc=0; GUARD_CWD="$W" GUARD_WT="$W" GUARD_KIT="$K" guard "$c" || rc=$?; assert_eq "$rc" "2" "guard blocks tooling: $c"
+done
+# Flake maintenance a nix-beam worker was denied (#436 follow-up): the literal commands.
+for c in 'nix flake update ai-dev-kit' 'nix flake lock --update-input ai-dev-kit' \
+  'nix build .#darwinConfigurations.beam-mbp.system' 'nix build .#darwinConfigurations.beam-mbp.system --no-link -L' \
+  'nix build .#neomind -L' 'nix build .#cdamux --dry-run' 'nix eval .#darwinConfigurations.beam-mbp.system' \
+  'nix eval .#packages.aarch64-darwin.cdamux.version --raw' 'nix eval .#lib --json' 'nix flake check'; do
+  rc=0; GUARD_CWD="$W" GUARD_WT="$W" guard "$c" || rc=$?; assert_eq "$rc" "0" "guard allows nix: $c"
+  rc=0; GUARD_CWD="$O" GUARD_WT="$W" guard "$c" || rc=$?; assert_eq "$rc" "2" "guard blocks nix outside the worktree: $c"
+done
+for c in 'nix flake update' 'nix flake update ai-dev-kit nixpkgs' 'nix flake update ai-dev-kit --commit-lock-file' \
+  'nix flake update --override-input ai-dev-kit path:/x' 'nix flake update --commit-lock-file' \
+  'nix flake lock --update-input ai-dev-kit --commit-lock-file' 'nix flake lock --override-input x path:/y' \
+  'nix build' 'nix build github:x/y#pkg' 'nix build path:/x#pkg' 'nix build .#pkg --option sandbox false' \
+  'nix build -L .#pkg' 'nix build .#pkg -L -L' 'nix build .#pkg #x' 'nix build .#pkg;id' 'nix build .#$x' \
+  'nix build .#pkg && id' 'nix build .#a .#b' 'nix eval .#x --raw --json' 'nix eval .#x --apply f' 'nix eval --expr 1' \
+  'nix flake check --no-build' 'nix flake show' 'nix run .#pkg' 'nix run nixpkgs#hello' 'nix shell nixpkgs#hello' \
+  'nix profile install nixpkgs#hello' 'nix-env -iA nixpkgs.hello' 'nix copy --to ssh://x .#pkg' \
+  'sudo nix build .#pkg' 'NIX_CONFIG=x nix build .#pkg' \
+  'nix --option sandbox false build .#pkg' 'nix develop -c nix run .#pkg'; do
+  rc=0; GUARD_CWD="$W" GUARD_WT="$W" guard "$c" || rc=$?; assert_eq "$rc" "2" "guard blocks nix: $c"
+done
+rc=0; GUARD_CWD="$W" guard 'nix flake check' || rc=$?; assert_eq "$rc" "2" "no worktree: no nix runs"
+# darwin-rebuild / nixos-rebuild / sudo: refused by the template denies (deny wins in every scope).
+r="$(render feat/a main)"
+for rule in 'Bash(nix flake update *)' 'Bash(nix flake lock --update-input *)' 'Bash(nix flake check)' \
+  'Bash(nix build .#*)' 'Bash(nix eval .#*)'; do
+  assert_eq "$(jq -r --arg r "$rule" '.permissions.allow | index($r) != null' <<<"$r")" "true" "settings allow $rule"
+done
+for rule in 'Bash(nix run *)' 'Bash(nix shell *)' 'Bash(nix profile *)' 'Bash(nix-env *)' 'Bash(nix copy *)' \
+  'Bash(darwin-rebuild *)' 'Bash(nixos-rebuild *)' 'Bash(sudo *)' 'Bash(nix *--commit-lock-file*)'; do
+  assert_eq "$(jq -r --arg r "$rule" '.permissions.deny | index($r) != null' <<<"$r")" "true" "settings deny $rule"
 done
 rc=0; GUARD_CWD="$W" GUARD_WT="$W" guard "bash $DH --check" || rc=$?; assert_eq "$rc" "2" "no kit root: kit scripts refused"
 rc=0; GUARD_CWD="$W" guard 'bash scripts/verify.sh' || rc=$?; assert_eq "$rc" "2" "no worktree: no script runs"

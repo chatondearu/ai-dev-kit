@@ -11,9 +11,10 @@
 // Repo tooling with a shell, node or a command runner in it (`bash|sh|./|scripts/<file>`,
 // `node <file>`, `mise exec --` / `nix develop -c` + cargo, make, just, npm|pnpm run …)
 // follows the same plain-line rule, files inside the worktree; read-only kit scripts run
-// only in their listed forms. Git with $, backticks, globs, xargs or eval, git alias /
-// config-env / include, and `gh` merge or ref updates are refused. Exit 2 with the reason
-// on stderr.
+// only in their listed forms, flake maintenance (`nix flake update|lock|check`,
+// `nix build|eval .#<attr>`) only in its listed forms from the worktree. Git with $,
+// backticks, globs, xargs or eval, git alias / config-env / include, and `gh` merge or ref
+// updates are refused. Exit 2 with the reason on stderr.
 // Text is not a sandbox: a script the worker writes can still push; branch protection is
 // the real guard.
 import { spawnSync } from 'node:child_process';
@@ -126,6 +127,8 @@ const TOOL_FORM = 'run repo tooling as one plain line, no pipe/redirect/$/quotes
   + 'make|just …, npm|pnpm run …, node <file>, bash|sh|./|scripts/<script> …, optionally '
   + 'behind mise exec -- or nix develop -c';
 
+const inRoot = (real) => Boolean(root) && (real === root || real.startsWith(root + sep));
+
 // Reason `p` is not a file inside the worktree (relative, symlinks resolved, no `..`).
 function pathReason(p, cwd) {
   if (!p || p.startsWith('-') || p.startsWith('/')) {
@@ -139,8 +142,40 @@ function pathReason(p, cwd) {
   } catch {
     return `${p} is not a file`;
   }
-  const inside = root && (real === root || real.startsWith(root + sep));
-  return inside ? null : `${p} is outside the worktree`;
+  return inRoot(real) ? null : `${p} is outside the worktree`;
+}
+
+// Flake maintenance (nix-beam bumps) on the worktree flake: no run/shell/profile/copy, no
+// --override-input / --commit-lock-file / --option, no remote flake ref.
+const NIX_FORM = 'nix flake update <input> | nix flake lock --update-input <input> | '
+  + 'nix build .#<attr> [--no-link] [-L] [--dry-run] | nix eval .#<attr> [--raw|--json] | '
+  + 'nix flake check, one plain line from the worktree';
+const NIX_INPUT = /^[A-Za-z_][\w-]*$/;
+const NIX_ATTR = /^\.#\w[\w.+-]*$/; // the only word that may hold a `#`
+const NIX_FLAGS = { build: ['--no-link', '-L', '--dry-run'], eval: ['--raw', '--json'] };
+
+// Reason the words of a `nix …` line (not `nix develop`) are not a listed flake form, or null.
+function nixReason(w, cwd) {
+  if (w.some((a) => !NIX_ATTR.test(a) && META.test(a))) return NIX_FORM;
+  let real = '';
+  try {
+    real = realpathSync(cwd);
+  } catch {
+    return NIX_FORM;
+  }
+  if (!inRoot(real)) return `${NIX_FORM} (cwd outside the worktree)`;
+  const [, sub, ...a] = w;
+  const [first, ...flags] = a;
+  let ok = false;
+  if (sub === 'flake') {
+    ok = (first === 'update' && a.length === 2 && NIX_INPUT.test(a[1]))
+      || (first === 'lock' && a.length === 3 && a[1] === '--update-input' && NIX_INPUT.test(a[2]))
+      || (first === 'check' && a.length === 1);
+  } else if (Object.hasOwn(NIX_FLAGS, sub)) {
+    ok = NIX_ATTR.test(first ?? '') && flags.every((f) => NIX_FLAGS[sub].includes(f))
+      && new Set(flags).size === flags.length && (sub !== 'eval' || flags.length <= 1);
+  }
+  return ok ? null : NIX_FORM;
 }
 
 // npm / pnpm subcommands a worker may run (no exec/dlx: they run any package).
@@ -191,7 +226,9 @@ function reason(cmd, cwd) {
   // A shell, a runner or node anywhere, or a `./` / `scripts/` path at a command start.
   if (/(^|[^\w.-])(bash|sh|zsh|dash|ksh|node|mise|nix)\b/.test(flat)
     || /(^|[;&|(){}\n`]\s*)(\.\.?\/|scripts\/)/.test(t)) {
-    return META.test(t) ? TOOL_FORM : toolReason(t.split(/ +/), cwd);
+    const w = t.split(/ +/);
+    if (w[0] === 'nix' && w[1] !== 'develop') return nixReason(w, cwd);
+    return META.test(t) ? TOOL_FORM : toolReason(w, cwd);
   }
   return null;
 }

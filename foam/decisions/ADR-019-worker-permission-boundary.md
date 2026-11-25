@@ -204,6 +204,20 @@ and `bash <kit>/…/doc-hygiene.sh --check <repo>`.
   <parent> …`, matched by `Bash(cdamux msg *)`; the former `--to "$(cdamux state get …
   | jq …)"` was denied under `dontAsk` (command substitution).
 
+## Amendment 2026-11-25 — flake maintenance
+
+- A nix-beam worker was denied `nix flake update ai-dev-kit` and `nix build
+  .#darwinConfigurations.<host>.system`, so every bump fell back to the owner. Text rules
+  add `nix flake update *`, `nix flake lock --update-input *`, `nix flake check`, `nix build
+  .#*`, `nix eval .#*`; the guard runs them only as one plain line from inside the worktree
+  in exactly these forms: `nix flake update <input>`, `nix flake lock --update-input
+  <input>` (one input name, no `--override-input` / `--commit-lock-file`), `nix build
+  .#<attr> [--no-link] [-L] [--dry-run]`, `nix eval .#<attr> [--raw|--json]`, `nix flake
+  check` (`#` only inside the `.#<attr>` word; no remote flake ref, no `--option`). `nix
+  run|shell|profile|copy`, `nix-env`, `darwin-rebuild`, `nixos-rebuild` and `sudo` stay
+  denied. Residual risk: building the worktree flake runs its derivations (unsandboxed on
+  macOS by default); activation stays with the owner.
+
 ## Alternatives considered
 
 | Alternative | Why rejected |

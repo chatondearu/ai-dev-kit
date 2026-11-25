@@ -15,12 +15,12 @@
 // Fail-open, local, fast; no-op without CDAMUX_AGENT_ID / @cdamux_id or without
 // `cdamux` on PATH. Stickiness: done/error/blocked stay until the next `working`.
 //
-// Cursor: sessionStart/sessionEnd → idle; beforeSubmitPrompt → working when fired
-// (cannot inject context — see docs); stop → idle + followup_message digest.
-// Print-mode (`cursor-agent -p`) may omit beforeSubmitPrompt — rely on sessionStart/End.
-// Cursor CLI runs queued messages (stop followup_message, text typed mid-turn) without
-// beforeSubmitPrompt, so a stop that queues a followup stays `working` and postToolUse
-// lifts `idle` back to `working` (never a sticky status) and `turn` to `running`.
+// Cursor: sessionStart/sessionEnd → idle (`turn: exited` on sessionEnd);
+// beforeSubmitPrompt and pre-exec permission hooks → working/`turn: running` when
+// fired (cannot inject context — see docs); stop → idle + followup_message digest
+// (`turn` stays running when a followup is queued; ended when the turn ends).
+// Print-mode (`cursor-agent -p`) may omit beforeSubmitPrompt — pre-exec still marks
+// running when tools fire. postToolUse lifts idle → working and `turn` to `running`.
 const fs = require('fs');
 const {
   setAgentState,
@@ -50,15 +50,25 @@ const MAP = {
   PermissionRequest: 'needs_input',
 };
 
+// Cursor has no Trust/Auto-review hook (docs: permission events are preToolUse /
+// beforeShellExecution / beforeMCPExecution / beforeReadFile). needs_input stays
+// the pane heuristic. Empty or invalid output on these events blocks the action.
+const CURSOR_PERM = /^(preToolUse|beforeShellExecution|beforeMCPExecution|beforeReadFile)$/;
+
+let event = '';
+let answered = false;
+
 // Synchronous: printed before any slower step, so a hook killed later still hands it over.
 function writeJson(obj) {
+  answered = true;
   fs.writeSync(1, JSON.stringify(obj) + '\n');
 }
 
 // What each client expects from a hook that does nothing.
-function writeNoop(event) {
-  if (event === 'beforeSubmitPrompt') writeJson({ continue: true });
-  else if (/^(stop|sessionStart|sessionEnd|postToolUse|postToolUseFailure)$/.test(event)) writeJson({});
+function writeNoop(name) {
+  if (name === 'beforeSubmitPrompt') writeJson({ continue: true });
+  else if (CURSOR_PERM.test(name)) writeJson({ permission: 'allow' });
+  else if (/^(stop|sessionStart|sessionEnd|postToolUse|postToolUseFailure)$/.test(name)) writeJson({});
 }
 
 // `working` only from idle / unset: sticky done/error/blocked (open ask) must survive.
@@ -73,15 +83,15 @@ function liftIdle() {
 
 function main() {
   const input = JSON.parse(fs.readFileSync(0, 'utf8'));
-  const event = input.hook_event_name || input.event || '';
+  event = input.hook_event_name || input.event || '';
   if (!isTopLevelHook(process.env)) {
     writeNoop(event);
     return;
   }
   let status = MAP[event];
-  if (event === 'postToolUse' || event === 'postToolUseFailure') {
+  if (event === 'postToolUse' || event === 'postToolUseFailure' || CURSOR_PERM.test(event)) {
     liftIdle();
-    writeJson({});
+    writeNoop(event);
     return;
   }
   // Claude also fires Notification as `idle_prompt` ~60 s after a turn ends; only a
@@ -158,4 +168,5 @@ function main() {
 }
 
 try { main(); } catch (e) { /* fail-open */ }
+if (!answered) writeNoop(event);
 process.exit(0);

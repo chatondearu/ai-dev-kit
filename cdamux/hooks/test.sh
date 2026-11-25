@@ -293,6 +293,7 @@ before="$(cat "$AF")"
 [ -z "$(nested '{"hook_event_name":"UserPromptSubmit"}')" ] || fail "nested UserPromptSubmit must print nothing"
 [ -z "$(nested '{"hook_event_name":"Stop"}')" ] || fail "nested Stop must not block"
 [ "$(nested '{"hook_event_name":"beforeSubmitPrompt"}')" = '{"continue":true}' ] || fail "nested Cursor hook must answer continue"
+[ "$(nested '{"hook_event_name":"preToolUse"}')" = '{"permission":"allow"}' ] || fail "nested preToolUse must allow"
 [ "$(cat "$INBOX/a-hook1.cursor")" = 0 ] || fail "nested hook acked the parent's inbox"
 [ ! -s "$CDAMUX_LOG" ] && [ "$(cat "$AF")" = "$before" ] || fail "nested hook wrote the parent's state: $(cat "$CDAMUX_LOG")"
 # Consecutive Stop blocks are capped (3): then the turn ends and the line stays unread.
@@ -347,9 +348,11 @@ echo "$out" | jq -e '.followup_message|test("unread")' >/dev/null \
   || fail "cursor stop followup_message missing, got: $out"
 # The queued followup runs without beforeSubmitPrompt: the turn goes on, stay working.
 [ "$(jq -r .status "$AF")" = working ] || fail "cursor stop with followup must stay working"
+[ "$(jq -r .turn "$AF")" = running ] || fail "cursor stop with followup must keep turn running"
 out="$(run_status '{"hook_event_name":"stop","loop_count":1}')"
 [ "$out" = '{}' ] || fail "cursor stop loop_count>0 must not follow up, got: $out"
 [ "$(jq -r .status "$AF")" = idle ] || fail "cursor stop without followup must set idle"
+[ "$(jq -r .turn "$AF")" = ended ] || fail "cursor stop without followup must set turn ended"
 # An open ask (blocked) survives a stop that queues the digest; the followup is still sent.
 printf '{"id":"a-hook1","status":"blocked"}\n' > "$AF"
 out="$(run_status '{"hook_event_name":"stop","loop_count":0}')"
@@ -367,6 +370,34 @@ run_status '{"hook_event_name":"postToolUseFailure"}' >/dev/null
 # beforeSubmitPrompt still cannot inject (Cursor limit)
 out="$(run_status '{"hook_event_name":"beforeSubmitPrompt"}')"
 [ "$out" = '{"continue":true}' ] || fail "beforeSubmitPrompt must not inject, got: $out"
+
+# Cursor event matrix → status + turn (ADR-018 follow-up).
+printf '{"id":"a-hook1","status":"idle","turn":"ended"}\n' > "$AF"
+out="$(run_status '{"hook_event_name":"beforeSubmitPrompt"}')"
+[ "$out" = '{"continue":true}' ] || fail "matrix beforeSubmitPrompt output, got: $out"
+[ "$(jq -c '[.status, .turn]' "$AF")" = '["working","running"]' ] || fail "beforeSubmitPrompt must set turn=running, got: $(cat "$AF")"
+for ev in preToolUse beforeShellExecution beforeMCPExecution beforeReadFile; do
+  printf '{"id":"a-hook1","status":"idle","turn":"ended"}\n' > "$AF"
+  out="$(run_status "{\"hook_event_name\":\"$ev\"}")"
+  [ "$out" = '{"permission":"allow"}' ] || fail "cursor $ev must allow, got: $out"
+  [ "$(jq -c '[.status, .turn]' "$AF")" = '["working","running"]' ] || fail "$ev must set turn=running, got: $(cat "$AF")"
+done
+printf '{"id":"a-hook1","status":"done","turn":"ended"}\n' > "$AF"
+out="$(run_status '{"hook_event_name":"preToolUse"}')"
+[ "$out" = '{"permission":"allow"}' ] || fail "preToolUse under done must allow, got: $out"
+[ "$(jq -c '[.status, .turn]' "$AF")" = '["done","running"]' ] || fail "preToolUse must not clear sticky done, got: $(cat "$AF")"
+: > "$INBOX/a-hook1.jsonl"
+printf '0\n' > "$INBOX/a-hook1.cursor"
+printf '{"id":"a-hook1","status":"working","turn":"running"}\n' > "$AF"
+out="$(run_status '{"hook_event_name":"stop"}')"
+[ "$out" = '{}' ] || fail "turn-ending stop must print {}, got: $out"
+[ "$(jq -c '[.status, .turn]' "$AF")" = '["idle","ended"]' ] || fail "turn-ending stop must set turn=ended, got: $(cat "$AF")"
+seed_inbox
+printf '{"id":"a-hook1","status":"working","turn":"running"}\n' > "$AF"
+out="$(run_status '{"hook_event_name":"stop","loop_count":0}')"
+echo "$out" | jq -e '.followup_message|test("unread")' >/dev/null \
+  || fail "followup stop missing followup_message, got: $out"
+[ "$(jq -c '[.status, .turn]' "$AF")" = '["working","running"]' ] || fail "followup stop must keep turn=running, got: $(cat "$AF")"
 # Acked inbox → no digest
 printf '%s' "$(wc -c < "$INBOX/a-hook1.jsonl" | tr -d ' ')" > "$INBOX/a-hook1.cursor"
 out="$(run_status '{"hook_event_name":"Stop"}')"

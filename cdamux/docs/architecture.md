@@ -339,7 +339,8 @@ See `config/cdamux.example.toml`. Highlights:
   `cdamux state append`); transitional `@cdamux_state` is next; else pane heuristics
   from `now - #{window_activity}` (tmux has no `pane_idle_time`). Unknown idle → Idle
   (fail closed). Reported `idle`/`working` still run pane heuristics so Cursor
-  (no permission event) can become `needs_input`. Reported `working` with a quiet
+  (no Trust/Auto-review hook; pre-exec events write `turn`) can become
+  `needs_input`. Reported `working` with a quiet
   pane past `daemon.working_warn_seconds` (default 600) shows `working ⚠` without
   rewriting state. A live tmux host whose pane is only a shell / `mise` / `direnv`
   (agent CLI exited or never started) is marked `error` and the parent is inboxed

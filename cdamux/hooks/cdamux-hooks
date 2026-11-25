@@ -87,9 +87,13 @@ wire_cursor() {
     | .hooks.stop = (strip("stop") + [{command:$st, timeout:5}])
     | .hooks.postToolUse = (strip("postToolUse") + [{command:$st, timeout:5}])
     | .hooks.postToolUseFailure = (strip("postToolUseFailure") + [{command:$st, timeout:5}])
+    | .hooks.preToolUse = (strip("preToolUse") + [{command:$st, timeout:5}])
+    | .hooks.beforeShellExecution = (strip("beforeShellExecution") + [{command:$st, timeout:5}])
+    | .hooks.beforeMCPExecution = (strip("beforeMCPExecution") + [{command:$st, timeout:5}])
+    | .hooks.beforeReadFile = (strip("beforeReadFile") + [{command:$st, timeout:5}])
   ' --arg m "$MATCH" --arg cmd "$(cmd cursor-subagent.js)" --arg ss "$(cmd session-start.js)" \
     --arg st "$(cmd status.js)" || return 0
-  log "hook $f (cdamux: subagent + sessionStart/End + beforeSubmitPrompt + stop + postToolUse)"
+  log "hook $f (cdamux: subagent + sessionStart/End + beforeSubmitPrompt + stop + postToolUse + pre-exec)"
 }
 
 # Codex hooks.json shape mirrors Claude (nested hooks[] with type/command).

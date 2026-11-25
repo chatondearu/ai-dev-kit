@@ -41,7 +41,7 @@ cmp -s "$S" "$tmp/s1" && cmp -s "$C" "$tmp/c1" || fail "second wire is not a no-
 
 [ "$(n "$S" /old/kit/ "$claude_cmds")" = 0 ] && [ "$(n "$C" /old/kit/ "$cursor_cmds")" = 0 ] || fail "old checkout entries kept"
 [ "$(n "$S" "$STABLE/" "$claude_cmds")" = 8 ] || fail "claude: expected 8 cdamux entries on the stable path (incl. SessionEnd)"
-[ "$(n "$C" "$STABLE/" "$cursor_cmds")" = 8 ] || fail "cursor: expected 8 cdamux entries on the stable path"
+[ "$(n "$C" "$STABLE/" "$cursor_cmds")" = 12 ] || fail "cursor: expected 12 cdamux entries on the stable path"
 CX="$CODEX_HOME/hooks.json"
 [ "$(n "$CX" "$STABLE/" "$claude_cmds")" = 5 ] || fail "codex: expected 5 cdamux entries on the stable path"
 [ "$(n "$S" "$tmp/store" "$claude_cmds")" = 0 ] && [ "$(n "$C" "$tmp/store" "$cursor_cmds")" = 0 ] || fail "store path written into settings"

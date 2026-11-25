@@ -71,9 +71,8 @@
     (lib.mkIf (
       config.cda.aitools.enable && config.cda.aitools.cdamux.home != null
     ) {
-      # Graphical sessions (pam) and user systemd do not source /etc/profile.
+      # Graphical sessions (pam) do not source /etc/profile.
       environment.sessionVariables.CDAMUX_HOME = config.cda.aitools.cdamux.home;
-      systemd.user.sessionVariables.CDAMUX_HOME = config.cda.aitools.cdamux.home;
     })
     (lib.mkIf (
       config.cda.aitools.enable

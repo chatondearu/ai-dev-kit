@@ -65,10 +65,6 @@ nix eval --impure --expr "
           default = {};
         };
         systemd.user.services = lib.mkOption { type = lib.types.attrsOf lib.types.unspecified; default = {}; };
-        systemd.user.sessionVariables = lib.mkOption {
-          type = lib.types.attrsOf (lib.types.nullOr (lib.types.oneOf [ lib.types.str (lib.types.listOf lib.types.str) ]));
-          default = {};
-        };
         systemd.tmpfiles.rules = lib.mkOption { type = lib.types.listOf lib.types.str; default = []; };
         programs.mosh.enable = lib.mkOption { type = lib.types.bool; default = false; };
         launchd.user.agents = lib.mkOption { type = lib.types.attrsOf lib.types.unspecified; default = {}; };
@@ -147,7 +143,6 @@ nix eval --impure --expr "
         environment.etc = any;
         users.users = any;
         systemd.user.services = any;
-        systemd.user.sessionVariables = any;
         systemd.tmpfiles.rules = lib.mkOption { type = lib.types.listOf lib.types.str; default = []; };
         programs.mosh.enable = lib.mkOption { type = lib.types.bool; default = false; };
         launchd.user.agents = any;
@@ -230,7 +225,6 @@ nix eval --impure --expr "
         environment.etc = any;
         users.users = any;
         systemd.user.services = any;
-        systemd.user.sessionVariables = any;
         systemd.tmpfiles.rules = lib.mkOption { type = lib.types.listOf lib.types.str; default = []; };
         programs.mosh.enable = lib.mkOption { type = lib.types.bool; default = false; };
         launchd.user.agents = any;
@@ -255,7 +249,6 @@ nix eval --impure --expr "
         assert builtins.filter (a: !(a.assertion)) cfg.assertions == [];
         assert got == home;
         assert isDarwin || (cfg.environment.sessionVariables.CDAMUX_HOME or null) == home;
-        assert isDarwin || (cfg.systemd.user.sessionVariables.CDAMUX_HOME or null) == home;
         \"ok\";
     schema = import $ROOT/aitools/nix/common.nix { inherit lib; };
     script = import $ROOT/aitools/nix/cdamux-hooks-activation.nix {
@@ -289,7 +282,6 @@ nix eval --impure --expr "
         environment.etc = any;
         users.users = any;
         systemd.user.services = any;
-        systemd.user.sessionVariables = any;
         systemd.tmpfiles.rules = lib.mkOption { type = lib.types.listOf lib.types.str; default = []; };
         programs.mosh.enable = lib.mkOption { type = lib.types.bool; default = false; };
         launchd.user.agents = any;

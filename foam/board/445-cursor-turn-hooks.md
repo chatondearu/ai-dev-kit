@@ -1,6 +1,6 @@
 ---
 title: "feat(cdamux): wire Cursor pre-execution hooks so turn is reliable"
-status: in-progress
+status: in-review
 priority: P1
 updated: 2026-11-25
 github_issue: 445
@@ -12,7 +12,9 @@ Wire Cursor pre-execution and lifecycle hooks so `turn` is `running` on prompt a
 
 ## Acceptance
 
-- [ ] `beforeSubmitPrompt` → `turn=running`
-- [ ] Turn-ending `stop` → `turn=ended`
-- [ ] Followup `stop` keeps `turn=running`
-- [ ] `bash cdamux/hooks/test.sh` green
+- [x] `beforeSubmitPrompt` → `turn=running`
+- [x] Turn-ending `stop` → `turn=ended`
+- [x] Followup `stop` keeps `turn=running`
+- [x] `bash cdamux/hooks/test.sh` green
+
+PR: https://github.com/chatondearu/ai-dev-kit/pull/446

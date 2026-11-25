@@ -25,8 +25,9 @@ default = "cursor"
 
 [agents.cursor]
 # If cursor-agent segfaults on --use-system-ca (Nix cursor-cli), use:
-# command = "env AGENT_CLI_CREDENTIAL_STORE=file cursor-agent"
-command = "cursor-agent"
+# command = "env AGENT_CLI_CREDENTIAL_STORE=file cursor-agent --model grok-4.7-high-fast"
+# Do not inherit the Cursor CLI model picker (~/.cursor/cli-config.json); Opus included quota is a trap.
+command = "cursor-agent --model grok-4.7-high-fast"
 
 [agents.opencode]
 command = "opencode"

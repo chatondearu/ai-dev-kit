@@ -376,7 +376,7 @@ See `config/cdamux.example.toml`. Highlights:
   redraw only when something changed.
 - `sessions.attach_mode` — `mirror | exclusive` (tmux `-d`), same semantics as skzv.
 - `daemon.listen_tailnet`, `daemon.tailnet_port`.
-- `[agents.cursor]` command override (kit: `cursor-agent`).
+- `[agents.cursor]` command override (kit: `cursor-agent --model grok-4.7-high-fast` so workers do not inherit the Cursor CLI model picker; Opus included quota is a trap).
 - `[notes]` — per-project markdown (local files only, ADR-004):
   - Default file: `<project>/.cdamux/notes.md`.
   - Optional `central_root` → one `{slug}.md` per project path under that directory.

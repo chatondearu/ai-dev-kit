@@ -618,6 +618,13 @@ mod tests {
             resume_command(&a, "cursor", "c1").as_deref(),
             Some("cursor-agent --resume=c1")
         );
+        // Flags on `command` stay in front of the built-in `--resume={id}`.
+        let mut pinned = agents();
+        pinned.cursor = entry("cursor-agent --model grok-4.7-high-fast", None);
+        assert_eq!(
+            resume_command(&pinned, "cursor", "c1").as_deref(),
+            Some("cursor-agent --model grok-4.7-high-fast --resume=c1")
+        );
         // Empty command → agent id as executable.
         assert_eq!(
             resume_command(&a, "opencode", "s1").as_deref(),

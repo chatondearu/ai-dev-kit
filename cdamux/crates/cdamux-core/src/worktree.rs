@@ -9,6 +9,10 @@ use std::time::{Duration, Instant};
 /// shortcut: 30s, raise if a real checkout of a large repo exceeds it.
 const WORKTREE_ADD_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// Hang guard for network calls (`ls-remote`, `fetch`, `gh`) on a blackholed network.
+/// shortcut: 15s, raise if a slow but healthy remote needs longer.
+const NETWORK_TIMEOUT: Duration = Duration::from_secs(15);
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorktreeEntry {
     pub path: PathBuf,
@@ -55,7 +59,7 @@ pub fn current_branch(repo: &Path) -> Option<String> {
 
 /// Default branch of `repo` (`origin/HEAD`, else `gh repo view`); `None` when unknown.
 pub fn default_branch(repo: &Path) -> Option<String> {
-    cached_default_branch(repo).or_else(|| gh_default_branch(repo))
+    cached_default_branch(repo).or_else(|| gh_default_branch(repo, NETWORK_TIMEOUT))
 }
 
 fn cached_default_branch(repo: &Path) -> Option<String> {
@@ -63,20 +67,39 @@ fn cached_default_branch(repo: &Path) -> Option<String> {
         .map(|r| r.trim_start_matches("origin/").to_string())
 }
 
-fn gh_default_branch(repo: &Path) -> Option<String> {
-    let out = Command::new("gh")
-        .args(["repo", "view", "--json", "defaultBranchRef", "-q", ".defaultBranchRef.name"])
-        .current_dir(repo)
-        .output()
+fn gh_default_branch(repo: &Path, timeout: Duration) -> Option<String> {
+    let mut cmd = Command::new("gh");
+    cmd.args(["repo", "view", "--json", "defaultBranchRef", "-q", ".defaultBranchRef.name"])
+        .current_dir(repo);
+    run_bounded(cmd, timeout).filter(|b| !b.is_empty())
+}
+
+/// Run a network-bound command: trimmed stdout on success, `None` on failure or timeout.
+/// Only for small outputs: a full stdout pipe ends as a timeout.
+fn run_bounded(mut cmd: Command, timeout: Duration) -> Option<String> {
+    let mut child = cmd
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
         .ok()?;
-    let b = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    (out.status.success() && !b.is_empty()).then_some(b)
+    let status = wait_with_timeout(&mut child, timeout, "network call").ok()?;
+    let mut out = String::new();
+    child.stdout.take()?.read_to_string(&mut out).ok()?;
+    status.success().then(|| out.trim().to_string())
+}
+
+fn git_bounded(repo: &Path, args: &[&str], timeout: Duration) -> Option<String> {
+    let mut cmd = Command::new("git");
+    cmd.arg("-C").arg(repo).args(args);
+    run_bounded(cmd, timeout)
 }
 
 /// Origin's default branch as orch.sh resolves it (W2): the remote's HEAD, else `gh`,
 /// else the cached `origin/HEAD`.
-fn remote_default_branch(repo: &Path) -> Option<String> {
-    git_stdout(repo, &["ls-remote", "--symref", "origin", "HEAD"])
+fn remote_default_branch(repo: &Path, timeout: Duration) -> Option<String> {
+    git_bounded(repo, &["ls-remote", "--symref", "origin", "HEAD"], timeout)
         .and_then(|out| {
             out.lines().find_map(|l| {
                 l.strip_prefix("ref: refs/heads/")?
@@ -85,7 +108,7 @@ fn remote_default_branch(repo: &Path) -> Option<String> {
                     .map(str::to_string)
             })
         })
-        .or_else(|| gh_default_branch(repo))
+        .or_else(|| gh_default_branch(repo, timeout))
         .or_else(|| cached_default_branch(repo))
 }
 
@@ -101,19 +124,26 @@ pub struct SpawnBase {
 }
 
 /// Fetch origin's default branch so a worker starts from `origin/<default>`, not from a
-/// stale local checkout. Fetch failure (offline) or unknown default: the local default
-/// branch (else the current branch) with a warning. No `origin` remote: the current branch.
+/// stale local checkout. Fetch failure or timeout (offline) or unknown default: the local
+/// default branch (else the current branch) with a warning. No `origin` remote: the
+/// current branch.
 pub fn resolve_spawn_base(repo: &Path) -> SpawnBase {
+    resolve_spawn_base_within(repo, NETWORK_TIMEOUT)
+}
+
+fn resolve_spawn_base_within(repo: &Path, timeout: Duration) -> SpawnBase {
     let current = || current_branch(repo).unwrap_or_else(|| "HEAD".into());
     let (rev, warning) = if git_stdout(repo, &["remote", "get-url", "origin"]).is_none() {
         (current(), None)
-    } else if let Some(d) = remote_default_branch(repo) {
+    } else if let Some(d) = remote_default_branch(repo, timeout) {
         let refspec = format!("+refs/heads/{d}:refs/remotes/origin/{d}");
-        if git_output(repo, &["fetch", "-q", "origin", &refspec]).is_ok() {
+        if git_bounded(repo, &["fetch", "-q", "origin", &refspec], timeout).is_some() {
             (format!("origin/{d}"), None)
         } else {
             let r = if list_local_branches(repo).contains(&d) { d.clone() } else { current() };
-            let w = format!("git fetch origin {d} failed; worker based on local {r}, which may be stale");
+            let w = format!(
+                "git fetch origin {d} failed or timed out; worker based on local {r}, which may be stale"
+            );
             (r, Some(w))
         }
     } else {
@@ -217,7 +247,7 @@ pub fn worktree_add_new_branch(
                 WorktreeError::Git(e.to_string())
             }
         })?;
-    let status = wait_with_timeout(&mut child, WORKTREE_ADD_TIMEOUT)?;
+    let status = wait_with_timeout(&mut child, WORKTREE_ADD_TIMEOUT, "git worktree add")?;
     let mut stderr = String::new();
     if let Some(mut err) = child.stderr.take() {
         let _ = err.read_to_string(&mut stderr);
@@ -268,6 +298,7 @@ fn git_err_line(stderr: &str) -> String {
 fn wait_with_timeout(
     child: &mut std::process::Child,
     timeout: Duration,
+    what: &str,
 ) -> Result<std::process::ExitStatus, WorktreeError> {
     let start = Instant::now();
     loop {
@@ -282,7 +313,7 @@ fn wait_with_timeout(
                     }
                     std::thread::sleep(Duration::from_millis(20));
                 }
-                return Err(WorktreeError::Git("git worktree add timed out".into()));
+                return Err(WorktreeError::Git(format!("{what} timed out")));
             }
             Ok(None) => std::thread::sleep(Duration::from_millis(20)),
             Err(e) => return Err(WorktreeError::Git(e.to_string())),
@@ -350,7 +381,7 @@ mod tests {
     #[test]
     fn worktree_add_timeout_returns_one_line() {
         let mut child = Command::new("sleep").arg("30").spawn().unwrap();
-        let err = wait_with_timeout(&mut child, Duration::from_millis(200)).unwrap_err();
+        let err = wait_with_timeout(&mut child, Duration::from_millis(200), "git worktree add").unwrap_err();
         assert_eq!(err.to_string(), "git: git worktree add timed out");
         let _ = child.kill();
         let _ = child.wait();
@@ -415,6 +446,18 @@ mod tests {
         let base = resolve_spawn_base(&repo);
         assert_eq!((base.rev.as_str(), base.commit.as_str()), ("main", stale.as_str()));
         assert!(base.warning.unwrap().contains("git fetch origin main failed"));
+
+        // Blackholed remote: an ssh that never answers times out into the same fallback.
+        git(&repo, &["remote", "set-url", "origin", "ssh://example.invalid/r.git"]);
+        git(&repo, &["config", "ssh.variant", "simple"]);
+        git(&repo, &["config", "core.sshCommand", "sleep 30 #"]);
+        let started = Instant::now();
+        let base = resolve_spawn_base_within(&repo, Duration::from_millis(500));
+        let took = started.elapsed();
+        assert!(took >= Duration::from_millis(500), "stub remote did not block: {took:?}");
+        assert!(took < Duration::from_secs(10), "hung: {took:?}");
+        assert_eq!(base.rev, "main");
+        assert!(base.warning.unwrap().contains("timed out"));
 
         // No origin remote: the current branch, silently.
         git(&repo, &["remote", "remove", "origin"]);

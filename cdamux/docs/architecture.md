@@ -243,7 +243,8 @@ Requires `$CDAMUX_AGENT_ID` (caller must be an orchestrator session).
   (per-run, so two orchestrators can each spawn `api`). The branch starts from a fresh
   `origin/<default>` (`git fetch origin <default>`; default = remote HEAD, else `gh`,
   else cached `origin/HEAD`, as orch.sh W2) with `--no-track`; the spawn line prints
-  `base=<rev>@<commit>`. Fetch failure (offline) falls back to the local default branch
+  `base=<rev>@<commit>`. Each network call (`ls-remote`, `gh`, `fetch`) is capped at
+  15 s. Fetch failure or timeout (offline) falls back to the local default branch
   and prints a `warning:` line; no `origin` remote uses the current branch. `--prompt-file` is read before
   the worktree is created. `--here` reuses the target repo root (no worktree). `--repo`
   selects that repo: an existing directory (git toplevel) or a unique discovered

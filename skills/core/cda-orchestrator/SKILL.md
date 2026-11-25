@@ -185,8 +185,8 @@ cdamux sends you one `report` about it: answer, or escalate.
 `msg send` never types a body into a pane. Its last word tells you what happened:
 `woken` (wake line typed), `scheduled` (typed once the pane is quiet 60 s),
 `turn-end` (the worker's `Stop` hook hands it over when its turn ends), `inbox`
-(no live pane: restore it). All four are delivered or kept; do not resend, and never
-push a message body with `cdamux send`.
+(no live pane: restore it). `inbox` while the host is live and status is `done` was
+this bug; do not `cdamux send` a body. All four are delivered or kept; do not resend.
 
 ## Stuck workers
 

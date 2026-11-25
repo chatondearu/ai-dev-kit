@@ -491,9 +491,10 @@ fn set_status(id: &str, status: &str) -> Result<(), MsgError> {
 }
 
 /// Status side effects of a message. `ask` sets the sender `blocked` (shown as `?`); a
-/// parent's `answer` or `relay` lifts the recipient's `blocked` to `idle` (the asker got
-/// its reply); the blocked agent's own `done` replaces `blocked` (it finished anyway).
-/// `error` keeps a sticky status: orch.sh reports its `blocked` workers as kind=error.
+/// parent's `answer` or `relay` lifts the recipient's `blocked` / `done` / `error` to
+/// `idle` (follow-up on a finished live pane, ADR-018 amendment); the blocked agent's
+/// own `done` replaces `blocked` (it finished anyway). `error` keeps a sticky status:
+/// orch.sh reports its `blocked` workers as kind=error.
 fn apply_kind_status(kind: &str, from: &str, to: &str) -> Result<(), MsgError> {
     match kind {
         // Sticky: an ask never turns a finished `done`/`error` back into `blocked`.
@@ -510,7 +511,12 @@ fn apply_kind_status(kind: &str, from: &str, to: &str) -> Result<(), MsgError> {
                 set_status(from, kind)?;
             }
         }
-        "answer" | "relay" if agent_status(to)? == Some(SessionState::Blocked) => {
+        "answer" | "relay"
+            if matches!(
+                agent_status(to)?,
+                Some(SessionState::Blocked | SessionState::Done | SessionState::Error)
+            ) =>
+        {
             set_status(to, "idle")?;
         }
         _ => {}
@@ -651,18 +657,15 @@ pub enum WakePlan {
     Never,
 }
 
-/// Wake decision (Q21). `turn` is the hook-written field: `running` from prompt submit or
-/// a permission request until `Stop`, then `ended`; `exited` after the CLI's session end
-/// (the pane may be a shell now). `running` vetoes the wake line for every client (codex,
-/// Cursor approval dialogs too). `claude`: the agent runs Claude Code, whose hooks write
-/// `turn` reliably, so `ended` is trusted and a pane on a permission dialog (always
-/// mid-turn) is never typed into; its `Stop` hook delivers mid-turn. A Claude agent with
-/// a status but no `turn` yet has not submitted its first prompt (startup dialogs): wait.
-/// Other clients (Cursor runs queued prompts without a prompt-submit hook, so `ended` may
-/// be stale; codex, opencode) and Claude without hooks: only `idle` / no status
-/// qualifies, and a sticky `blocked` / `done` / `error` may still be mid-turn, so it is
-/// left to the inbox. `pane_input`: the pane tail looks like a prompt waiting for an
-/// answer.
+/// Wake decision (Q21, ADR-018 amendment). `turn` is the hook-written field: `running`
+/// from prompt submit or a permission request until `Stop`, then `ended`; `exited` after
+/// the CLI's session end (the pane may be a shell now). When `turn` is `Some`, every
+/// client uses the same branch: `running` is never typed into (permission dialogs too;
+/// `Stop` / a later ended turn delivers), `ended` is at rest except `working` /
+/// `needs_input`. A Claude agent with a status but no `turn` yet has not submitted its
+/// first prompt (startup dialogs): wait. Other clients with no `turn`: `idle` / `done` /
+/// `error` / unset are at rest on a live pane; `blocked` stays inbox until `relay` /
+/// `answer`. `working` / `needs_input` / `pane_input` still hold the wake.
 pub fn wake_plan(
     claude: bool,
     turn: Option<&str>,
@@ -674,12 +677,11 @@ pub fn wake_plan(
     let quiet = quiet.max(1);
     let at_rest = match (claude, turn) {
         (_, Some("exited")) => return WakePlan::Never,
-        (true, Some("running")) => return WakePlan::TurnEnd,
-        (false, Some("running")) => false,
-        (true, Some(_)) => !matches!(status, Some(SessionState::NeedsInput | SessionState::Working)),
+        (_, Some("running")) => return WakePlan::TurnEnd,
+        (_, Some(_)) => !matches!(status, Some(SessionState::NeedsInput | SessionState::Working)),
         (true, None) if status.is_some() => false,
         _ => match status {
-            None | Some(SessionState::Idle) => true,
+            None | Some(SessionState::Idle | SessionState::Done | SessionState::Error) => true,
             Some(SessionState::Working | SessionState::NeedsInput) => false,
             Some(_) => return WakePlan::Never,
         },
@@ -726,7 +728,7 @@ pub fn wake_once(
         };
         let claude = field("client") == Some("claude");
         let turn = field("turn");
-        if claude && turn == Some("running") {
+        if turn == Some("running") {
             return Ok(WakePlan::TurnEnd);
         }
         let status = field("status").and_then(parse_reported_status);
@@ -1075,15 +1077,20 @@ mod tests {
             (true, None, None, false, Some(60), Now),
             (false, None, Some(Idle), false, Some(61), Now),
             (false, Some("ended"), Some(Idle), false, Some(61), Now),
-            (false, Some("ended"), Some(Working), false, Some(900), After(60)), // stale turn ignored
-            // A running turn vetoes the wake for every client (codex / Cursor dialogs).
-            (false, Some("running"), Some(Idle), false, Some(900), After(60)),
-            (false, Some("running"), None, false, Some(900), After(60)),
+            (false, Some("ended"), Some(Working), false, Some(900), After(60)), // working still holds
+            // A running turn is TurnEnd for every client that wrote `turn` (Cursor dialogs).
+            (false, Some("running"), Some(Idle), false, Some(900), TurnEnd),
+            (false, Some("running"), None, false, Some(900), TurnEnd),
+            (false, Some("running"), Some(Done), false, Some(900), TurnEnd),
             (false, None, None, true, Some(900), After(60)), // pane looks like a prompt
             (false, None, Some(NeedsInput), false, Some(900), After(60)),
-            // A sticky status without a turn signal may be mid-turn on a dialog: inbox only.
+            (false, Some("ended"), Some(NeedsInput), false, Some(900), After(60)),
+            // No turn: sticky done/error on a live pane is at rest like idle; blocked stays inbox.
             (false, None, Some(Blocked), false, Some(900), Never),
-            (false, Some("ended"), Some(Done), false, Some(900), Never),
+            (false, None, Some(Done), false, Some(900), Now),
+            (false, None, Some(Error), false, Some(900), Now),
+            (false, Some("ended"), Some(Done), false, Some(900), Now),
+            (false, Some("ended"), Some(Error), false, Some(900), Now),
             (true, None, Some(Error), false, Some(900), After(60)),
         ];
         for &(claude, turn, status, pane_input, idle, want) in rows {
@@ -1306,6 +1313,32 @@ mod tests {
             msg_send("a-ob", "a-wb", "relay", "postgres", None, Some(None)).unwrap();
             assert_eq!(status(), "idle");
             assert!(!has_pending_ask("a-wb", "a-ob"));
+        });
+    }
+
+    #[test]
+    fn relay_and_answer_lift_done_and_error_to_idle() {
+        with_temp_home(|_| {
+            state_set(
+                StateKind::Agents,
+                "a-od",
+                &json!({"id": "a-od", "role": "orchestrator"}),
+            )
+            .unwrap();
+            for (id, before, kind) in [("a-wdone", "done", "relay"), ("a-werr", "error", "answer")] {
+                state_set(
+                    StateKind::Agents,
+                    id,
+                    &json!({"id": id, "role": "worker", "parent": "a-od", "status": before}),
+                )
+                .unwrap();
+                msg_send("a-od", id, kind, "continue", None, Some(None)).unwrap();
+                assert_eq!(
+                    state_get(StateKind::Agents, id).unwrap().unwrap()["status"],
+                    "idle",
+                    "{id}"
+                );
+            }
         });
     }
 

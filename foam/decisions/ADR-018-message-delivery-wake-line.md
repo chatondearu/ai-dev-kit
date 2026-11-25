@@ -67,3 +67,27 @@ the turn going and the model acts on the reason; the re-fired `Stop` carries
 - `say` (human prompt to an orchestrator) is unchanged: it is the human's own prompt.
 - Tests: unit truth tables (`wake_plan`, status effects), `hooks/test.sh`, and
   `cdamux-cli/tests/delivery_tmux.rs` (real binary, hooks and tmux idle time).
+
+## Amendment 2026-11-25 — live Cursor after `kind=done` (#444)
+
+Keep §1 (no body in a pane) and [[ADR-019-worker-permission-boundary|ADR-019]]
+(no Enter on a permission dialog / `needs_input` / Trust).
+
+The 2026-11-23 point 5 treated every non-Claude sticky status as `WakePlan::Never`.
+After `kind=done`, a live Cursor pane was reported `inbox`; the orchestrator then
+pasted a body with `cdamux send` (hit on `cursor-trust` / PR #442 rebase). Point 6
+lifted only `blocked`.
+
+- **`wake_plan` (non-Claude):** sticky `done` / `error` on a **live** pane is at rest
+  like `idle`. `blocked` stays inbox until `relay` / `answer`. `working` /
+  `needs_input` / `pane_input` / `turn: running` still hold the wake.
+- **Turn trusted when present:** if `turn` is `Some` on a non-Claude agent (Cursor
+  hooks already write it), use the same branch as Claude so a permission dialog with
+  `turn: running` is never woken. Slice 2 owns hook wiring; this amendment owns
+  `wake_plan` only.
+- **Status:** `answer` or `relay` to a live `done` / `error` agent lifts it to `idle`
+  (same as `blocked`).
+- **Delivery word:** `msg send` reports `inbox` only when there is no live pane or no
+  safe moment (`blocked` without `turn`, `turn: exited`). A live host whose plan is
+  Now / After / TurnEnd is `woken` / `scheduled` / `turn-end` — a quiet wait is not
+  `inbox`.

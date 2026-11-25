@@ -1,6 +1,6 @@
 ---
 title: "fix(cdamux): one CDAMUX_HOME regardless of the env that started tmux"
-status: in-progress
+status: in-review
 priority: P1
 updated: 2026-11-25
 github_issue: 391

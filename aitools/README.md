@@ -34,6 +34,8 @@ cda.aitools = {
   user = "chaton";
   deploy.enable = true;
   cdamux.projectsRoot = "/path/to/projects";
+  # State root (#391). Null = CLI XDG fallback. Example: "/cda/cdamux"
+  # cdamux.home = "/home/chaton/.local/state/cdamux";
   tmux = {
     clipboard = "wayland";
     persist.enable = true;
@@ -82,6 +84,15 @@ Portable: `./install.sh --cdamux-nav-bind` links `templates/tmux-nav-bind.conf` 
 `$CDA_AITOOLS_HOME` (default `~/.config/cda-aitools`) and adds a marked
 `source-file` block in `~/.tmux.conf`. `--uninstall` removes both. Dogfood keys:
 `cdamux/docs/dogfood.md`.
+
+### cdamux state home (`cda.aitools.cdamux.home`)
+
+| Option | Meaning |
+| ------ | ------- |
+| `cdamux.home` | absolute path exported as `CDAMUX_HOME` (shells + systemd/launchd). Null = CLI XDG fallback. [#391](https://github.com/chatondearu/ai-dev-kit/issues/391) |
+
+Without this, a tmux server started from a context that lacks `CDAMUX_HOME` falls
+back to `~/.local/state/cdamux` and spawned panes do not inherit the home.
 
 ### Graphify (`cda.aitools.graphify`)
 

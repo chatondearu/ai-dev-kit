@@ -50,6 +50,10 @@ nix eval --impure --expr "
           type = lib.types.attrsOf (lib.types.nullOr (lib.types.oneOf [ lib.types.str (lib.types.listOf lib.types.str) ]));
           default = {};
         };
+        environment.sessionVariables = lib.mkOption {
+          type = lib.types.attrsOf (lib.types.nullOr (lib.types.oneOf [ lib.types.str (lib.types.listOf lib.types.str) ]));
+          default = {};
+        };
         environment.etc = lib.mkOption { type = lib.types.attrsOf lib.types.unspecified; default = {}; };
         users.users = lib.mkOption {
           type = lib.types.attrsOf (lib.types.submodule {
@@ -61,6 +65,10 @@ nix eval --impure --expr "
           default = {};
         };
         systemd.user.services = lib.mkOption { type = lib.types.attrsOf lib.types.unspecified; default = {}; };
+        systemd.user.sessionVariables = lib.mkOption {
+          type = lib.types.attrsOf (lib.types.nullOr (lib.types.oneOf [ lib.types.str (lib.types.listOf lib.types.str) ]));
+          default = {};
+        };
         systemd.tmpfiles.rules = lib.mkOption { type = lib.types.listOf lib.types.str; default = []; };
         programs.mosh.enable = lib.mkOption { type = lib.types.bool; default = false; };
         launchd.user.agents = lib.mkOption { type = lib.types.attrsOf lib.types.unspecified; default = {}; };
@@ -135,9 +143,11 @@ nix eval --impure --expr "
         assertions = lib.mkOption { type = lib.types.listOf lib.types.unspecified; default = []; };
         environment.systemPackages = lib.mkOption { type = lib.types.listOf lib.types.package; default = []; };
         environment.variables = any;
+        environment.sessionVariables = any;
         environment.etc = any;
         users.users = any;
         systemd.user.services = any;
+        systemd.user.sessionVariables = any;
         systemd.tmpfiles.rules = lib.mkOption { type = lib.types.listOf lib.types.str; default = []; };
         programs.mosh.enable = lib.mkOption { type = lib.types.bool; default = false; };
         launchd.user.agents = any;
@@ -204,6 +214,65 @@ nix eval --impure --expr "
     \"ok\"
 "
 
+echo "== cdamux.home exports CDAMUX_HOME (nixos + darwin) =="
+nix eval --impure --expr "
+  let
+    flake = builtins.getFlake \"git+file://$ROOT\";
+    lib = flake.inputs.nixpkgs.lib;
+    pkgs = import flake.inputs.nixpkgs { system = builtins.currentSystem; };
+    any = lib.mkOption { type = lib.types.attrsOf lib.types.unspecified; default = {}; };
+    stub = {
+      options = {
+        assertions = lib.mkOption { type = lib.types.listOf lib.types.unspecified; default = []; };
+        environment.systemPackages = lib.mkOption { type = lib.types.listOf lib.types.package; default = []; };
+        environment.variables = any;
+        environment.sessionVariables = any;
+        environment.etc = any;
+        users.users = any;
+        systemd.user.services = any;
+        systemd.user.sessionVariables = any;
+        systemd.tmpfiles.rules = lib.mkOption { type = lib.types.listOf lib.types.str; default = []; };
+        programs.mosh.enable = lib.mkOption { type = lib.types.bool; default = false; };
+        launchd.user.agents = any;
+      };
+      config._module.args.pkgs = pkgs;
+    };
+    evalHome = { isDarwin, home }:
+      let
+        mod = if isDarwin then flake.darwinModules.cdaAitools else flake.nixosModules.cdaAitools;
+        cfg = (lib.evalModules {
+          modules = [ stub mod {
+            cda.aitools = {
+              enable = true;
+              user = \"tester\";
+              installMethod = \"none\";
+              cdamux.home = home;
+            };
+          } ];
+        }).config;
+        got = cfg.environment.variables.CDAMUX_HOME or null;
+      in
+        assert builtins.filter (a: !(a.assertion)) cfg.assertions == [];
+        assert got == home;
+        assert isDarwin || (cfg.environment.sessionVariables.CDAMUX_HOME or null) == home;
+        assert isDarwin || (cfg.systemd.user.sessionVariables.CDAMUX_HOME or null) == home;
+        \"ok\";
+    schema = import $ROOT/aitools/nix/common.nix { inherit lib; };
+    script = import $ROOT/aitools/nix/cdamux-hooks-activation.nix {
+      inherit pkgs lib;
+      cdamuxPkg = \"/pkg\";
+      a.cdamux = { home = \"/cda/cdamux\"; hooks.claudeConfigDir = null; };
+    };
+  in
+    assert schema.cdamux ? home;
+    assert lib.hasInfix \"CDAMUX_HOME=/cda/cdamux\" script.text;
+    assert evalHome { isDarwin = false; home = null; } == \"ok\";
+    assert evalHome { isDarwin = false; home = \"/cda/cdamux\"; } == \"ok\";
+    assert evalHome { isDarwin = true; home = null; } == \"ok\";
+    assert evalHome { isDarwin = true; home = \"/cda/cdamux\"; } == \"ok\";
+    \"ok\"
+"
+
 echo "== coolify module on/off =="
 nix eval --impure --expr "
   let
@@ -216,9 +285,11 @@ nix eval --impure --expr "
         assertions = lib.mkOption { type = lib.types.listOf lib.types.unspecified; default = []; };
         environment.systemPackages = lib.mkOption { type = lib.types.listOf lib.types.package; default = []; };
         environment.variables = any;
+        environment.sessionVariables = any;
         environment.etc = any;
         users.users = any;
         systemd.user.services = any;
+        systemd.user.sessionVariables = any;
         systemd.tmpfiles.rules = lib.mkOption { type = lib.types.listOf lib.types.str; default = []; };
         programs.mosh.enable = lib.mkOption { type = lib.types.bool; default = false; };
         launchd.user.agents = any;

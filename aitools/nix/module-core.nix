@@ -145,6 +145,9 @@ in {
         (lib.mkIf (a.foamHome != null) {
           CDA_FOAM_HOME = a.foamHome;
         })
+        (lib.mkIf (a.cdamux.home != null) {
+          CDAMUX_HOME = a.cdamux.home;
+        })
         (lib.mkIf a.graphify.enable {
           CDA_GRAPHIFY = "1";
         })

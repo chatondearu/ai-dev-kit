@@ -78,7 +78,7 @@ binaries (`all_compile = false` in `mise.toml`).
 | `CDA_FOAM_HOME` | unset | Shared foam home (`cda.aitools.foamHome`); `cda-floorplan` writes `$CDA_FOAM_HOME/projects/<repo>/floorplan/` when the project has no `foam/` |
 | `FLOORPLAN_ENGINE` / `FLOORPLAN_AGENT` | auto | Override Ask / build agent for `cda-floorplan` (`agent`, `cursor-agent`, `claude`, `opencode`, `codex`) |
 | `CDA_AITOOLS_HOME` | `~/.config/cda-aitools` | Companion config root (`cda.aitools.configRoot` or env) |
-| `CDAMUX_HOME` | `${XDG_STATE_HOME:-~/.local/state}/cdamux` | cdamux state root (`agents/`, `runs/`, restore registry, …). [ADR-011](../foam/decisions/ADR-011-cdamux-unified-state-model.md) |
+| `CDAMUX_HOME` | `${XDG_STATE_HOME:-~/.local/state}/cdamux` | cdamux state root (`agents/`, `runs/`, restore registry, …). Set `cda.aitools.cdamux.home` to export it from the Nix module (shells, systemd/launchd, spawned panes — #391). [ADR-011](../foam/decisions/ADR-011-cdamux-unified-state-model.md) |
 | `CDAMUX_CONFIG` | `${XDG_CONFIG_HOME:-~/.config}/cdamux/config.toml` | Override path to the cdamux TOML config file |
 | `CDAMUX_AGENT_ID` | unset (set by cdamux at spawn) | Stable agent id (`a-xxxxx`) exported into the agent process / pane env |
 | `CDA_ROLE` | unset (set by cdamux for orchestrator panes) | `orchestrator` on orchestrator spawn/respawn pane commands only; workers and plain agents leave it unset (hook signal; role of record stays in agent state — [ADR-011](../foam/decisions/ADR-011-cdamux-unified-state-model.md)) |

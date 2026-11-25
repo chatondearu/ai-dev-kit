@@ -199,10 +199,12 @@ Q17, Q18, Q23 (2026-11-23 grill). Decisions:
 
 - **One home** (#391): the owner runs one `CDAMUX_HOME` (`/cda/cdamux` on the
   maintainer host). Every spawned pane inherits the spawner's resolved home (tmux
-  `new-session -e` + agent command prefix). `cdamux state migrate-home` (dry-run by
-  default, the owner applies it) archives the legacy XDG tree and ghost orchestrator
-  records. `orch new` refuses a second live top-level orchestrator for the same
-  project; a record still naming a freed tmux session is finalized at spawn.
+  `new-session -e` + agent command prefix). Nix hosts export it via
+  `cda.aitools.cdamux.home` (`environment.variables` + user systemd/launchd).
+  `cdamux state migrate-home` (dry-run by default, the owner applies it) archives
+  the legacy XDG tree and ghost orchestrator records. `orch new` refuses a second
+  live top-level orchestrator for the same project; a record still naming a freed
+  tmux session is finalized at spawn.
 - **Writes**: every agent write is one read-modify-write under the record lock
   (`state_update`) and emits the events `status` item; `state append --sticky` moves
   §3 stickiness under that lock for hooks (hook timeout 40 ms → 500 ms). A

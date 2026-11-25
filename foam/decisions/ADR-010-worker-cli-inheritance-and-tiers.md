@@ -46,13 +46,27 @@ session that launched the run, with explicit overrides per role.
 8. **Tier per role** (`orch_tier_for_role`): `ORCH_TIER` (current tier, set by
    escalation in #209) > `ORCH_TIER_<ROLE>` > default (`integrator` → `small`, other
    roles → `medium`). Tiers only add flags: they never change the resolved CLI.
-9. **Pinned**: an agent command that already passes `--model` / `-m` gets no tier
-   flags and is recorded as tier `pinned`.
+9. **Pinned bypass**: an agent command that already passes `--model` / `-m` gets no
+   tier flags and is recorded as tier `pinned` (no role tiers, no escalation).
+   Default Cursor models live in `tiers.tsv`. Putting `--model` on
+   `[agents.cursor] command` is this bypass, not the source of truth.
 10. **Unknown CLI**: a CLI with no row runs without flags and warns once per run.
 11. **Visibility**: `cli`, `model`, `effort`, `tier` are written to the worker entry of
     `.orch/run/status.json` (the worker's own agent, not its reviewer / verifier) and to
     graph nodes of agent runs;
     `--dry-run` prints `tier[<role>]: <tier> <flags>`.
+
+### Launch paths (amendment 2026-11-25)
+
+`orch.sh` applies `tiers.tsv` for the role tier and for escalation, unless that
+command is already pinned. Interactive `cdamux worker spawn` uses
+`[agents.cursor] command` and then the Cursor CLI picker; it does not read
+`tiers.tsv` today. This decision does not add `cdamux worker spawn --model`.
+
+Cursor rows (ids from `cursor-agent --list-models`): small `composer-2.5`, medium
+`grok-4.7-high-fast`, large `grok-4.7-xhigh`. No Claude Opus, Fable, or Sonnet on
+those rows. A `--model` that lives only on the cdamux command freezes interactive
+spawns and does not change the flags `orch.sh` takes from the TSV.
 
 ### Escalation (#209)
 
@@ -87,6 +101,10 @@ session that launched the run, with explicit overrides per role.
   The parent is resolved at each agent call, so a run that outlives its launching
   session falls back to `PATH` for later roles.
 - **Constraint**: never install a CLI ([[ADR-001-host-tools-vs-kit|ADR-001]]).
+  Kit `[agents.cursor] command` stays `cursor-agent` (no `--model`). `--model` on
+  that command is the pinned bypass for the process that executes it: interactive
+  spawn stays on one model (no role tiers, no escalation). `orch.sh` does not read
+  that command; it still picks small/medium/large from `tiers.tsv`.
 
 ## References
 

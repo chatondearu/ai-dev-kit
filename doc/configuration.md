@@ -179,7 +179,7 @@ guard hook in
 line, no push-redirecting git config), no merge, no plain force push, no push to the
 default branch, no `sudo`, no global install. Repo tooling runs as plain lines: cargo,
 make, just, `npm|pnpm run`, `node <file>`, worktree scripts (`bash|sh|./|scripts/`),
-optionally behind `mise exec --` / `nix develop -c`, plus the read-only kit scripts
+optionally behind `mise exec --` / `nix develop [.#<attr>] -c`, plus the read-only kit scripts
 (`doc-hygiene.sh --check|--report`, `foam-board.sh list-ready|reconcile`) of the kit
 checkout `install.sh` linked, and flake maintenance in the worktree (`nix flake update
 <input>`, `nix flake lock --update-input <input>`, `nix flake check`, `nix build .#<attr>

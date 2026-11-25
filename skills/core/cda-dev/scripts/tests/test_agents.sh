@@ -374,10 +374,22 @@ for c in 'nix flake update' 'nix flake update ai-dev-kit nixpkgs' 'nix flake upd
   rc=0; GUARD_CWD="$W" GUARD_WT="$W" guard "$c" || rc=$?; assert_eq "$rc" "2" "guard blocks nix: $c"
 done
 rc=0; GUARD_CWD="$W" guard 'nix flake check' || rc=$?; assert_eq "$rc" "2" "no worktree: no nix runs"
+# A named devShell is the same repo tooling (neomind P3 S0): the wrapped command is still checked.
+touch "$W/scripts/android-build.sh" "$W/gradlew"
+for c in 'nix develop .#android -c scripts/android-build.sh' 'nix develop .#android --command ./gradlew test'; do
+  rc=0; GUARD_CWD="$W" GUARD_WT="$W" guard "$c" || rc=$?; assert_eq "$rc" "0" "guard allows devShell attr: $c"
+done
+for c in 'nix develop .#x -c git push -f origin main' "nix develop '.#x;rm -rf ~'" 'nix develop .#x;id -c cargo test' \
+  'nix develop .#x -c rm -rf x' 'nix develop .#x -c nix build .#y' 'nix develop .#x -c mise exec -- cargo test' \
+  'nix develop -c .#x cargo test' 'nix develop .#x #y -c cargo test' 'nix develop .#x -c cargo test #y' \
+  'nix develop .#x .#y -c cargo test' 'nix develop github:x/y#z -c cargo test' 'mise exec -- nix develop .#x -c cargo test' \
+  'nix develop .#x -c ./missing.sh' 'nix develop .#x'; do
+  rc=0; GUARD_CWD="$W" GUARD_WT="$W" guard "$c" || rc=$?; assert_eq "$rc" "2" "guard blocks devShell attr: $c"
+done
 # darwin-rebuild / nixos-rebuild / sudo: refused by the template denies (deny wins in every scope).
 r="$(render feat/a main)"
 for rule in 'Bash(nix flake update *)' 'Bash(nix flake lock --update-input *)' 'Bash(nix flake check)' \
-  'Bash(nix build .#*)' 'Bash(nix eval .#*)'; do
+  'Bash(nix build .#*)' 'Bash(nix eval .#*)' 'Bash(nix develop .#*)'; do
   assert_eq "$(jq -r --arg r "$rule" '.permissions.allow | index($r) != null' <<<"$r")" "true" "settings allow $rule"
 done
 for rule in 'Bash(nix run *)' 'Bash(nix shell *)' 'Bash(nix profile *)' 'Bash(nix-env *)' 'Bash(nix copy *)' \

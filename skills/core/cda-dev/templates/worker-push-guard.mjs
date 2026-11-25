@@ -9,7 +9,7 @@
 //   only (an explicit destination: no refmap, symref or upstream picks it), and only with
 //   no push-redirecting git state (pushStateReason, fail closed).
 // Repo tooling with a shell, node or a command runner in it (`bash|sh|./|scripts/<file>`,
-// `node <file>`, `mise exec --` / `nix develop -c` + cargo, make, just, npm|pnpm run …)
+// `node <file>`, `mise exec --` / `nix develop [.#<attr>] -c` + cargo, make, just, npm|pnpm run …)
 // follows the same plain-line rule, files inside the worktree; read-only kit scripts run
 // only in their listed forms, flake maintenance (`nix flake update|lock|check`,
 // `nix build|eval .#<attr>`) only in its listed forms from the worktree. Git with $,
@@ -125,7 +125,7 @@ const kitForm = (args) => Boolean(kit) && KIT_FORMS.some(([p, ...a]) => args[0] 
 
 const TOOL_FORM = 'run repo tooling as one plain line, no pipe/redirect/$/quotes: cargo …, '
   + 'make|just …, npm|pnpm run …, node <file>, bash|sh|./|scripts/<script> …, optionally '
-  + 'behind mise exec -- or nix develop -c';
+  + 'behind mise exec -- or nix develop [.#<attr>] -c';
 
 const inRoot = (real) => Boolean(root) && (real === root || real.startsWith(root + sep));
 
@@ -185,15 +185,17 @@ const NPM_SUBS = {
 };
 
 // Reason the words of one plain line are not a repo tool run, or null. `mise exec --` and
-// `nix develop -c|--command` may wrap one tool (not each other): they run anything else.
+// `nix develop [.#<attr>] -c|--command` may wrap one tool (not each other): they run
+// anything else.
 function toolReason(w, cwd, wrapped = false) {
   const [cmd = '', ...args] = w;
   if (!wrapped && cmd === 'mise' && args[0] === 'exec' && args[1] === '--') {
     return toolReason(args.slice(2), cwd, true);
   }
-  const nixDevelop = cmd === 'nix' && args[0] === 'develop' && ['-c', '--command'].includes(args[1]);
+  const c = NIX_ATTR.test(args[1] ?? '') ? 2 : 1; // index of -c after an optional .#<attr>
+  const nixDevelop = cmd === 'nix' && args[0] === 'develop' && ['-c', '--command'].includes(args[c]);
   if (!wrapped && nixDevelop) {
-    return toolReason(args.slice(2), cwd, true);
+    return toolReason(args.slice(c + 1), cwd, true);
   }
   if (cmd === 'cargo') return args.includes('install') ? 'cargo install is not allowed' : null;
   if (cmd === 'make' || cmd === 'just') return null;
@@ -228,7 +230,9 @@ function reason(cmd, cwd) {
     || /(^|[;&|(){}\n`]\s*)(\.\.?\/|scripts\/)/.test(t)) {
     const w = t.split(/ +/);
     if (w[0] === 'nix' && w[1] !== 'develop') return nixReason(w, cwd);
-    return META.test(t) ? TOOL_FORM : toolReason(w, cwd);
+    // `nix develop .#<attr> -c …`: the devShell attr is the only word that may hold a `#`.
+    const attr = w[0] === 'nix' && NIX_ATTR.test(w[2] ?? '') ? 2 : -1;
+    return w.some((a, i) => i !== attr && META.test(a)) ? TOOL_FORM : toolReason(w, cwd);
   }
   return null;
 }

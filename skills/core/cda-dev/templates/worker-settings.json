@@ -64,6 +64,7 @@
       "Bash(mise exec -- *)",
       "Bash(nix develop -c *)",
       "Bash(nix develop --command *)",
+      "Bash(nix develop .#*)",
       "Bash(nix flake update *)",
       "Bash(nix flake lock --update-input *)",
       "Bash(nix flake check)",

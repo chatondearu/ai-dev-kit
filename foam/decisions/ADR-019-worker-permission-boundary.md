@@ -107,7 +107,8 @@ review of #433 the owner chose `dontAsk` over `acceptEdits` (2026-11-23).
      no per-command allowlist; a linked worktree's git dir is outside the sandbox and
      network is off by default, so commit/push may fail until the operator widens
      `~/.codex/config.toml` (`sandbox_workspace_write`). Prefer Claude for workers.
-   - **cursor-agent**: `-p` without `--force`: unapproved shell commands are rejected.
+   - **cursor-agent**: `-p --trust` without `--force`: `--trust` skips the workspace-trust
+     prompt only, it is not command auto-approval. Unapproved shell commands are rejected.
      Its rules (`Shell(<first token>)`) cannot express "push to own branch only"; the
      allowlist lives in the operator's `~/.cursor/cli-config.json`.
    - Interactive non-Claude workers keep their own approval prompts (the human answers).

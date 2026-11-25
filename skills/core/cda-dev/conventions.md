@@ -123,6 +123,11 @@ rebase merges or any failed step is an `error`, not `done`. Merges by hand go
 through `scripts/merge-lock.sh --repo <repo> merge <N>` (same lock, fetch,
 behind → refused, `--rebase --match-head-commit`). Otherwise leave the PR open for the maintainer. Never force-push to the default branch.
 
+PR status reports: list PRs with `state` in the output
+(`--json number,state,title`), a header line between chained listings; before
+calling a PR stuck or unmerged, read `gh pr view <n> --json state,mergedAt,mergeable`
+(`mergeable: UNKNOWN` on a `MERGED` PR is normal).
+
 In cdamux state (ADR-011 §3), `orch.sh` reports a wait (held by a dependency, no verify
 command, tier ceiling, no CI checks, not mergeable) as `blocked` and a failure (worktree,
 agent loop, review fix, missing PR, red CI, no worker status) as `error`.

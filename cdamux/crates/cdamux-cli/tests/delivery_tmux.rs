@@ -247,6 +247,42 @@ fn wake_line_only_never_mid_turn_draft_kept_and_submitted() {
     wait_until("wake line after the draft", 15, || lab.log(w).contains("📨 1 message"));
     assert_eq!(lab.log(w).trim(), "my-draft📨 1 message", "draft wiped or body typed");
 
+    // Cursor after kind=done: live pane, turn ended → relay is scheduled/woken, not inbox (#444).
+    let w = "a-dcursor";
+    lab.pane(w, "ready");
+    let rec = format!(
+        r#"{{"id":"{w}","client":"cursor","host":"{w}","role":"worker","parent":"{ORCH}","status":"done","turn":"ended"}}"#
+    );
+    let out = lab.cdamux(&["state", "append", "agents", w, &rec]);
+    assert!(out.status.success(), "{out:?}");
+    let word = lab.send(ORCH, w, "relay", "rebase onto default");
+    assert!(word == "woken" || word == "scheduled", "cursor done relay: {word}");
+    assert_eq!(lab.record(w)["status"], "idle", "relay must lift done");
+    wait_until("cursor done wake line", 15, || lab.log(w).contains("📨"));
+    assert!(
+        !lab.log(w).contains("rebase onto default"),
+        "body typed: {}",
+        lab.log(w)
+    );
+
+    // needs_input still holds the wake (After / scheduled, never Now).
+    let w = "a-dneed";
+    lab.pane(w, "Do you want to proceed?");
+    let rec = format!(
+        r#"{{"id":"{w}","client":"cursor","host":"{w}","role":"worker","parent":"{ORCH}","status":"needs_input","turn":"ended"}}"#
+    );
+    let out = lab.cdamux(&["state", "append", "agents", w, &rec]);
+    assert!(out.status.success(), "{out:?}");
+    quiet_windows(2);
+    let word = lab.send(ORCH, w, "relay", "do not approve");
+    assert!(
+        word == "scheduled" || word == "inbox" || word == "turn-end",
+        "needs_input: {word}"
+    );
+    assert_ne!(word, "woken", "needs_input must not wake now");
+    quiet_windows(2);
+    assert_eq!(lab.log(w), "", "needs_input pane was woken");
+
     let sock = lab.tmux(&["display-message", "-p", "#{socket_path}"]);
     assert!(
         sock.contains(lab.tmp.path().to_str().unwrap_or("___")),

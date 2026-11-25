@@ -160,11 +160,13 @@ same for workers and orchestrators. A message body is **never typed into a pane*
   the rest at the next stop) and blocks the stop with the full bodies as the reason, so
   the turn goes on with them. Output `turn-end`.
 - **At rest**: a Claude agent with `turn: ended` (written at a turn-ending `Stop`, or at a
-  `SessionStart` from `resume` / `clear`). `turn` is trusted for Claude only; a Claude
-  agent with a status but no `turn` yet (before its first prompt: startup dialogs)
-  waits. Other clients (Cursor runs queued prompts without a prompt-submit hook; codex,
-  opencode) and Claude without hooks: status `idle` / unset and a pane tail that is not
-  a prompt. `turn: exited` (session end, the pane may be a shell) never wakes. Once the
+  `SessionStart` from `resume` / `clear`). When `turn` is set, it is trusted for every
+  client (Cursor hooks already write it): `running` is never typed into; `ended` is at
+  rest except `working` / `needs_input`. A Claude agent with a status but no `turn` yet
+  (before its first prompt: startup dialogs) waits. Other clients with no `turn` (or
+  Claude without hooks): status `idle` / `done` / `error` / unset and a pane tail that is
+  not a prompt. `blocked` without `turn` stays in the inbox until `relay` / `answer`.
+  `turn: exited` (session end, the pane may be a shell) never wakes. Once the
   pane has been quiet for
   60 s (`CDAMUX_WAKE_QUIET_SECS`), the fixed line `📨 N messages` is typed with Enter,
   never after `C-u`: a human draft untouched for 60 s gets the line appended and is
@@ -177,8 +179,9 @@ same for workers and orchestrators. A message body is **never typed into a pane*
   (one per agent; it also polls a mid-turn agent as a backstop for a line that missed
   the `Stop` hook, stops when the inbox is read, the pane is gone, or after 6 h). Output
   `scheduled`.
-- **No live pane**, or a sticky `blocked` / `done` / `error` without turn hooks (it may
-  sit on a permission dialog): the line waits in the inbox. Output `inbox`.
+- **No live pane**, or no safe moment (`blocked` without `turn`, `turn: exited`): the
+  line waits in the inbox. Output `inbox`. A live host whose plan is Now / After /
+  TurnEnd is never reported `inbox` (`done` on a live Cursor pane was this bug, #444).
 
 `needs_input` is never typed into: with turn hooks it is mid-turn by definition;
 without them the status and the pane heuristic both hold the wake back.
@@ -201,8 +204,8 @@ read (a line still being written stays unread). Each line is appended with a sin
 `write(2)`, so concurrent senders do not interleave. `kind=ask` sets the sender
 `blocked`; `kind=done` / `kind=error` set the sender `done` / `error` (a sticky status
 is kept, except that a blocked agent's own `done` replaces `blocked`; orch.sh reports its
-blocked workers as `error`, which keeps it); `kind=answer` or `kind=relay` to a blocked
-agent lifts it to `idle` and answers its ask (Fleet `?`).
+blocked workers as `error`, which keeps it); `kind=answer` or `kind=relay` to a
+`blocked` / `done` / `error` agent lifts it to `idle` and answers a pending ask (Fleet `?`).
 
 A human talks to an orchestrator with `cdamux say` (prompt pasted when idle, else queued
 until a turn end) and answers a worker's ask with `cdamux msg answer`: see

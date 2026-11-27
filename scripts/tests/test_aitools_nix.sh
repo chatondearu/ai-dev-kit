@@ -12,6 +12,16 @@ if ! command -v nix >/dev/null; then
   exit 0
 fi
 
+echo "== flake packages has no moshi-hook =="
+nix eval --impure --expr "
+  let
+    flake = builtins.getFlake \"git+file://$ROOT\";
+    system = builtins.currentSystem;
+  in
+    assert !(flake.packages.\${system} ? moshi-hook);
+    \"ok\"
+"
+
 echo "== graphify option schema =="
 nix eval --impure --expr "
   let

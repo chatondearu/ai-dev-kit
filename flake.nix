@@ -13,10 +13,7 @@
         nixpkgs.lib.genAttrs systems (
           system:
             let
-              pkgs = import nixpkgs {
-                inherit system;
-                config.allowUnfreePredicate = pkg: pkg.pname == "moshi-hook";
-              };
+              pkgs = import nixpkgs {inherit system;};
             in
             f pkgs
         );
@@ -26,7 +23,6 @@
       packages = forAllSystems (pkgs: rec {
         default = nix-maid pkgs (import ./nix/maid.nix {});
         activate = default;
-        moshi-hook = pkgs.callPackage ./aitools/nix/moshi-hook-package.nix {};
         cdamux = pkgs.callPackage ./cdamux/nix/package.nix {};
         graphify = pkgs.callPackage ./aitools/nix/graphify-package.nix {};
         coolify-cli = pkgs.callPackage ./aitools/nix/coolify-cli-package.nix {};

@@ -37,10 +37,7 @@ nix eval --impure --expr "
     flake = builtins.getFlake \"git+file://$ROOT\";
     lib = flake.inputs.nixpkgs.lib;
     system = builtins.currentSystem;
-    pkgs = import flake.inputs.nixpkgs {
-      inherit system;
-      config.allowUnfreePredicate = pkg: pkg.pname == \"moshi-hook\";
-    };
+    pkgs = import flake.inputs.nixpkgs { inherit system; };
     stub = {
       options = {
         assertions = lib.mkOption { type = lib.types.listOf lib.types.unspecified; default = []; };
@@ -348,11 +345,10 @@ test "$(cat "$KIT/claude/CLAUDE.md")" = "$KIT_BEFORE"
 test "$(cat "$FAKE/cwd/CLAUDE.md")" = "$CWD_BEFORE"
 rm -rf "$FAKE"
 
-# Optional heavy build (CDN / PyPI); skip unless CDA_TEST_AITOOLS_BUILD=1
+# Optional heavy build (PyPI); skip unless CDA_TEST_AITOOLS_BUILD=1.
+# moshi-hook is not a flake package (dead CDN); do not nix build it here.
 if [ "${CDA_TEST_AITOOLS_BUILD:-0}" = "1" ]; then
   system="$(nix eval --impure --raw --expr builtins.currentSystem)"
-  echo "== build moshi-hook package ($system) =="
-  nix build --no-link "$ROOT#packages.$system.moshi-hook" -L
   echo "== build graphify package ($system) =="
   nix build --no-link "$ROOT#packages.$system.graphify" -L
 fi

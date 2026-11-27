@@ -1,7 +1,8 @@
 # cda.aitools — experimental companion
 
-**Status: experimental.** Shared tmux / **cdamux** / Moshi / **Graphify** wiring for
-all machines. See [ADR-003](../foam/decisions/ADR-003-cda-aitools.md) and
+**Status: experimental.** Shared tmux / **cdamux** / **Graphify** wiring for
+all machines. Moshi (`moshiHook`) is unused (neomind replaced phone tmux
+control) and optional. See [ADR-003](../foam/decisions/ADR-003-cda-aitools.md) and
 [ADR-008](../foam/decisions/ADR-008-graphify-code-graph.md).
 
 Portable kit (`./install.sh`) stays **skills-only** ([ADR-001](../foam/decisions/ADR-001-host-tools-vs-kit.md)).
@@ -15,7 +16,7 @@ Session tools and configs are opt-in via **Nix** (`cda.aitools`).
 | `templates/tmux-nav-bind.conf` | Opt-in Alt-N → `cdamux nav` (`cdamux.navBind.enable` / `install.sh --cdamux-nav-bind`) |
 | `templates/tmux-persist.conf` | Optional resurrect/continuum fragment (`tmux.persist.enable`) |
 | `templates/cdamux/config.toml` | cdamux config (`@PROJECTS_ROOT@` substituted by Nix) |
-| `scripts/moshi-hook-bootstrap.sh` | Pair Moshi + install hooks (e.g. `--target cursor`) |
+| `scripts/moshi-hook-bootstrap.sh` | Optional Moshi pair (unused; neomind) |
 | `scripts/graphify-activate.sh` | Idempotent `graphify install` (throwaway cwd; shields symlinked CLAUDE.md) |
 | `scripts/cdamux-align-mac.sh` | macOS: `cargo install` from in-tree `cdamux/` + config |
 | `nix/` | `nixosModules.cdaAitools` + `darwinModules.cdaAitools` |
@@ -42,7 +43,8 @@ cda.aitools = {
   };
   mosh.enable = true;
   cdamuxd.enable = true;
-  moshiHook = { enable = true; hookTargets = [ "cursor" ]; };
+  # moshiHook unused (neomind); CDN pin 404s — do not enable as default
+  # moshiHook = { enable = true; hookTargets = [ "cursor" ]; };
   # Optional code graph (ADR-008); off by default
   # graphify = { enable = true; installMethod = "auto"; claudeConfigDir = "/cda/.claude"; };
   # Official Coolify CLI; off by default (token via host env + coolify-env-sync)
@@ -135,18 +137,23 @@ coolify context verify
 
 | Feature | NixOS | nix-darwin | Manual |
 | ------- | ----- | ---------- | ------ |
-| Packages (tmux, cdamux, moshi-hook, graphify, coolify) | yes | yes | `cdamux-align-mac.sh` / `uv tool install graphifyy` / upstream install script |
+| Packages (tmux, cdamux, graphify, coolify) | yes | yes | `cdamux-align-mac.sh` / `uv tool install graphifyy` / upstream install script |
 | Deploy configs (maid) | `deploy.enable` | `deploy.enable` | copy `templates/cdamux` |
 | cdamuxd | systemd | launchd | `cdamuxd` in background; only useful with `[daemon] listen_tailnet = true`, otherwise the unit exits immediately |
 | mosh server | `mosh.enable` | — | brew / apt |
-| moshi-hook | systemd + hook oneshots | launchd | `moshi-hook service install` |
+| moshi-hook (optional, unused) | systemd + hook oneshots | launchd | leave `moshiHook.enable = false` |
 | graphify skill register | systemd oneshot | launchd oneshot | `graphify-activate.sh` |
 | cdamux agent hooks | systemd oneshot | launchd oneshot | `install.sh --cdamux-hooks` |
 | cdamux nav bind (Alt-N) | `cdamux.navBind` + deploy | same | `install.sh --cdamux-nav-bind` |
 
 Secrets (Moshi token, SSH keys) stay **per host** — not in the kit.
 
-## Moshi
+## Moshi (optional, unused)
+
+Phone tmux control is **neomind**, not Moshi. The NixOS/Darwin module still
+accepts `moshiHook.enable`; leave it **false**. The pinned CDN currently 404s,
+and `packages.moshi-hook` is not a flake output. Manual pair script (only if
+you already have `moshi-hook` on PATH):
 
 ```bash
 bash aitools/scripts/moshi-hook-bootstrap.sh --target cursor

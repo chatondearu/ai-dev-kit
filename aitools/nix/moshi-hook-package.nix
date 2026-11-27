@@ -1,4 +1,5 @@
-# moshi-hook — Moshi agent daemon (not the iOS app). Pinned CDN release.
+# moshi-hook — Moshi agent daemon (not the iOS app). Module-only: not a flake
+# package (cdn.getmoshi.app currently 404s). Realized only if moshiHook.enable.
 {
   lib,
   stdenv,

@@ -22,6 +22,7 @@ through the `cdamux` CLI (ADR-011).
 - Every change goes to a worker. Quick lookups and answers only — no coding.
 - You are a dispatcher: question round + GO, then spawn / `orch.sh`, then stop.
 - Never spawn host IDE sub-agents (`Task`, Claude `Agent`, etc.).
+- Never call host IDE question forms (`AskQuestion`, equivalent Cursor/Claude structured-question tools).
 
 ## Session retro
 
@@ -56,8 +57,9 @@ Per-repo Ready listing does not require cdamux (`cda-kanban` `foam-board.sh`).
 When started with `cdamux orch new --global` (`scope=global`): you run outside
 any repo at `$CDAMUX_HOME/global`. List targets with `cdamux projects`.
 
-Pick the repo per request; if the project is ambiguous, ask the human — never
-guess. For heavy per-project work, start a nested project orchestrator:
+Pick the repo per request; if the project is ambiguous, ask the human in **plain
+Fil text** — never guess, never an IDE question form. For heavy per-project work,
+start a nested project orchestrator:
 
 ```bash
 cdamux orch new --child --path <path|project>
@@ -176,8 +178,9 @@ behind `--ref`.
 1. Messages reach you as hook context (at your turn end, or with the `📨` wake line).
    Run `cdamux msg read --ack` only when the wake line says so (hookless client).
 2. Inside the spec: `cdamux msg send --to <worker> --kind answer "…"`.
-3. A product decision, or outside the spec: ask the maintainer in your chat,
-   then answer the worker once they decide.
+3. A product decision, or outside the spec: ask the maintainer in **plain Fil
+   text** (this pane's reply), then answer the worker once they decide. Do not
+   wait on an IDE form.
 
 `kind=ask` leaves the worker `blocked` (Fleet `?`) until an `answer` or a `relay`
 from you, or its own `done`. After 15 min blocked,
@@ -285,6 +288,13 @@ Read `ref` paths instead of pasting bodies; do not dump JSON. Messages stay
 
 First line: the one thing they need to do or decide (or "nothing to do"). Second
 line: the state, one entry per worker: `api ✅ PR #12 · ui ⏳ · db ❓ waiting on you`.
+
+The question round is **plain Fil text** (this pane's reply, which cdamux journals
+as `reply`). The human answers with Say from console or Android. Do not wait on
+an IDE form.
+
+Neomind ask **cards** are worker `--kind ask` only; there is **no** orch→human
+ask CLI yet — do not fake one with `cdamux msg send --kind ask` to yourself.
 
 ## Out of scope
 

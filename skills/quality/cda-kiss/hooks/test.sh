@@ -111,6 +111,7 @@ echo "$out" | grep -q "KISS MODE ACTIVE" || { echo "FAIL: non-orch session lost 
 out="$(echo '{"source":"startup"}' | CDA_ROLE=orchestrator KISS_MAP=0 node activate.js)"
 echo "$out" | grep -q "cdamux orchestrator" || { echo "FAIL: CDA_ROLE=orchestrator missing orch routing"; exit 1; }
 echo "$out" | grep -q '`cda-orchestrator`' || { echo "FAIL: orch routing does not name cda-orchestrator"; exit 1; }
+echo "$out" | grep -q "AskQuestion" || { echo "FAIL: orch routing missing AskQuestion ban"; exit 1; }
 echo "$out" | grep -q '`cda-dev`' && { echo "FAIL: orch routing still has default lane text"; exit 1; }
 echo "$out" | grep -q "KISS MODE ACTIVE" && { echo "FAIL: orchestrator session injected KISS"; exit 1; }
 for v in ORCH_RUN_ID=run1 CDA_ROUTING=0; do

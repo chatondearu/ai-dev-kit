@@ -166,7 +166,7 @@ const ORCH_ROUTING = [
   'CDA ROUTING — you are a cdamux orchestrator: never edit, commit or run verify/tests in a repo;',
   'every change goes to a worker (skill `cda-orchestrator`);',
   'exception: `git fetch` / `git pull --ff-only` on this checkout when asked or Ready listing would be stale;',
-  'one question round + GO, then dispatch and end the turn.',
+  'one question round in Fil text (never host AskQuestion) + GO, then dispatch and end the turn.',
 ].join('\n');
 
 // Directories where another workflow owns routing: `<configDir>/cda-routing-off`, one path

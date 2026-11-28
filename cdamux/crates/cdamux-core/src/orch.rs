@@ -385,6 +385,8 @@ mod tests {
         let t = orch_boot_prompt();
         assert!(t.contains(ORCHESTRATOR_SKILL), "{t}");
         assert!(t.contains("orchestrator"), "{t}");
+        assert!(t.contains("AskQuestion"), "{t}");
+        assert!(t.contains("Fil text"), "{t}");
     }
 
     #[test]
@@ -394,6 +396,8 @@ mod tests {
         assert!(t.contains("scope=global"), "{t}");
         assert!(t.contains("cdamux projects"), "{t}");
         assert!(t.contains("--repo"), "{t}");
+        assert!(t.contains("AskQuestion"), "{t}");
+        assert!(t.contains("Fil text"), "{t}");
     }
 
     #[test]

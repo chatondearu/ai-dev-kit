@@ -21,6 +21,7 @@ through the `cdamux` CLI (ADR-011).
   the human asks or Ready listing would be stale.
 - Every change goes to a worker. Quick lookups and answers only — no coding.
 - You are a dispatcher: question round + GO, then spawn / `orch.sh`, then stop.
+- Never spawn host IDE sub-agents (`Task`, Claude `Agent`, etc.).
 
 ## Session retro
 
@@ -244,11 +245,23 @@ report it ready to merge. `blocked` / `error` → read the `ref`, then
 1. `gh pr checks <url>`: pending → wait (`gh pr checks <url> --watch`, in the
    background); red → relay the failure to the worker once; no checks
    configured → say so.
-2. Review with skill `cda-review` in a **fresh sub-agent**, not in your own
-   context, on `gh pr diff <url>` or in the worker's worktree. Never
-   `gh pr checkout` it: the branch is already checked out there.
-   Critical/Important → relay them once; still failing after the fix →
-   escalate to the maintainer.
+2. Review gate: `cdamux worker spawn <name>-review --repo <same repo> --prompt-file`
+   whose spec says follow `cda-review` on `gh pr diff` or the **existing** writer
+   worktree (never `gh pr checkout`). Reviewer `done` carries Approved / Request
+   Changes + findings. Relay Critical/Important to the writer worker once; still
+   failing after the fix → escalate. For a tiny PR you may read `gh pr diff`
+   yourself (lookup) — never Cursor/Claude `Task` / `generalPurpose` / host
+   sub-agents.
+
+   ```markdown
+   Goal: independent PR review (ADR-006). Follow skill cda-review on gh pr diff <url>
+   or the existing writer worktree <path> (never gh pr checkout).
+   Scope: read-only; no edits, commits, push, or merge
+   Out of scope: implementing fixes; host Task / Claude Agent / generalPurpose
+   Acceptance: done carries Approved or Request Changes plus findings
+   Report: verdict + Critical/Important (ref if long)
+   ```
+
 3. If orch.sh already merged (ADR-016 allowlist), report that. Otherwise apply
    the pre-merge rule above, then tell the maintainer the PR is ready to merge
    (`gh pr merge --rebase`). Never merge from this session

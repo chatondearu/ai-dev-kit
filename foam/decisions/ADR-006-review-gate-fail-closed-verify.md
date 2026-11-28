@@ -95,11 +95,14 @@ lazy worker is caught by nobody before the operator opens the PR.
   tail of `.orch/verifier-fail` is appended to the next iteration's prompt.
   `pr-fix` checks the PR (fork, head = default branch, unreadable metadata →
   `blocked`) before any worktree or checkout of its code.
-- **2026-11-13**: a Critical or Important finding carries a proof (a loop
-  that goes red, as in `cda-diagnose` Phase 1, or a trace through every
-  caller) and survives a refute pass, in a fresh sub-agent when the host
-  can start one; unproven findings are dropped. Levels, the verdict line and
-  the one-fix loop are unchanged.
+- **2026-11-13** (amended 2026-11-28): a Critical or Important finding
+  carries a proof (a loop that goes red, as in `cda-diagnose` Phase 1, or a
+  trace through every caller) and survives a refute pass. “Fresh sub-agent”
+  means the orch.sh reviewer process or a cdamux review worker, not Cursor
+  Task / host IDE sub-agents. Writer self-review is still not the gate.
+  Unproven findings are dropped. Levels, the verdict line, the one-fix loop,
+  fail-closed verify, the sentinel verdict file, and reviewer tier `large`
+  for orch.sh are unchanged.
 - **2026-11-23** (orchestration audit M12/M14): the verdict is read only from
   a sentinel file (`approved` | `changes_requested`) in a `mktemp -d` dir
   outside the worktree and `.orch/`, next to the rendered reviewer prompt; the

@@ -56,7 +56,13 @@ Analyze the code changes based on the following pillars:
 **Prove it.** A Critical or Important finding carries its proof, the way `cda-diagnose` Phase 1 does: a loop that goes red on it (failing test, scratch script, curl; outside the tracked tree or deleted after), or the failing input (values, order, timing) traced through every caller to an observable effect. One hop is not a trace. A leanness finding is proven by quoting the existing helper or the request it goes beyond. No proof → it is a question for the author, not a finding.
 
 ### 4. Refute
-Before the conclusion, hand the Critical and Important findings (not your reasoning) to a fresh sub-agent when the host can start one; otherwise re-check them yourself, each file re-opened. Each must survive:
+Before the conclusion, re-check Critical and Important findings (not your reasoning). Who re-checks:
+
+* **Orchestrator** (`role=orchestrator`): skip host Task / Claude `Agent` / `generalPurpose`. Re-check yourself, or the cdamux review worker *is* the refute.
+* **cda-dev writer worker**: refute in this same worker (re-open files). Host Task is not the gate.
+* **Otherwise**: hand findings to a fresh sub-agent when the host can start one; else re-check yourself, each file re-opened.
+
+Each finding must survive:
 *   the line exists, says what you quote, and is new or made worse by the change;
 *   the input can occur: no type, schema or caller upstream rules it out, nothing downstream absorbs it;
 *   it is not a recorded decision (ADRs, plan, issue, `git log -S '<snippet>'`).
